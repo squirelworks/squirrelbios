@@ -1,6 +1,13 @@
-# RISC-V SquirrelBIOS (scaffold)
+# RISC-V SquirrelBIOS
 
-Placeholder for QEMU `virt` firmware.
+Minimal firmware for QEMU `virt`.
 
-Entry in M-mode, hand-off to S-mode with device tree.
-No code yet.
+```bash
+make riscv
+qemu-system-riscv64 -M virt -nographic -bios riscv/squirrel-bios.bin
+```
+
+Prints `SquirrelBIOS RISC-V` on the UART (`0x10000000`) then halts.  
+Future: device-tree hand-off to an OS entry point.
+
+See `../common/handoff.md`.

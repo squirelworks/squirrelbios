@@ -1,12 +1,15 @@
-; Squirrel-OS/2 — minimal firmware ROM for QEMU
+; SquirrelBIOS — x86 firmware ROM for QEMU PC
 ; 64 KB image. Reset vector at offset 0xFFF0.
 ; Original code.
 ;
 ; Build:  nasm -f bin squirrel-bios.asm -o squirrel-bios.rom
-; Run:    qemu-system-i386 -bios squirrel-bios.rom
+; Run:    qemu-system-i386 -bios squirrel-bios.rom -drive format=raw,file=boot.bin,if=ide
 ;
-; Current behaviour: print banner to VGA text, then halt.
-; Next step: read sector 1 of the first disk into 0x7C00 and jump there.
+; Behaviour:
+;   - Set segments and stack
+;   - Print banner to VGA text
+;   - ATA PIO read of LBA 0 (sector 1) into 0x7C00
+;   - Jump to 0x0000:0x7C00 with DL = 0x80
 
 BITS 16
 
@@ -18,7 +21,7 @@ entry:
     mov ss, ax
     mov sp, 0x7C00
 
-    ; Banner on VGA text (white on black)
+    ; Banner
     mov ax, 0xB800
     mov es, ax
     xor di, di
@@ -27,16 +30,78 @@ entry:
 .print:
     lodsb
     test al, al
-    jz .done
+    jz .disk
     stosw
     jmp .print
-.done:
-    ; Halt until we add the disk hand-off
+
+.disk:
+    ; ATA PIO read — primary master, LBA 0, 1 sector → 0x7C00
+    mov dx, 0x1F7
+.wait1:
+    in al, dx
+    test al, 0x80          ; BSY
+    jnz .wait1
+    test al, 0x40          ; DRDY
+    jz .wait1
+
+    mov dx, 0x1F6
+    mov al, 0xE0          ; master, LBA
+    out dx, al
+
+    mov dx, 0x1F2
+    mov al, 1             ; sector count
+    out dx, al
+
+    mov dx, 0x1F3
+    xor al, al            ; LBA 0
+    out dx, al
+    mov dx, 0x1F4
+    out dx, al
+    mov dx, 0x1F5
+    out dx, al
+
+    mov dx, 0x1F7
+    mov al, 0x20          ; READ SECTORS
+    out dx, al
+
+.wait2:
+    in al, dx
+    test al, 0x80
+    jnz .wait2
+    test al, 0x08          ; DRQ
+    jz .fail
+
+    mov dx, 0x1F0
+    mov di, 0x7C00
+    mov cx, 256
+    rep insw
+
+    ; Hand-off
+    xor ax, ax
+    mov ds, ax
+    mov es, ax
+    mov ss, ax
+    mov sp, 0x7C00
+    mov dl, 0x80          ; boot drive
+    jmp 0x0000:0x7C00
+
+.fail:
+    mov si, failmsg
+    mov di, 160           ; second line
+    mov ah, 0x0C
+.pfail:
+    lodsb
+    test al, al
+    jz .halt
+    stosw
+    jmp .pfail
+
 .halt:
     hlt
     jmp .halt
 
-banner db 'Squirrel-OS/2 ROM', 0
+banner  db 'SquirrelBIOS x86', 0
+failmsg db 'disk fail', 0
 
 ; Pad so the reset vector lands at offset 0xFFF0
 times (65536 - 16) - ($ - $$) db 0
@@ -44,5 +109,4 @@ times (65536 - 16) - ($ - $$) db 0
 reset_vector:
     jmp 0xF000:entry
 
-; Pad the remainder of the 64 KB image
 times 65536 - ($ - $$) db 0

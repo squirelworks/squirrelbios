@@ -1,4 +1,6 @@
-# Common firmware concepts
+# Common
 
-Shared notes and future structures (memory-map format, hand-off descriptor).
-Architecture-specific images live in sibling directories.
+Shared contracts and notes.
+
+- `handoff.md` — what the OS may assume on entry
+- Future: memory-map format, second-stage loader interface

@@ -1,6 +1,13 @@
-# AArch64 SquirrelBIOS (scaffold)
+# AArch64 SquirrelBIOS
 
-Placeholder for QEMU `virt` (or similar) firmware.
+Minimal firmware for QEMU `virt`.
 
-Entry will be EL2 or EL1. Hand-off via device tree pointer.
-No code yet.
+```bash
+make arm
+qemu-system-aarch64 -M virt -cpu cortex-a57 -nographic -bios arm/squirrel-bios.bin
+```
+
+Prints `SquirrelBIOS ARM` on the PL011 UART (`0x09000000`) then halts.  
+Future: device-tree hand-off to an OS entry point.
+
+See `../common/handoff.md`.
