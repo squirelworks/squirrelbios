@@ -33,7 +33,8 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/riscv-dt.bin $(TEST_DIR)/riscv-envcfg.bin \
              $(TEST_DIR)/riscv-ipi-smp.bin $(TEST_DIR)/riscv-fence-smp3.bin \
              $(TEST_DIR)/riscv-harts.bin \
-             $(TEST_DIR)/riscv-boot-hart.bin $(TEST_DIR)/riscv-kernel-hart2.bin
+             $(TEST_DIR)/riscv-boot-hart.bin $(TEST_DIR)/riscv-kernel-hart2.bin \
+             $(TEST_DIR)/riscv-numa.bin
 
 .PHONY: all x86 arm riscv test linux-shell linux-big linux-stress clean
 .DELETE_ON_ERROR:
@@ -232,6 +233,14 @@ $(TEST_DIR)/riscv-harts.elf: $(TEST_DIR)/riscv-harts.o
 $(TEST_DIR)/riscv-harts.bin: $(TEST_DIR)/riscv-harts.elf
 	$(RISCV64)objcopy -O binary $< $@
 
+# riscv-numa: riscv-harts for 4 harts
+$(TEST_DIR)/riscv-numa.o: tests/riscv-harts.S | $(TEST_DIR)
+	$(RISCV64)as --defsym HARTS=4 -o $@ $<
+$(TEST_DIR)/riscv-numa.elf: $(TEST_DIR)/riscv-numa.o
+	$(RISCV64)ld -Ttext=0x80200000 -o $@ $<
+$(TEST_DIR)/riscv-numa.bin: $(TEST_DIR)/riscv-numa.elf
+	$(RISCV64)objcopy -O binary $< $@
+
 # riscv-boot-hart: a shim that hands the firmware fw_dynamic_info with
 # boot_hart = 2, and the stand-in built to expect hart 2
 $(TEST_DIR)/riscv-boot-hart.o: tests/riscv-boot-hart.S | $(TEST_DIR)
@@ -275,10 +284,14 @@ linux-shell: riscv
 # Linux touches, so the host needs far less than 64 GB. Passes only when
 # every hart comes online; BIG_* can be lowered to try a smaller node.
 # Needs zstd to unpack the 6.14 kernel.
+# BIG_NUMA splits it into that many NUMA nodes (sockets, each with its own
+# CLINT), the way a two-socket server is built.
 BIG_SMP ?= 64
 BIG_MEM ?= 64G
+BIG_NUMA ?= 2
 linux-big: riscv
 	LINUX_KERNEL=6.14 LINUX_SMP=$(BIG_SMP) LINUX_MEM=$(BIG_MEM) LINUX_EXPECT_HARTS=$(BIG_SMP) \
+	    LINUX_NUMA=$(BIG_NUMA) \
 	    LINUX_TIMEOUT=$${LINUX_TIMEOUT:-900} tests/linux-shell.sh
 
 # Optional, not part of make test: repeated Linux boots on 1 to 8 harts

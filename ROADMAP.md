@@ -197,7 +197,8 @@ The work, roughly in order:
    of assuming the QEMU layout, keep the firmware reservation right with
    many memory nodes, and pass through `numa-node-id` and the
    `distance-map` QEMU writes for `-numa`, so Linux knows which RAM is
-   near which hart.
+   near which hart. *(Done: on QEMU each NUMA node is a socket with its
+   own CLINT, which the firmware now follows.)*
 3. **A sockets-and-clusters topology.** Check that `cpu-map` survives the
    device-tree edits, and that the firmware does not depend on hart IDs
    being dense.
