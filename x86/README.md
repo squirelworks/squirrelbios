@@ -8,7 +8,9 @@ qemu-system-i386 -bios squirrel-bios.rom -drive format=raw,file=boot.bin,if=ide 
 ```
 
 - Reset vector at offset 0xFFF0
-- Programs COM1 at 115200 8N1; every message goes to VGA text and COM1
+- Programs COM1 at 115200 8N1
+- Puts the VGA in 80x25 colour text mode and loads its own 8x16 font
+  (`vga.inc`, `font.inc`); every message goes to the screen and COM1
 - Prints banner
 - ATA PIO reads LBA 0 into `0x7C00`, with timeouts on every status wait,
   `ERR`/`DF` checks, and up to 3 attempts with a soft reset in between
@@ -21,7 +23,9 @@ qemu-system-i386 -bios squirrel-bios.rom -drive format=raw,file=boot.bin,if=ide 
 - Builds a memory map at `0x0000:0x0500` from the RAM sizes in CMOS (`memmap.inc`)
 - On success jumps to `0x0000:0x7C00` with `DL = 0x80`, `ES:DI = 0x0000:0x0500`
 
-The VGA is not put into text mode (no font is loaded), so under QEMU use
-COM1 to see the output.
+The font is an original design. Its glyphs are drawn in `mkfont.py`,
+which writes `font.inc`; after editing a glyph, run
+`python3 x86/mkfont.py > x86/font.inc` from the repository root. The
+build itself does not need Python.
 
 See `../common/handoff.md`.

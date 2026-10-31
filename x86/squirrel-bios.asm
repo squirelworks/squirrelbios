@@ -7,7 +7,9 @@
 ;
 ; Behaviour:
 ;   - Set segments and stack
-;   - Program COM1 (115200 8N1); every message goes to VGA text and COM1
+;   - Program COM1 (115200 8N1)
+;   - Put the VGA in 80x25 text mode with an original font (vga.inc);
+;     every message goes to VGA text and COM1
 ;   - Build a memory map at 0x0000:0x0500 (memmap.inc)
 ;   - Print banner
 ;   - ATA PIO read of LBA 0 (sector 1) into 0x7C00, with timeouts,
@@ -79,6 +81,7 @@ entry:
 
     call build_memmap
     call serial_init
+    call vga_init
 
     ; Banner
     xor di, di
@@ -509,6 +512,7 @@ serial_putc:
     ret
 
 %include "memmap.inc"
+%include "vga.inc"
 
 banner      db 'SquirrelBIOS x86', 0
 msg_nodrive db 'disk: no drive on primary master', 0
