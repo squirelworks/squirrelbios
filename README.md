@@ -37,7 +37,7 @@ stand-in OS image from `tests/` and checks the serial output:
 
 | Case | Passes when |
 |------|-------------|
-| `x86-boot` | The boot sector runs and sees `DL = 0x80` and the memory map at `ES:DI` |
+| `x86-boot` | The boot sector runs with `DL = 0x80` and `IF = DF = 0`, and the memory map at `ES:DI` has the required regions, sorted and not overlapping |
 | `x86-no-drive` | With no disk, the firmware reports it and halts |
 | `arm-boot` | The `-kernel` image runs with a valid device tree in `x0` and `x1`–`x3` = 0 |
 | `arm-no-kernel` | Without `-kernel`, the firmware reports it and halts |

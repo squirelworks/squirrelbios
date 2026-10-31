@@ -123,8 +123,11 @@ registers on COM1 (and the VGA text buffer), then halts:
 
 ### How to test
 
-`make test` runs `x86-boot` (a boot sector checks `DL` and the memory map)
-and `x86-no-drive`. By hand:
+`make test` runs `x86-boot` and `x86-no-drive`. In `x86-boot` the boot
+sector checks `DL`, that `IF` and `DF` are clear, and that the memory map
+has the magic, 20-byte entries, ends by `0x0600`, contains the
+conventional and both reserved regions above exactly, and is sorted
+without overlaps. By hand:
 
 ```bash
 make x86
