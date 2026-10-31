@@ -15,8 +15,8 @@ If the firmware and this file disagree, the firmware has a bug.
 | Memory description | Memory map at `ES:DI = 0x0000:0x0500` | Device tree `/memory` | Device tree `/memory` |
 | Console | COM1 `0x3F8`, 115200 8N1 | PL011 `0x09000000` | NS16550A `0x10000000` |
 | Interrupts | `IF = 0` | `DAIF` masked | `mstatus.MIE`/`SIE` = 0, `mie = 0` |
-| CPUs running | Boot CPU only | Boot CPU only | Hart 0 only |
-| Firmware services | None | None | SBI from S-mode: base, TIME, IPI, RFENCE |
+| CPUs running | Boot CPU only | Boot CPU only | Hart 0; others through `sbi_hart_start` |
+| Firmware services | None | None | SBI from S-mode: base, TIME, IPI, RFENCE, HSM |
 
 ## Rules for every architecture
 
@@ -43,8 +43,9 @@ The OS must not assume:
 5. **That firmware data stays put.** Hand-off data (the x86 memory map,
    the device tree) lives in RAM the OS may reuse. Copy or parse it before
    overwriting that RAM.
-6. **Other CPUs.** Only the boot CPU runs the OS. Secondary CPUs are not
-   started (AArch64) or are parked and never released (RISC-V).
+6. **Other CPUs.** Only the boot CPU enters the OS. Secondary CPUs are
+   not started (AArch64) or are parked until the OS starts them with
+   `sbi_hart_start` (RISC-V).
 
 ## x86 PC
 
@@ -247,13 +248,14 @@ RAM size and layout come from the device tree (`/memory`).
 | Item | State |
 |------|-------|
 | NS16550A (`0x10000000`) | 8N1, FIFOs on, interrupts off |
-| Other harts | Parked in `wfi` with interrupts off. They are never released. |
-| CLINT | `mtimecmp` of hart 0 is written only by `sbi_set_timer` and the firmware's timer interrupt. `mtime` runs at 10 MHz (the device tree's `timebase-frequency`). |
+| Other harts | Parked in `wfi` in M-mode, with `mstatus.MIE = 0` and only `mie.MSIE` set, until `sbi_hart_start` (below). Hart IDs 8 and up are never started. |
+| CLINT | A hart's `mtimecmp` is written only by `sbi_set_timer` and the firmware's timer interrupt. A parked hart's `msip` is written by `sbi_hart_start`. `mtime` runs at 10 MHz (the device tree's `timebase-frequency`). |
 | PLIC | Not touched |
 
-Do not assume: SBI extensions other than base, TIME, IPI and RFENCE (a
-Linux kernel needs more), a set `stvec` (install one before the first
-delegated trap), or secondary harts being available.
+Do not assume: SBI extensions other than base, TIME, IPI, RFENCE and HSM,
+a set `stvec` (install one before the first delegated trap), secondary
+harts being available, or IPIs and remote fences reaching a hart other
+than the caller (they do not yet, even once it is started).
 
 ### Traps
 
@@ -293,6 +295,7 @@ function returns `SBI_ERR_NOT_SUPPORTED` (`-2`).
 | TIME | `0x54494D45` | `set_timer` (0) |
 | IPI | `0x735049` | `send_ipi` (0) |
 | RFENCE | `0x52464E43` | `remote_fence_i` (0), `remote_sfence_vma` (1), `remote_sfence_vma_asid` (2) |
+| HSM | `0x48534D` | `hart_start` (0), `hart_get_status` (2) |
 
 `set_timer(a0)` programs the calling hart's `mtimecmp` with the absolute
 time `a0`, clears a pending supervisor timer interrupt and enables the
@@ -316,9 +319,27 @@ same rules. For the calling hart the firmware runs `fence.i`
 functions), which covers any `start`, `size` and ASID. The hypervisor
 fences (functions 3–6) return `SBI_ERR_NOT_SUPPORTED`.
 
+`hart_start(a0 = hart, a1 = start address, a2 = opaque)` takes a hart
+that is stopped (parked) and enters it in S-mode at the start address,
+set up like the boot hart (same PMP entry, delegation, `mcounteren` and
+`mtvec`, its own trap stack), with `a0` = its hart ID and `a1` = the
+opaque value. `a1` is the device tree only if the caller passed the
+device tree as the opaque value. The call returns once the hart has been
+told; `hart_get_status` reports `START_PENDING` (`2`) until the hart has
+left `wfi`, then `STARTED` (`0`). Starting a hart that is not stopped
+returns `SBI_ERR_ALREADY_AVAILABLE` (`-6`).
+
+`hart_get_status(a0 = hart)` returns `STARTED` (`0`), `STOPPED` (`1`) or
+`START_PENDING` (`2`) in `a1`. The boot hart is `STARTED`.
+
+Each secondary hart marks itself stopped when it reaches its park loop,
+which on QEMU can happen after the OS is already running. For a hart
+that has not done so yet, `hart_start` and `hart_get_status` wait up to
+100 ms (by `mtime`) for it, then treat it as absent: a hart ID with no
+hart behind it, or 8 and above, returns `SBI_ERR_INVALID_PARAM`.
+
 `probe_extension` returns `a1 = 1` for the extensions in this table and
-`0` for every other one, including HSM and SRST until they are
-implemented.
+`0` for every other one, including SRST until it is implemented.
 
 ### Failures
 
@@ -339,15 +360,18 @@ gets `SBI_ERR_NOT_SUPPORTED` back for an extension that does not exist),
 `riscv-deleg` (an image sets `stvec`, executes an illegal instruction and
 prints `deleg=ok` from its S-mode handler, then its `ecall` still reaches
 the SBI), `riscv-sbi` (an image calls the base functions, probes base,
-TIME, IPI, RFENCE and the two unimplemented extensions, and checks that only `a0`
+TIME, IPI, RFENCE, HSM and SRST, which is not implemented, and checks that only `a0`
 and `a1` changed), `riscv-timer` (an image sets a timer 10 ms ahead and
 prints `timer=ok` from its supervisor timer interrupt, which must not
 come back after it pushed the timer out), `riscv-ipi` (with `-smp 2`, an
 IPI to the parked hart 1 fails and raises nothing, and an IPI to itself
 prints `ipi=ok` from its software-interrupt handler), `riscv-rfence`
 (with `-smp 2`, a fence whose mask also names hart 1 fails, and
-`remote_sfence_vma` and `remote_fence_i` for itself succeed) and
-`riscv-no-kernel`. By hand:
+`remote_sfence_vma` and `remote_fence_i` for itself succeed),
+`riscv-hsm` (with `-smp 2`, hart 1 is stopped, hart 7 does not exist,
+`hart_start` brings hart 1 up and a second start is refused; hart 1
+prints `hart1=ok a1=5157000012345678`, the opaque value, and is then
+reported started) and `riscv-no-kernel`. By hand:
 
 ```bash
 make riscv

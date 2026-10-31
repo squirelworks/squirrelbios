@@ -140,6 +140,12 @@ run riscv-rfence "OS-ENTRY riscv rfence|rfence=ok|!rfence=bad|!trap mcause=" \
     "$QEMU_RISCV" -M virt -smp 2 -bios riscv/squirrel-bios.bin \
     -kernel $TEST_DIR/riscv-rfence.bin
 
+# RISC-V: sbi_hart_start brings the parked hart 1 up in S-mode with the
+# opaque value in a1, and hart_get_status follows it (-smp 2)
+run riscv-hsm "OS-ENTRY riscv hsm|hart1=ok a1=5157000012345678|hsm=ok|!hsm=bad|!trap mcause=" \
+    "$QEMU_RISCV" -M virt -smp 2 -bios riscv/squirrel-bios.bin \
+    -kernel $TEST_DIR/riscv-hsm.bin
+
 run riscv-no-kernel "boot: no kernel image|boot halted" \
     "$QEMU_RISCV" -M virt -bios riscv/squirrel-bios.bin
 

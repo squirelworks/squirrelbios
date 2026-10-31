@@ -62,7 +62,7 @@ until that extension's box is checked.
 - [x] `riscv-sbi-rfence` — Implement remote fence for the running hart.
   - Acceptance: a stand-in calls `sbi_remote_sfence_vma` with the same scalar hart mask as `riscv-sbi-ipi` (only itself). The call returns success and the stand-in prints `rfence=ok`. A mask that includes a hart that has not been started returns an SBI error. `probe_extension` for RFENCE succeeds. Depends on: `riscv-sbi-base`.
 
-- [ ] `riscv-sbi-hsm` — Start a parked hart in S-mode.
+- [x] `riscv-sbi-hsm` — Start a parked hart in S-mode.
   - Acceptance: `sbi_hart_start` leaves the target hart's `wfi`, enters it in S-mode at the given address with `a0` = hart id and `a1` = the opaque argument, and `sbi_hart_get_status` reports started. Parked harts currently sit in `wfi` with interrupts off, so the wake has to be something this QEMU actually resumes (a CLINT software interrupt, with `mie` set if that is what resumes it). A `riscv-hsm` case with `-smp 2` prints `hart1=ok` from hart 1 and shows the opaque value the boot hart passed. Hart 1 does not receive the device tree unless that pointer was the opaque argument. `probe_extension` for HSM succeeds. Depends on: `riscv-smode`, `riscv-sbi-base`.
 
 - [ ] `riscv-sbi-hsm-stop` — Implement `sbi_hart_stop` for a hart that was started.
