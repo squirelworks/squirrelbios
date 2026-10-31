@@ -35,6 +35,13 @@
         .equ MSTATUS_MPIE,      0x80
         .equ PMP_RWX_NAPOT,     0x1f        /* R | W | X | A = NAPOT */
 
+        /* Exceptions S-mode handles itself: misaligned, access faults,
+         * illegal instruction, breakpoint, ecall from U-mode, page faults.
+         * Not ecall from S-mode (9): that is the SBI, kept in M-mode. */
+        .equ MEDELEG_S, (1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 8) | (1 << 12) | (1 << 13) | (1 << 15)
+        /* Supervisor software, timer and external interrupts */
+        .equ MIDELEG_S, (1 << 1) | (1 << 5) | (1 << 9)
+
 .global _start
 _start:
         csrw mie, zero
@@ -90,13 +97,18 @@ _start:
         beq s4, t0, enter_m
 
         /* S-mode: one PMP entry granting R/W/X over all of physical memory
-         * (without one, every S-mode access faults), then mret to the image
-         * with MPP = S and interrupts still off. */
+         * (without one, every S-mode access faults), supervisor faults and
+         * interrupts delegated to S-mode, then mret to the image with
+         * MPP = S and interrupts still off. */
         li t0, -1
         csrw pmpaddr0, t0
         li t0, PMP_RWX_NAPOT
         csrw pmpcfg0, t0
         sfence.vma
+        li t0, MEDELEG_S
+        csrw medeleg, t0
+        li t0, MIDELEG_S
+        csrw mideleg, t0
         li t0, MSTATUS_MPP | MSTATUS_MPIE
         csrc mstatus, t0
         li t0, MSTATUS_MPP_S

@@ -218,6 +218,8 @@ entered through `mret`.
 | `pc` | `next_addr` from QEMU, `0x80200000` on rv64 (RAM base + 2 MB) |
 | Privilege | S-mode when `next_mode` is `1` (what `-kernel` gives), M-mode when it is `3`, or when `fw_dynamic_info` is older than version 2 and has no `next_mode` |
 | PMP | S-mode entry: entry 0 is NAPOT over the whole physical address space with R, W and X, unlocked. Other entries are untouched. M-mode entry: untouched. |
+| `medeleg` | S-mode entry: misaligned fetch, load and store (`0`, `4`, `6`), the access faults (`1`, `5`, `7`), illegal instruction (`2`), breakpoint (`3`), `ecall` from U-mode (`8`) and the page faults (`12`, `13`, `15`). Not `ecall` from S-mode (`9`). M-mode entry: untouched. |
+| `mideleg` | S-mode entry: supervisor software, timer and external interrupts (`SSIP`, `STIP`, `SEIP`). M-mode entry: untouched. |
 | `satp` | Untouched (bare after reset) |
 | `mtvec` | Firmware trap handler, direct mode (below) |
 | `mstatus.MIE`, `mstatus.SIE`, `mie` | `0` |
@@ -245,23 +247,22 @@ RAM size and layout come from the device tree (`/memory`).
 | CLINT, PLIC | Not touched |
 
 Do not assume: an SBI (there is none, so a Linux kernel will not boot
-this way), delegated traps (`medeleg` and `mideleg` are untouched, so
-every S-mode trap goes to the firmware handler below), or secondary harts
-being available.
+this way), a set `stvec` (install one before the first delegated trap),
+or secondary harts being available.
 
 ### Traps
 
-`mtvec` points at a firmware handler, so a trap taken before the OS
-installs its own vector is reported instead of jumping to address 0. In
-S-mode nothing is delegated yet, so every S-mode trap, `ecall` included,
-reaches this handler. The
-handler does not return. It prints `trap mcause=` and the cause as 16
-lowercase hex digits (no `0x`), then `boot halted`, and halts. It reuses
-the firmware stack. Do not rely on traps until there is an SBI and
-delegation: today an `ecall` from S-mode (cause `0000000000000009`) or an
-illegal instruction halts the machine. An image entered in M-mode
-installs its own `mtvec` first (an M-mode `ecall` is cause
-`000000000000000b`).
+An image entered in S-mode takes the delegated exceptions and interrupts
+above at its own `stvec`. Everything else, `ecall` from S-mode included,
+reaches M-mode.
+
+`mtvec` points at a firmware handler, so a trap that reaches M-mode is
+reported instead of jumping to address 0. The handler does not return.
+It prints `trap mcause=` and the cause as 16 lowercase hex digits (no
+`0x`), then `boot halted`, and halts. It reuses the firmware stack. There
+is no SBI yet, so an `ecall` from S-mode (cause `0000000000000009`) halts
+the machine. An image entered in M-mode installs its own `mtvec` before
+it relies on traps (an M-mode `ecall` is cause `000000000000000b`).
 
 ### Failures
 
@@ -278,8 +279,10 @@ The firmware prints one of these on the UART, then `boot halted`, and halts:
 image checks `a0`, the device tree in `a1` and `a2 = 0`, with `-smp 2`;
 its UART stores and device-tree load pass PMP in S-mode, and the log must
 not show a trap), `riscv-ecall` (an image executes `ecall` and the handler
-reports `trap mcause=0000000000000009`, environment call from S-mode) and
-`riscv-no-kernel`. By hand:
+reports `trap mcause=0000000000000009`, environment call from S-mode),
+`riscv-deleg` (an image sets `stvec`, executes an illegal instruction and
+prints `deleg=ok` from its S-mode handler, then its `ecall` still reports
+`trap mcause=0000000000000009`) and `riscv-no-kernel`. By hand:
 
 ```bash
 make riscv

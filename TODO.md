@@ -47,7 +47,7 @@ until that extension's box is checked.
 - [x] `riscv-smode` — Honour `next_mode`, and enter S-mode with PMP allowing access.
   - Acceptance: read `fw_dynamic_info` version and, when it is at least 2, `next_mode` at offset 24. Print it once while bringing the path up and expect `1` (S-mode) for `qemu-system-riscv64 -M virt -kernel`. On S-mode, program one PMP entry that grants S-mode read, write, and execute over the whole physical address space, set `mstatus.MPP` to S, and `mret` to the image. On M-mode, keep today's jump. `riscv-boot` still prints `hart=ok dtb=ok a2=ok`, which is the proof that the UART store and the device-tree load survive the mode switch. `riscv-ecall` now expects `trap mcause=0000000000000009`. The contract's privilege line matches this. Depends on: `riscv-trap`.
 
-- [ ] `riscv-delegate` — Delegate supervisor faults, and keep supervisor `ecall` in M-mode.
+- [x] `riscv-delegate` — Delegate supervisor faults, and keep supervisor `ecall` in M-mode.
   - Acceptance: `medeleg` includes illegal instruction, the access faults, and the page faults, and does not include environment call from S-mode. `mideleg` includes supervisor software, timer, and external interrupts. A new stand-in sets `stvec`, executes an illegal instruction, and prints `deleg=ok` from S-mode. Its `ecall` still reaches the M-mode handler (`mcause=0000000000000009`). Depends on: `riscv-smode`.
 
 - [ ] `riscv-sbi-base` — Implement the SBI base extension and return to the caller.

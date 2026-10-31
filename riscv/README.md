@@ -13,6 +13,7 @@ qemu-system-riscv64 -M virt -nographic -bios riscv/squirrel-bios.bin -kernel ima
 - Points `mtvec` at a handler that prints `trap mcause=<16 hex digits>`, then `boot halted`, and halts
 - Enters it in the mode QEMU's `next_mode` asks for, S-mode for `-kernel`,
   with one PMP entry opening all memory to S-mode, `a0` = hart ID, `a1` = device tree
+- In S-mode, supervisor faults and interrupts are delegated to the image; `ecall` from S-mode stays in M-mode
 - Without `-kernel`, prints the reason and halts
 
 QEMU puts the image at `0x80200000` on rv64, so link it there.
