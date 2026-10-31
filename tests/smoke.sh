@@ -112,6 +112,12 @@ run riscv-ecall "OS-ENTRY riscv ecall|trap mcause=0000000000000009|boot halted" 
     "$QEMU_RISCV" -M virt -bios riscv/squirrel-bios.bin \
     -kernel $TEST_DIR/riscv-ecall.bin
 
+# RISC-V: an illegal instruction is delegated to the image's stvec, and its
+# ecall from S-mode still reaches the firmware (cause 0x9)
+run riscv-deleg "OS-ENTRY riscv deleg|deleg=ok|trap mcause=0000000000000009|boot halted" \
+    "$QEMU_RISCV" -M virt -bios riscv/squirrel-bios.bin \
+    -kernel $TEST_DIR/riscv-deleg.bin
+
 run riscv-no-kernel "boot: no kernel image|boot halted" \
     "$QEMU_RISCV" -M virt -bios riscv/squirrel-bios.bin
 

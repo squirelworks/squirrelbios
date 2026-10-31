@@ -16,7 +16,7 @@ RISCV_BIN := riscv/squirrel-bios.bin
 
 TEST_DIR  := build/tests
 TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/arm-kernel.bin $(TEST_DIR)/riscv-kernel.bin \
-             $(TEST_DIR)/riscv-ecall.bin
+             $(TEST_DIR)/riscv-ecall.bin $(TEST_DIR)/riscv-deleg.bin
 
 .PHONY: all x86 arm riscv test clean
 .DELETE_ON_ERROR:
@@ -73,6 +73,13 @@ $(TEST_DIR)/riscv-ecall.o: tests/riscv-ecall.S | $(TEST_DIR)
 $(TEST_DIR)/riscv-ecall.elf: $(TEST_DIR)/riscv-ecall.o
 	$(RISCV64)ld -Ttext=0x80200000 -o $@ $<
 $(TEST_DIR)/riscv-ecall.bin: $(TEST_DIR)/riscv-ecall.elf
+	$(RISCV64)objcopy -O binary $< $@
+
+$(TEST_DIR)/riscv-deleg.o: tests/riscv-deleg.S | $(TEST_DIR)
+	$(RISCV64)as -o $@ $<
+$(TEST_DIR)/riscv-deleg.elf: $(TEST_DIR)/riscv-deleg.o
+	$(RISCV64)ld -Ttext=0x80200000 -o $@ $<
+$(TEST_DIR)/riscv-deleg.bin: $(TEST_DIR)/riscv-deleg.elf
 	$(RISCV64)objcopy -O binary $< $@
 
 test: all $(TEST_BINS)

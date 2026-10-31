@@ -46,6 +46,7 @@ stand-in OS image from `tests/` and checks the serial output:
 | `arm-no-kernel` | Without `-kernel`, the firmware reports it and halts |
 | `riscv-boot` | The `-kernel` image runs in S-mode (`next_mode=1`) on hart 0 (with `-smp 2`) with a valid device tree in `a1` and `a2 = 0`, and nothing traps |
 | `riscv-ecall` | An `ecall` from the image reaches the firmware's trap handler, which prints `trap mcause=0000000000000009` (from S-mode) and halts |
+| `riscv-deleg` | An illegal instruction traps to the image's own `stvec` (`deleg=ok`), and its `ecall` still reaches the firmware (`trap mcause=0000000000000009`) |
 | `riscv-no-kernel` | Without `-kernel`, the firmware reports it and halts |
 
 Needs `qemu-system-i386`, `qemu-system-aarch64` and `qemu-system-riscv64`.
