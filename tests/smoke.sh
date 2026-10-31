@@ -7,6 +7,8 @@
 # before SMOKE_TIMEOUT seconds (default 10). Expected strings are separated
 # by '|' and matched literally; one starting with '~' is an extended
 # regular expression instead, and one starting with '!' must not appear.
+# '@exit=N' requires QEMU to have exited by itself with status N; the
+# strings are checked once more after it exits, so a case can pass then.
 
 set -u
 
@@ -31,14 +33,21 @@ run() {
     "$@" -display none -monitor none -serial "file:$log" >/dev/null 2>&1 &
     qemu=$!
 
+    # kill -0 still succeeds on an exited child that has not been waited
+    # for, so ask ps whether it is a zombie
+    status=
     ok=0
     ticks=$((TIMEOUT * 10))
-    while [ "$ticks" -gt 0 ] && kill -0 "$qemu" 2>/dev/null; do
+    while [ "$ticks" -gt 0 ]; do
+        case $(ps -o stat= -p "$qemu" 2>/dev/null) in
+        ""|Z*) wait "$qemu" 2>/dev/null; status=$? ;;
+        esac
         ok=1
         old_ifs=$IFS
         IFS='|'
         for want in $expect; do
             case $want in
+            "@exit="*) [ "$status" = "${want#@exit=}" ] || ok=0 ;;
             "~"*) grep -qE -- "${want#?}" "$log" || ok=0 ;;
             "!"*) grep -qF -- "${want#?}" "$log" && ok=0 ;;
             *)    grep -qF -- "$want" "$log" || ok=0 ;;
@@ -46,11 +55,14 @@ run() {
         done
         IFS=$old_ifs
         [ "$ok" -eq 1 ] && break
+        [ -n "$status" ] && break
         sleep 0.1
         ticks=$((ticks - 1))
     done
-    kill "$qemu" 2>/dev/null
-    wait "$qemu" 2>/dev/null
+    if [ -z "$status" ]; then
+        kill "$qemu" 2>/dev/null
+        wait "$qemu" 2>/dev/null
+    fi
 
     if [ "$ok" -eq 1 ]; then
         echo "PASS  $name"
@@ -151,6 +163,23 @@ run riscv-hsm "OS-ENTRY riscv hsm|hart1=ok a1=5157000012345678|hsm=ok|!hsm=bad|!
 run riscv-hsm-stop "OS-ENTRY riscv hsm-stop|hart1 up a1=1|hart1 up a1=2|stop=ok|!stop=bad|!trap mcause=" \
     "$QEMU_RISCV" -M virt -smp 2 -bios riscv/squirrel-bios.bin \
     -kernel $TEST_DIR/riscv-hsm-stop.bin
+
+# RISC-V: sbi_system_reset shutdown powers the machine off: QEMU exits
+# with status 0 after reset=ok, and the call never returns
+run riscv-srst "OS-ENTRY riscv srst|reset=ok|!reset=bad|!trap mcause=|@exit=0" \
+    "$QEMU_RISCV" -M virt -bios riscv/squirrel-bios.bin \
+    -kernel $TEST_DIR/riscv-srst.bin
+
+# RISC-V: a cold reboot resets the machine, which -no-reboot turns into
+# an exit with status 0
+run riscv-srst-reboot "OS-ENTRY riscv srst|reset=ok|!reset=bad|!trap mcause=|@exit=0" \
+    "$QEMU_RISCV" -M virt -no-reboot -bios riscv/squirrel-bios.bin \
+    -kernel $TEST_DIR/riscv-srst-reboot.bin
+
+# RISC-V: a shutdown for a system failure makes QEMU exit with status 1
+run riscv-srst-fail "OS-ENTRY riscv srst|reset=ok|!reset=bad|!trap mcause=|@exit=1" \
+    "$QEMU_RISCV" -M virt -bios riscv/squirrel-bios.bin \
+    -kernel $TEST_DIR/riscv-srst-fail.bin
 
 run riscv-no-kernel "boot: no kernel image|boot halted" \
     "$QEMU_RISCV" -M virt -bios riscv/squirrel-bios.bin
