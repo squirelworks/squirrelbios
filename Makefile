@@ -31,7 +31,8 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/riscv-srst.bin $(TEST_DIR)/riscv-srst-reboot.bin \
              $(TEST_DIR)/riscv-srst-fail.bin $(TEST_DIR)/riscv-pmp.bin \
              $(TEST_DIR)/riscv-dt.bin $(TEST_DIR)/riscv-envcfg.bin \
-             $(TEST_DIR)/riscv-ipi-smp.bin $(TEST_DIR)/riscv-fence-smp3.bin
+             $(TEST_DIR)/riscv-ipi-smp.bin $(TEST_DIR)/riscv-fence-smp3.bin \
+             $(TEST_DIR)/riscv-harts.bin
 
 .PHONY: all x86 arm riscv test linux-shell linux-big linux-stress clean
 .DELETE_ON_ERROR:
@@ -223,6 +224,13 @@ $(TEST_DIR)/riscv-fence-smp3.elf: $(TEST_DIR)/riscv-fence-smp3.o
 $(TEST_DIR)/riscv-fence-smp3.bin: $(TEST_DIR)/riscv-fence-smp3.elf
 	$(RISCV64)objcopy -O binary $< $@
 
+$(TEST_DIR)/riscv-harts.o: tests/riscv-harts.S | $(TEST_DIR)
+	$(RISCV64)as -o $@ $<
+$(TEST_DIR)/riscv-harts.elf: $(TEST_DIR)/riscv-harts.o
+	$(RISCV64)ld -Ttext=0x80200000 -o $@ $<
+$(TEST_DIR)/riscv-harts.bin: $(TEST_DIR)/riscv-harts.elf
+	$(RISCV64)objcopy -O binary $< $@
+
 # One SRST image per reset: shutdown, cold reboot, shutdown for a failure
 $(TEST_DIR)/riscv-srst.o: tests/riscv-srst.S | $(TEST_DIR)
 	$(RISCV64)as -o $@ $<
@@ -245,14 +253,16 @@ linux-shell: riscv
 	tests/linux-shell.sh
 
 # Optional, not part of make test: the first step of the large-node
-# milestone in ROADMAP.md. Same kernel and shell as linux-shell, on a
-# QEMU virt machine sized like one server node. QEMU only backs the RAM
-# Linux touches, so the host needs far less than 64 GB. Fails until every
-# hart comes online (the BIG_* values can be lowered to try a smaller node).
+# milestone in ROADMAP.md. The linux-shell boot, with Ubuntu's 6.14
+# kernel (built for more harts than 6.8's 32), on a QEMU virt machine
+# sized like one server node. QEMU only backs the RAM
+# Linux touches, so the host needs far less than 64 GB. Passes only when
+# every hart comes online; BIG_* can be lowered to try a smaller node.
+# Needs zstd to unpack the 6.14 kernel.
 BIG_SMP ?= 64
 BIG_MEM ?= 64G
 linux-big: riscv
-	LINUX_SMP=$(BIG_SMP) LINUX_MEM=$(BIG_MEM) LINUX_EXPECT_HARTS=$(BIG_SMP) \
+	LINUX_KERNEL=6.14 LINUX_SMP=$(BIG_SMP) LINUX_MEM=$(BIG_MEM) LINUX_EXPECT_HARTS=$(BIG_SMP) \
 	    LINUX_TIMEOUT=$${LINUX_TIMEOUT:-900} tests/linux-shell.sh
 
 # Optional, not part of make test: repeated Linux boots on 1 to 8 harts

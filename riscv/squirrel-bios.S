@@ -110,8 +110,12 @@
         .equ CLINT_MTIMECMP,    0x02004000
         .equ CLINT_MTIME,       0x0200bff8
 
-        /* Harts the firmware can start. Higher hart IDs stay parked. */
-        .equ MAX_HARTS,         8
+        /* Harts the firmware can start: QEMU virt's limit (VIRT_CPUS_MAX,
+         * 512 in QEMU 8.2), all in one socket so one CLINT serves them.
+         * Higher hart IDs stay parked. The trap stacks and hart_table
+         * grow with it and must stay inside the PMP-protected 2 MB (the
+         * Makefile checks). */
+        .equ MAX_HARTS,         512
         .equ TRAP_STACK,        256         /* per hart */
 
         /* hart_table entry: state, start address, opaque (8 bytes each) */
@@ -626,11 +630,13 @@ check_mask:
         li t2, MAX_HARTS
         bgeu a1, t2, 2f
         sub t2, t2, a1                      /* bits for harts that can exist */
+        li t3, 64
+        bgeu t2, t3, 5f                     /* all 64 can: sll would wrap */
         li t3, -1
         sll t3, t3, t2
         and t3, t3, a0
         bnez t3, sbi_invalid_param
-        li t4, 0
+5:      li t4, 0
 1:      jal t2, hart_selected
         beqz t5, 4f
         hart_entry
