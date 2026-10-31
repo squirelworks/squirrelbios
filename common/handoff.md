@@ -390,7 +390,7 @@ M-mode entry gets the tree as QEMU wrote it.
 | Item | State |
 |------|-------|
 | NS16550A (`0x10000000`) | 115200 8N1 (divisor 2 from `virt`'s 3.6864 MHz UART clock), FIFOs on, interrupts off |
-| Other harts | Parked in `wfi` in M-mode, with `mstatus.MIE = 0` and only `mie.MSIE` set, until `sbi_hart_start` (below). The firmware tracks hart IDs 0 to 511 (QEMU `virt`'s limit, one socket); higher IDs are never started. |
+| Other harts | Parked in `wfi` in M-mode, with `mstatus.MIE = 0` and only `mie.MSIE` set, until `sbi_hart_start` (below). The firmware tracks hart IDs 0 to 511 (QEMU `virt`'s limit, across all sockets), so harts in every socket can be started, each through its own socket's CLINT (below); higher IDs are never started. |
 | CLINT | One per socket. With `-numa`, QEMU makes each NUMA node a socket whose CLINT is `0x10000` above the previous one, with slots counted from the socket's lowest hart ID; the boot hart reads each `cpu` node's `reg` and `numa-node-id` and uses the right CLINT for every hart (up to 8 sockets). A hart's `mtimecmp` is written only by `sbi_set_timer` and the firmware's timer interrupt. A parked hart's `msip` is written by `sbi_hart_start`. `mtime` runs at 10 MHz (the device tree's `timebase-frequency`). |
 | PLIC | Not touched |
 | Test device (`0x100000`) | Written only by `sbi_system_reset`. S-mode can reach it too (PMP entry 1 opens everything outside the firmware region), but an OS should use SRST. |

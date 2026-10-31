@@ -118,8 +118,9 @@
         .equ MAX_SOCKETS,       8           /* QEMU virt's VIRT_SOCKETS_MAX */
 
         /* Harts the firmware can start: QEMU virt's limit (VIRT_CPUS_MAX,
-         * 512 in QEMU 8.2), all in one socket so one CLINT serves them.
-         * Higher hart IDs stay parked. The trap stacks and hart_table
+         * 512 in QEMU 8.2), counted across all sockets. Without -numa they
+         * share one socket and one CLINT; with -numa, clint_layout points
+         * each hart at its own socket's CLINT. Higher hart IDs stay parked. The trap stacks and hart_table
          * grow with it and must stay inside the PMP-protected 2 MB (the
          * Makefile checks). */
         .equ MAX_HARTS,         512
