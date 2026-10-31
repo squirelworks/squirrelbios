@@ -21,6 +21,9 @@
 # LINUX_SMP (default 1) sets the number of harts, and LINUX_MEM
 # (default 512M) the guest RAM. LINUX_EXPECT_HARTS, when set, also
 # requires the shell's banner to report that many harts online.
+# LINUX_NUMA (default 1) splits the harts and the RAM evenly into that
+# many NUMA nodes (QEMU makes each one a socket with its own CLINT), and
+# then requires Linux to bring up that many nodes.
 # The serial log is kept in build/linux/linux-shell.log.
 
 set -eu
@@ -30,6 +33,7 @@ TIMEOUT=${LINUX_TIMEOUT:-300}
 SMP=${LINUX_SMP:-1}
 MEM=${LINUX_MEM:-512M}
 EXPECT_HARTS=${LINUX_EXPECT_HARTS:-}
+NUMA=${LINUX_NUMA:-1}
 FIRMWARE=riscv/squirrel-bios.bin
 WORK=build/linux
 MIRROR=${UBUNTU_PORTS:-http://ports.ubuntu.com/ubuntu-ports}
@@ -155,8 +159,30 @@ initrd=$WORK/initramfs.cpio.gz
 # The RAM is a backend with reserve=off, so QEMU maps it without asking
 # the host to set the whole size aside. A 64G guest then starts on a
 # host with much less, as long as Linux does not touch all of it.
-set -- "$QEMU_RISCV" -M virt,memory-backend=ram -m "$MEM" -smp "$SMP" -no-reboot \
-    -object "memory-backend-ram,id=ram,size=$MEM,reserve=off" \
+# With NUMA each node gets its own backend and an equal share of harts.
+if [ "$NUMA" -le 1 ]; then
+    set -- -M virt,memory-backend=ram \
+        -object "memory-backend-ram,id=ram,size=$MEM,reserve=off"
+else
+    case $MEM in
+    *G) unit=G ;;
+    *M) unit=M ;;
+    *)  die "LINUX_MEM must end in G or M when LINUX_NUMA is set" ;;
+    esac
+    total=${MEM%?}
+    [ $((total % NUMA)) -eq 0 ] && [ $((SMP % NUMA)) -eq 0 ] ||
+        die "LINUX_MEM and LINUX_SMP must divide evenly into $NUMA nodes"
+    set -- -M virt
+    n=0
+    while [ "$n" -lt "$NUMA" ]; do
+        first=$((n * SMP / NUMA))
+        last=$(((n + 1) * SMP / NUMA - 1))
+        set -- "$@" -object "memory-backend-ram,id=ram$n,size=$((total / NUMA))$unit,reserve=off" \
+            -numa "node,nodeid=$n,cpus=$first-$last,memdev=ram$n"
+        n=$((n + 1))
+    done
+fi
+set -- "$QEMU_RISCV" "$@" -m "$MEM" -smp "$SMP" -no-reboot \
     -bios "$FIRMWARE" -kernel "$image" -initrd "$initrd" \
     -append "console=ttyS0 earlycon panic=-1"
 
@@ -218,6 +244,11 @@ if [ -n "$EXPECT_HARTS" ]; then
     [ "$online" = "$EXPECT_HARTS" ] ||
         fail "${online:-no} of $EXPECT_HARTS harts online"
     echo "ok    $EXPECT_HARTS harts online"
+fi
+if [ "$NUMA" -gt 1 ]; then
+    grep -qa "smp: Brought up $NUMA nodes" "$log" ||
+        fail "Linux did not bring up $NUMA NUMA nodes"
+    echo "ok    $NUMA NUMA nodes"
 fi
 # The shell's own echo of this line shows $((40+2)), not 42
 printf 'echo linux-shell=$((40+2))\n' >&3
