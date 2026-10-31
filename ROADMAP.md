@@ -223,7 +223,8 @@ The work, roughly in order:
 7. **Remote management and error reporting.** A way to power-cycle and
    watch a node from outside (QEMU's monitor and the SBI SRST path are
    the stand-ins), and a place to report machine-check style hardware
-   faults instead of a silent halt.
+   faults instead of a silent halt. *(Planned: see `big-node-errors`
+   in TODO.md for the console line and what the OS is told.)*
 8. **UEFI and ACPI, as an option.** Big ARM and x86 servers expect UEFI
    and ACPI rather than a device tree. That is a separate, large project
    and stays out of scope for the hand-off; if it is ever done it is an
