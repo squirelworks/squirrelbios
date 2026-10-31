@@ -1,0 +1,29 @@
+name: make test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  make-test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchains and QEMU
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            make nasm gcc-aarch64-linux-gnu gcc-riscv64-linux-gnu \
+            qemu-system-x86 qemu-system-arm qemu-system-misc
+
+      - name: make test
+        run: make test
+
+      - name: Keep serial logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-logs
+          path: build/tests/*.log
+          if-no-files-found: ignore

@@ -51,6 +51,12 @@ Needs `qemu-system-i386`, `qemu-system-aarch64` and `qemu-system-riscv64`.
 Serial logs are kept in `build/tests/*.log`. `SMOKE_TIMEOUT` (seconds,
 default 10) sets how long each case may take.
 
+CI runs exactly this check: `.github/workflows/make-test.yml` installs
+`nasm`, the AArch64 and RISC-V cross toolchains and the three QEMU
+system emulators on Ubuntu 24.04, then runs `make test` on every push
+and pull request. The serial logs are uploaded as the `smoke-logs`
+artifact.
+
 ## Run
 
 ```bash
