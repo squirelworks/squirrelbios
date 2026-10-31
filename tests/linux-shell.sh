@@ -44,7 +44,8 @@ MEM=${LINUX_MEM:-512M}
 EXPECT_HARTS=${LINUX_EXPECT_HARTS:-}
 NUMA=${LINUX_NUMA:-1}
 # LINUX_AIA=aplic gives the machine QEMU's AIA interrupt controllers
-# (an APLIC instead of the PLIC) in place of the defaults
+# (an APLIC instead of the PLIC) in place of the defaults. It needs
+# LINUX_KERNEL=6.14: Linux has APLIC and IMSIC drivers only since 6.10
 VIRT=virt${LINUX_AIA:+,aia=$LINUX_AIA}
 FIRMWARE=riscv/squirrel-bios.bin
 WORK=${LINUX_WORK:-build/linux}
@@ -79,6 +80,10 @@ interactive=0
 [ "${1:-}" = "--interactive" ] && interactive=1
 
 die() { echo "linux-shell: $*" >&2; exit 1; }
+# 6.8 finds no interrupt controller there and stops before printing
+# anything, with any firmware (QEMU's own OpenSBI too)
+[ -z "${LINUX_AIA:-}" ] || [ "${LINUX_KERNEL:-6.8}" != 6.8 ] ||
+    die "LINUX_AIA needs LINUX_KERNEL=6.14 (6.8 has no APLIC or IMSIC driver)"
 
 [ -f "$FIRMWARE" ] || die "$FIRMWARE is missing; run make riscv first"
 command -v "$QEMU_RISCV" >/dev/null || die "$QEMU_RISCV not found"
