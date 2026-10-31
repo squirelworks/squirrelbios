@@ -214,6 +214,8 @@ The work, roughly in order:
 5. **PCIe.** The device tree already describes the `virt` host bridge.
    The firmware leaves it to Linux; the work is to check that a network
    card and an NVMe drive enumerate with many harts and lots of RAM.
+   *(Done: `make linux-big` adds both and requires their IDs under
+   `/sys/bus/pci/devices`. No firmware change was needed.)*
 6. **Network boot.** Thousands of diskless nodes start from the network.
    Load a kernel and initrd over virtio-net (a small original TFTP-style
    loader), or document the hand-off to a kernel that does it itself.

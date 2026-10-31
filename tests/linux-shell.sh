@@ -24,6 +24,9 @@
 # LINUX_NUMA (default 1) splits the harts and the RAM evenly into that
 # many NUMA nodes (QEMU makes each one a socket with its own CLINT), and
 # then requires Linux to bring up that many nodes.
+# LINUX_DEVICES adds QEMU options (devices and their backends) to the
+# machine, and LINUX_EXPECT lists strings, separated by '|', that must all
+# be in the serial log once the run is over.
 # The serial log is kept in build/linux/linux-shell.log.
 #
 # For tests/linux-stress.sh: LINUX_WORK (default build/linux) is the
@@ -47,6 +50,8 @@ FIRMWARE=riscv/squirrel-bios.bin
 WORK=${LINUX_WORK:-build/linux}
 WORKLOAD=${LINUX_WORKLOAD:-}
 EXTRA=${LINUX_EXTRA:-}
+DEVICES=${LINUX_DEVICES:-}
+EXPECT=${LINUX_EXPECT:-}
 MIRROR=${UBUNTU_PORTS:-http://ports.ubuntu.com/ubuntu-ports}
 # Where a release's packages move once it reaches end of life
 OLD_MIRROR=${UBUNTU_OLD_RELEASES:-http://old-releases.ubuntu.com/ubuntu}
@@ -194,6 +199,9 @@ else
         n=$((n + 1))
     done
 fi
+# LINUX_DEVICES is split into words on purpose
+# shellcheck disable=SC2086
+set -- "$@" $DEVICES
 set -- "$QEMU_RISCV" "$@" -m "$MEM" -smp "$SMP" -no-reboot \
     -bios "$FIRMWARE" -kernel "$image" -initrd "$initrd" \
     -append "console=ttyS0 earlycon panic=-1"
@@ -270,6 +278,16 @@ wait_for "linux-shell=42" "command at the prompt"
 if [ -n "$WORKLOAD" ]; then
     printf '%s; echo workload=do""ne\n' "$WORKLOAD" >&3
     wait_for "workload=done" "workload"
+fi
+# Each LINUX_EXPECT string must be in the log by now
+if [ -n "$EXPECT" ]; then
+    old_ifs=$IFS
+    IFS='|'
+    for want in $EXPECT; do
+        grep -qaF -- "$want" "$log" || fail "no \"$want\" in the log"
+        echo "ok    $want"
+    done
+    IFS=$old_ifs
 fi
 printf 'poweroff -f\n' >&3
 while running; do

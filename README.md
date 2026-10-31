@@ -121,7 +121,10 @@ guest RAM without reserving it, so the host does not need 64 GB.
 `LINUX_KERNEL=6.14` picks that kernel for `tests/linux-shell.sh` too.
 By default the node is two NUMA nodes of 32 harts and 32 GB each (QEMU
 makes them two sockets), and the check also requires Linux to bring up
-both nodes (`LINUX_NUMA` in the script). `LINUX_AIA=aplic make
+both nodes (`LINUX_NUMA` in the script). The node also has a
+virtio-net card and an NVMe drive, and the check requires Linux to list
+both under `/sys/bus/pci/devices` (`LINUX_DEVICES` and `LINUX_EXPECT`
+in the script). `LINUX_AIA=aplic make
 linux-big` runs the same node with QEMU's AIA interrupt controllers.
 
 ```bash
