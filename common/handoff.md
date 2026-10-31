@@ -108,11 +108,11 @@ there.
 | COM1 (`0x3F8`) | 115200 8N1, FIFOs on, UART interrupts off |
 | CMOS / RTC (`0x70`/`0x71`) | Index `0x0D` (status register D), NMI enabled (bit 7 of `0x70` clear). The firmware masks NMI only while it reads a register. |
 | Primary ATA channel | Idle. `nIEN` is set if a retry reset the channel. |
-| VGA | Not initialised. Text was written to `0xB8000`, but the VGA is not in text mode and has no font, so on QEMU nothing shows. |
+| VGA | 80x25 colour text at `0xB8000` (the standard 720x400 text timings, 9x16 cells), CRTC at `0x3D4`. The font in plane 2 is the firmware's own 8x16 font (printable ASCII; other codes are blank). The DAC holds the 16 usual text colours. The firmware's messages are on screen in light grey on black, red for errors; the cursor is at the top left. |
 
 Do not assume: BIOS interrupt services, an initialised IVT, A20 state
-(enabled on QEMU, but the firmware does not touch it), or a working VGA
-text console.
+(enabled on QEMU, but the firmware does not touch it), or VGA graphics
+modes and a VGA BIOS (no option ROM is run).
 
 ### Memory map
 
@@ -169,10 +169,15 @@ registers on COM1 (and the VGA text buffer), then halts:
 `x86-extra-map`, `x86-extra-boot` and `x86-extra-range`. In `x86-boot` the boot sector checks
 `DL`, that `IF` and `DF` are clear, and that the memory map has the
 magic, 20-byte entries, ends by `0x0600`, contains the conventional and
-both reserved regions above exactly, and is sorted without overlaps. It
-then lists every entry on COM1 as `mm <base> <length> <type>`, which
+both reserved regions above exactly, and is sorted without overlaps. Its
+SQBL header loads a second sector, which reads the VGA registers and
+prints `vga=ok` when they describe 80x25 text at `0xB8000` (colour I/O,
+text mode in the graphics and attribute controllers, 80 characters,
+400 lines of 16-line characters). It then lists every entry on COM1 as `mm <base> <length> <type>`, which
 `x86-mem-low` uses to check the extended-memory entry for `-m 8` and
-`x86-mem-high` to check the entry at 4 GB for `-m 5120`. By hand:
+`x86-mem-high` to check the entry at 4 GB for `-m 5120`. `x86-one-sector`
+is the same image's first sector alone, without the SQBL header, for the
+one-sector hand-off. By hand:
 
 ```bash
 make x86

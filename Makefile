@@ -16,7 +16,7 @@ ARM_BIN   := arm/squirrel-bios.bin
 RISCV_BIN := riscv/squirrel-bios.bin
 
 TEST_DIR  := build/tests
-TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-bad-sector.bin \
+TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)/x86-bad-sector.bin \
              $(TEST_DIR)/x86-extra.bin $(TEST_DIR)/x86-extra-map.bin \
              $(TEST_DIR)/x86-extra-boot.bin $(TEST_DIR)/x86-extra-range.bin \
              $(TEST_DIR)/arm-kernel.bin $(TEST_DIR)/arm-too-big.bin \
@@ -43,7 +43,7 @@ riscv: $(RISCV_BIN)
 
 # --- firmware ---------------------------------------------------------
 
-$(X86_ROM): x86/squirrel-bios.asm x86/memmap.inc
+$(X86_ROM): x86/squirrel-bios.asm x86/memmap.inc x86/vga.inc x86/font.inc
 	$(NASM) -f bin -i x86/ $< -o $@
 
 arm/squirrel-bios.o: arm/squirrel-bios.S
@@ -73,6 +73,10 @@ $(TEST_DIR):
 
 $(TEST_DIR)/x86-boot.bin: tests/x86-boot.asm | $(TEST_DIR)
 	$(NASM) -f bin $< -o $@
+
+# Sector 1 alone, without the SQBL header or the VGA check
+$(TEST_DIR)/x86-one-sector.bin: tests/x86-boot.asm | $(TEST_DIR)
+	$(NASM) -f bin -DONE_SECTOR $< -o $@
 
 # The same sector with its last word zeroed instead of 0xAA55
 $(TEST_DIR)/x86-bad-sector.bin: tests/x86-boot.asm | $(TEST_DIR)

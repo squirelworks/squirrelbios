@@ -78,9 +78,15 @@ mkdir -p "$TEST_DIR"
 
 # x86: boot sector reached with DL = 0x80, IF = DF = 0, and a memory map in
 # ES:DI that has the required regions, sorted and not overlapping
-run x86-boot "SquirrelBIOS x86|OS-ENTRY x86 dl=ok memmap=ok flags=ok" \
+run x86-boot "SquirrelBIOS x86|OS-ENTRY x86 dl=ok memmap=ok flags=ok vga=ok" \
     "$QEMU_X86" -bios x86/squirrel-bios.rom \
     -drive format=raw,file=$TEST_DIR/x86-boot.bin,if=ide
+
+# x86: a boot sector without an SQBL header gets today's one-sector
+# hand-off: the same checks, and nothing after sector 1 was run
+run x86-one-sector "OS-ENTRY x86 dl=ok memmap=ok flags=ok|!vga=" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -drive format=raw,file=$TEST_DIR/x86-one-sector.bin,if=ide
 
 # x86: no disk is reported, not hung on
 run x86-no-drive "disk: no drive on primary master|boot halted" \

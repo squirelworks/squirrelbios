@@ -134,7 +134,7 @@ until that extension's box is checked.
 - [x] `x86-cmos-nmi` — Disable NMI for the duration of each CMOS read.
   - Acceptance: `cmos_read` sets bit 7 of port `0x70` while it indexes the register. `x86-boot`, `x86-mem-low`, and `x86-mem-high` still pass. Depends on: `x86-mem-low`, `x86-mem-high`.
 
-- [ ] `x86-vga` — Put the VGA into 80x25 text mode and load an original font.
+- [x] `x86-vga` — Put the VGA into 80x25 text mode and load an original font.
   - Acceptance: the font is written in this repo (not taken from a VGA BIOS). The stand-in reads the mode registers, prints `vga=ok` only when they show 80x25 text, and `x86-boot` expects that string. The contract stops saying the VGA was left uninitialised. COM1 output is unchanged. Depends on: `x86-handoff-check`.
 
 ## Speculative
