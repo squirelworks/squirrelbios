@@ -76,6 +76,8 @@ _start:
         mov w1, w20
         mov w2, #FWCFG_KERNEL_DATA
         bl fwcfg_dma_read
+        cmp w0, #2
+        b.eq load_timeout
         cbnz w0, load_failed
 
         adr x0, msg_loaded
@@ -108,6 +110,9 @@ no_kernel:
         b fail
 load_failed:
         adr x0, msg_load_failed
+        b fail
+load_timeout:
+        adr x0, msg_load_timeout
 fail:
         bl puts
         adr x0, msg_halted
@@ -156,7 +161,9 @@ fwcfg_select:
         ret
 
 /* x0 = destination, w1 = length, w2 = selector.
- * Returns w0 = 0 on success, non-zero on error. */
+ * Returns w0 = 0 on success, 1 if the device reported an error, 2 if the
+ * transfer had not completed after 1 s by the generic counter (CNTPCT),
+ * so a device that never finishes cannot hang the firmware. */
 fwcfg_dma_read:
         sub sp, sp, #16
         /* FWCfgDmaAccess { be32 control; be32 length; be64 address; } */
@@ -172,18 +179,27 @@ fwcfg_dma_read:
         dsb sy
         mov x0, sp
         rev x0, x0
+        isb
+        mrs x5, cntpct_el0
+        mrs x6, cntfrq_el0                  /* ticks per second */
+        add x5, x5, x6                      /* deadline */
         str x0, [x19, #FWCFG_DMA]           /* starts the transfer */
 1:      ldr w3, [sp]
         rev w3, w3
         tst w3, #FWCFG_DMA_ERROR
         b.ne 2f
         and w3, w3, #~FWCFG_DMA_ERROR
-        cbnz w3, 1b
-        mov w0, #0
-        add sp, sp, #16
-        ret
+        cbz w3, 4f
+        isb
+        mrs x6, cntpct_el0
+        cmp x6, x5
+        b.lo 1b
+        mov w0, #2
+        b 3f
+4:      mov w0, #0
+        b 3f
 2:      mov w0, #1
-        add sp, sp, #16
+3:      add sp, sp, #16
         ret
 
 /* ------------------------------------------------------------------ */
@@ -218,4 +234,5 @@ msg_loaded:     .asciz "kernel loaded at 0x40200000, jumping\n"
 msg_no_fwcfg:   .asciz "boot: fw_cfg with DMA not found\n"
 msg_no_kernel:  .asciz "boot: no kernel image (pass -kernel to QEMU)\n"
 msg_load_failed: .asciz "boot: fw_cfg DMA read of the kernel failed\n"
+msg_load_timeout: .asciz "boot: fw_cfg DMA read of the kernel did not complete\n"
 msg_halted:     .asciz "boot halted\n"

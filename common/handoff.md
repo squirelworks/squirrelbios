@@ -237,6 +237,7 @@ The firmware prints one of these on the PL011, then `boot halted`, and halts:
 | `fw_cfg with DMA not found` | Not on QEMU virt, or a QEMU too old for fw_cfg DMA |
 | `no kernel image (pass -kernel to QEMU)` | fw_cfg reports a kernel size of 0 |
 | `fw_cfg DMA read of the kernel failed` | The DMA transfer reported an error |
+| `fw_cfg DMA read of the kernel did not complete` | The transfer neither finished nor reported an error within 1 s (by the generic counter, `CNTPCT_EL0` against `CNTFRQ_EL0`) |
 
 ### How to test
 
