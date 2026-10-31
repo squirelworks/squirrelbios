@@ -10,11 +10,11 @@ If the firmware and this file disagree, the firmware has a bug.
 |---|---|---|---|
 | Image source | LBA 0 of the primary master ATA disk | `-kernel`, read through fw_cfg DMA | `-kernel`, loaded by QEMU |
 | Entry | `0x0000:0x7C00` | `0x40200000` | `0x80200000` (rv64) |
-| CPU mode | 16-bit real mode | EL1 (EL2 with `virtualization=on`), MMU off | M-mode, `satp` bare |
+| CPU mode | 16-bit real mode | EL1 (EL2 with `virtualization=on`), MMU off | S-mode (QEMU's `next_mode`), `satp` bare |
 | Boot argument | `DL = 0x80` | `x0` = device tree | `a0` = hart ID, `a1` = device tree |
 | Memory description | Memory map at `ES:DI = 0x0000:0x0500` | Device tree `/memory` | Device tree `/memory` |
 | Console | COM1 `0x3F8`, 115200 8N1 | PL011 `0x09000000` | NS16550A `0x10000000` |
-| Interrupts | `IF = 0` | `DAIF` masked | `mstatus.MIE = 0`, `mie = 0` |
+| Interrupts | `IF = 0` | `DAIF` masked | `mstatus.MIE`/`SIE` = 0, `mie = 0` |
 | CPUs running | Boot CPU only | Boot CPU only | Hart 0 only |
 
 ## Rules for every architecture
@@ -207,18 +207,20 @@ then whatever the image prints. `tests/arm-kernel.S` is a minimal image.
 
 QEMU loads the `-kernel` image into RAM itself and tells the firmware
 where through the `fw_dynamic_info` block it passes in `a2` (magic
-`"OSBI"`, `next_addr`). The firmware jumps there without changing
-privilege.
+`"OSBI"`, `next_addr`, `next_mode`). The firmware enters the image in
+the mode QEMU asks for. With `-kernel` that is S-mode (`next_mode = 1`),
+entered through `mret`.
 
 ### Registers
 
 | Item | Value |
 |------|-------|
 | `pc` | `next_addr` from QEMU, `0x80200000` on rv64 (RAM base + 2 MB) |
-| Privilege | M-mode |
+| Privilege | S-mode when `next_mode` is `1` (what `-kernel` gives), M-mode when it is `3`, or when `fw_dynamic_info` is older than version 2 and has no `next_mode` |
+| PMP | S-mode entry: entry 0 is NAPOT over the whole physical address space with R, W and X, unlocked. Other entries are untouched. M-mode entry: untouched. |
 | `satp` | Untouched (bare after reset) |
 | `mtvec` | Firmware trap handler, direct mode (below) |
-| `mstatus.MIE`, `mie` | `0` |
+| `mstatus.MIE`, `mstatus.SIE`, `mie` | `0` |
 | `a0` | Hart ID (`0`) |
 | `a1` | Device tree address, as QEMU passed it to the firmware |
 | `a2` | `0` |
@@ -243,30 +245,41 @@ RAM size and layout come from the device tree (`/memory`).
 | CLINT, PLIC | Not touched |
 
 Do not assume: an SBI (there is none, so a Linux kernel will not boot
-this way), PMP entries, or secondary harts being available.
+this way), delegated traps (`medeleg` and `mideleg` are untouched, so
+every S-mode trap goes to the firmware handler below), or secondary harts
+being available.
 
 ### Traps
 
 `mtvec` points at a firmware handler, so a trap taken before the OS
-installs its own vector is reported instead of jumping to address 0. The
+installs its own vector is reported instead of jumping to address 0. In
+S-mode nothing is delegated yet, so every S-mode trap, `ecall` included,
+reaches this handler. The
 handler does not return. It prints `trap mcause=` and the cause as 16
 lowercase hex digits (no `0x`), then `boot halted`, and halts. It reuses
-the firmware stack. The OS installs its own `mtvec` before it relies on
-traps, for example an `ecall` (cause `000000000000000b`, environment call
-from M-mode) or an illegal instruction.
+the firmware stack. Do not rely on traps until there is an SBI and
+delegation: today an `ecall` from S-mode (cause `0000000000000009`) or an
+illegal instruction halts the machine. An image entered in M-mode
+installs its own `mtvec` first (an M-mode `ecall` is cause
+`000000000000000b`).
 
 ### Failures
 
-Without `-kernel`, or if QEMU passed no valid `fw_dynamic_info`, the
-firmware prints `boot: no kernel image (pass -kernel to QEMU)`, then
-`boot halted`, and halts.
+The firmware prints one of these on the UART, then `boot halted`, and halts:
+
+| Message | Meaning |
+|---------|---------|
+| `boot: no kernel image (pass -kernel to QEMU)` | No `-kernel`, or QEMU passed no valid `fw_dynamic_info` |
+| `boot: unsupported next_mode <16 hex digits>` | `next_mode` is not `1` (S) or `3` (M), for example U-mode (`0`) |
 
 ### How to test
 
-`make test` runs `riscv-boot` (an image checks `a0`, the device tree in
-`a1` and `a2 = 0`, with `-smp 2`, and the log must not show a trap),
-`riscv-ecall` (an image executes `ecall` and the handler reports
-`trap mcause=000000000000000b`) and `riscv-no-kernel`. By hand:
+`make test` runs `riscv-boot` (the firmware reports `next_mode=1`, and an
+image checks `a0`, the device tree in `a1` and `a2 = 0`, with `-smp 2`;
+its UART stores and device-tree load pass PMP in S-mode, and the log must
+not show a trap), `riscv-ecall` (an image executes `ecall` and the handler
+reports `trap mcause=0000000000000009`, environment call from S-mode) and
+`riscv-no-kernel`. By hand:
 
 ```bash
 make riscv
@@ -274,5 +287,5 @@ qemu-system-riscv64 -M virt -nographic -bios riscv/squirrel-bios.bin -kernel ima
 ```
 
 Expect `SquirrelBIOS RISC-V`, then `jumping to kernel at
-0x0000000080200000`, then whatever the image prints.
+0x0000000080200000, next_mode=1`, then whatever the image prints.
 `tests/riscv-kernel.S` is a minimal image.
