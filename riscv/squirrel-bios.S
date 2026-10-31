@@ -19,6 +19,12 @@
         .equ UART_LCR,      3
         .equ UART_LSR,      5
         .equ UART_LSR_THRE, 0x20
+        .equ UART_DLL,      0               /* with LCR.DLAB set */
+        .equ UART_DLM,      1
+        .equ UART_LCR_DLAB, 0x80
+        .equ UART_CLOCK,    3686400         /* virt's clock-frequency for the UART */
+        .equ UART_BAUD,     115200
+        .equ UART_DIVISOR,  UART_CLOCK / (16 * UART_BAUD)   /* 2 */
         .equ UART_TIMEOUT,  0x100000        /* LSR polls per character */
 
         /* QEMU's reset code passes a2 = struct fw_dynamic_info:
@@ -978,7 +984,13 @@ dt_reserve:
 uart_init:
         li t0, UART_BASE
         sb zero, UART_IER(t0)
-        li t1, 0x03                         /* 8N1 */
+        li t1, UART_LCR_DLAB                /* 115200: divisor latch */
+        sb t1, UART_LCR(t0)
+        li t1, UART_DIVISOR & 0xff
+        sb t1, UART_DLL(t0)
+        li t1, UART_DIVISOR >> 8
+        sb t1, UART_DLM(t0)
+        li t1, 0x03                         /* 8N1, DLAB off */
         sb t1, UART_LCR(t0)
         li t1, 0x07                         /* enable and clear FIFOs */
         sb t1, UART_FCR(t0)
