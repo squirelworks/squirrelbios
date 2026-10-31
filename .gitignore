@@ -1,0 +1,9 @@
+# Build outputs
+x86/*.rom
+arm/*.o
+arm/*.elf
+arm/*.bin
+riscv/*.o
+riscv/*.elf
+riscv/*.bin
+build/
