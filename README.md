@@ -45,7 +45,8 @@ stand-in OS image from `tests/` and checks the serial output:
 | `x86-bad-sector` | A sector without the `0xAA55` signature is reported and not jumped to |
 | `x86-extra` | An SQBL header in the boot sector gets its extra sectors loaded before the jump |
 | `x86-extra-map`, `x86-extra-boot`, `x86-extra-range` | An SQBL load onto the memory map, onto the boot sector, or past `0xA0000` is refused |
-| `arm-boot` | The `-kernel` image runs with a valid device tree in `x0` and `x1`–`x3` = 0 |
+| `arm-boot` | The `-kernel` image runs with a valid device tree in `x0`, `x1`–`x3` = 0, MMU and D-cache off, little-endian, `DAIF` masked |
+| `arm-boot-el2` | The same at EL2 (`virtualization=on`) |
 | `arm-no-kernel` | Without `-kernel`, the firmware reports it and halts |
 | `riscv-boot` | The `-kernel` image runs in S-mode (`next_mode=1`) on hart 0 (with `-smp 2`) with a valid device tree in `a1` and `a2 = 0`, and nothing traps |
 | `riscv-ecall` | An `ecall` from the image reaches the SBI and returns `SBI_ERR_NOT_SUPPORTED` for an extension that does not exist |
