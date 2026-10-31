@@ -24,8 +24,8 @@ Requires: `nasm`, `aarch64-linux-gnu-as`/`ld`/`objcopy`, `riscv64-linux-gnu-as`/
 ## Run
 
 ```bash
-# x86 (with a boot sector image)
-qemu-system-i386 -bios x86/squirrel-bios.rom -drive format=raw,file=boot.bin,if=ide
+# x86 (with a boot sector image); firmware messages appear on COM1
+qemu-system-i386 -bios x86/squirrel-bios.rom -drive format=raw,file=boot.bin,if=ide -serial stdio
 
 # AArch64
 qemu-system-aarch64 -M virt -cpu cortex-a57 -nographic -bios arm/squirrel-bios.bin
