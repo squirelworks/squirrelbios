@@ -137,6 +137,12 @@ run arm-boot-el2 "SquirrelBIOS ARM|OS-ENTRY arm dtb=ok regs=ok sctlr=ok" \
     "$QEMU_ARM" -M virt,virtualization=on -cpu cortex-a57 -bios arm/squirrel-bios.bin \
     -kernel $TEST_DIR/arm-kernel.bin
 
+# AArch64: an image that would run past the end of RAM is refused before
+# the load. RAM size from fw_cfg 0x03, or the device tree on QEMU virt.
+run arm-too-big "boot: kernel does not fit in RAM|boot halted|!kernel loaded" \
+    "$QEMU_ARM" -M virt -cpu cortex-a57 -m 32 -bios arm/squirrel-bios.bin \
+    -kernel $TEST_DIR/arm-too-big.bin
+
 run arm-no-kernel "boot: no kernel image|boot halted" \
     "$QEMU_ARM" -M virt -cpu cortex-a57 -bios arm/squirrel-bios.bin
 

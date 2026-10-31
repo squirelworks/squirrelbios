@@ -19,7 +19,8 @@ TEST_DIR  := build/tests
 TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-bad-sector.bin \
              $(TEST_DIR)/x86-extra.bin $(TEST_DIR)/x86-extra-map.bin \
              $(TEST_DIR)/x86-extra-boot.bin $(TEST_DIR)/x86-extra-range.bin \
-             $(TEST_DIR)/arm-kernel.bin $(TEST_DIR)/riscv-kernel.bin \
+             $(TEST_DIR)/arm-kernel.bin $(TEST_DIR)/arm-too-big.bin \
+             $(TEST_DIR)/riscv-kernel.bin \
              $(TEST_DIR)/riscv-ecall.bin $(TEST_DIR)/riscv-deleg.bin \
              $(TEST_DIR)/riscv-sbi.bin $(TEST_DIR)/riscv-timer.bin \
              $(TEST_DIR)/riscv-ipi.bin $(TEST_DIR)/riscv-rfence.bin \
@@ -91,6 +92,11 @@ $(TEST_DIR)/arm-kernel.elf: $(TEST_DIR)/arm-kernel.o
 	$(AARCH64)ld -Ttext=0x40200000 -o $@ $<
 $(TEST_DIR)/arm-kernel.bin: $(TEST_DIR)/arm-kernel.elf
 	$(AARCH64)objcopy -O binary $< $@
+
+# 31 MB of zeros (sparse): with -m 32 it runs 1 MB past the end of RAM
+# when loaded at 0x40200000. Built here, never committed.
+$(TEST_DIR)/arm-too-big.bin: | $(TEST_DIR)
+	truncate -s 31M $@
 
 $(TEST_DIR)/riscv-kernel.o: tests/riscv-kernel.S | $(TEST_DIR)
 	$(RISCV64)as -o $@ $<
