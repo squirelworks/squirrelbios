@@ -34,6 +34,7 @@
         .equ FWDYN_OFF_VERSION, 8
         .equ FWDYN_OFF_NEXT,    16
         .equ FWDYN_OFF_MODE,    24          /* version 2 and later */
+        .equ FWDYN_OFF_BOOT,    40          /* boot_hart, version 2 and later */
         .equ MODE_S,            1
         .equ MODE_M,            3
 
@@ -172,14 +173,32 @@ _start:
         la t1, trap_stacks
         add t0, t0, t1
         csrw mscratch, t0
-        bnez a0, park                       /* only hart 0 boots */
+
+        /* One hart boots: fw_dynamic_info.boot_hart when the struct is
+         * there (version 2 or later) and names a hart below MAX_HARTS,
+         * otherwise hart 0. QEMU's own -kernel path always says 0. */
+        li t1, 0                            /* t1 = the boot hart */
+        beqz a2, 1f
+        ld t0, FWDYN_OFF_MAGIC(a2)
+        li t2, FWDYN_MAGIC
+        bne t0, t2, 1f
+        ld t0, FWDYN_OFF_VERSION(a2)
+        li t2, 2
+        bltu t0, t2, 1f
+        ld t0, FWDYN_OFF_BOOT(a2)
+        li t2, MAX_HARTS
+        bgeu t0, t2, 1f
+        mv t1, t0
+1:      bne a0, t1, park
 
         mv s0, a0                           /* hart ID */
         mv s1, a1                           /* device tree */
         mv s2, a2                           /* fw_dynamic_info */
         la sp, stack_top
 
-        la t0, hart_table                   /* hart 0 is running */
+        slli t0, s0, HART_ENTRY_SHIFT       /* the boot hart is running */
+        la t1, hart_table
+        add t0, t0, t1
         sd zero, HART_STATE(t0)
 
         call uart_init
