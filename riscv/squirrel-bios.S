@@ -44,6 +44,7 @@
         .equ MIDELEG_S, (1 << 1) | (1 << 5) | (1 << 9)
 
         .equ CAUSE_ECALL_S,     9
+        .equ MIE_MSIE,          (1 << 3)
         .equ TRAP_FRAME,        32          /* t0-t3, below trap_stack_top */
         .equ CAUSE_M_TIMER,     (1 << 63) | 7
 
@@ -52,8 +53,25 @@
         .equ MIE_MTIE,          (1 << 7)
         .equ MCOUNTEREN_ALL,    0x7         /* CY, TM, IR readable below M */
 
-        /* CLINT: one mtime, one mtimecmp per hart */
+        /* CLINT: one msip and one mtimecmp per hart, one mtime */
+        .equ CLINT_MSIP,        0x02000000
         .equ CLINT_MTIMECMP,    0x02004000
+        .equ CLINT_MTIME,       0x0200bff8
+
+        /* Harts the firmware can start. Higher hart IDs stay parked. */
+        .equ MAX_HARTS,         8
+        .equ TRAP_STACK,        256         /* per hart */
+
+        /* hart_table entry: state, start address, opaque (8 bytes each) */
+        .equ HART_ENTRY_SHIFT,  5           /* 32 bytes */
+        .equ HART_STATE,        0
+        .equ HART_ADDR,         8
+        .equ HART_OPAQUE,       16
+        .equ HSM_STARTED,       0           /* SBI hart states */
+        .equ HSM_STOPPED,       1
+        .equ HSM_START_PENDING, 2
+        .equ HSM_ABSENT,        -1          /* no such hart has reached park */
+        .equ HSM_CHECKIN_WAIT,  1000000     /* mtime ticks: 100 ms at 10 MHz */
 
         /* SBI: a7 = extension, a6 = function, a0-a5 = arguments.
          * Returns a0 = error, a1 = value. */
@@ -61,16 +79,28 @@
         .equ SBI_EXT_TIME,      0x54494d45
         .equ SBI_EXT_IPI,       0x735049
         .equ SBI_EXT_RFENCE,    0x52464e43
+        .equ SBI_EXT_HSM,       0x48534d
         .equ SBI_SPEC_VERSION,  0x01000000  /* 1.0 */
         .equ SBI_IMPL_ID,       0x5351      /* "SQ"; not BBL (0) or OpenSBI (1) */
         .equ SBI_IMPL_VERSION,  1
         .equ SBI_ERR_NOT_SUPPORTED, -2
         .equ SBI_ERR_INVALID_PARAM, -3
+        .equ SBI_ERR_ALREADY_AVAILABLE, -6
 
 .global _start
 _start:
         csrw mie, zero
         csrci mstatus, 0x8                  /* MIE */
+        la t0, trap
+        csrw mtvec, t0                      /* direct mode */
+        li t0, MAX_HARTS
+        bgeu a0, t0, park_forever
+        addi t0, a0, 1                      /* M-mode trap stack of this hart */
+        li t1, TRAP_STACK
+        mul t0, t0, t1
+        la t1, trap_stacks
+        add t0, t0, t1
+        csrw mscratch, t0
         bnez a0, park                       /* only hart 0 boots */
 
         mv s0, a0                           /* hart ID */
@@ -78,10 +108,8 @@ _start:
         mv s2, a2                           /* fw_dynamic_info */
         la sp, stack_top
 
-        la t0, trap
-        csrw mtvec, t0                      /* direct mode */
-        la t0, trap_stack_top
-        csrw mscratch, t0                   /* M-mode stack for traps */
+        la t0, hart_table                   /* hart 0 is running */
+        sd zero, HART_STATE(t0)
 
         call uart_init
         la a0, banner
@@ -123,10 +151,12 @@ _start:
         li t0, MODE_M
         beq s4, t0, enter_m
 
-        /* S-mode: one PMP entry granting R/W/X over all of physical memory
-         * (without one, every S-mode access faults), supervisor faults and
-         * interrupts delegated to S-mode, then mret to the image with
-         * MPP = S and interrupts still off. */
+/* Enter S-mode at s3 with a0 and a1 as they are: one PMP entry granting
+ * R/W/X over all of physical memory (without one, every S-mode access
+ * faults), supervisor faults and interrupts delegated to S-mode, then mret
+ * with MPP = S and interrupts still off. Used by every hart. */
+enter_s:
+        csrw mie, zero
         li t0, -1
         csrw pmpaddr0, t0
         li t0, PMP_RWX_NAPOT
@@ -168,10 +198,39 @@ halt:
         wfi
         j halt
 
-/* Secondary harts stay here with interrupts off. */
+/* Secondary harts wait here for sbi_hart_start. Interrupts stay off at
+ * the CPU (mstatus.MIE = 0), but the machine software interrupt is enabled
+ * in mie so that the hart_start CLINT msip write ends the wfi. */
 park:
+        slli t0, a0, HART_ENTRY_SHIFT
+        la s5, hart_table
+        add s5, s5, t0                      /* s5 = this hart's entry */
+        li t0, CLINT_MSIP
+        slli t1, a0, 2
+        add s6, t0, t1                      /* s6 = this hart's msip */
+        mv s0, a0
+        li t0, HSM_STOPPED
+        sd t0, HART_STATE(s5)
+        li t0, MIE_MSIE
+        csrw mie, t0
+1:      wfi
+        sw zero, 0(s6)                      /* consume the wake-up */
+        fence
+        ld t0, HART_STATE(s5)
+        li t1, HSM_START_PENDING
+        bne t0, t1, 1b
+        fence r, r
+        ld s3, HART_ADDR(s5)
+        ld a1, HART_OPAQUE(s5)
+        sd zero, HART_STATE(s5)             /* HSM_STARTED */
+        mv a0, s0
+        fence.i
+        j enter_s
+
+/* Hart IDs above MAX_HARTS never run. */
+park_forever:
         wfi
-        j park
+        j park_forever
 
 /* Every trap lands here. mscratch holds the trap stack while the OS runs,
  * so the OS's sp is swapped out first and every register but a0 and a1
@@ -203,11 +262,16 @@ sbi_call:
         beq a7, t0, sbi_ipi
         li t0, SBI_EXT_RFENCE
         beq a7, t0, sbi_rfence
+        li t0, SBI_EXT_HSM
+        beq a7, t0, sbi_hsm
 sbi_not_supported:
         li a0, SBI_ERR_NOT_SUPPORTED
         j sbi_ret
 sbi_invalid_param:
         li a0, SBI_ERR_INVALID_PARAM
+        j sbi_ret
+sbi_already_available:
+        li a0, SBI_ERR_ALREADY_AVAILABLE
         j sbi_ret
 sbi_ok:
         li a0, 0
@@ -318,10 +382,63 @@ sbi_rfence:
 1:      sfence.vma
         j sbi_ok
 
+/* HSM extension: hart_start (0, a0 = hart, a1 = start address,
+ * a2 = opaque), hart_get_status (2, a0 = hart). */
+sbi_hsm:
+        li t0, MAX_HARTS
+        bgeu a0, t0, sbi_invalid_param
+        slli t0, a0, HART_ENTRY_SHIFT
+        la t1, hart_table
+        add t0, t0, t1                      /* t0 = the hart's entry */
+        ld t1, HART_STATE(t0)
+        li t2, HSM_ABSENT
+        bne t1, t2, 2f
+
+        /* Secondary harts reach park on their own schedule, which on QEMU
+         * can be after the OS is already running. Give a hart that has not
+         * checked in HSM_CHECKIN_WAIT to do so; after that it does not
+         * exist. */
+        li t2, CLINT_MTIME
+        ld t3, 0(t2)
+        li t2, HSM_CHECKIN_WAIT
+        add t3, t3, t2                      /* t3 = deadline */
+1:      ld t1, HART_STATE(t0)
+        li t2, HSM_ABSENT
+        bne t1, t2, 2f
+        li t2, CLINT_MTIME
+        ld t2, 0(t2)
+        bltu t2, t3, 1b
+        j sbi_invalid_param
+2:      fence r, r
+        li t2, 2
+        beq a6, t2, sbi_hart_get_status
+        bnez a6, sbi_not_supported
+
+/* hart_start: the target must be stopped. Publish the address and the
+ * opaque value, then the state, then wake it through its CLINT msip. */
+        li t2, HSM_STOPPED
+        bne t1, t2, sbi_already_available
+        sd a1, HART_ADDR(t0)
+        sd a2, HART_OPAQUE(t0)
+        fence w, w
+        li t1, HSM_START_PENDING
+        sd t1, HART_STATE(t0)
+        fence
+        li t1, CLINT_MSIP
+        slli t2, a0, 2
+        add t1, t1, t2
+        li t2, 1
+        sw t2, 0(t1)
+        j sbi_ok
+
+sbi_hart_get_status:
+        mv a1, t1
+        j sbi_ok
+
 /* Check an SBI hart mask: bit N of a0 selects hart a1 + N, and a1 = -1
- * selects every running hart. Only the calling hart runs, so a mask that
- * names any other hart is an invalid parameter (jumps to
- * sbi_invalid_param). Otherwise t0 = 1 if the calling hart is selected,
+ * selects the calling hart. IPIs and fences reach only the calling hart,
+ * even when hart_start has started others, so a mask that names any other
+ * hart is an invalid parameter (jumps to sbi_invalid_param). Otherwise t0 = 1 if the calling hart is selected,
  * 0 if the mask is empty. Uses t1 and t3, returns through t2. */
 hart_mask:
         li t0, 1
@@ -351,6 +468,8 @@ sbi_probe_extension:
         li t0, SBI_EXT_IPI
         beq a0, t0, sbi_ok
         li t0, SBI_EXT_RFENCE
+        beq a0, t0, sbi_ok
+        li t0, SBI_EXT_HSM
         beq a0, t0, sbi_ok
         li a1, 0
         j sbi_ok
@@ -443,7 +562,14 @@ msg_halted:     .asciz "boot halted\n"
 .align 12
     .skip 4096
 stack_top:
-    /* Trap stack: mscratch points at its top, and the trap handler's frame
-     * (TRAP_FRAME bytes) grows down from there. Keep it inside the 256. */
-    .skip 256
-trap_stack_top:
+    /* Trap stacks, TRAP_STACK bytes per hart: each hart's mscratch points
+     * at the top of its own, and the trap handler's frame (TRAP_FRAME
+     * bytes) grows down from there. Keep it inside TRAP_STACK. */
+trap_stacks:
+    .skip TRAP_STACK * MAX_HARTS
+
+    .align 3
+hart_table:
+    .rept MAX_HARTS
+    .dword HSM_ABSENT, 0, 0, 0
+    .endr

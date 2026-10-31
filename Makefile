@@ -18,7 +18,8 @@ TEST_DIR  := build/tests
 TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/arm-kernel.bin $(TEST_DIR)/riscv-kernel.bin \
              $(TEST_DIR)/riscv-ecall.bin $(TEST_DIR)/riscv-deleg.bin \
              $(TEST_DIR)/riscv-sbi.bin $(TEST_DIR)/riscv-timer.bin \
-             $(TEST_DIR)/riscv-ipi.bin $(TEST_DIR)/riscv-rfence.bin
+             $(TEST_DIR)/riscv-ipi.bin $(TEST_DIR)/riscv-rfence.bin \
+             $(TEST_DIR)/riscv-hsm.bin
 
 .PHONY: all x86 arm riscv test clean
 .DELETE_ON_ERROR:
@@ -110,6 +111,13 @@ $(TEST_DIR)/riscv-rfence.o: tests/riscv-rfence.S | $(TEST_DIR)
 $(TEST_DIR)/riscv-rfence.elf: $(TEST_DIR)/riscv-rfence.o
 	$(RISCV64)ld -Ttext=0x80200000 -o $@ $<
 $(TEST_DIR)/riscv-rfence.bin: $(TEST_DIR)/riscv-rfence.elf
+	$(RISCV64)objcopy -O binary $< $@
+
+$(TEST_DIR)/riscv-hsm.o: tests/riscv-hsm.S | $(TEST_DIR)
+	$(RISCV64)as -o $@ $<
+$(TEST_DIR)/riscv-hsm.elf: $(TEST_DIR)/riscv-hsm.o
+	$(RISCV64)ld -Ttext=0x80200000 -o $@ $<
+$(TEST_DIR)/riscv-hsm.bin: $(TEST_DIR)/riscv-hsm.elf
 	$(RISCV64)objcopy -O binary $< $@
 
 test: all $(TEST_BINS)

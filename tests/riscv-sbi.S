@@ -63,9 +63,10 @@ _start:
         expect a0, 0, 6
         li t2, 6
         beqz a1, bad
-        sbi SBI_EXT_BASE, 3, SBI_EXT_HSM
+        sbi SBI_EXT_BASE, 3, SBI_EXT_HSM    /* present */
         expect a0, 0, 7
-        expect a1, 0, 7
+        li t2, 7
+        beqz a1, bad
         sbi SBI_EXT_BASE, 3, SBI_EXT_SRST
         expect a0, 0, 8
         expect a1, 0, 8
