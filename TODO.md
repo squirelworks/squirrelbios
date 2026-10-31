@@ -25,7 +25,7 @@ the contract (`disk: ...` / `boot: ...`, then `boot halted`).
 - [x] `x86-mem-low` — Smoke-test the CMOS path used when RAM is at most 16 MB.
   - Acceptance: a new `x86-mem-low` case passes `-m 8` and expects a usable entry at base `0x00100000` of length `0x00700000`. That length is what `x86/memmap.inc` computes from CMOS `0x30`/`0x31` when `0x34`/`0x35` are zero. If this QEMU stores a different pair of bytes, match the test to those bytes and record them in the PR. `x86-boot` stays free of a hardcoded default RAM size. Depends on: `x86-handoff-check`.
 
-- [ ] `x86-mem-high` — Smoke-test the RAM-above-4 GB entry.
+- [x] `x86-mem-high` — Smoke-test the RAM-above-4 GB entry.
   - Acceptance: a new `x86-mem-high` case passes a size above 4 GB (`-m 5120`; `qemu-system-x86_64` is fine if `qemu-system-i386` refuses it) and expects a usable entry at base `0x100000000` with a non-zero length. The conventional entries are still checked. Do not hardcode how QEMU splits the rest of the RAM around the PCI hole. Depends on: `x86-handoff-check`.
 
 - [ ] `riscv-a2` — The RISC-V stand-in checks `a2`.

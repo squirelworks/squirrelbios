@@ -4,7 +4,9 @@
 # the firmware and the stand-in OS images in build/tests first.
 #
 # Each case passes when every expected string appears in the serial log
-# before SMOKE_TIMEOUT seconds (default 10).
+# before SMOKE_TIMEOUT seconds (default 10). Expected strings are separated
+# by '|' and matched literally; one starting with '~' is an extended
+# regular expression instead.
 
 set -u
 
@@ -36,7 +38,10 @@ run() {
         old_ifs=$IFS
         IFS='|'
         for want in $expect; do
-            grep -qF -- "$want" "$log" || ok=0
+            case $want in
+            "~"*) grep -qE -- "${want#?}" "$log" || ok=0 ;;
+            *)    grep -qF -- "$want" "$log" || ok=0 ;;
+            esac
         done
         IFS=$old_ifs
         [ "$ok" -eq 1 ] && break
@@ -72,6 +77,12 @@ run x86-no-drive "disk: no drive on primary master|boot halted" \
 # 0x30/0x31 (KB above 1 MB): 7 MB usable at 1 MB
 run x86-mem-low "OS-ENTRY x86 dl=ok memmap=ok flags=ok|mm 0000000000100000 0000000000700000 1" \
     "$QEMU_X86" -bios x86/squirrel-bios.rom -m 8 \
+    -drive format=raw,file=$TEST_DIR/x86-boot.bin,if=ide
+
+# x86: with more than 4 GB, CMOS 0x5B-0x5D give a usable entry at 4 GB.
+# How QEMU splits the rest around the PCI hole is not checked.
+run x86-mem-high "OS-ENTRY x86 dl=ok memmap=ok flags=ok|~^mm 0000000100000000 [0-9A-F]*[1-9A-F][0-9A-F]* 1" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom -m 5120 \
     -drive format=raw,file=$TEST_DIR/x86-boot.bin,if=ide
 
 # x86: a CD-ROM as primary master is rejected, not read

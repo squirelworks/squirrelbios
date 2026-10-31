@@ -123,13 +123,14 @@ registers on COM1 (and the VGA text buffer), then halts:
 
 ### How to test
 
-`make test` runs `x86-boot`, `x86-no-drive`, `x86-mem-low` and
-`x86-atapi`. In `x86-boot` the boot sector checks `DL`, that `IF` and
-`DF` are clear, and that the memory map has the magic, 20-byte entries,
-ends by `0x0600`, contains the conventional and both reserved regions
-above exactly, and is sorted without overlaps. It then lists every entry
-on COM1 as `mm <base> <length> <type>`, which `x86-mem-low` uses to
-check the extended-memory entry for `-m 8`. By hand:
+`make test` runs `x86-boot`, `x86-no-drive`, `x86-mem-low`,
+`x86-mem-high` and `x86-atapi`. In `x86-boot` the boot sector checks
+`DL`, that `IF` and `DF` are clear, and that the memory map has the
+magic, 20-byte entries, ends by `0x0600`, contains the conventional and
+both reserved regions above exactly, and is sorted without overlaps. It
+then lists every entry on COM1 as `mm <base> <length> <type>`, which
+`x86-mem-low` uses to check the extended-memory entry for `-m 8` and
+`x86-mem-high` to check the entry at 4 GB for `-m 5120`. By hand:
 
 ```bash
 make x86
