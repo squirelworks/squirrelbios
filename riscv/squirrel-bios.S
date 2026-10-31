@@ -1,6 +1,7 @@
 /* SquirrelBIOS — RISC-V firmware for QEMU virt
  * Prints banner on UART, then jumps in M-mode to the -kernel image QEMU
- * loaded, with the hart ID in a0 and the device tree in a1.
+ * loaded, with the hart ID in a0 and the device tree in a1. Any trap
+ * that reaches M-mode prints mcause and halts.
  * Original code.
  *
  * Build (from repo root):
@@ -34,6 +35,9 @@ _start:
         mv s1, a1                           /* device tree */
         mv s2, a2                           /* fw_dynamic_info */
         la sp, stack_top
+
+        la t0, trap
+        csrw mtvec, t0                      /* direct mode */
 
         call uart_init
         la a0, banner
@@ -72,6 +76,21 @@ halt:
 park:
         wfi
         j park
+
+/* Every trap lands here. Nothing is resumed: print the cause and halt,
+ * on the firmware stack, which the OS was free to reuse. */
+        .align 2
+trap:
+        la sp, stack_top
+        la a0, msg_trap
+        call puts
+        csrr a0, mcause
+        call puthex
+        li a0, '\n'
+        call putc
+        la a0, msg_halted
+        call puts
+        j halt
 
 /* ------------------------------------------------------------------ */
 /* NS16550A                                                            */
@@ -115,17 +134,13 @@ puts:
         addi sp, sp, 16
         ret
 
-/* a0 = value, printed as 0x and 16 hex digits */
+/* a0 = value, printed as 16 lowercase hex digits */
 puthex:
         addi sp, sp, -32
         sd ra, 0(sp)
         sd s4, 8(sp)
         sd s5, 16(sp)
         mv s4, a0
-        li a0, '0'
-        call putc
-        li a0, 'x'
-        call putc
         li s5, 60
 1:      srl a0, s4, s5
         andi a0, a0, 0xf
@@ -143,8 +158,9 @@ puthex:
         ret
 
 banner:         .asciz "SquirrelBIOS RISC-V\n"
-msg_jump:       .asciz "jumping to kernel at "
+msg_jump:       .asciz "jumping to kernel at 0x"
 msg_no_kernel:  .asciz "boot: no kernel image (pass -kernel to QEMU)\n"
+msg_trap:       .asciz "trap mcause="
 msg_halted:     .asciz "boot halted\n"
 
 .align 12
