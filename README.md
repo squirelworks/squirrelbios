@@ -72,6 +72,23 @@ system emulators on Ubuntu 24.04, then runs `make test` on every push
 and pull request. The serial logs are uploaded as the `smoke-logs`
 artifact.
 
+### Linux to a shell (RISC-V, optional)
+
+```bash
+make linux-shell                      # scripted check, prints PASS linux-shell
+tests/linux-shell.sh --interactive    # the same boot, with the shell for you
+```
+
+Boots Ubuntu 24.04's riscv64 kernel (6.8) on the RISC-V firmware with a
+tiny busybox initramfs, and passes when the shell prompt appears, a
+command typed at it runs, and `poweroff` makes QEMU exit with status 0.
+Nothing is added to the repo: the script downloads two pinned Ubuntu
+packages (about 40 MB, checked against their SHA-256) into
+`build/linux/` and builds the initramfs there. Needs `curl`, `cpio` and
+`qemu-system-riscv64`. It is not part of `make test` or CI.
+`LINUX_TIMEOUT` (default 300 seconds) and `LINUX_SMP` (default 1 hart)
+change the run; the serial log is `build/linux/linux-shell.log`.
+
 ## Run
 
 ```bash
