@@ -42,6 +42,7 @@ stand-in OS image from `tests/` and checks the serial output:
 | `x86-mem-low` | With `-m 8`, the map has 7 MB usable at 1 MB (the CMOS `0x30`/`0x31` path) |
 | `x86-mem-high` | With `-m 5120`, the map has a non-empty usable entry at 4 GB (CMOS `0x5B`–`0x5D`) |
 | `x86-atapi` | With a CD-ROM as primary master, the firmware reports ATAPI and halts |
+| `x86-bad-sector` | A sector without the `0xAA55` signature is reported and not jumped to |
 | `arm-boot` | The `-kernel` image runs with a valid device tree in `x0` and `x1`–`x3` = 0 |
 | `arm-no-kernel` | Without `-kernel`, the firmware reports it and halts |
 | `riscv-boot` | The `-kernel` image runs in S-mode (`next_mode=1`) on hart 0 (with `-smp 2`) with a valid device tree in `a1` and `a2 = 0`, and nothing traps |
