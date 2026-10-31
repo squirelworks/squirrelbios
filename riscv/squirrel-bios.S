@@ -665,7 +665,10 @@ dw_end\@:
  * refuses harts the platform does not have), and send_mask and wait_mask
  * skip it: it has no IPI to take, and enter_s fences before it runs S-mode
  * again.  Linux names stopped harts after CPU hotplug, because a CPU
- * stays in an address space's mask after it goes offline. */
+ * stays in an address space's mask after it goes offline.  A hart that
+ * has not reached park yet gets HSM_CHECKIN_WAIT to do so, as in sbi_hsm:
+ * on QEMU a secondary hart can still be on its way when the OS starts.
+ * Uses a2 as well. */
 check_mask:
         li t2, -1
         beq a1, t2, 3f                      /* every started hart */
@@ -679,12 +682,20 @@ check_mask:
         and t3, t3, a0
         bnez t3, sbi_invalid_param
 5:      li t4, 0
+        li a2, 0                            /* a2 = check-in deadline, once set */
 1:      jal t2, hart_selected
         beqz t5, 4f
         hart_entry
-        ld t5, HART_STATE(t3)
+6:      ld t5, HART_STATE(t3)
         li t6, HSM_ABSENT
-        beq t5, t6, sbi_invalid_param       /* never reached park */
+        bne t5, t6, 4f
+        li t6, CLINT_MTIME                  /* not at park yet: wait, as sbi_hsm does */
+        ld t5, 0(t6)
+        bnez a2, 7f
+        li t6, HSM_CHECKIN_WAIT
+        add a2, t5, t6
+7:      bltu t5, a2, 6b
+        j sbi_invalid_param                 /* never reached park */
 4:      addi t4, t4, 1
         li t5, MAX_HARTS
         bltu t4, t5, 1b

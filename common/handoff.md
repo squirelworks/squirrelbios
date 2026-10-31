@@ -536,7 +536,9 @@ Each secondary hart marks itself stopped when it reaches its park loop,
 which on QEMU can happen after the OS is already running. For a hart
 that has not done so yet, `hart_start` and `hart_get_status` wait up to
 100 ms (by `mtime`) for it, then treat it as absent: a hart ID with no
-hart behind it, or 8 and above, returns `SBI_ERR_INVALID_PARAM`.
+hart behind it, or 512 and above, returns `SBI_ERR_INVALID_PARAM`. An
+IPI or RFENCE mask that names such a hart waits the same way, once per
+call, before it decides the hart does not exist.
 
 `system_reset(a0 = type, a1 = reason)` takes type shutdown (`0`), cold
 reboot (`1`) or warm reboot (`2`), and reason no reason (`0`) or system
