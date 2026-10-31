@@ -226,6 +226,7 @@ entered through `mret`.
 | `satp` | S-mode entry: `0` (bare, translation off), written by the firmware on every entry, including a restart after `hart_stop`. M-mode entry: untouched (bare after reset). |
 | `mtvec` | Firmware trap handler, direct mode (below) |
 | `mscratch` | Firmware trap stack. Owned by the firmware. |
+| `menvcfg` | S-mode entry, on every hart: the firmware sets `CBIE` = `01` (`cbo.inval` acts as a flush), `CBCFE` (`cbo.clean`, `cbo.flush`), `CBZE` (`cbo.zero`) and `STCE` (S-mode `stimecmp`). A bit for an extension the hart lacks stays `0`, and a hart without `menvcfg` is left as it is. Other bits are untouched. M-mode entry: untouched. |
 | `mcounteren` | S-mode entry: `CY`, `TM` and `IR` set, so S-mode can read `cycle`, `time` and `instret`. M-mode entry: untouched. |
 | `mstatus.MIE`, `mstatus.SIE`, `mie` | `0` |
 | `a0` | Hart ID (`0`) |
@@ -326,9 +327,13 @@ function returns `SBI_ERR_NOT_SUPPORTED` (`-2`).
 | HSM | `0x48534D` | `hart_start` (0), `hart_stop` (1), `hart_get_status` (2) |
 | SRST | `0x53525354` | `system_reset` (0) |
 
-`set_timer(a0)` programs the calling hart's `mtimecmp` with the absolute
-time `a0`, clears a pending supervisor timer interrupt and enables the
-M-mode timer interrupt. When `mtime` reaches it, the firmware sets
+`set_timer(a0)`, on a hart with Sstc (`menvcfg.STCE` set, as on QEMU's
+default CPU), writes the absolute time `a0` to `stimecmp`: the
+supervisor timer interrupt is pending while `time >= stimecmp`, so it
+clears when S-mode sets a later time, and S-mode may write `stimecmp`
+itself instead of calling the SBI (Linux does). On a hart without Sstc,
+it programs the calling hart's `mtimecmp` with `a0`, clears a pending
+supervisor timer interrupt and enables the M-mode timer interrupt. When `mtime` reaches it, the firmware sets
 `mip.STIP` and pushes `mtimecmp` to the maximum, so the supervisor timer
 interrupt stays pending, once, until S-mode calls `set_timer` again. To
 stop the timer, call `set_timer` with a time that is never reached
@@ -421,7 +426,11 @@ prints `hart1=ok a1=5157000012345678`, the opaque value, and is then
 reported started), `riscv-hsm-stop` (with `-smp 2`, hart 1 is started,
 turns on Sv39 paging, calls `hart_stop` and is reported stopped, then is
 started again with `satp` and `sp` both 0, and `hart_stop` never
-returns), `riscv-dt` (with `-smp 2`, an image walks the device tree and
+returns), `riscv-envcfg` (an image runs `cbo.zero` on a cache block
+and checks it is zero, runs `cbo.clean`, `cbo.flush` and `cbo.inval`
+without a trap, and gets the supervisor timer interrupt from a direct
+`stimecmp` write, which goes away when it pushes `stimecmp` out),
+`riscv-dt` (with `-smp 2`, an image walks the device tree and
 finds `/reserved-memory` with `#address-cells` and `#size-cells` 2,
 `ranges`, and a child with `reg` over the firmware region and `no-map`;
 the `/memory` node, the header sizes and the end token are still right),

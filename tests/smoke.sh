@@ -176,6 +176,12 @@ run riscv-dt "dt: firmware region 0x80000000-0x801fffff reserved (no-map)|OS-ENT
     "$QEMU_RISCV" -M virt -smp 2 -bios riscv/squirrel-bios.bin \
     -kernel $TEST_DIR/riscv-dt.bin
 
+# RISC-V: cbo.zero, cbo.clean/flush/inval and a direct stimecmp timer work
+# from S-mode, as Linux uses them on this QEMU hart
+run riscv-envcfg "OS-ENTRY riscv envcfg|envcfg=ok|!envcfg=bad|!envcfg=trap|!trap mcause=" \
+    "$QEMU_RISCV" -M virt -bios riscv/squirrel-bios.bin \
+    -kernel $TEST_DIR/riscv-envcfg.bin
+
 # RISC-V: sbi_system_reset shutdown powers the machine off: QEMU exits
 # with status 0 after reset=ok, and the call never returns
 run riscv-srst "OS-ENTRY riscv srst|reset=ok|!reset=bad|!trap mcause=|@exit=0" \

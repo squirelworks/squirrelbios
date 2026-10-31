@@ -54,6 +54,7 @@ stand-in OS image from `tests/` and checks the serial output:
 | `riscv-hsm` | `sbi_hart_start` brings the parked hart 1 up in S-mode with the opaque value in `a1` (`hart1=ok a1=...`), and `hart_get_status` reports stopped, then started |
 | `riscv-hsm-stop` | A started hart 1 turns on paging, calls `sbi_hart_stop`, never returns from it, is reported stopped, and starts again with `satp` and `sp` at 0 |
 | `riscv-pmp` | A store, a load and a fetch in the firmware region (`0x80000000`–`0x801FFFFF`) each fault to the image's `stvec` (`pmp=ok`); its own memory and the SBI still work |
+| `riscv-envcfg` | `cbo.zero`, `cbo.clean`/`flush`/`inval` and a timer set by writing `stimecmp` work from S-mode (`envcfg=ok`) |
 | `riscv-dt` | The device tree the image gets reserves the firmware region (`/reserved-memory`, `no-map`) and still parses |
 | `riscv-srst` | `sbi_system_reset` refuses a bad type, reason or function, then a shutdown makes QEMU exit with status 0 (`reset=ok`, never `reset=bad`) |
 | `riscv-srst-reboot` | A cold reboot resets the machine, which `-no-reboot` turns into a QEMU exit with status 0 |
