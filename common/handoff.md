@@ -252,8 +252,8 @@ firmware prints `boot: no kernel image (pass -kernel to QEMU)`, then
 
 ### How to test
 
-`make test` runs `riscv-boot` (an image checks `a0` and the device tree,
-with `-smp 2`) and `riscv-no-kernel`. By hand:
+`make test` runs `riscv-boot` (an image checks `a0`, the device tree in
+`a1` and `a2 = 0`, with `-smp 2`) and `riscv-no-kernel`. By hand:
 
 ```bash
 make riscv
