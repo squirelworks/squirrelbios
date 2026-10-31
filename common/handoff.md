@@ -15,7 +15,7 @@ If the firmware and this file disagree, the firmware has a bug.
 | Memory description | Memory map at `ES:DI = 0x0000:0x0500` | Device tree `/memory` | Device tree `/memory` |
 | Console | COM1 `0x3F8`, 115200 8N1 | PL011 `0x09000000` | NS16550A `0x10000000`, 115200 8N1 |
 | Interrupts | `IF = 0` | `DAIF` masked | `mstatus.MIE`/`SIE` = 0, `mie = 0` |
-| CPUs running | Boot CPU only | Boot CPU only | Hart 0; others through `sbi_hart_start` |
+| CPUs running | Boot CPU only | Boot CPU only | The boot hart (`fw_dynamic_info.boot_hart`, else hart 0); others through `sbi_hart_start` |
 | Firmware services | None | None | SBI from S-mode: base, TIME, IPI, RFENCE, HSM, SRST |
 
 ## Rules for every architecture
@@ -548,6 +548,9 @@ prints `ipi=ok` from its software-interrupt handler), `riscv-ipi-smp`
 harts fence each other 20000 times at once without the firmware
 deadlocking), `riscv-fence-smp3` (with `-smp 3`, harts 0 and 1 both
 fence hart 2 20000 times at once, then hart 2 takes an IPI from each),
+`riscv-boot-hart` (with `-smp 4` and a shim that hands the firmware
+QEMU's `fw_dynamic_info` with `boot_hart = 2`: hart 2 enters the image,
+HSM reports it started and hart 0 stopped, and it starts hart 0),
 `riscv-harts` (with `-smp 64`, hart 0 starts harts 1 to 63 one at a
 time, `hart_get_status` reports each started, and one `remote_fence_i`
 whose mask names all 64 harts succeeds: `harts=64`),

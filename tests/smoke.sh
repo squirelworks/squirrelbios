@@ -243,6 +243,16 @@ run riscv-harts "OS-ENTRY riscv harts|harts=64|!harts=bad|!trap mcause=" \
     "$QEMU_RISCV" -M virt -smp 64 -bios riscv/squirrel-bios.bin \
     -kernel $TEST_DIR/riscv-harts.bin
 
+# RISC-V: fw_dynamic_info names hart 2 as the boot hart (a shim stands in
+# for QEMU's reset code, which always says 0); hart 2 enters the image
+# and then starts hart 0
+run riscv-boot-hart "OS-ENTRY riscv hart=ok dtb=ok a2=ok|hart0 started from the boot hart|!boot-hart=bad|!trap mcause=" \
+    "$QEMU_RISCV" -M virt -smp 4 -bios riscv/squirrel-bios.bin \
+    -kernel $TEST_DIR/riscv-kernel-hart2.bin \
+    -device loader,file=$TEST_DIR/riscv-boot-hart.bin,addr=0x81000000,force-raw=on \
+    -device loader,addr=0x81000000,cpu-num=0 -device loader,addr=0x81000000,cpu-num=1 \
+    -device loader,addr=0x81000000,cpu-num=2 -device loader,addr=0x81000000,cpu-num=3
+
 # RISC-V: a store, a load and a fetch in the firmware region fault to the
 # image's stvec; its own memory and the SBI still work
 run riscv-pmp "OS-ENTRY riscv pmp|pmp=ok|!pmp=bad|!trap mcause=" \
