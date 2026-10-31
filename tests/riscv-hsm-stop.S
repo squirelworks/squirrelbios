@@ -1,10 +1,11 @@
 /* Smoke-test image for SquirrelBIOS RISC-V, linked at 0x80200000.
  * Run with -smp 2. Hart 0 starts hart 1, which prints "hart1 up a1=...",
- * turns on Sv39 paging (an identity map) the first time, and calls
- * hart_stop with paging on. Hart 0 waits for hart_get_status to report
+ * turns on Sv39 paging (an identity map) and sets a timer that is already
+ * due the first time, and calls hart_stop with paging on. Hart 0 waits for hart_get_status to report
  * hart 1 stopped, then starts it a second time with another opaque value,
  * waits for it to stop again and prints stop=ok. Hart 1 prints stop=bad if
- * it is started with satp or sp not 0, or if hart_stop ever returns.
+ * it is started with satp or sp not 0 or a supervisor timer interrupt
+ * pending, or if hart_stop ever returns.
  * Original code.
  */
 
@@ -13,6 +14,8 @@
         .equ UART_BASE, 0x10000000
 
         .equ SBI_EXT_HSM,       0x48534d
+        .equ SBI_EXT_TIME,      0x54494d45
+        .equ SIP_STIP,          (1 << 5)
         .equ HSM_STOPPED,       1
         .equ WAIT,              0x1000000   /* polls before giving up */
         .equ PTE_LEAF_RWX,      0xcf        /* D A X W R V */
@@ -70,6 +73,10 @@ hart1:
         bnez t0, hart1_fail
         la a0, msg_sp_bad
         bnez sp, hart1_fail
+        csrr t0, sip
+        andi t0, t0, SIP_STIP
+        la a0, msg_stip_bad
+        bnez t0, hart1_fail
         la a0, msg_hart1
         call puts
         addi a0, s1, '0'
@@ -85,6 +92,10 @@ hart1:
         or t0, t0, t1
         csrw satp, t0
         sfence.vma
+        li a0, 0                            /* a timer that is due now */
+        li a7, SBI_EXT_TIME
+        li a6, 0                            /* set_timer */
+        ecall
 1:      li a7, SBI_EXT_HSM
         li a6, 1                            /* hart_stop: does not return */
         ecall
@@ -108,6 +119,7 @@ msg_hart1:      .asciz "hart1 up a1="
 msg_returned:   .asciz "stop=bad hart_stop returned\n"
 msg_satp_bad:   .asciz "stop=bad hart 1 started with satp not 0\n"
 msg_sp_bad:     .asciz "stop=bad hart 1 started with sp not 0\n"
+msg_stip_bad:   .asciz "stop=bad hart 1 started with a timer interrupt pending\n"
 msg_start_bad:  .asciz "stop=bad hart_start failed\n"
 msg_status_bad: .asciz "stop=bad hart_get_status failed\n"
 msg_timeout:    .asciz "stop=bad hart 1 never reported stopped\n"
