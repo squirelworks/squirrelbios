@@ -1,7 +1,9 @@
 /* Smoke-test image for SquirrelBIOS RISC-V, linked at 0x80200000.
- * Probes IPI, then asks for an IPI to hart 1, which is parked and not
- * started: that must fail and raise nothing. Then IPIs itself (a0 = 1,
- * a1 = its hart id) and prints ipi=ok from its software-interrupt handler.
+ * Probes IPI, then asks for an IPI to hart 1, which is parked (stopped):
+ * a stopped hart is valid, so that must succeed and raise nothing here.
+ * An IPI to hart 2, which the machine does not have (-smp 2), must fail.
+ * Then IPIs itself (a0 = 1, a1 = its hart id) and prints ipi=ok from its
+ * software-interrupt handler.
  * Original code.
  */
 
@@ -29,17 +31,27 @@ _start:
         la a0, msg_probe_bad
         beqz a1, fail
 
-        li a0, 1                            /* hart 1 only: not started */
+        li a0, 1                            /* hart 1 only: stopped */
         li a1, 1
         li a7, SBI_EXT_IPI
         li a6, 0
         ecall
         mv t0, a0
-        la a0, msg_other_bad
-        beqz t0, fail
+        la a0, msg_stopped_bad
+        bnez t0, fail
         csrr t0, sip
         andi t0, t0, SIP_SSIP
+        la a0, msg_raised_bad
         bnez t0, fail
+
+        li a0, 1                            /* hart 2: not on this machine */
+        li a1, 2
+        li a7, SBI_EXT_IPI
+        li a6, 0
+        ecall
+        mv t0, a0
+        la a0, msg_absent_bad
+        beqz t0, fail
 
         la t0, strap
         csrw stvec, t0
@@ -86,6 +98,8 @@ puts:
 msg_entry:      .asciz "OS-ENTRY riscv ipi\n"
 msg_ok:         .asciz "ipi=ok\n"
 msg_probe_bad:  .asciz "ipi=bad probe\n"
-msg_other_bad:  .asciz "ipi=bad hart 1 was accepted\n"
+msg_stopped_bad: .asciz "ipi=bad stopped hart 1 was refused\n"
+msg_raised_bad: .asciz "ipi=bad the IPI to hart 1 came here\n"
+msg_absent_bad: .asciz "ipi=bad hart 2 was accepted\n"
 msg_self_bad:   .asciz "ipi=bad send_ipi failed\n"
 msg_cause_bad:  .asciz "ipi=bad scause\n"
