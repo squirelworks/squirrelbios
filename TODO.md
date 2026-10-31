@@ -83,6 +83,9 @@ until that extension's box is checked.
 - [ ] `riscv-linux-doc` — Document the QEMU command that tries a Linux `Image` on this SBI.
   - Acceptance: `riscv/README.md` gives the command line, lists the extensions `probe_extension` now reports, and says a Linux image is not part of `make test`. No kernel binary is added to the repo. Depends on: `riscv-sbi-time`, `riscv-sbi-ipi`, `riscv-sbi-rfence`, `riscv-sbi-hsm`, `riscv-sbi-srst`, `riscv-dt-reserve`, `riscv-menvcfg`.
 
+- [x] `riscv-linux-shell` — Check that a Linux kernel boots on this SBI all the way to a shell.
+  - Acceptance: `make linux-shell` (not part of `make test`) downloads pinned Ubuntu 24.04 riscv64 `linux-image` and `busybox-static` packages, checks their SHA-256, builds a busybox initramfs in `build/linux/`, and boots it. It prints `PASS linux-shell` when the prompt appears, `echo linux-shell=$((40+2))` prints `linux-shell=42`, and `poweroff` makes QEMU exit with status 0. No kernel, busybox or initramfs is added to the repo.
+
 ## 3. x86: load more than one sector
 
 - [ ] `x86-boot-sig` — Refuse to jump when the boot sector has no `0xAA55` signature.

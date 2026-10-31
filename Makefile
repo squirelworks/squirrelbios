@@ -2,6 +2,7 @@
 #
 #   make            build all three firmware images
 #   make test       build, then boot each one under QEMU (tests/smoke.sh)
+#   make linux-shell  boot a downloaded Linux kernel on riscv to a busybox shell
 #   make clean      remove everything the build and tests produce
 #
 # Cross tools can be overridden, e.g. make AARCH64=aarch64-elf-
@@ -24,7 +25,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/arm-kernel.bin $(TEST_DIR)/ris
              $(TEST_DIR)/riscv-srst-fail.bin $(TEST_DIR)/riscv-pmp.bin \
              $(TEST_DIR)/riscv-dt.bin $(TEST_DIR)/riscv-envcfg.bin
 
-.PHONY: all x86 arm riscv test clean
+.PHONY: all x86 arm riscv test linux-shell clean
 .DELETE_ON_ERROR:
 
 all: x86 arm riscv
@@ -172,6 +173,11 @@ $(SRST_IMAGES:=.bin): %.bin: %.elf
 
 test: all $(TEST_BINS)
 	tests/smoke.sh
+
+# Optional, not part of make test: downloads an Ubuntu riscv64 kernel and
+# busybox into build/linux (about 40 MB, once) and checks for a shell prompt
+linux-shell: riscv
+	tests/linux-shell.sh
 
 clean:
 	rm -f $(X86_ROM) \
