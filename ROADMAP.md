@@ -217,6 +217,9 @@ The work, roughly in order:
 6. **Network boot.** Thousands of diskless nodes start from the network.
    Load a kernel and initrd over virtio-net (a small original TFTP-style
    loader), or document the hand-off to a kernel that does it itself.
+   *(Decided: the OS does it; the firmware starts the small first
+   kernel that is already there. See "Network boot" in
+   `common/handoff.md`.)*
 7. **Remote management and error reporting.** A way to power-cycle and
    watch a node from outside (QEMU's monitor and the SBI SRST path are
    the stand-ins), and a place to report machine-check style hardware
