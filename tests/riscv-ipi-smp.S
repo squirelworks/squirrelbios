@@ -19,7 +19,7 @@
         .equ CAUSE_S_SOFT,      (1 << 63) | 1
         .equ SIE_SSIE,          (1 << 1)
         .equ SSTATUS_SIE,       (1 << 1)
-        .equ WAIT,              0x1000000   /* polls before giving up */
+        .equ WAIT,              50000000    /* ticks of time before giving up: 5 s at virt's 10 MHz */
         .equ ROUNDS,            20000
 
 /* ecall \ext function \fid with a0 = \mask, a1 = \base */
@@ -36,11 +36,13 @@
         li s11, \n
         la t0, \label
         li t1, \value
-        li t2, WAIT
+        rdtime t2
+        li t4, WAIT
+        add t2, t2, t4                      /* deadline */
 1:      lw t3, 0(t0)
         beq t3, t1, 2f
-        addi t2, t2, -1
-        bnez t2, 1b
+        rdtime t4
+        bltu t4, t2, 1b
         j bad
 2:
 .endm
