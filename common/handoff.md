@@ -213,11 +213,24 @@ Linux arm64 boot protocol, so a raw Linux `Image` can be booted the same way.
 |-------|----------|
 | `0x40000000`–`0x400FFFFF` | Device tree from QEMU |
 | `0x40100000`–`0x401FFFFF` | Firmware stack and scratch, free after the jump |
-| `0x40200000`–… | The image, `-kernel` size bytes |
+| `0x40200000`–… | The image, `-kernel` size bytes (or at the address its `Image` header asks for) |
+| next 4 KB boundary after the image's footprint | The `-initrd`, when QEMU was given one |
 
 RAM size and layout come from the device tree (`/memory`).
 
-### Load address
+### Initrd
+
+When fw_cfg reports an initrd (key `0x0b`, its size, is non-zero), the
+firmware reads it (key `0x12`) to the first 4 KB boundary after the
+image's footprint (`image_size` when the `Image` header gives one,
+otherwise the file size), so it overlaps neither the kernel, its BSS, nor
+the device tree. It then adds `linux,initrd-start` and
+`linux,initrd-end` (64-bit each, end exclusive) to `/chosen` and prints
+`initrd at 0x<start>, end 0x<end>`. The two properties go first in
+`/chosen`; the rest of the tree moves up by 40 bytes inside the blob's
+`totalsize`, and their names are appended to the strings block. With no
+initrd the device tree is left exactly as QEMU provided it.
+
 
 If the image starts with a Linux arm64 `Image` header (magic bytes
 `41 52 4D 64` at offset `0x38`), the firmware follows it:
@@ -266,6 +279,10 @@ The firmware prints one of these on the PL011, then `boot halted`, and halts:
 | `no kernel image (pass -kernel to QEMU)` | fw_cfg reports a kernel size of 0 |
 | `kernel does not fit in RAM` | The image would run past the end of RAM or start below `0x40200000`. Nothing is loaded. |
 | `Image header image_size is smaller than the image` | The `Image` header's non-zero `image_size` is below the number of bytes fw_cfg holds |
+| `initrd does not fit in RAM` | The initrd, placed after the image, would run past the end of RAM |
+| `fw_cfg DMA read of the initrd failed` | The initrd transfer reported an error or did not complete |
+| `device tree has no /chosen for the initrd` | There is an initrd but no device tree, or the tree has no `/chosen` |
+| `device tree has no room for the initrd` | The blob's `totalsize` has no room for the two properties, or its strings block is not last |
 | `RAM size not found (fw_cfg or device tree /memory)` | fw_cfg key `0x03` is 0 and there is no device tree, or it has no `/memory` range at `0x40000000` |
 | `fw_cfg DMA read of the kernel failed` | The DMA transfer reported an error |
 | `fw_cfg DMA read of the kernel did not complete` | The transfer neither finished nor reported an error within 1 s (by the generic counter, `CNTPCT_EL0` against `CNTFRQ_EL0`) |
@@ -280,7 +297,12 @@ under `build/tests/` and never committed, is refused), `arm-image-fixed`
 (an `Image` header with placement fixed and `text_offset = 0x400000` runs
 at `0x40400000`), `arm-image-reloc` (bit 3 set, the same `text_offset`,
 runs at `0x40200000`), `arm-image-short` (a header whose `image_size` is
-below the file size is refused) and `arm-no-kernel`. By hand:
+below the file size is refused), `arm-initrd` (with `-initrd`, the
+firmware reports where it put it and the image still finds a valid device
+tree) and `arm-no-kernel`. A real check, by hand: decompress an arm64
+`vmlinuz`, build a busybox initramfs, and boot both with
+`-kernel Image -initrd initrd.gz -append console=ttyAMA0`; Ubuntu's 6.11
+kernel unpacks it and runs its `/init`. By hand:
 
 ```bash
 make arm

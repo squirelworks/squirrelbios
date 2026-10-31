@@ -25,6 +25,8 @@
         .equ FWCFG_RAM_SIZE,    0x03        /* u64, bytes of RAM at RAM_BASE */
         .equ FWCFG_KERNEL_SIZE, 0x08
         .equ FWCFG_KERNEL_DATA, 0x11
+        .equ FWCFG_INITRD_SIZE, 0x0b        /* u32 */
+        .equ FWCFG_INITRD_DATA, 0x12
         .equ FWCFG_ID_DMA,      (1 << 1)
         .equ FWCFG_DMA_ERROR,   0x01
         .equ FWCFG_DMA_READ,    0x02
@@ -145,6 +147,21 @@ _start:
         bl check_fit
         cbnz w0, too_big
 
+        /* Initrd: x25 = size (0 = none), x26 = where it goes, the first
+         * 4 KB boundary after the kernel's footprint */
+        mov w0, #FWCFG_INITRD_SIZE
+        bl fwcfg_select
+        ldr w25, [x19, #FWCFG_DATA]
+        cbz w25, 1f
+        add x26, x23, x24
+        add x26, x26, #0xfff
+        and x26, x26, #~0xfff
+        mov x0, x26
+        mov x1, x25
+        bl check_fit
+        cbnz w0, initrd_too_big
+        cbz x22, no_chosen                  /* nowhere to record it */
+1:
         mov x0, x23
         mov w1, w20
         mov w2, #FWCFG_KERNEL_DATA
@@ -153,6 +170,30 @@ _start:
         b.eq load_timeout
         cbnz w0, load_failed
 
+        cbz w25, 2f
+        mov x0, x26
+        mov w1, w25
+        mov w2, #FWCFG_INITRD_DATA
+        bl fwcfg_dma_read
+        cbnz w0, initrd_failed
+        mov x0, x22
+        mov x1, x26
+        add x2, x26, x25
+        bl fdt_set_initrd
+        cmp w0, #1
+        b.eq no_chosen
+        cbnz w0, no_dt_room
+        adr x0, msg_initrd
+        bl puts
+        mov x0, x26
+        bl puthex
+        adr x0, msg_initrd_end
+        bl puts
+        add x0, x26, x25
+        bl puthex
+        adr x0, msg_nl
+        bl puts
+2:
         adr x0, msg_loaded
         bl puts
         mov x0, x23
@@ -186,6 +227,18 @@ no_ram_size:
         b fail
 bad_image_size:
         adr x0, msg_bad_image_size
+        b fail
+initrd_too_big:
+        adr x0, msg_initrd_too_big
+        b fail
+initrd_failed:
+        adr x0, msg_initrd_failed
+        b fail
+no_chosen:
+        adr x0, msg_no_chosen
+        b fail
+no_dt_room:
+        adr x0, msg_no_dt_room
         b fail
 load_failed:
         adr x0, msg_load_failed
@@ -362,6 +415,163 @@ fdt_ram_size:
 6:      ldp x29, x30, [sp], #16
         ret
 
+/* x0 = device tree, x1 = initrd start, x2 = initrd end.
+ * Adds linux,initrd-start and linux,initrd-end (u64 each) to /chosen.
+ * The two properties go right after the node's name; the rest of the
+ * structure block and the strings block move up by 40 bytes, and the
+ * two names are appended to the strings. That needs the strings block to
+ * be last and the blob's totalsize to have the room (QEMU's blob is 1 MB
+ * with a few KB used). Byte and aligned word accesses only, since with
+ * the MMU off all memory is Device memory.
+ * Returns w0 = 0 done, 1 no /chosen, 2 no room. */
+fdt_set_initrd:
+        stp x29, x30, [sp, #-32]!
+        mov x29, sp
+        stp x1, x2, [sp, #16]
+        mov x17, x0                         /* blob */
+        bl fdt_chosen
+        ldp x1, x2, [sp, #16]
+        cbz x0, 9f
+        mov x8, x0                          /* P: insertion point */
+        ldr w9, [x17, #12]                  /* off_dt_strings */
+        rev w9, w9
+        ldr w10, [x17, #32]                 /* size_dt_strings */
+        rev w10, w10
+        add x11, x17, x9                    /* strings */
+        add x12, x11, x10                   /* end of strings */
+        ldr w13, [x17, #4]                  /* totalsize */
+        rev w13, w13
+        add x13, x17, x13
+        cmp x11, x8                         /* strings must follow P */
+        b.lo 8f
+        add x14, x12, #(INITRD_PROPS + INITRD_NAMES)
+        cmp x14, x13
+        b.hi 8f
+
+        /* Move [P, end of strings) up by INITRD_PROPS, last byte first */
+        mov x14, x12
+1:      cmp x14, x8
+        b.ls 2f
+        ldrb w15, [x14, #-1]!
+        strb w15, [x14, #INITRD_PROPS]
+        b 1b
+2:
+        /* Append the names to the moved strings block */
+        add x14, x12, #INITRD_PROPS
+        adr x15, str_initrd_start
+        mov x16, #INITRD_NAMES
+3:      ldrb w4, [x15], #1
+        strb w4, [x14], #1
+        subs x16, x16, #1
+        b.ne 3b
+
+        /* Two FDT_PROP entries at P: token, len 8, nameoff, value (BE) */
+        mov w4, #FDT_PROP
+        rev w4, w4
+        mov w5, #8
+        rev w5, w5
+        str w4, [x8, #0]
+        str w5, [x8, #4]
+        rev w6, w10                         /* nameoff: old strings size */
+        str w6, [x8, #8]
+        lsr x6, x1, #32
+        rev w6, w6
+        str w6, [x8, #12]
+        rev w6, w1
+        str w6, [x8, #16]
+        str w4, [x8, #20]
+        str w5, [x8, #24]
+        add w6, w10, #STR_INITRD_START_LEN
+        rev w6, w6
+        str w6, [x8, #28]
+        lsr x6, x2, #32
+        rev w6, w6
+        str w6, [x8, #32]
+        rev w6, w2
+        str w6, [x8, #36]
+
+        /* Header: strings moved and grew, structure block grew */
+        add w9, w9, #INITRD_PROPS
+        rev w9, w9
+        str w9, [x17, #12]
+        add w10, w10, #INITRD_NAMES
+        rev w10, w10
+        str w10, [x17, #32]
+        ldr w9, [x17, #36]                  /* size_dt_struct */
+        rev w9, w9
+        add w9, w9, #INITRD_PROPS
+        rev w9, w9
+        str w9, [x17, #36]
+        mov w0, #0
+        b 10f
+8:      mov w0, #2
+        b 10f
+9:      mov w0, #1
+10:     ldp x29, x30, [sp], #32
+        ret
+
+/* x0 = device tree.  Returns x0 = the address right after the name (and
+ * its padding) of the root's child "chosen", or 0.  Uses x1-x16. */
+fdt_chosen:
+        stp x29, x30, [sp, #-16]!
+        mov x29, sp
+        ldr w1, [x0, #8]
+        rev w1, w1
+        add x1, x0, x1                      /* cursor */
+        ldr w3, [x0, #4]
+        rev w3, w3
+        add x3, x0, x3                      /* end of blob */
+        mov x4, #0                          /* depth */
+.Lc_tok:
+        add x8, x1, #4
+        cmp x8, x3
+        b.hi .Lc_none
+        ldr w8, [x1], #4
+        rev w8, w8
+        cmp w8, #FDT_BEGIN_NODE
+        b.eq .Lc_begin
+        cmp w8, #FDT_END_NODE
+        b.eq .Lc_end
+        cmp w8, #FDT_NOP
+        b.eq .Lc_tok
+        cmp w8, #FDT_PROP
+        b.ne .Lc_none
+        add x8, x1, #8
+        cmp x8, x3
+        b.hi .Lc_none
+        ldr w9, [x1], #8                    /* len; skip nameoff too */
+        rev w9, w9
+        add x1, x1, x9
+        add x1, x1, #3
+        and x1, x1, #~3
+        b .Lc_tok
+.Lc_begin:
+        add x4, x4, #1
+        mov x7, #0                          /* 1: this is /chosen */
+        cmp x4, #2
+        b.ne 3f
+        mov x12, x1
+        adr x13, str_chosen
+        bl fdt_streq
+        cset x7, eq
+3:      cmp x1, x3
+        b.hs .Lc_none
+        ldrb w14, [x1], #1
+        cbnz w14, 3b
+        add x1, x1, #3
+        and x1, x1, #~3
+        cbz x7, .Lc_tok
+        mov x0, x1
+        b 4f
+.Lc_end:
+        cbz x4, .Lc_none
+        sub x4, x4, #1
+        b .Lc_tok
+.Lc_none:
+        mov x0, #0
+4:      ldp x29, x30, [sp], #16
+        ret
+
 /* x11 = big-endian cells, x16 = 1 or 2.  x15 = value, x11 advanced. */
 fdt_cells:
         ldr w15, [x11], #4
@@ -387,6 +597,12 @@ str_memory:     .asciz "memory"
 str_addr_cells: .asciz "#address-cells"
 str_size_cells: .asciz "#size-cells"
 str_reg:        .asciz "reg"
+str_chosen:     .asciz "chosen"
+str_initrd_start: .asciz "linux,initrd-start"
+str_initrd_end:   .asciz "linux,initrd-end"
+        .equ STR_INITRD_START_LEN, 19
+        .equ INITRD_NAMES, 19 + 17          /* both names with their NULs */
+        .equ INITRD_PROPS, 2 * 20           /* two props with 8-byte values */
         .balign 4
 
 /* MMU and D-cache off, little-endian, at the EL QEMU started us in
@@ -525,6 +741,13 @@ puts:
 banner:         .asciz "SquirrelBIOS ARM\n"
 msg_loaded:     .asciz "kernel loaded at 0x"
 msg_jumping:    .asciz ", jumping\n"
+msg_initrd:     .asciz "initrd at 0x"
+msg_initrd_end: .asciz ", end 0x"
+msg_nl:         .asciz "\n"
+msg_initrd_too_big: .asciz "boot: initrd does not fit in RAM\n"
+msg_initrd_failed: .asciz "boot: fw_cfg DMA read of the initrd failed\n"
+msg_no_chosen:  .asciz "boot: device tree has no /chosen for the initrd\n"
+msg_no_dt_room: .asciz "boot: device tree has no room for the initrd\n"
 msg_bad_image_size: .asciz "boot: Image header image_size is smaller than the image\n"
 msg_no_fwcfg:   .asciz "boot: fw_cfg with DMA not found\n"
 msg_no_kernel:  .asciz "boot: no kernel image (pass -kernel to QEMU)\n"

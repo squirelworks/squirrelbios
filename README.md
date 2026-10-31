@@ -49,6 +49,7 @@ stand-in OS image from `tests/` and checks the serial output:
 | `arm-boot-el2` | The same at EL2 (`virtualization=on`) |
 | `arm-too-big` | An image that would run past the end of RAM is refused before it is loaded |
 | `arm-image-fixed`, `arm-image-reloc` | A Linux `Image` header is honoured: fixed placement loads at RAM base + `text_offset`, relocatable stays at `0x40200000` |
+| `arm-initrd` | With `-initrd`, the initrd is loaded after the kernel and recorded in the device tree `/chosen` |
 | `arm-image-short` | An `Image` header whose `image_size` is below the file size is refused |
 | `arm-no-kernel` | Without `-kernel`, the firmware reports it and halts |
 | `riscv-boot` | The `-kernel` image runs in S-mode (`next_mode=1`) on hart 0 (with `-smp 2`) with a valid device tree in `a1` and `a2 = 0`, and nothing traps |
