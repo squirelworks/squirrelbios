@@ -1,8 +1,9 @@
 /* SquirrelBIOS — RISC-V firmware for QEMU virt
  * Prints banner on UART, then enters the -kernel image QEMU loaded in the
  * mode QEMU asked for (S-mode for -kernel, through mret), with the hart ID
- * in a0 and the device tree in a1. Any trap that reaches M-mode prints
- * mcause and halts.
+ * in a0 and the device tree in a1. An ecall from S-mode is an SBI call
+ * (sbi_call below). Any other trap that reaches M-mode prints mcause and
+ * halts.
  * Original code.
  *
  * Build (from repo root):
@@ -42,6 +43,16 @@
         /* Supervisor software, timer and external interrupts */
         .equ MIDELEG_S, (1 << 1) | (1 << 5) | (1 << 9)
 
+        .equ CAUSE_ECALL_S,     9
+
+        /* SBI: a7 = extension, a6 = function, a0-a5 = arguments.
+         * Returns a0 = error, a1 = value. */
+        .equ SBI_EXT_BASE,      0x10
+        .equ SBI_SPEC_VERSION,  0x01000000  /* 1.0 */
+        .equ SBI_IMPL_ID,       0x5351      /* "SQ"; not BBL (0) or OpenSBI (1) */
+        .equ SBI_IMPL_VERSION,  1
+        .equ SBI_ERR_NOT_SUPPORTED, -2
+
 .global _start
 _start:
         csrw mie, zero
@@ -55,6 +66,8 @@ _start:
 
         la t0, trap
         csrw mtvec, t0                      /* direct mode */
+        la t0, trap_stack_top
+        csrw mscratch, t0                   /* M-mode stack for traps */
 
         call uart_init
         la a0, banner
@@ -144,10 +157,83 @@ park:
         wfi
         j park
 
-/* Every trap lands here. Nothing is resumed: print the cause and halt,
- * on the firmware stack, which the OS was free to reuse. */
+/* Every trap lands here. mscratch holds the trap stack while the OS runs,
+ * so the OS's sp is swapped out first and every register but a0 and a1
+ * comes back unchanged. An ecall from S-mode is an SBI call. Anything else
+ * is not resumed: print the cause and halt. */
         .align 2
 trap:
+        csrrw sp, mscratch, sp
+        sd t0, 0(sp)
+        sd t1, 8(sp)
+        csrr t0, mcause
+        li t1, CAUSE_ECALL_S
+        bne t0, t1, trap_fatal
+
+/* SBI dispatcher.  t0 and t1 are saved. A function sets a1 and goes to
+ * sbi_ok, or sets a0 to an error and goes to sbi_ret. */
+sbi_call:
+        li t0, SBI_EXT_BASE
+        beq a7, t0, sbi_base
+sbi_not_supported:
+        li a0, SBI_ERR_NOT_SUPPORTED
+        j sbi_ret
+sbi_ok:
+        li a0, 0
+sbi_ret:
+        csrr t0, mepc
+        addi t0, t0, 4                      /* past the ecall */
+        csrw mepc, t0
+        ld t0, 0(sp)
+        ld t1, 8(sp)
+        csrrw sp, mscratch, sp
+        mret
+
+/* Base extension: a6 = function */
+sbi_base:
+        beqz a6, sbi_get_spec_version
+        li t0, 1
+        beq a6, t0, sbi_get_impl_id
+        li t0, 2
+        beq a6, t0, sbi_get_impl_version
+        li t0, 3
+        beq a6, t0, sbi_probe_extension
+        li t0, 4
+        beq a6, t0, sbi_get_mvendorid
+        li t0, 5
+        beq a6, t0, sbi_get_marchid
+        li t0, 6
+        beq a6, t0, sbi_get_mimpid
+        j sbi_not_supported
+
+sbi_get_spec_version:
+        li a1, SBI_SPEC_VERSION
+        j sbi_ok
+sbi_get_impl_id:
+        li a1, SBI_IMPL_ID
+        j sbi_ok
+sbi_get_impl_version:
+        li a1, SBI_IMPL_VERSION
+        j sbi_ok
+sbi_get_mvendorid:
+        csrr a1, mvendorid
+        j sbi_ok
+sbi_get_marchid:
+        csrr a1, marchid
+        j sbi_ok
+sbi_get_mimpid:
+        csrr a1, mimpid
+        j sbi_ok
+
+/* a0 = extension ID.  a1 = 1 if implemented, 0 if not. */
+sbi_probe_extension:
+        li t0, SBI_EXT_BASE
+        li a1, 0
+        bne a0, t0, sbi_ok
+        li a1, 1
+        j sbi_ok
+
+trap_fatal:
         la sp, stack_top
         la a0, msg_trap
         call puts
@@ -235,3 +321,5 @@ msg_halted:     .asciz "boot halted\n"
 .align 12
     .skip 4096
 stack_top:
+    .skip 256
+trap_stack_top:

@@ -16,13 +16,14 @@ If the firmware and this file disagree, the firmware has a bug.
 | Console | COM1 `0x3F8`, 115200 8N1 | PL011 `0x09000000` | NS16550A `0x10000000` |
 | Interrupts | `IF = 0` | `DAIF` masked | `mstatus.MIE`/`SIE` = 0, `mie = 0` |
 | CPUs running | Boot CPU only | Boot CPU only | Hart 0 only |
+| Firmware services | None | None | SBI from S-mode: base extension only |
 
 ## Rules for every architecture
 
 The firmware guarantees:
 
 1. It does only early init, the image load and the jump. Nothing runs
-   after the jump.
+   after the jump, except the RISC-V SBI when the OS calls it.
 2. Interrupts are masked at the CPU on entry.
 3. The serial console is initialised and has already printed the banner,
    so the OS can write to it straight away.
@@ -31,9 +32,10 @@ The firmware guarantees:
 
 The OS must not assume:
 
-1. **Firmware services.** There are none after hand-off: no BIOS
-   interrupts on x86 (`INT 10h`, `INT 13h`, `INT 15h` do not exist), no
-   UEFI, no SBI. Anything the OS needs, it drives itself.
+1. **Firmware services.** There are none after hand-off, apart from the
+   RISC-V SBI listed below: no BIOS interrupts on x86 (`INT 10h`,
+   `INT 13h`, `INT 15h` do not exist), and no UEFI. Anything else the OS
+   needs, it drives itself.
 2. **A usable stack.** Set your own stack before using it heavily.
 3. **Trap or interrupt vectors.** Install your own before unmasking
    interrupts.
@@ -222,6 +224,7 @@ entered through `mret`.
 | `mideleg` | S-mode entry: supervisor software, timer and external interrupts (`SSIP`, `STIP`, `SEIP`). M-mode entry: untouched. |
 | `satp` | Untouched (bare after reset) |
 | `mtvec` | Firmware trap handler, direct mode (below) |
+| `mscratch` | Firmware trap stack. Owned by the firmware. |
 | `mstatus.MIE`, `mstatus.SIE`, `mie` | `0` |
 | `a0` | Hart ID (`0`) |
 | `a1` | Device tree address, as QEMU passed it to the firmware |
@@ -232,7 +235,7 @@ entered through `mret`.
 
 | Range | Contents |
 |-------|----------|
-| `0x80000000`–`0x801FFFFF` | Firmware image and stack, free after the jump |
+| `0x80000000`–`0x801FFFFF` | Firmware image, stack and SBI. Stays in use after the jump: do not overwrite it. The device tree does not reserve it. |
 | `0x80200000`–… | The image |
 | `a1` | Device tree, placed by QEMU near the top of RAM |
 
@@ -246,9 +249,9 @@ RAM size and layout come from the device tree (`/memory`).
 | Other harts | Parked in `wfi` with interrupts off. They are never released. |
 | CLINT, PLIC | Not touched |
 
-Do not assume: an SBI (there is none, so a Linux kernel will not boot
-this way), a set `stvec` (install one before the first delegated trap),
-or secondary harts being available.
+Do not assume: SBI extensions other than base (a Linux kernel still
+needs TIME and more), a set `stvec` (install one before the first
+delegated trap), or secondary harts being available.
 
 ### Traps
 
@@ -256,13 +259,37 @@ An image entered in S-mode takes the delegated exceptions and interrupts
 above at its own `stvec`. Everything else, `ecall` from S-mode included,
 reaches M-mode.
 
-`mtvec` points at a firmware handler, so a trap that reaches M-mode is
-reported instead of jumping to address 0. The handler does not return.
-It prints `trap mcause=` and the cause as 16 lowercase hex digits (no
-`0x`), then `boot halted`, and halts. It reuses the firmware stack. There
-is no SBI yet, so an `ecall` from S-mode (cause `0000000000000009`) halts
-the machine. An image entered in M-mode installs its own `mtvec` before
-it relies on traps (an M-mode `ecall` is cause `000000000000000b`).
+`mtvec` points at a firmware handler. An `ecall` from S-mode (cause `9`)
+is an SBI call and returns (below). Any other trap that reaches M-mode is
+reported instead of jumping to address 0, and does not return: the
+handler prints `trap mcause=` and the cause as 16 lowercase hex digits
+(no `0x`), then `boot halted`, and halts. With the delegation above, an
+S-mode image only gets there through a firmware bug. An image entered in
+M-mode installs its own `mtvec` before it relies on traps (an M-mode
+`ecall` is cause `000000000000000b`).
+
+### SBI
+
+An S-mode image calls the firmware with `ecall`, following the RISC-V SBI
+calling convention: `a7` is the extension ID, `a6` the function ID, and
+`a0`–`a5` the arguments. The firmware returns the error in `a0` and the
+value in `a1`, preserves every other register (`sp` included), and
+resumes at the instruction after the `ecall`. An unknown extension or
+function returns `SBI_ERR_NOT_SUPPORTED` (`-2`).
+
+| Item | Value |
+|------|-------|
+| Spec version | `0x01000000` (SBI 1.0) |
+| Implementation ID | `0x5351` (`"SQ"`, SquirrelBIOS). Not registered with RISC-V International. |
+| Implementation version | `1` |
+
+| Extension | ID | Functions |
+|---|---|---|
+| Base | `0x10` | `get_spec_version` (0), `get_impl_id` (1), `get_impl_version` (2), `probe_extension` (3), `get_mvendorid` (4), `get_marchid` (5), `get_mimpid` (6) |
+
+`probe_extension` returns `a1 = 1` for the extensions in this table and
+`0` for every other one, including TIME, IPI, RFENCE, HSM and SRST until
+they are implemented.
 
 ### Failures
 
@@ -278,11 +305,13 @@ The firmware prints one of these on the UART, then `boot halted`, and halts:
 `make test` runs `riscv-boot` (the firmware reports `next_mode=1`, and an
 image checks `a0`, the device tree in `a1` and `a2 = 0`, with `-smp 2`;
 its UART stores and device-tree load pass PMP in S-mode, and the log must
-not show a trap), `riscv-ecall` (an image executes `ecall` and the handler
-reports `trap mcause=0000000000000009`, environment call from S-mode),
+not show a trap), `riscv-ecall` (an image executes `ecall` and
+gets `SBI_ERR_NOT_SUPPORTED` back for an extension that does not exist),
 `riscv-deleg` (an image sets `stvec`, executes an illegal instruction and
-prints `deleg=ok` from its S-mode handler, then its `ecall` still reports
-`trap mcause=0000000000000009`) and `riscv-no-kernel`. By hand:
+prints `deleg=ok` from its S-mode handler, then its `ecall` still reaches
+the SBI), `riscv-sbi` (an image calls the base functions, probes base
+and the five unimplemented extensions, and checks that only `a0` and
+`a1` changed) and `riscv-no-kernel`. By hand:
 
 ```bash
 make riscv
