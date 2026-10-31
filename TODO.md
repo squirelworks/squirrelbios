@@ -28,7 +28,7 @@ the contract (`disk: ...` / `boot: ...`, then `boot halted`).
 - [x] `x86-mem-high` — Smoke-test the RAM-above-4 GB entry.
   - Acceptance: a new `x86-mem-high` case passes a size above 4 GB (`-m 5120`; `qemu-system-x86_64` is fine if `qemu-system-i386` refuses it) and expects a usable entry at base `0x100000000` with a non-zero length. The conventional entries are still checked. Do not hardcode how QEMU splits the rest of the RAM around the PCI hole. Depends on: `x86-handoff-check`.
 
-- [ ] `riscv-a2` — The RISC-V stand-in checks `a2`.
+- [x] `riscv-a2` — The RISC-V stand-in checks `a2`.
   - Acceptance: `tests/riscv-kernel.S` prints `a2=ok` only when `a2` is 0. `riscv-boot` expects `OS-ENTRY riscv hart=ok dtb=ok a2=ok`.
 
 - [ ] `ci-make-test` — Run `make test` on every push and pull request.

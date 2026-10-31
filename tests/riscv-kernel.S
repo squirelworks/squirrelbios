@@ -9,6 +9,7 @@
 _start:
         mv s0, a0                           /* hart ID */
         mv s1, a1                           /* DTB */
+        mv s2, a2                           /* must be 0 */
 
         la a0, msg_entry
         call puts
@@ -26,8 +27,13 @@ _start:
         la a0, msg_dtb_ok
 2:      call puts
 
-3:      wfi
-        j 3b
+        la a0, msg_a2_bad
+        bnez s2, 3f
+        la a0, msg_a2_ok
+3:      call puts
+
+4:      wfi
+        j 4b
 
 puts:
         li t0, UART_BASE
@@ -41,5 +47,7 @@ puts:
 msg_entry:      .asciz "OS-ENTRY riscv"
 msg_hart_ok:    .asciz " hart=ok"
 msg_hart_bad:   .asciz " hart=bad"
-msg_dtb_ok:     .asciz " dtb=ok\n"
-msg_dtb_bad:    .asciz " dtb=bad\n"
+msg_dtb_ok:     .asciz " dtb=ok"
+msg_dtb_bad:    .asciz " dtb=bad"
+msg_a2_ok:      .asciz " a2=ok\n"
+msg_a2_bad:     .asciz " a2=bad\n"

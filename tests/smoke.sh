@@ -99,7 +99,7 @@ run arm-no-kernel "boot: no kernel image|boot halted" \
     "$QEMU_ARM" -M virt -cpu cortex-a57 -bios arm/squirrel-bios.bin
 
 # RISC-V: -kernel image entered on hart 0 with the DTB in a1
-run riscv-boot "SquirrelBIOS RISC-V|OS-ENTRY riscv hart=ok dtb=ok" \
+run riscv-boot "SquirrelBIOS RISC-V|OS-ENTRY riscv hart=ok dtb=ok a2=ok" \
     "$QEMU_RISCV" -M virt -smp 2 -bios riscv/squirrel-bios.bin \
     -kernel $TEST_DIR/riscv-kernel.bin
 
