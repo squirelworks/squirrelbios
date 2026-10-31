@@ -21,7 +21,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-bad-sector.bin \
              $(TEST_DIR)/x86-extra-boot.bin $(TEST_DIR)/x86-extra-range.bin \
              $(TEST_DIR)/arm-kernel.bin $(TEST_DIR)/arm-too-big.bin \
              $(TEST_DIR)/arm-image-fixed.bin $(TEST_DIR)/arm-image-reloc.bin \
-             $(TEST_DIR)/arm-image-short.bin \
+             $(TEST_DIR)/arm-image-short.bin $(TEST_DIR)/arm-initrd.img \
              $(TEST_DIR)/riscv-kernel.bin \
              $(TEST_DIR)/riscv-ecall.bin $(TEST_DIR)/riscv-deleg.bin \
              $(TEST_DIR)/riscv-sbi.bin $(TEST_DIR)/riscv-timer.bin \
@@ -112,6 +112,10 @@ $(TEST_DIR)/arm-image-fixed.elf: $(TEST_DIR)/arm-image-fixed.o
 	$(AARCH64)ld -Ttext=0x40400000 -o $@ $<
 $(TEST_DIR)/arm-image-reloc.elf $(TEST_DIR)/arm-image-short.elf: %.elf: %.o
 	$(AARCH64)ld -Ttext=0x40200000 -o $@ $<
+# A small initrd for arm-initrd; its contents do not matter to the firmware
+$(TEST_DIR)/arm-initrd.img: | $(TEST_DIR)
+	printf 'SquirrelBIOS test initrd\n' > $@
+
 ARM_IMAGES := $(TEST_DIR)/arm-image-fixed $(TEST_DIR)/arm-image-reloc $(TEST_DIR)/arm-image-short
 $(ARM_IMAGES:=.bin): %.bin: %.elf
 	$(AARCH64)objcopy -O binary $< $@

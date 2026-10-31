@@ -156,6 +156,12 @@ run arm-image-short "boot: Image header image_size is smaller than the image|boo
     "$QEMU_ARM" -M virt -cpu cortex-a57 -bios arm/squirrel-bios.bin \
     -kernel $TEST_DIR/arm-image-short.bin
 
+# AArch64: -initrd is loaded after the kernel and recorded in /chosen; the
+# image still finds a valid device tree
+run arm-initrd "~^initrd at 0x[0-9a-f]+, end 0x[0-9a-f]+|OS-ENTRY arm dtb=ok regs=ok sctlr=ok" \
+    "$QEMU_ARM" -M virt -cpu cortex-a57 -bios arm/squirrel-bios.bin \
+    -kernel $TEST_DIR/arm-kernel.bin -initrd $TEST_DIR/arm-initrd.img
+
 run arm-no-kernel "boot: no kernel image|boot halted" \
     "$QEMU_ARM" -M virt -cpu cortex-a57 -bios arm/squirrel-bios.bin
 
