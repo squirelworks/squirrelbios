@@ -243,6 +243,14 @@ run riscv-harts "OS-ENTRY riscv harts|harts=64|!harts=bad|!trap mcause=" \
     "$QEMU_RISCV" -M virt -smp 64 -bios riscv/squirrel-bios.bin \
     -kernel $TEST_DIR/riscv-harts.bin
 
+# RISC-V: two NUMA nodes are two sockets, each with its own CLINT; the
+# harts of the second are started, and fenced, through theirs
+run riscv-numa "OS-ENTRY riscv harts|harts=ok|!harts=bad|!trap mcause=" \
+    "$QEMU_RISCV" -M virt -smp 4 -m 256M \
+    -object memory-backend-ram,id=m0,size=128M -object memory-backend-ram,id=m1,size=128M \
+    -numa node,cpus=0-1,memdev=m0 -numa node,cpus=2-3,memdev=m1 \
+    -bios riscv/squirrel-bios.bin -kernel $TEST_DIR/riscv-numa.bin
+
 # RISC-V: fw_dynamic_info names hart 2 as the boot hart (a shim stands in
 # for QEMU's reset code, which always says 0); hart 2 enters the image
 # and then starts hart 0

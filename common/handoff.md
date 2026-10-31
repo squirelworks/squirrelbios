@@ -391,7 +391,7 @@ M-mode entry gets the tree as QEMU wrote it.
 |------|-------|
 | NS16550A (`0x10000000`) | 115200 8N1 (divisor 2 from `virt`'s 3.6864 MHz UART clock), FIFOs on, interrupts off |
 | Other harts | Parked in `wfi` in M-mode, with `mstatus.MIE = 0` and only `mie.MSIE` set, until `sbi_hart_start` (below). The firmware tracks hart IDs 0 to 511 (QEMU `virt`'s limit, one socket); higher IDs are never started. |
-| CLINT | A hart's `mtimecmp` is written only by `sbi_set_timer` and the firmware's timer interrupt. A parked hart's `msip` is written by `sbi_hart_start`. `mtime` runs at 10 MHz (the device tree's `timebase-frequency`). |
+| CLINT | One per socket. With `-numa`, QEMU makes each NUMA node a socket whose CLINT is `0x10000` above the previous one, with slots counted from the socket's lowest hart ID; the boot hart reads each `cpu` node's `reg` and `numa-node-id` and uses the right CLINT for every hart (up to 8 sockets). A hart's `mtimecmp` is written only by `sbi_set_timer` and the firmware's timer interrupt. A parked hart's `msip` is written by `sbi_hart_start`. `mtime` runs at 10 MHz (the device tree's `timebase-frequency`). |
 | PLIC | Not touched |
 | Test device (`0x100000`) | Written only by `sbi_system_reset`. S-mode can reach it too (PMP entry 1 opens everything outside the firmware region), but an OS should use SRST. |
 
@@ -551,7 +551,9 @@ fence hart 2 20000 times at once, then hart 2 takes an IPI from each),
 `riscv-boot-hart` (with `-smp 4` and a shim that hands the firmware
 QEMU's `fw_dynamic_info` with `boot_hart = 2`: hart 2 enters the image,
 HSM reports it started and hart 0 stopped, and it starts hart 0),
-`riscv-harts` (with `-smp 64`, hart 0 starts harts 1 to 63 one at a
+`riscv-numa` (`riscv-harts` on `-smp 4` in two NUMA nodes, so harts 2
+and 3 sit behind the second socket's CLINT: all start and take a fence,
+`harts=ok`), `riscv-harts` (with `-smp 64`, hart 0 starts harts 1 to 63 one at a
 time, `hart_get_status` reports each started, and one `remote_fence_i`
 whose mask names all 64 harts succeeds: `harts=64`),
 `riscv-rfence`

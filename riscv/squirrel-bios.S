@@ -110,6 +110,12 @@
         .equ CLINT_MSIP,        0x02000000
         .equ CLINT_MTIMECMP,    0x02004000
         .equ CLINT_MTIME,       0x0200bff8
+        /* With -numa, QEMU virt makes each NUMA node a socket with its own
+         * CLINT, CLINT_SOCKET bytes after the previous one, whose msip and
+         * mtimecmp slots count from the lowest hart ID in that socket. */
+        .equ CLINT_SOCKET,      0x10000
+        .equ CLINT_OFF_MTIMECMP, 0x4000
+        .equ MAX_SOCKETS,       8           /* QEMU virt's VIRT_SOCKETS_MAX */
 
         /* Harts the firmware can start: QEMU virt's limit (VIRT_CPUS_MAX,
          * 512 in QEMU 8.2), all in one socket so one CLINT serves them.
@@ -127,6 +133,8 @@
         .equ HART_PENDING,      24          /* work other harts asked of it */
         .equ HART_START,        32          /* passes over HART_PENDING begun */
         .equ HART_DONE,         40          /* number of the last pass finished */
+        .equ HART_MSIP,         48          /* its CLINT msip and mtimecmp */
+        .equ HART_MTIMECMP,     56
         .equ PEND_SSIP,         1           /* raise the supervisor software interrupt */
         .equ PEND_FENCE_I,      2
         .equ PEND_SFENCE,       4           /* sfence.vma, all of it */
@@ -202,6 +210,8 @@ _start:
         sd zero, HART_STATE(t0)
 
         call uart_init
+        mv a0, s1                           /* per-socket CLINTs (-numa) */
+        call clint_layout
         la a0, banner
         call puts
 
@@ -323,9 +333,6 @@ park:
         slli t0, a0, HART_ENTRY_SHIFT
         la s5, hart_table
         add s5, s5, t0                      /* s5 = this hart's entry */
-        li t0, CLINT_MSIP
-        slli t1, a0, 2
-        add s6, t0, t1                      /* s6 = this hart's msip */
         mv s0, a0
         li t0, HSM_STOPPED
         sd t0, HART_STATE(s5)
@@ -334,7 +341,8 @@ park:
         li t0, MIE_MSIE
         csrw mie, t0
 1:      wfi
-        sw zero, 0(s6)                      /* consume the wake-up */
+        ld t0, HART_MSIP(s5)                /* read each time: clint_layout may move it */
+        sw zero, 0(t0)                      /* consume the wake-up */
         fence
         sd zero, HART_PENDING(s5)           /* a stopped hart has nothing to fence */
         ld t0, HART_STATE(s5)
@@ -434,9 +442,10 @@ m_timer:
         li t0, MIE_MTIE
         csrc mie, t0
         csrr t0, mhartid
-        slli t0, t0, 3
-        li t1, CLINT_MTIMECMP
+        slli t0, t0, HART_ENTRY_SHIFT
+        la t1, hart_table
         add t0, t0, t1
+        ld t0, HART_MTIMECMP(t0)
         li t1, -1
         sd t1, 0(t0)
         j trap_ret
@@ -451,9 +460,10 @@ sbi_time:
         j sbi_ok
 1:
         csrr t0, mhartid
-        slli t0, t0, 3
-        li t1, CLINT_MTIMECMP
+        slli t0, t0, HART_ENTRY_SHIFT
+        la t1, hart_table
         add t0, t0, t1
+        ld t0, HART_MTIMECMP(t0)
         sd a0, 0(t0)
         li t0, MIP_STIP
         csrc mip, t0
@@ -570,9 +580,7 @@ sbi_hsm:
         li t1, HSM_START_PENDING
         sd t1, HART_STATE(t0)
         fence
-        li t1, CLINT_MSIP
-        slli t2, a0, 2
-        add t1, t1, t2
+        ld t1, HART_MSIP(t0)
         li t2, 1
         sw t2, 0(t1)
         j sbi_ok
@@ -685,9 +693,7 @@ send_mask:
 2:      addi t6, t3, HART_PENDING
         amoor.d.aqrl zero, t0, (t6)
         fence rw, ow                        /* the work before the interrupt */
-        li t6, CLINT_MSIP
-        slli t5, t4, 2
-        add t6, t6, t5
+        ld t6, HART_MSIP(t3)
         li t5, 1
         sw t5, 0(t6)
 3:      addi t4, t4, 1
@@ -754,9 +760,10 @@ take_work:
 /* M-mode software interrupt on a started hart: another hart sent work. */
 m_soft:
         csrr t5, mhartid
-        slli t0, t5, 2
-        li t1, CLINT_MSIP
+        slli t0, t5, HART_ENTRY_SHIFT
+        la t1, hart_table
         add t0, t0, t1
+        ld t0, HART_MSIP(t0)
         sw zero, 0(t0)                      /* before reading the work */
         fence rw, rw
         jal t2, take_work
@@ -1002,8 +1009,146 @@ dt_reserve:
         addi sp, sp, 16
         ret
 
-/* ------------------------------------------------------------------ */
-/* NS16550A                                                            */
+/* a0 = device tree.  With -numa, QEMU virt puts each NUMA node in its own
+ * socket, with its own CLINT: socket n's is CLINT_SOCKET * n bytes above
+ * socket 0's, and its msip and mtimecmp slots count from the socket's
+ * lowest hart ID.  The tree gives each /cpus/cpu@* node a reg (hart ID)
+ * and a numa-node-id.  Two walks: the first finds each socket's lowest
+ * hart ID, the second points HART_MSIP and HART_MTIMECMP of each such hart
+ * at its socket's CLINT.  A hart with no numa-node-id, a node ID of
+ * MAX_SOCKETS or more, or a tree that does not parse keeps the one-socket
+ * slots.  Runs on the boot hart before any other hart is started. */
+clint_layout:
+        beqz a0, 9f
+        andi t0, a0, 3
+        bnez t0, 9f
+        ldbe t0, 0, a0, t1
+        li t1, FDT_MAGIC
+        bne t0, t1, 9f
+        ldbe t0, FDT_OFF_STRUCT, a0, t1
+        add a4, a0, t0                      /* a4 = structure block */
+        ldbe t1, FDT_SIZE_STRUCT, a0, t2
+        add a5, a4, t1                      /* a5 = its end */
+        ldbe t0, FDT_OFF_STRINGS, a0, t1
+        add a6, a0, t0                      /* a6 = strings block */
+        li a7, 0                            /* pass: 0 finds, 1 assigns */
+
+0:      mv t0, a4                           /* t0 = token */
+        li t5, 0                            /* t5 = depth: 1 in the root node */
+        li t6, 0                            /* t6 = 1 inside /cpus */
+1:      bgeu t0, a5, 8f
+        ldbe t1, 0, t0, t2
+        addi t0, t0, 4
+        li t2, FDT_BEGIN_NODE
+        beq t1, t2, 2f
+        li t2, FDT_END_NODE
+        beq t1, t2, 5f
+        li t2, FDT_PROP
+        beq t1, t2, 6f
+        li t2, FDT_NOP
+        beq t1, t2, 1b
+        j 8f                                /* FDT_END or anything else */
+
+2:      addi t5, t5, 1                      /* a node */
+        li t2, 2
+        bne t5, t2, 3f
+        la t1, str_cpus                     /* a child of the root: /cpus? */
+        mv a0, t0
+        jal t4, name_is
+        mv t6, t3
+        j 4f
+3:      li t2, 3
+        bne t5, t2, 4f
+        beqz t6, 4f
+        li a1, -1                           /* a child of /cpus: hart ID */
+        li a2, -1                           /* and node ID, until read */
+4:      lbu t1, 0(t0)                       /* skip the name */
+        addi t0, t0, 1
+        bnez t1, 4b
+        addi t0, t0, 3
+        andi t0, t0, -4
+        j 1b
+
+5:      li t2, 3                            /* end of a node */
+        bne t5, t2, 51f
+        beqz t6, 51f
+        li t1, MAX_HARTS                    /* a cpu node: record it */
+        bgeu a1, t1, 51f
+        li t1, MAX_SOCKETS
+        bgeu a2, t1, 51f
+        la t1, socket_first
+        slli t2, a2, 3
+        add t1, t1, t2                      /* t1 = &socket_first[node] */
+        ld t2, 0(t1)
+        bnez a7, 52f
+        bgeu a1, t2, 51f                    /* pass 0: keep the lowest */
+        sd a1, 0(t1)
+        j 51f
+52:     sub t2, a1, t2                      /* pass 1: slot in the socket */
+        li t1, CLINT_SOCKET
+        mul t1, t1, a2
+        li t3, CLINT_MSIP
+        add t1, t1, t3                      /* t1 = the socket's CLINT */
+        slli t3, a1, HART_ENTRY_SHIFT
+        la a0, hart_table
+        add t3, t3, a0                      /* t3 = the hart's entry */
+        slli a0, t2, 2
+        add a0, a0, t1
+        sd a0, HART_MSIP(t3)
+        slli a0, t2, 3
+        add a0, a0, t1
+        li t2, CLINT_OFF_MTIMECMP
+        add a0, a0, t2
+        sd a0, HART_MTIMECMP(t3)
+51:     li t2, 2
+        bne t5, t2, 53f
+        li t6, 0                            /* leaving /cpus */
+53:     addi t5, t5, -1
+        j 1b
+
+6:      ldbe a3, 0, t0, t2                  /* a property: a3 = length */
+        li t2, 3
+        bne t5, t2, 7f
+        beqz t6, 7f
+        li t2, 4
+        bltu a3, t2, 7f
+        ldbe t1, 4, t0, t2                  /* name offset */
+        add a0, a6, t1
+        la t1, str_reg
+        jal t4, name_is
+        beqz t3, 61f
+        ldbe a1, 8, t0, t2                  /* reg: one cell in /cpus */
+        j 7f
+61:     ldbe t1, 4, t0, t2
+        add a0, a6, t1
+        la t1, str_numa_node_id
+        jal t4, name_is
+        beqz t3, 7f
+        ldbe a2, 8, t0, t2
+7:      addi a3, a3, 8 + 3                  /* skip length, name and value */
+        andi a3, a3, -4
+        add t0, t0, a3
+        j 1b
+
+8:      bnez a7, 9f
+        li a7, 1
+        j 0b
+9:      ret
+
+/* t3 = 1 if the NUL-terminated string at a0 equals the one at t1, else 0.
+ * Uses a0, t1 and t2; returns through t4. */
+name_is:
+1:      lbu t2, 0(a0)
+        lbu t3, 0(t1)
+        bne t2, t3, 2f
+        addi a0, a0, 1
+        addi t1, t1, 1
+        bnez t2, 1b
+        li t3, 1
+        jr t4
+2:      li t3, 0
+        jr t4
+
 /* ------------------------------------------------------------------ */
 
 uart_init:
@@ -1085,6 +1230,9 @@ msg_dt_odd:     .asciz "dt: firmware region not reserved: unexpected device tree
 msg_dt_exists:  .asciz "dt: firmware region not reserved: /reserved-memory already present\n"
 msg_dt_room:    .asciz "dt: firmware region not reserved: no room to grow the device tree\n"
 str_reserved_memory: .asciz "reserved-memory"
+str_cpus:       .asciz "cpus"
+str_reg:        .asciz "reg"
+str_numa_node_id: .asciz "numa-node-id"
 
 .align 12
     .skip 4096
@@ -1098,9 +1246,18 @@ trap_stacks:
     .align 3
 sstc_on:                                    /* 1 once enter_s found Sstc */
     .dword 0
+    /* Each entry starts with the one-socket CLINT slots; clint_layout
+     * moves them for harts in other sockets. */
 hart_table:
+    .set hart_n, 0
     .rept MAX_HARTS
-    .dword HSM_ABSENT, 0, 0, 0, 0, 0, 0, 0
+    .dword HSM_ABSENT, 0, 0, 0, 0, 0
+    .dword CLINT_MSIP + 4 * hart_n, CLINT_MTIMECMP + 8 * hart_n
+    .set hart_n, hart_n + 1
+    .endr
+socket_first:                               /* lowest hart ID per socket, for clint_layout */
+    .rept MAX_SOCKETS
+    .dword -1
     .endr
 
 /* The node dt_reserve adds to the device tree, big-endian. Name offsets

@@ -62,6 +62,7 @@ stand-in OS image from `tests/` and checks the serial output:
 | `riscv-ipi-smp` | With hart 1 started, IPIs reach it by mask bit, base and base `-1` (which also reaches the caller); remote fences on both harts return, also when both harts fence each other at once |
 | `riscv-fence-smp3` | With `-smp 3`, harts 0 and 1 both fence hart 2 many times at once, then each IPI reaches it |
 | `riscv-boot-hart` | With `fw_dynamic_info.boot_hart = 2` (a shim stands in for QEMU's reset code), hart 2 boots, HSM reports it started, and it starts hart 0 |
+| `riscv-numa` | With `-smp 4` in two NUMA nodes (two sockets, two CLINTs), harts 2 and 3 are started and fenced through the second CLINT (`harts=ok`) |
 | `riscv-harts` | With `-smp 64`, hart 0 starts the other 63, each is reported started, and one fence whose mask names all 64 succeeds (`harts=64`) |
 | `riscv-rfence` | `remote_sfence_vma` and `remote_fence_i` for the calling hart succeed; a mask that also names the parked hart 1 returns an error |
 | `riscv-hsm` | `sbi_hart_start` brings the parked hart 1 up in S-mode with the opaque value in `a1` (`hart1=ok a1=...`), and `hart_get_status` reports stopped, then started |
@@ -104,8 +105,9 @@ packages (about 40 MB, checked against their SHA-256) into
 `build/linux/linux-shell.log`.
 
 ```bash
-make linux-big                        # 64 harts, 64 GB, prints PASS linux-shell
+make linux-big                        # 64 harts, 64 GB, 2 NUMA nodes: PASS linux-shell
 make linux-big BIG_SMP=8 BIG_MEM=16G  # a smaller node
+make linux-big BIG_NUMA=1             # one socket
 ```
 
 `make linux-big` is the same boot on a QEMU machine the size of one
@@ -115,6 +117,9 @@ the yardstick for the large-node milestone in [ROADMAP.md](ROADMAP.md).
 It also needs `zstd`, and downloads about 15 MB more. QEMU maps the
 guest RAM without reserving it, so the host does not need 64 GB.
 `LINUX_KERNEL=6.14` picks that kernel for `tests/linux-shell.sh` too.
+By default the node is two NUMA nodes of 32 harts and 32 GB each (QEMU
+makes them two sockets), and the check also requires Linux to bring up
+both nodes (`LINUX_NUMA` in the script).
 
 ## Run
 

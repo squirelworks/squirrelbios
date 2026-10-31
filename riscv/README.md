@@ -30,7 +30,7 @@ to a shell:
 ```bash
 make linux-shell                                  # prints PASS linux-shell
 LINUX_SMP=4 tests/linux-shell.sh --interactive    # 4 harts, the shell is yours
-make linux-big                                    # 64 harts, 64 GB, Ubuntu's 6.14 kernel
+make linux-big                                    # 64 harts, 64 GB in 2 NUMA nodes, Ubuntu's 6.14 kernel
 ```
 
 To boot a kernel of your own, give QEMU a raw RISC-V `Image` (the file

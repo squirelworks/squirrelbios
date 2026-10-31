@@ -4,6 +4,8 @@
  * get_status reports every one started, and sends one remote fence whose
  * mask names all 64 harts (a0 = -1, a1 = 0), which only succeeds when the
  * firmware tracks all of them. It prints harts=64.
+ * Built with --defsym HARTS=N it does the same on -smp N and prints
+ * harts=ok (riscv-numa runs it with 4 harts in two NUMA nodes).
  * Original code.
  */
 
@@ -14,7 +16,9 @@
         .equ SBI_EXT_HSM,       0x48534d
         .equ SBI_EXT_RFENCE,    0x52464e43
         .equ HSM_STARTED,       0
+        .ifndef HARTS
         .equ HARTS,             64
+        .endif
         .equ WAIT,              50000000    /* ticks of time before giving up: 5 s at virt's 10 MHz */
 
 .global _start
@@ -60,7 +64,11 @@ _start:
         li t0, HARTS
         bltu s0, t0, 4b
 
+.if HARTS == 64
         li a0, -1                           /* remote_fence_i, harts 0 to 63 */
+.else
+        li a0, (1 << HARTS) - 1             /* remote_fence_i, every hart */
+.endif
         li a1, 0
         li a7, SBI_EXT_RFENCE
         li a6, 0
@@ -136,7 +144,11 @@ puthex:
         ret
 
 msg_entry:      .asciz "OS-ENTRY riscv harts\n"
+.if HARTS == 64
 msg_ok:         .asciz "harts=64\n"
+.else
+msg_ok:         .asciz "harts=ok\n"
+.endif
 msg_hart:       .asciz " hart "
 msg_entry_bad:  .asciz "harts=bad image entered on a hart other than 0\n"
 msg_start_bad:  .asciz "harts=bad hart_start failed"
