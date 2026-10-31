@@ -44,6 +44,7 @@
         .equ MIDELEG_S, (1 << 1) | (1 << 5) | (1 << 9)
 
         .equ CAUSE_ECALL_S,     9
+        .equ TRAP_FRAME,        32          /* t0-t3, below trap_stack_top */
         .equ CAUSE_M_TIMER,     (1 << 63) | 7
 
         .equ MIP_SSIP,          (1 << 1)
@@ -179,6 +180,7 @@ park:
         .align 2
 trap:
         csrrw sp, mscratch, sp
+        addi sp, sp, -TRAP_FRAME
         sd t0, 0(sp)
         sd t1, 8(sp)
         sd t2, 16(sp)
@@ -215,6 +217,7 @@ trap_ret:
         ld t1, 8(sp)
         ld t2, 16(sp)
         ld t3, 24(sp)
+        addi sp, sp, TRAP_FRAME
         csrrw sp, mscratch, sp
         mret
 
@@ -418,5 +421,7 @@ msg_halted:     .asciz "boot halted\n"
 .align 12
     .skip 4096
 stack_top:
+    /* Trap stack: mscratch points at its top, and the trap handler's frame
+     * (TRAP_FRAME bytes) grows down from there. Keep it inside the 256. */
     .skip 256
 trap_stack_top:
