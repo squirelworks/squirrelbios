@@ -201,7 +201,9 @@ The work, roughly in order:
    own CLINT, which the firmware now follows.)*
 3. **A sockets-and-clusters topology.** Check that `cpu-map` survives the
    device-tree edits, and that the firmware does not depend on hart IDs
-   being dense.
+   being dense. *(Checked: the only edit is the `/reserved-memory` node,
+   so `cpu-map` passes through as QEMU wrote it. QEMU `virt` numbers
+   harts densely in every socket, so sparse IDs moved to Speculative.)*
 4. **Interrupt controllers that scale.** QEMU `virt` with `aia=aplic-imsic`
    replaces the PLIC and CLINT-only IPIs with IMSIC message interrupts.
    Program the M-mode side so IPIs and the timer still work there.
