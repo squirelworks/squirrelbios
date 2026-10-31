@@ -3,6 +3,7 @@
 #   make            build all three firmware images
 #   make test       build, then boot each one under QEMU (tests/smoke.sh)
 #   make linux-shell  boot a downloaded Linux kernel on riscv to a busybox shell
+#   make linux-big    the same on a large virtual node (64 harts, 64 GB)
 #   make clean      remove everything the build and tests produce
 #
 # Cross tools can be overridden, e.g. make AARCH64=aarch64-elf-
@@ -32,7 +33,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/riscv-dt.bin $(TEST_DIR)/riscv-envcfg.bin \
              $(TEST_DIR)/riscv-ipi-smp.bin $(TEST_DIR)/riscv-fence-smp3.bin
 
-.PHONY: all x86 arm riscv test linux-shell clean
+.PHONY: all x86 arm riscv test linux-shell linux-big clean
 .DELETE_ON_ERROR:
 
 all: x86 arm riscv
@@ -242,6 +243,17 @@ test: all $(TEST_BINS)
 # busybox into build/linux (about 40 MB, once) and checks for a shell prompt
 linux-shell: riscv
 	tests/linux-shell.sh
+
+# Optional, not part of make test: the first step of the large-node
+# milestone in ROADMAP.md. Same kernel and shell as linux-shell, on a
+# QEMU virt machine sized like one server node. QEMU only backs the RAM
+# Linux touches, so the host needs far less than 64 GB. Fails until every
+# hart comes online (the BIG_* values can be lowered to try a smaller node).
+BIG_SMP ?= 64
+BIG_MEM ?= 64G
+linux-big: riscv
+	LINUX_SMP=$(BIG_SMP) LINUX_MEM=$(BIG_MEM) LINUX_EXPECT_HARTS=$(BIG_SMP) \
+	    LINUX_TIMEOUT=$${LINUX_TIMEOUT:-900} tests/linux-shell.sh
 
 clean:
 	rm -f $(X86_ROM) \

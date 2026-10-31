@@ -137,6 +137,44 @@ until that extension's box is checked.
 - [x] `x86-vga` — Put the VGA into 80x25 text mode and load an original font.
   - Acceptance: the font is written in this repo (not taken from a VGA BIOS). The stand-in reads the mode registers, prints `vga=ok` only when they show 80x25 text, and `x86-boot` expects that string. The contract stops saying the VGA was left uninitialised. COM1 output is unchanged. Depends on: `x86-handoff-check`.
 
+## 6. A large server node (future)
+
+Not scheduled; see [ROADMAP.md](ROADMAP.md) milestone 6 for why and for
+what `make linux-big` showed on its first run. Start after sections 1–5.
+These items are not part of `make test`'s acceptance unless they say so.
+
+- [x] `big-node-scaffold` — Add `make linux-big`: the `linux-shell` boot on `-smp 64 -m 64G`.
+  - Acceptance: `tests/linux-shell.sh` takes `LINUX_MEM` and `LINUX_EXPECT_HARTS`, maps guest RAM with `reserve=off` so a 64 GB guest starts on a smaller host, and shows QEMU's own error when it fails to start. `make linux-big` passes only when the shell banner reports every hart online. `make linux-big BIG_SMP=8` passes today; the default (64) fails with `8 of 64 harts online`, which is recorded in the roadmap. `make linux-shell` and `make test` are unchanged.
+
+- [ ] `riscv-many-harts` — Start every hart QEMU `virt` can give the firmware, not just 8.
+  - Acceptance: `MAX_HARTS` covers `-smp 64` at least (QEMU 8.2 allows up to 512 on `virt`). The trap stacks, `hart_table` and `.bss` still fit under `0x80200000` (the Makefile check). A `-smp 64` stand-in starts every secondary with `sbi_hart_start` and prints `harts=64`. `make linux-big BIG_SMP=32` passes. `riscv-ipi-smp` and `riscv-fence-smp3` still pass.
+
+- [ ] `linux-big-kernel` — Let `make linux-big` check more than 32 harts.
+  - Acceptance: the script takes a pinned kernel built with `NR_CPUS` of at least 64 (downloaded and checked by SHA-256 like today's, or a documented `LINUX_IMAGE=` override), and `make linux-big` with the default 64 harts prints `PASS linux-shell`. No kernel is added to the repo. Depends on: `riscv-many-harts`.
+
+- [ ] `riscv-boot-hart` — Boot the hart `fw_dynamic_info.boot_hart` names. *(Moved up from Speculative.)*
+  - Acceptance: as in the Speculative entry: `riscv-boot` still passes, and a case whose boot hart is not 0 prints `hart=ok` from that hart. Depends on: `riscv-many-harts`.
+
+- [ ] `riscv-sparse-harts` — Do not assume hart IDs are 0 to N-1.
+  - Acceptance: the per-hart tables are indexed by a slot the firmware assigns, not by the raw hart ID, and a hart ID above `MAX_HARTS` gets a slot if one is free. A stand-in whose device tree names non-contiguous hart IDs starts each of them. Depends on: `riscv-many-harts`.
+
+- [ ] `riscv-numa` — Keep NUMA information intact through the firmware's device-tree edits.
+  - Acceptance: with `-numa node,...` for two nodes, the tree handed to the OS still has every `/memory` node with its `numa-node-id`, each `cpu` keeps its `numa-node-id`, and `/distance-map` is unchanged. The `/reserved-memory` entry from `riscv-dt-reserve` is added only once. A Linux run under `make linux-big` with two nodes reports `2 nodes` in its log. Depends on: `riscv-many-harts`.
+
+- [ ] `riscv-aia` — Keep IPIs and the timer working on `virt,aia=aplic-imsic`.
+  - Acceptance: a `riscv-ipi-smp` run with `-M virt,aia=aplic-imsic` passes, and `make linux-big` on that machine reaches the shell. Depends on: `riscv-many-harts`.
+
+- [ ] `big-node-pcie` — Check that PCIe devices enumerate on a large node.
+  - Acceptance: `make linux-big` with a `virtio-net-pci` and an `nvme` device sees both under `/sys/bus/pci/devices`. No firmware change unless the run shows one is needed.
+
+- [ ] `big-node-netboot` — Decide and document how a diskless node gets its kernel.
+  - Acceptance: a note in `common/handoff.md` saying whether the firmware loads a kernel over virtio-net or leaves network boot to the OS, with the reason. If the firmware does it, that is a separate item with its own stand-in.
+
+- [ ] `big-node-errors` — Report hardware faults instead of only halting.
+  - Acceptance: a written plan in this file for where machine faults go (the console line format, and what the OS is told), before any code.
+
+UEFI and ACPI hand-off for servers stays out of scope; see the roadmap.
+
 ## Speculative
 
 Not scheduled. These are ideas, not the laundry list above. Open a PR for
@@ -152,5 +190,5 @@ update.
 - `arm-gic` — Initialise the GIC and the generic timer. The OS already drives both from the device tree. A stand-in would receive a timer interrupt and print `irq=ok`.
 - `riscv-dbcn` — Add the SBI debug console extension. The device tree already names the NS16550A, which Linux can use. A stand-in `sbi_debug_console_write` would print `dbcn=ok`.
 - `riscv-dtb-devices` — Take the UART and CLINT addresses from the device tree instead of the QEMU virt constants. `riscv-boot` would still pass, and the addresses would no longer be immediate constants.
-- `riscv-boot-hart` — Boot the hart named by `fw_dynamic_info.boot_hart` when it is not 0. `riscv-boot` (hart 0) would still pass, and a case whose boot hart is non-zero would print `hart=ok` from that hart.
+- `riscv-boot-hart` — Now scheduled in section 6.
 - `linux-image-in-tree` — Keep a built Linux image in the repo and boot it from `make test`. The stand-in images are the suite; a distro kernel is large and is not original code.
