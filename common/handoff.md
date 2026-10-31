@@ -1,44 +1,84 @@
 # Hand-off contract
 
-SquirrelBIOS hands control to the OS with a minimal, documented state.
+This file is the single source of truth for what SquirrelBIOS guarantees
+when it passes control to the OS, and for what the OS must not assume.
+If the firmware and this file disagree, the firmware has a bug.
+
+## At a glance
+
+| | x86 PC | AArch64 (QEMU virt) | RISC-V (QEMU virt) |
+|---|---|---|---|
+| Image source | LBA 0 of the primary master ATA disk | `-kernel`, read through fw_cfg DMA | `-kernel`, loaded by QEMU |
+| Entry | `0x0000:0x7C00` | `0x40200000` | `0x80200000` (rv64) |
+| CPU mode | 16-bit real mode | EL1 (EL2 with `virtualization=on`), MMU off | M-mode, `satp` bare |
+| Boot argument | `DL = 0x80` | `x0` = device tree | `a0` = hart ID, `a1` = device tree |
+| Memory description | Memory map at `ES:DI = 0x0000:0x0500` | Device tree `/memory` | Device tree `/memory` |
+| Console | COM1 `0x3F8`, 115200 8N1 | PL011 `0x09000000` | NS16550A `0x10000000` |
+| Interrupts | `IF = 0` | `DAIF` masked | `mstatus.MIE = 0`, `mie = 0` |
+| CPUs running | Boot CPU only | Boot CPU only | Hart 0 only |
+
+## Rules for every architecture
+
+The firmware guarantees:
+
+1. It does only early init, the image load and the jump. Nothing runs
+   after the jump.
+2. Interrupts are masked at the CPU on entry.
+3. The serial console is initialised and has already printed the banner,
+   so the OS can write to it straight away.
+4. If the image cannot be loaded, the firmware prints the reason on the
+   console and halts. It never jumps to a partial or missing image.
+
+The OS must not assume:
+
+1. **Firmware services.** There are none after hand-off: no BIOS
+   interrupts on x86 (`INT 10h`, `INT 13h`, `INT 15h` do not exist), no
+   UEFI, no SBI. Anything the OS needs, it drives itself.
+2. **A usable stack.** Set your own stack before using it heavily.
+3. **Trap or interrupt vectors.** Install your own before unmasking
+   interrupts.
+4. **Register values not listed below.** Treat them as undefined.
+5. **That firmware data stays put.** Hand-off data (the x86 memory map,
+   the device tree) lives in RAM the OS may reuse. Copy or parse it before
+   overwriting that RAM.
+6. **Other CPUs.** Only the boot CPU runs the OS. Secondary CPUs are not
+   started (AArch64) or are parked and never released (RISC-V).
 
 ## x86 PC
 
+### Registers
+
 | Item | Value |
-|------|--------|
-| Entry | `0x0000:0x7C00` (far jump) |
+|------|-------|
+| `CS:IP` | `0x0000:0x7C00` (far jump) |
 | Mode | 16-bit real mode |
-| Segments | `DS = ES = SS = 0` |
-| Stack | `SP = 0x7C00` |
-| Boot drive | `DL = 0x80` |
-| Memory map | `ES:DI = 0x0000:0x0500` (header below, always at this address) |
-| Memory | Sector 1 loaded at `0x7C00` |
-| Interrupts | Disabled on entry (`CLI` before jump) |
-| Console | COM1 (`0x3F8`) programmed 115200 8N1, UART interrupts off |
-| Disk | Primary ATA channel idle, `nIEN` may be set if a retry reset the channel |
+| `DS`, `ES`, `SS` | `0` |
+| `SP` | `0x7C00` |
+| `DL` | `0x80` (boot drive) |
+| `DI` | `0x0500` (memory map header, so `ES:DI` points at it) |
+| `EFLAGS` | `IF = 0`, `DF = 0` |
 
-The OS owns the machine after the jump. No further firmware calls are required.
+### Memory
 
-The jump only happens after a clean read: the drive reported no `ERR`/`DF`,
-delivered exactly one sector and went idle. On failure the firmware does
-not jump. It prints the reason and the ATA status and error registers to
-both the VGA text buffer and COM1, then halts:
+| Range | Contents |
+|-------|----------|
+| `0x0500`–`0x05FF` | Memory map (below). Always at this address. |
+| below `0x7C00` | Firmware stack, a few bytes, free after the jump |
+| `0x7C00`–`0x7DFF` | Sector 1 of the disk, the image that was jumped to |
 
-| Message | Meaning |
-|---------|---------|
-| `no drive on primary master` | Floating bus or nothing answered as master. Not retried. |
-| `primary master is ATAPI (CD/DVD), not supported` | ATAPI signature found. Not retried. |
-| `timeout waiting for drive` | `BSY` never cleared or the expected bit never came up |
-| `read of LBA 0 failed` | Drive set `ERR`/`DF`, or the transfer ended in a bad state |
+### Devices
 
-Timeouts and read errors are retried up to 3 times, with an ATA soft reset
-(`SRST`) between attempts.
+| Device | State |
+|--------|-------|
+| COM1 (`0x3F8`) | 115200 8N1, FIFOs on, UART interrupts off |
+| Primary ATA channel | Idle. `nIEN` is set if a retry reset the channel. |
+| VGA | Not initialised. Text was written to `0xB8000`, but the VGA is not in text mode and has no font, so on QEMU nothing shows. |
 
-The firmware does not program the VGA into text mode or load a font, so
-on QEMU the VGA window stays blank and COM1 is the console to watch
-(`-serial stdio` or `-nographic`).
+Do not assume: BIOS interrupt services, an initialised IVT, A20 state
+(enabled on QEMU, but the firmware does not touch it), or a working VGA
+text console.
 
-### x86 memory map
+### Memory map
 
 There is no `INT 15h, E820` after hand-off, so the firmware builds the
 same kind of table in memory before jumping. It is derived from the RAM
@@ -66,39 +106,96 @@ The table lives in usable memory. Copy it, or check the magic first, before
 reusing `0x0500`–`0x05FF`. Memory not covered by an entry (for example the
 PCI hole below 4 GB) is not RAM. Do not assume it is free.
 
+### Failures
+
+The jump only happens after a clean read: the drive reported no `ERR`/`DF`,
+delivered exactly one sector and went idle. Timeouts and read errors are
+retried up to 3 times, with an ATA soft reset (`SRST`) between attempts.
+On failure the firmware prints the reason and the ATA status and error
+registers on COM1 (and the VGA text buffer), then halts:
+
+| Message | Meaning |
+|---------|---------|
+| `no drive on primary master` | Floating bus or nothing answered as master. Not retried. |
+| `primary master is ATAPI (CD/DVD), not supported` | ATAPI signature found. Not retried. |
+| `timeout waiting for drive` | `BSY` never cleared or the expected bit never came up |
+| `read of LBA 0 failed` | Drive set `ERR`/`DF`, or the transfer ended in a bad state |
+
+### How to test
+
+`make test` runs `x86-boot` (a boot sector checks `DL` and the memory map)
+and `x86-no-drive`. By hand:
+
+```bash
+make x86
+qemu-system-i386 -bios x86/squirrel-bios.rom -drive format=raw,file=boot.bin,if=ide -serial stdio
+```
+
+Expect `SquirrelBIOS x86` on the terminal, then whatever `boot.bin`
+prints. `tests/x86-boot.asm` is a minimal boot sector that reports the
+hand-off state on COM1.
+
 ## AArch64 (QEMU virt)
 
 The firmware loads the image QEMU was given with `-kernel`, read through
 fw_cfg DMA, and jumps to its first byte. The register state follows the
 Linux arm64 boot protocol, so a raw Linux `Image` can be booted the same way.
 
+### Registers
+
 | Item | Value |
-|------|--------|
-| Entry | `0x40200000` (RAM base + 2 MB), first byte of the image |
+|------|-------|
+| `PC` | `0x40200000` (RAM base + 2 MB), first byte of the image |
 | Exception level | Whatever QEMU started the firmware at: EL1 by default, EL2 with `virtualization=on` |
-| MMU, caches | MMU off, D-cache off. No page tables are built. |
-| Interrupts | `DAIF` all masked |
+| MMU, D-cache | Off. No page tables are built. |
+| `DAIF` | All masked |
 | `x0` | Device tree address (`0x40000000`) if a valid FDT is there, otherwise `0` |
 | `x1`–`x3` | `0` |
-| Stack | `SP` points into firmware scratch below `0x40200000`. Set your own. |
-| Console | PL011 at `0x09000000`, enabled (`UARTEN`, `TXE`, `RXE`) |
+| `SP` | Inside firmware scratch below `0x40200000` |
 
-Memory at hand-off:
+### Memory
 
 | Range | Contents |
 |-------|----------|
-| `0x40000000`–`0x400FFFFF` | Device tree from QEMU (keep it until you have parsed it) |
+| `0x40000000`–`0x400FFFFF` | Device tree from QEMU |
 | `0x40100000`–`0x401FFFFF` | Firmware stack and scratch, free after the jump |
 | `0x40200000`–… | The image, `-kernel` size bytes |
 
-RAM size and layout come from the device tree (`/memory`). On failure the
-firmware prints one of these on the PL011 and halts:
+RAM size and layout come from the device tree (`/memory`).
+
+### Devices
+
+| Device | State |
+|--------|-------|
+| PL011 (`0x09000000`) | Enabled (`UARTEN`, `TXE`, `RXE`), baud rate as QEMU left it |
+| GIC, timers | Not touched |
+
+Do not assume: I-cache state, a configured GIC or timer, PSCI beyond what
+the device tree advertises, or that the image was relocated or
+decompressed. It is copied as raw bytes, so link it at `0x40200000`.
+
+### Failures
+
+The firmware prints one of these on the PL011, then `boot halted`, and halts:
 
 | Message | Meaning |
 |---------|---------|
 | `fw_cfg with DMA not found` | Not on QEMU virt, or a QEMU too old for fw_cfg DMA |
 | `no kernel image (pass -kernel to QEMU)` | fw_cfg reports a kernel size of 0 |
 | `fw_cfg DMA read of the kernel failed` | The DMA transfer reported an error |
+
+### How to test
+
+`make test` runs `arm-boot` (an image checks `x0`–`x3` and the device
+tree) and `arm-no-kernel`. By hand:
+
+```bash
+make arm
+qemu-system-aarch64 -M virt -cpu cortex-a57 -nographic -bios arm/squirrel-bios.bin -kernel image.bin
+```
+
+Expect `SquirrelBIOS ARM`, then `kernel loaded at 0x40200000, jumping`,
+then whatever the image prints. `tests/arm-kernel.S` is a minimal image.
 
 ## RISC-V (QEMU virt)
 
@@ -107,28 +204,56 @@ where through the `fw_dynamic_info` block it passes in `a2` (magic
 `"OSBI"`, `next_addr`). The firmware jumps there without changing
 privilege.
 
+### Registers
+
 | Item | Value |
-|------|--------|
-| Entry | `next_addr` from QEMU, `0x80200000` on rv64 (RAM base + 2 MB) |
-| Privilege | M-mode. There is no SBI: the OS owns `mtvec`, the PMP and all traps. |
-| Harts | Hart 0 only. Other harts park in `wfi` with interrupts off and are not released. |
-| Interrupts | `mstatus.MIE = 0`, `mie = 0` |
-| MMU | `satp` untouched (bare after reset) |
-| `a0` | Hart ID (0) |
+|------|-------|
+| `pc` | `next_addr` from QEMU, `0x80200000` on rv64 (RAM base + 2 MB) |
+| Privilege | M-mode |
+| `satp` | Untouched (bare after reset) |
+| `mstatus.MIE`, `mie` | `0` |
+| `a0` | Hart ID (`0`) |
 | `a1` | Device tree address, as QEMU passed it to the firmware |
 | `a2` | `0` |
-| Stack | `SP` points into the firmware image. Set your own. |
-| Console | NS16550A at `0x10000000`, 8N1, FIFOs on, interrupts off |
+| `sp` | Inside the firmware image |
 
-The firmware itself occupies RAM from `0x80000000` up to the image. RAM
-size and layout come from the device tree (`/memory`). Without `-kernel`
-the firmware prints `boot: no kernel image (pass -kernel to QEMU)` and halts.
+### Memory
 
-A Linux kernel will not boot this way: it expects S-mode and an SBI.
+| Range | Contents |
+|-------|----------|
+| `0x80000000`–`0x801FFFFF` | Firmware image and stack, free after the jump |
+| `0x80200000`–… | The image |
+| `a1` | Device tree, placed by QEMU near the top of RAM |
 
-## Common rules
+RAM size and layout come from the device tree (`/memory`).
 
-1. Firmware performs only early init and the load/jump.
-2. The OS must not rely on firmware interrupt handlers after hand-off.
-3. A console device is either already printing or has a known base address.
-4. Drive/image identity is passed in an architecture-defined register or is implicit for the first drive.
+### Devices and harts
+
+| Item | State |
+|------|-------|
+| NS16550A (`0x10000000`) | 8N1, FIFOs on, interrupts off |
+| Other harts | Parked in `wfi` with interrupts off. They are never released. |
+| CLINT, PLIC | Not touched |
+
+Do not assume: an SBI (there is none, so a Linux kernel will not boot
+this way), a set `mtvec`, PMP entries, or secondary harts being available.
+
+### Failures
+
+Without `-kernel`, or if QEMU passed no valid `fw_dynamic_info`, the
+firmware prints `boot: no kernel image (pass -kernel to QEMU)`, then
+`boot halted`, and halts.
+
+### How to test
+
+`make test` runs `riscv-boot` (an image checks `a0` and the device tree,
+with `-smp 2`) and `riscv-no-kernel`. By hand:
+
+```bash
+make riscv
+qemu-system-riscv64 -M virt -nographic -bios riscv/squirrel-bios.bin -kernel image.bin
+```
+
+Expect `SquirrelBIOS RISC-V`, then `jumping to kernel at
+0x0000000080200000`, then whatever the image prints.
+`tests/riscv-kernel.S` is a minimal image.
