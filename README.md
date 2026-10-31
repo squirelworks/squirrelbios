@@ -97,8 +97,20 @@ Nothing is added to the repo: the script downloads two pinned Ubuntu
 packages (about 40 MB, checked against their SHA-256) into
 `build/linux/` and builds the initramfs there. Needs `curl`, `cpio` and
 `qemu-system-riscv64`. It is not part of `make test` or CI.
-`LINUX_TIMEOUT` (default 300 seconds) and `LINUX_SMP` (default 1 hart)
-change the run; the serial log is `build/linux/linux-shell.log`.
+`LINUX_TIMEOUT` (default 300 seconds), `LINUX_SMP` (default 1 hart) and
+`LINUX_MEM` (default `512M`) change the run; the serial log is
+`build/linux/linux-shell.log`.
+
+```bash
+make linux-big                        # 64 harts, 64 GB: fails today, see ROADMAP.md
+make linux-big BIG_SMP=8 BIG_MEM=16G  # a smaller node
+```
+
+`make linux-big` is the same boot on a QEMU machine the size of one
+server node, and also requires every hart to come online. It is the
+first item of the large-node milestone in [ROADMAP.md](ROADMAP.md) and is
+expected to fail until that milestone lands. QEMU maps the guest RAM
+without reserving it, so the host does not need 64 GB.
 
 ## Run
 

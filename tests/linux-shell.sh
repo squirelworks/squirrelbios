@@ -15,15 +15,19 @@
 #   2. a command typed at the prompt runs (echo prints linux-shell=42),
 #   3. poweroff makes QEMU exit by itself (SBI SRST shutdown, status 0).
 #
-# LINUX_TIMEOUT (seconds, default 300) bounds the whole run, and
-# LINUX_SMP (default 1) sets the number of harts. The serial
-# log is kept in build/linux/linux-shell.log.
+# LINUX_TIMEOUT (seconds, default 300) bounds the whole run,
+# LINUX_SMP (default 1) sets the number of harts, and LINUX_MEM
+# (default 512M) the guest RAM. LINUX_EXPECT_HARTS, when set, also
+# requires the shell's banner to report that many harts online.
+# The serial log is kept in build/linux/linux-shell.log.
 
 set -eu
 
 QEMU_RISCV=${QEMU_RISCV:-qemu-system-riscv64}
 TIMEOUT=${LINUX_TIMEOUT:-300}
 SMP=${LINUX_SMP:-1}
+MEM=${LINUX_MEM:-512M}
+EXPECT_HARTS=${LINUX_EXPECT_HARTS:-}
 FIRMWARE=riscv/squirrel-bios.bin
 WORK=build/linux
 MIRROR=${UBUNTU_PORTS:-http://ports.ubuntu.com/ubuntu-ports}
@@ -118,7 +122,11 @@ chmod 755 "$root/init"
 initrd=$WORK/initramfs.cpio.gz
 (cd "$root" && find . | cpio -o -H newc -R 0:0 --quiet) | gzip -9 > "$initrd"
 
-set -- "$QEMU_RISCV" -M virt -m 512M -smp "$SMP" -no-reboot \
+# The RAM is a backend with reserve=off, so QEMU maps it without asking
+# the host to set the whole size aside. A 64G guest then starts on a
+# host with much less, as long as Linux does not touch all of it.
+set -- "$QEMU_RISCV" -M virt,memory-backend=ram -m "$MEM" -smp "$SMP" -no-reboot \
+    -object "memory-backend-ram,id=ram,size=$MEM,reserve=off" \
     -bios "$FIRMWARE" -kernel "$image" -initrd "$initrd" \
     -append "console=ttyS0 earlycon panic=-1"
 
@@ -135,7 +143,7 @@ rm -f "$log" "$pipe.in" "$pipe.out"
 mkfifo "$pipe.in" "$pipe.out"
 "$@" -display none -monitor none \
     -chardev "pipe,id=con,path=$pipe" -serial chardev:con \
-    >/dev/null 2>&1 &
+    >/dev/null 2>"$WORK/qemu.err" &
 qemu=$!
 cat "$pipe.out" > "$log" &
 reader=$!
@@ -158,6 +166,7 @@ running() {
 fail() {
     echo "FAIL  linux-shell ($1)"
     tail -n 40 "$log" | sed 's/^/      | /'
+    [ -s "$WORK/qemu.err" ] && sed 's/^/      qemu: /' "$WORK/qemu.err"
     echo "      full log: $log"
     exit 1
 }
@@ -173,6 +182,13 @@ wait_for() {
 }
 
 wait_for "squirrel# " "shell prompt"
+# /init prints the hart count just before the first prompt
+if [ -n "$EXPECT_HARTS" ]; then
+    online=$(sed -n 's/^squirrel: .*, \([0-9]*\) hart(s).*/\1/p' "$log" | head -n 1)
+    [ "$online" = "$EXPECT_HARTS" ] ||
+        fail "${online:-no} of $EXPECT_HARTS harts online"
+    echo "ok    $EXPECT_HARTS harts online"
+fi
 # The shell's own echo of this line shows $((40+2)), not 42
 printf 'echo linux-shell=$((40+2))\n' >&3
 wait_for "linux-shell=42" "command at the prompt"

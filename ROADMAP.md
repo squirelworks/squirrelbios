@@ -153,6 +153,72 @@ CMOS reads that disable NMI while they run, and a VGA text mode so the
 x86 banner is actually visible. Serial remains the console `make test`
 watches.
 
+### 6. A large server node (future)
+
+Not scheduled. Start it after milestones 1 to 5, when the OS wants more
+than a small virtual machine.
+
+A supercomputer is thousands of separate server boards on a fast
+network, and each board runs its own firmware. So for SquirrelBIOS the
+goal is one big node booting Linux well: tens to hundreds of harts,
+tens of GB of RAM or more, and the devices that join it to the rest of
+the machine. The firmware stays original code and keeps its
+load-then-jump shape; the items below only add what a large node needs.
+RISC-V `virt` goes first, because it is the target with an SBI and a
+Linux shell already.
+
+`make linux-big` is the yardstick. It boots the `linux-shell` kernel and
+busybox on `-smp 64 -m 64G` and passes only when all 64 harts are online.
+What it showed on the first run (QEMU 8.2, Ubuntu 6.8 riscv64 kernel):
+
+- **RAM is fine.** Linux sees the full 64 GB from the device tree and
+  reaches the shell. QEMU needs `reserve=off` on its RAM backend to start
+  a 64 GB guest on a smaller host; the script sets it.
+- **Harts 8 and up never start.** `MAX_HARTS` is 8. Hart IDs at or above
+  it go to `park_forever`, and `sbi_hart_start` returns
+  `SBI_ERR_INVALID_PARAM`, so Linux prints `CPU8: failed to start` and
+  runs on 8.
+- **The test kernel stops at 32.** Ubuntu's generic riscv64 kernel is
+  built with `NR_CPUS=32` and ignores harts 32 to 63 (`Invalid cpuid`).
+  Past 32 harts the check needs a kernel built with a larger `NR_CPUS`.
+
+The work, roughly in order:
+
+1. **Many harts.** Raise `MAX_HARTS` to what QEMU `virt` allows, and size
+   the per-hart trap stacks and `hart_table` from it without leaving the
+   2 MB the firmware PMP region covers. The IPI and fence paths walk
+   every hart today; make them cheap when most harts are idle. HSM should
+   still bring harts up one at a time on request. Honour
+   `fw_dynamic_info.boot_hart` (from Speculative) because large machines
+   do not always boot hart 0.
+2. **Large memory and NUMA.** Read `/memory` from the device tree instead
+   of assuming the QEMU layout, keep the firmware reservation right with
+   many memory nodes, and pass through `numa-node-id` and the
+   `distance-map` QEMU writes for `-numa`, so Linux knows which RAM is
+   near which hart.
+3. **A sockets-and-clusters topology.** Check that `cpu-map` survives the
+   device-tree edits, and that the firmware does not depend on hart IDs
+   being dense.
+4. **Interrupt controllers that scale.** QEMU `virt` with `aia=aplic-imsic`
+   replaces the PLIC and CLINT-only IPIs with IMSIC message interrupts.
+   Program the M-mode side so IPIs and the timer still work there.
+5. **PCIe.** The device tree already describes the `virt` host bridge.
+   The firmware leaves it to Linux; the work is to check that a network
+   card and an NVMe drive enumerate with many harts and lots of RAM.
+6. **Network boot.** Thousands of diskless nodes start from the network.
+   Load a kernel and initrd over virtio-net (a small original TFTP-style
+   loader), or document the hand-off to a kernel that does it itself.
+7. **Remote management and error reporting.** A way to power-cycle and
+   watch a node from outside (QEMU's monitor and the SBI SRST path are
+   the stand-ins), and a place to report machine-check style hardware
+   faults instead of a silent halt.
+8. **UEFI and ACPI, as an option.** Big ARM and x86 servers expect UEFI
+   and ACPI rather than a device tree. That is a separate, large project
+   and stays out of scope for the hand-off; if it is ever done it is an
+   optional second entry path, not a replacement for this contract.
+
+[TODO.md](TODO.md) breaks the first part into PR-sized items.
+
 ## Speculative
 
 Not tasks, until the OS needs one of them. They are listed in
@@ -167,7 +233,8 @@ Not tasks, until the OS needs one of them. They are listed in
 - RISC-V SBI debug console (`DBCN`), PMU, or vendor extensions.
 - Parsing the device tree for the UART and CLINT instead of the QEMU virt
   constants.
-- Honouring `fw_dynamic_info.boot_hart` when it is not hart 0.
+- Honouring `fw_dynamic_info.boot_hart` when it is not hart 0 (part of
+  milestone 6 now).
 - Checking a Linux or Squirrel-OS image into the repo. `make test` stays
   on the small stand-in images.
 
