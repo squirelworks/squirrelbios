@@ -15,7 +15,7 @@ qemu-system-riscv64 -M virt -nographic -bios riscv/squirrel-bios.bin -kernel ima
 - Adds the firmware region to the device tree's `/reserved-memory` (`no-map`), so Linux does not use it
 - Lets S-mode use the cache-block instructions (Zicbom, Zicboz) and its own timer compare (Sstc) when the hart has them, as Linux expects
 - In S-mode, supervisor faults and interrupts are delegated to the image; `ecall` from S-mode stays in M-mode
-- Provides an SBI to S-mode through `ecall`: base, TIME, IPI, RFENCE, HSM and SRST (spec 1.0, implementation ID `0x5351`); `sbi_set_timer` uses the CLINT, `sbi_send_ipi` and the remote fences reach only the calling hart; `sbi_system_reset` powers off or resets through QEMU's test device at `0x100000`
+- Provides an SBI to S-mode through `ecall`: base, TIME, IPI, RFENCE, HSM and SRST (spec 1.0, implementation ID `0x5351`); `sbi_set_timer` uses the CLINT, `sbi_send_ipi` and the remote fences reach every started hart through the CLINT software interrupt; `sbi_system_reset` powers off or resets through QEMU's test device at `0x100000`
 - Any other trap that reaches M-mode prints `trap mcause=<16 hex digits>`, then `boot halted`, and halts
 - Without `-kernel`, prints the reason and halts
 

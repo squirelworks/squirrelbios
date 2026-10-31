@@ -164,6 +164,19 @@ run riscv-hsm-stop "OS-ENTRY riscv hsm-stop|hart1 up a1=1|hart1 up a1=2|stop=ok|
     "$QEMU_RISCV" -M virt -smp 2 -bios riscv/squirrel-bios.bin \
     -kernel $TEST_DIR/riscv-hsm-stop.bin
 
+# RISC-V: with hart 1 started, IPIs reach it by mask bit, by mask base and
+# with base -1 (which also reaches the caller), and remote fences on both
+# harts return (-smp 2)
+run riscv-ipi-smp "OS-ENTRY riscv ipi-smp|ipi-smp=ok|!ipi-smp=bad|!trap mcause=" \
+    "$QEMU_RISCV" -M virt -smp 2 -bios riscv/squirrel-bios.bin \
+    -kernel $TEST_DIR/riscv-ipi-smp.bin
+
+# RISC-V: harts 0 and 1 both fence hart 2 many times at once, then IPI it
+# (-smp 3)
+run riscv-fence-smp3 "OS-ENTRY riscv fence-smp3|fence3=ok|!fence3=bad|!trap mcause=" \
+    "$QEMU_RISCV" -M virt -smp 3 -bios riscv/squirrel-bios.bin \
+    -kernel $TEST_DIR/riscv-fence-smp3.bin
+
 # RISC-V: a store, a load and a fetch in the firmware region fault to the
 # image's stvec; its own memory and the SBI still work
 run riscv-pmp "OS-ENTRY riscv pmp|pmp=ok|!pmp=bad|!trap mcause=" \

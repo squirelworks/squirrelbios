@@ -228,7 +228,8 @@ entered through `mret`.
 | `mscratch` | Firmware trap stack. Owned by the firmware. |
 | `menvcfg` | S-mode entry, on every hart: the firmware sets `CBIE` = `01` (`cbo.inval` acts as a flush), `CBCFE` (`cbo.clean`, `cbo.flush`), `CBZE` (`cbo.zero`) and `STCE` (S-mode `stimecmp`). A bit for an extension the hart lacks stays `0`, and a hart without `menvcfg` is left as it is. Other bits are untouched. M-mode entry: untouched. |
 | `mcounteren` | S-mode entry: `CY`, `TM` and `IR` set, so S-mode can read `cycle`, `time` and `instret`. M-mode entry: untouched. |
-| `mstatus.MIE`, `mstatus.SIE`, `mie` | `0` |
+| `mstatus.MIE`, `mstatus.SIE` | `0` |
+| `mie` | S-mode entry: only `MSIE`, the M-mode software interrupt through which other harts' IPIs and remote fences reach this one (it is not delegated, and S-mode cannot see it). M-mode entry: `0`. |
 | `a0` | Hart ID (`0`) |
 | `a1` | Device tree address, as QEMU passed it to the firmware |
 | `a2` | `0` |
@@ -283,8 +284,8 @@ M-mode entry gets the tree as QEMU wrote it.
 
 Do not assume: SBI extensions other than base, TIME, IPI, RFENCE, HSM and SRST,
 a set `stvec` (install one before the first delegated trap), secondary
-harts being available, or IPIs and remote fences reaching a hart other
-than the caller (they do not yet, even once it is started).
+harts being available, or IPIs and remote fences reaching a hart that is
+not started.
 
 ### Traps
 
@@ -340,17 +341,27 @@ stop the timer, call `set_timer` with a time that is never reached
 (`-1`).
 
 `send_ipi(a0, a1)` takes the SBI hart mask: bit N of `a0` selects hart
-`a1 + N`, and `a1 = -1` selects every running hart. Only the boot hart
-runs, so the only hart it can reach is the caller, which gets a
-supervisor software interrupt (`mip.SSIP`; S-mode clears `sip.SSIP` in
-its handler). A mask that names any hart that is not running returns
-`SBI_ERR_INVALID_PARAM` (`-3`) and raises nothing, on that hart or on
-the caller. An empty mask succeeds and does nothing.
+`a1 + N`, and `a1 = -1` selects every started hart (the boot hart and
+any `hart_start` started). Each hart selected gets a supervisor software
+interrupt (`mip.SSIP`; S-mode clears `sip.SSIP` in its handler): the
+caller at once, another hart through its M-mode software interrupt
+(CLINT `msip`), which the firmware turns into `SSIP` on that hart. The
+call returns once the interrupts are sent, not taken. A mask that names
+any hart that is not started returns `SBI_ERR_INVALID_PARAM` (`-3`) and
+raises nothing, on that hart or any other. An empty mask succeeds and
+does nothing.
 
 The RFENCE functions take the same hart mask in `a0` and `a1`, with the
-same rules. For the calling hart the firmware runs `fence.i`
-(`remote_fence_i`) or a full `sfence.vma` (both `remote_sfence_vma`
-functions), which covers any `start`, `size` and ASID. The hypervisor
+same rules. Each hart selected runs `fence.i` (`remote_fence_i`) or a
+full `sfence.vma` (both `remote_sfence_vma` functions), which covers any
+`start`, `size` and ASID: the caller at once, the others in their M-mode
+software interrupt. The call returns when every hart selected has run
+it after the call was made: a target takes all its requests at once and
+numbers each such pass, and the caller waits until its request has been
+taken and the pass that took it has finished, so a pass already under way
+when the request arrived does not count. Two harts may fence each other at
+the same time: while one waits, it also runs the fences asked of it. A
+hart that stops drops what was asked of it; the call still returns. The hypervisor
 fences (functions 3–6) return `SBI_ERR_NOT_SUPPORTED`.
 
 `hart_start(a0 = hart, a1 = start address, a2 = opaque)` takes a hart
@@ -418,7 +429,13 @@ and `a1` changed), `riscv-timer` (an image sets a timer 10 ms ahead and
 prints `timer=ok` from its supervisor timer interrupt, which must not
 come back after it pushed the timer out), `riscv-ipi` (with `-smp 2`, an
 IPI to the parked hart 1 fails and raises nothing, and an IPI to itself
-prints `ipi=ok` from its software-interrupt handler), `riscv-rfence`
+prints `ipi=ok` from its software-interrupt handler), `riscv-ipi-smp`
+(with `-smp 2`, hart 1 is started and takes IPIs by mask bit, by mask base and with base `-1`, which also reaches hart 0;
+`remote_fence_i` and `remote_sfence_vma` on both harts return; then both
+harts fence each other 20000 times at once without the firmware
+deadlocking), `riscv-fence-smp3` (with `-smp 3`, harts 0 and 1 both
+fence hart 2 20000 times at once, then hart 2 takes an IPI from each),
+`riscv-rfence`
 (with `-smp 2`, a fence whose mask also names hart 1 fails, and
 `remote_sfence_vma` and `remote_fence_i` for itself succeed),
 `riscv-hsm` (with `-smp 2`, hart 1 is stopped, hart 7 does not exist,

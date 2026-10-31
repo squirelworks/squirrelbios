@@ -80,7 +80,8 @@
 
         .equ CAUSE_ECALL_S,     9
         .equ MIE_MSIE,          (1 << 3)
-        .equ TRAP_FRAME,        32          /* t0-t3, below trap_stack_top */
+        .equ TRAP_FRAME,        80          /* t0-t6, ra, a2, a3, below trap_stack_top */
+        .equ CAUSE_M_SOFT,      (1 << 63) | 3
         .equ CAUSE_M_TIMER,     (1 << 63) | 7
 
         .equ MIP_SSIP,          (1 << 1)
@@ -108,10 +109,16 @@
         .equ TRAP_STACK,        256         /* per hart */
 
         /* hart_table entry: state, start address, opaque (8 bytes each) */
-        .equ HART_ENTRY_SHIFT,  5           /* 32 bytes */
+        .equ HART_ENTRY_SHIFT,  6           /* 64 bytes */
         .equ HART_STATE,        0
         .equ HART_ADDR,         8
         .equ HART_OPAQUE,       16
+        .equ HART_PENDING,      24          /* work other harts asked of it */
+        .equ HART_START,        32          /* passes over HART_PENDING begun */
+        .equ HART_DONE,         40          /* number of the last pass finished */
+        .equ PEND_SSIP,         1           /* raise the supervisor software interrupt */
+        .equ PEND_FENCE_I,      2
+        .equ PEND_SFENCE,       4           /* sfence.vma, all of it */
         .equ HSM_STARTED,       0           /* SBI hart states */
         .equ HSM_STOPPED,       1
         .equ HSM_START_PENDING, 2
@@ -222,7 +229,8 @@ _start:
  * uses sp before setting it faults instead of writing firmware memory.
  * Used by every hart. */
 enter_s:
-        csrw mie, zero
+        li t0, MIE_MSIE                     /* other harts' IPIs and fences (m_soft) */
+        csrw mie, t0
         csrw satp, zero
         la t0, skip_insn                    /* a hart without menvcfg skips this */
         csrrw t2, mtvec, t0
@@ -292,11 +300,14 @@ park:
         mv s0, a0
         li t0, HSM_STOPPED
         sd t0, HART_STATE(s5)
+        fence rw, rw
+        sd zero, HART_PENDING(s5)
         li t0, MIE_MSIE
         csrw mie, t0
 1:      wfi
         sw zero, 0(s6)                      /* consume the wake-up */
         fence
+        sd zero, HART_PENDING(s5)           /* a stopped hart has nothing to fence */
         ld t0, HART_STATE(s5)
         li t1, HSM_START_PENDING
         bne t0, t1, 1b
@@ -326,13 +337,21 @@ trap:
         sd t1, 8(sp)
         sd t2, 16(sp)
         sd t3, 24(sp)
+        sd t4, 32(sp)
+        sd t5, 40(sp)
+        sd t6, 48(sp)
+        sd ra, 56(sp)
+        sd a2, 64(sp)
+        sd a3, 72(sp)
         csrr t0, mcause
         li t1, CAUSE_M_TIMER
         beq t0, t1, m_timer
+        li t1, CAUSE_M_SOFT
+        beq t0, t1, m_soft
         li t1, CAUSE_ECALL_S
         bne t0, t1, trap_fatal
 
-/* SBI dispatcher.  t0-t3 are saved. A function sets a1 and goes to
+/* SBI dispatcher.  t0-t6 and ra are saved. A function sets a1 and goes to
  * sbi_ok, or sets a0 to an error and goes to sbi_ret. */
 sbi_call:
         li t0, SBI_EXT_BASE
@@ -367,6 +386,12 @@ trap_ret:
         ld t1, 8(sp)
         ld t2, 16(sp)
         ld t3, 24(sp)
+        ld t4, 32(sp)
+        ld t5, 40(sp)
+        ld t6, 48(sp)
+        ld ra, 56(sp)
+        ld a2, 64(sp)
+        ld a3, 72(sp)
         addi sp, sp, TRAP_FRAME
         csrrw sp, mscratch, sp
         mret
@@ -444,31 +469,31 @@ sbi_get_mimpid:
         j sbi_ok
 
 /* IPI extension: send_ipi (0), a0 = hart mask, a1 = hart mask base.
- * Only the calling hart is running, so that is the only one it can
- * reach: it gets a supervisor software interrupt. */
+ * Each hart named gets a supervisor software interrupt: the caller at
+ * once, the others through their M-mode software interrupt (m_soft). */
 sbi_ipi:
         bnez a6, sbi_not_supported
-        jal t2, hart_mask
-        beqz t0, sbi_ok
-        li t0, MIP_SSIP
-        csrs mip, t0
+        li t0, PEND_SSIP
+        call check_mask
+        call send_mask
         j sbi_ok
 
 /* RFENCE extension, a0 = hart mask, a1 = hart mask base:
  *   remote_fence_i (0), remote_sfence_vma (1, a2 = start, a3 = size),
  *   remote_sfence_vma_asid (2, a4 = ASID).
- * Only the calling hart runs, so the fence is done here, on it. The
- * sfence.vma flushes everything, which covers any start, size and ASID.
- * The hypervisor fences (3-6) are not supported. */
+ * Each hart named runs the fence: the caller here, the others in m_soft,
+ * and the call returns once they all have. The sfence.vma flushes
+ * everything, which covers any start, size and ASID. The hypervisor
+ * fences (3-6) are not supported. */
 sbi_rfence:
         li t0, 2
         bgtu a6, t0, sbi_not_supported
-        jal t2, hart_mask
-        beqz t0, sbi_ok
-        bnez a6, 1f
-        fence.i
-        j sbi_ok
-1:      sfence.vma
+        li t0, PEND_FENCE_I
+        beqz a6, 1f
+        li t0, PEND_SFENCE
+1:      call check_mask
+        call send_mask
+        call wait_mask
         j sbi_ok
 
 /* HSM extension: hart_start (0, a0 = hart, a1 = start address,
@@ -546,28 +571,165 @@ sbi_hart_stop:
         csrr a0, mhartid
         j park
 
-/* Check an SBI hart mask: bit N of a0 selects hart a1 + N, and a1 = -1
- * selects the calling hart. IPIs and fences reach only the calling hart,
- * even when hart_start has started others, so a mask that names any other
- * hart is an invalid parameter (jumps to sbi_invalid_param). Otherwise t0 = 1 if the calling hart is selected,
- * 0 if the mask is empty. Uses t1 and t3, returns through t2. */
-hart_mask:
-        li t0, 1
-        li t1, -1
-        beq a1, t1, 2f
-        csrr t1, mhartid
-        sub t1, t1, a1                      /* bit of the calling hart */
-        li t0, 0
+/* SBI hart masks: bit N of a0 selects hart a1 + N, and a1 = -1 selects
+ * every started hart.  The helpers below take the work in t0 (PEND_*),
+ * keep t0 and t1, and use t2-t6. */
+
+/* t4 = hart ID.  t5 = 1 if the mask in a0 and a1 selects it.  Uses t3
+ * and t6, returns through t2. */
+hart_selected:
+        li t5, 1
+        li t6, -1
+        beq a1, t6, 1f
+        sub t6, t4, a1                      /* its bit */
+        li t5, 0
         li t3, 64
-        bgeu t1, t3, 1f                     /* below the base or past bit 63 */
-        li t0, 1
-        sll t0, t0, t1
-1:      not t3, t0
+        bgeu t6, t3, 1f                     /* below the base or past bit 63 */
+        srl t5, a0, t6
+        andi t5, t5, 1
+1:      jr t2
+
+/* Do the work in \bits (PEND_*) on this hart.  Uses \tmp. */
+.macro do_work bits, tmp
+        andi \tmp, \bits, PEND_SSIP       /* own labels: no 1f/2f/3f clash */
+        beqz \tmp, dw_fi\@
+        csrsi mip, MIP_SSIP
+dw_fi\@:
+        andi \tmp, \bits, PEND_FENCE_I
+        beqz \tmp, dw_sf\@
+        fence.i
+dw_sf\@:
+        andi \tmp, \bits, PEND_SFENCE
+        beqz \tmp, dw_end\@
+        sfence.vma
+dw_end\@:
+.endm
+
+/* t4 = hart ID.  t3 = its hart_table entry.  Uses t6. */
+.macro hart_entry
+        slli t3, t4, HART_ENTRY_SHIFT
+        la t6, hart_table
+        add t3, t3, t6
+.endm
+
+/* Every hart a mask names must be started: otherwise go to
+ * sbi_invalid_param, before any work is sent. */
+check_mask:
+        li t2, -1
+        beq a1, t2, 3f                      /* every started hart */
+        li t2, MAX_HARTS
+        bgeu a1, t2, 2f
+        sub t2, t2, a1                      /* bits for harts that can exist */
+        li t3, -1
+        sll t3, t3, t2
         and t3, t3, a0
-        bnez t3, sbi_invalid_param          /* a hart that is not running */
-        and t0, t0, a0
-        snez t0, t0
-2:      jr t2
+        bnez t3, sbi_invalid_param
+        li t4, 0
+1:      jal t2, hart_selected
+        beqz t5, 4f
+        hart_entry
+        ld t5, HART_STATE(t3)
+        bnez t5, sbi_invalid_param          /* not HSM_STARTED */
+4:      addi t4, t4, 1
+        li t5, MAX_HARTS
+        bltu t4, t5, 1b
+        ret
+2:      bnez a0, sbi_invalid_param          /* only harts past the table */
+3:      ret
+
+/* Hand the work in t0 to every started hart the mask names: the caller
+ * does it at once, the others get it in their HART_PENDING and an M-mode
+ * software interrupt. */
+send_mask:
+        csrr t1, mhartid
+        li t4, 0
+1:      jal t2, hart_selected
+        beqz t5, 3f
+        hart_entry
+        ld t5, HART_STATE(t3)
+        bnez t5, 3f                         /* not started: a1 = -1 skips it */
+        bne t4, t1, 2f
+        do_work t0, t5
+        j 3f
+2:      addi t6, t3, HART_PENDING
+        amoor.d.aqrl zero, t0, (t6)
+        fence rw, ow                        /* the work before the interrupt */
+        li t6, CLINT_MSIP
+        slli t5, t4, 2
+        add t6, t6, t5
+        li t5, 1
+        sw t5, 0(t6)
+3:      addi t4, t4, 1
+        li t5, MAX_HARTS
+        bltu t4, t5, 1b
+        ret
+
+/* Wait until every other hart send_mask reached has done the work in t0.
+ * A request counts as done only after a pass over HART_PENDING that began
+ * after it was posted has finished: first the bits must leave PENDING
+ * (some pass took them, and that pass had begun by then), then HART_DONE
+ * must reach the HART_START read after that.  While waiting, do work sent
+ * to this hart, so two harts fencing each other do not wait for ever.
+ * Uses a2 as well. */
+wait_mask:
+        csrr t1, mhartid
+        li t4, 0
+1:      beq t4, t1, 3f
+        jal t2, hart_selected
+        beqz t5, 3f
+        hart_entry
+        ld t5, HART_STATE(t3)
+        bnez t5, 3f
+2:      ld t5, HART_PENDING(t3)
+        and t5, t5, t0
+        beqz t5, 4f
+        mv t5, t1                           /* meanwhile, this hart's own work */
+        jal t2, take_work
+        hart_entry
+        j 2b
+4:      fence r, r
+        ld a2, HART_START(t3)               /* the pass that took our bits has begun */
+5:      ld t5, HART_DONE(t3)
+        bgeu t5, a2, 3f
+        mv t5, t1
+        jal t2, take_work
+        hart_entry
+        j 5b
+3:      addi t4, t4, 1
+        li t5, MAX_HARTS
+        bltu t4, t5, 1b
+        ret
+
+/* t5 = hart ID (this hart): one pass over its HART_PENDING.  Number the
+ * pass (HART_START), take all the bits at once, do the work, then record
+ * the pass as done (HART_DONE).  A request posted after the take waits
+ * for a later pass.  Uses t3, t5, t6 and a3; keeps t0, t1, t4, a2;
+ * returns through t2. */
+take_work:
+        slli t5, t5, HART_ENTRY_SHIFT
+        la t6, hart_table
+        add t3, t5, t6                      /* t3 = this hart's entry */
+        li t6, 1
+        addi t5, t3, HART_START
+        amoadd.d.aqrl a3, t6, (t5)
+        addi a3, a3, 1                      /* a3 = this pass's number */
+        addi t5, t3, HART_PENDING
+        amoswap.d.aqrl t5, zero, (t5)       /* t5 = the work */
+        do_work t5, t6
+        fence rw, rw
+        sd a3, HART_DONE(t3)
+        jr t2
+
+/* M-mode software interrupt on a started hart: another hart sent work. */
+m_soft:
+        csrr t5, mhartid
+        slli t0, t5, 2
+        li t1, CLINT_MSIP
+        add t0, t0, t1
+        sw zero, 0(t0)                      /* before reading the work */
+        fence rw, rw
+        jal t2, take_work
+        j trap_ret
 
 /* SRST extension: system_reset (0, a0 = type, a1 = reason).  Types:
  * shutdown (0), cold reboot (1), warm reboot (2), all through the QEMU
@@ -901,7 +1063,7 @@ sstc_on:                                    /* 1 once enter_s found Sstc */
     .dword 0
 hart_table:
     .rept MAX_HARTS
-    .dword HSM_ABSENT, 0, 0, 0
+    .dword HSM_ABSENT, 0, 0, 0, 0, 0, 0, 0
     .endr
 
 /* The node dt_reserve adds to the device tree, big-endian. Name offsets
