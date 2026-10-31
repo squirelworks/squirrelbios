@@ -77,8 +77,11 @@ until that extension's box is checked.
 - [x] `riscv-dt-reserve` — Tell the OS the firmware region is reserved.
   - Acceptance: before an S-mode entry the firmware adds `/reserved-memory` with a `no-map` child over `0x80000000`–`0x801FFFFF` to the device tree, so Linux does not use the memory PMP closes to it. A stand-in walks the tree, finds the node, and prints `dt=ok`; the rest of the tree still parses. Depends on: `riscv-pmp-firmware`.
 
+- [x] `riscv-menvcfg` — Turn on what Linux uses from S-mode on QEMU's default hart.
+  - Acceptance: the firmware sets `menvcfg` `CBIE`/`CBCFE`/`CBZE` and `STCE` where the hart has them, and `set_timer` writes `stimecmp` when Sstc is on. A stand-in runs `cbo.zero` and the other `cbo` instructions and gets a timer interrupt from a direct `stimecmp` write, and prints `envcfg=ok`; `riscv-timer` still passes. Without this, Linux 6.8 stops with an illegal instruction in `clear_page`. Depends on: `riscv-sbi-time`.
+
 - [ ] `riscv-linux-doc` — Document the QEMU command that tries a Linux `Image` on this SBI.
-  - Acceptance: `riscv/README.md` gives the command line, lists the extensions `probe_extension` now reports, and says a Linux image is not part of `make test`. No kernel binary is added to the repo. Depends on: `riscv-sbi-time`, `riscv-sbi-ipi`, `riscv-sbi-rfence`, `riscv-sbi-hsm`, `riscv-sbi-srst`, `riscv-dt-reserve`.
+  - Acceptance: `riscv/README.md` gives the command line, lists the extensions `probe_extension` now reports, and says a Linux image is not part of `make test`. No kernel binary is added to the repo. Depends on: `riscv-sbi-time`, `riscv-sbi-ipi`, `riscv-sbi-rfence`, `riscv-sbi-hsm`, `riscv-sbi-srst`, `riscv-dt-reserve`, `riscv-menvcfg`.
 
 ## 3. x86: load more than one sector
 

@@ -22,7 +22,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/arm-kernel.bin $(TEST_DIR)/ris
              $(TEST_DIR)/riscv-hsm.bin $(TEST_DIR)/riscv-hsm-stop.bin \
              $(TEST_DIR)/riscv-srst.bin $(TEST_DIR)/riscv-srst-reboot.bin \
              $(TEST_DIR)/riscv-srst-fail.bin $(TEST_DIR)/riscv-pmp.bin \
-             $(TEST_DIR)/riscv-dt.bin
+             $(TEST_DIR)/riscv-dt.bin $(TEST_DIR)/riscv-envcfg.bin
 
 .PHONY: all x86 arm riscv test clean
 .DELETE_ON_ERROR:
@@ -148,6 +148,13 @@ $(TEST_DIR)/riscv-dt.o: tests/riscv-dt.S | $(TEST_DIR)
 $(TEST_DIR)/riscv-dt.elf: $(TEST_DIR)/riscv-dt.o
 	$(RISCV64)ld -Ttext=0x80200000 -o $@ $<
 $(TEST_DIR)/riscv-dt.bin: $(TEST_DIR)/riscv-dt.elf
+	$(RISCV64)objcopy -O binary $< $@
+
+$(TEST_DIR)/riscv-envcfg.o: tests/riscv-envcfg.S | $(TEST_DIR)
+	$(RISCV64)as -o $@ $<
+$(TEST_DIR)/riscv-envcfg.elf: $(TEST_DIR)/riscv-envcfg.o
+	$(RISCV64)ld -Ttext=0x80200000 -o $@ $<
+$(TEST_DIR)/riscv-envcfg.bin: $(TEST_DIR)/riscv-envcfg.elf
 	$(RISCV64)objcopy -O binary $< $@
 
 # One SRST image per reset: shutdown, cold reboot, shutdown for a failure

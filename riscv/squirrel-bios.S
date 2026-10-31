@@ -88,6 +88,15 @@
         .equ MSTATUS_SIE,       (1 << 1)
         .equ MIE_MTIE,          (1 << 7)
         .equ MCOUNTEREN_ALL,    0x7         /* CY, TM, IR readable below M */
+/* menvcfg (priv 1.12): what S-mode may use, for the extensions the hart has.
+ * Bits for an extension the hart lacks stay 0 (WARL). */
+        .equ CSR_MENVCFG,       0x30a
+        .equ CSR_STIMECMP,      0x14d
+        .equ MENVCFG_CBIE_FLUSH, (1 << 4)   /* Zicbom: cbo.inval acts as a flush */
+        .equ MENVCFG_CBCFE,     (1 << 6)    /* Zicbom: cbo.clean, cbo.flush */
+        .equ MENVCFG_CBZE,      (1 << 7)    /* Zicboz: cbo.zero */
+        .equ MENVCFG_STCE,      (1 << 63)   /* Sstc: stimecmp */
+        .equ MENVCFG_S,         MENVCFG_CBIE_FLUSH | MENVCFG_CBCFE | MENVCFG_CBZE | MENVCFG_STCE
 
         /* CLINT: one msip and one mtimecmp per hart, one mtime */
         .equ CLINT_MSIP,        0x02000000
@@ -204,14 +213,27 @@ _start:
 /* Enter S-mode at s3 with a0 and a1 as they are: PMP entry 0 denying the
  * firmware region to S-mode (no read, write or execute; unlocked, so it
  * does not apply to M-mode), entry 1 granting R/W/X over the rest of
- * physical memory (without it, every S-mode access faults), translation off (satp = 0, which a restart after hart_stop
- * relies on), supervisor faults and interrupts delegated to S-mode, then
+ * physical memory (without it, every S-mode access faults), translation
+ * off (satp = 0, which a restart after hart_stop relies on), menvcfg
+ * letting S-mode use cbo.* and stimecmp where the hart has them (sstc_on
+ * records which timer set_timer uses), supervisor faults and interrupts
+ * delegated to S-mode, then
  * mret with MPP = S, interrupts still off and sp = 0, so an image that
  * uses sp before setting it faults instead of writing firmware memory.
  * Used by every hart. */
 enter_s:
         csrw mie, zero
         csrw satp, zero
+        la t0, skip_insn                    /* a hart without menvcfg skips this */
+        csrrw t2, mtvec, t0
+        li t0, MENVCFG_S
+        li t1, 0
+        csrs CSR_MENVCFG, t0
+        csrr t1, CSR_MENVCFG
+        csrw mtvec, t2
+        srli t1, t1, 63                     /* Sstc on: set_timer uses stimecmp */
+        la t0, sstc_on
+        sd t1, 0(t0)
         li t0, FW_PMPADDR
         csrw pmpaddr0, t0
         li t0, -1
@@ -368,6 +390,12 @@ m_timer:
 /* TIME extension: set_timer (0), a0 = absolute time in mtime ticks */
 sbi_time:
         bnez a6, sbi_not_supported
+        la t0, sstc_on
+        ld t0, 0(t0)
+        beqz t0, 1f
+        csrw CSR_STIMECMP, a0               /* STIP follows stimecmp */
+        j sbi_ok
+1:
         csrr t0, mhartid
         slli t0, t0, 3
         li t1, CLINT_MTIMECMP
@@ -582,6 +610,14 @@ sbi_probe_extension:
         beq a0, t0, sbi_ok
         li a1, 0
         j sbi_ok
+
+/* Trap handler while enter_s probes menvcfg: skip the instruction */
+        .align 2
+skip_insn:
+        csrr t0, mepc
+        addi t0, t0, 4
+        csrw mepc, t0
+        mret
 
 trap_fatal:
         la sp, stack_top
@@ -856,6 +892,8 @@ trap_stacks:
     .skip TRAP_STACK * MAX_HARTS
 
     .align 3
+sstc_on:                                    /* 1 once enter_s found Sstc */
+    .dword 0
 hart_table:
     .rept MAX_HARTS
     .dword HSM_ABSENT, 0, 0, 0
