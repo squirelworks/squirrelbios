@@ -103,15 +103,17 @@ packages (about 40 MB, checked against their SHA-256) into
 `build/linux/linux-shell.log`.
 
 ```bash
-make linux-big                        # 64 harts, 64 GB: fails today (32 online), see ROADMAP.md
-make linux-big BIG_SMP=32             # passes
+make linux-big                        # 64 harts, 64 GB, prints PASS linux-shell
+make linux-big BIG_SMP=8 BIG_MEM=16G  # a smaller node
 ```
 
 `make linux-big` is the same boot on a QEMU machine the size of one
-server node, and also requires every hart to come online. It is the
-first item of the large-node milestone in [ROADMAP.md](ROADMAP.md) and is
-expected to fail until that milestone lands. QEMU maps the guest RAM
-without reserving it, so the host does not need 64 GB.
+server node, with Ubuntu 25.04's 6.14 kernel (24.04's 6.8 is built for
+at most 32 harts), and also requires every hart to come online. It is
+the yardstick for the large-node milestone in [ROADMAP.md](ROADMAP.md).
+It also needs `zstd`, and downloads about 15 MB more. QEMU maps the
+guest RAM without reserving it, so the host does not need 64 GB.
+`LINUX_KERNEL=6.14` picks that kernel for `tests/linux-shell.sh` too.
 
 ## Run
 

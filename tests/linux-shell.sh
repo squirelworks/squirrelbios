@@ -15,6 +15,8 @@
 #   2. a command typed at the prompt runs (echo prints linux-shell=42),
 #   3. poweroff makes QEMU exit by itself (SBI SRST shutdown, status 0).
 #
+# LINUX_KERNEL picks the kernel: 6.8 (default, Ubuntu 24.04, built for
+# at most 32 harts) or 6.14 (Ubuntu 25.04, used by make linux-big for 64).
 # LINUX_TIMEOUT (seconds, default 300) bounds the whole run,
 # LINUX_SMP (default 1) sets the number of harts, and LINUX_MEM
 # (default 512M) the guest RAM. LINUX_EXPECT_HARTS, when set, also
@@ -31,12 +33,25 @@ EXPECT_HARTS=${LINUX_EXPECT_HARTS:-}
 FIRMWARE=riscv/squirrel-bios.bin
 WORK=build/linux
 MIRROR=${UBUNTU_PORTS:-http://ports.ubuntu.com/ubuntu-ports}
+# Where a release's packages move once it reaches end of life
+OLD_MIRROR=${UBUNTU_OLD_RELEASES:-http://old-releases.ubuntu.com/ubuntu}
 
-# Pinned to the noble release pocket, which the mirror keeps for the
-# life of the release. The SHA-256 values come from its Packages index.
-KERNEL_VER=6.8.0-31-generic
-KERNEL_DEB=pool/main/l/linux-riscv/linux-image-6.8.0-31-generic_6.8.0-31.31.1_riscv64.deb
-KERNEL_SHA=dffba9df38826a26320c41dac556bd5bda2b447c8ea71433176bde601117d6e9
+# Pinned to a release pocket, which the mirror keeps for the life of the
+# release (and old-releases after that). The SHA-256 values come from
+# its Packages index.
+case ${LINUX_KERNEL:-6.8} in
+6.8)    # noble (24.04): NR_CPUS=32
+    KERNEL_VER=6.8.0-31-generic
+    KERNEL_DEB=pool/main/l/linux-riscv/linux-image-6.8.0-31-generic_6.8.0-31.31.1_riscv64.deb
+    KERNEL_SHA=dffba9df38826a26320c41dac556bd5bda2b447c8ea71433176bde601117d6e9 ;;
+6.14)   # plucky (25.04): brings up 64 harts. Later Ubuntu kernels need
+        # the RVA23 profile and "riscv,isa-extensions", which QEMU 8.2's
+        # default hart and device tree do not give them.
+    KERNEL_VER=6.14.0-13-generic
+    KERNEL_DEB=pool/main/l/linux-riscv/linux-image-6.14.0-13-generic_6.14.0-13.13.2_riscv64.deb
+    KERNEL_SHA=27b7a8fbb170203650459565bb187a9ed5275f4cd1299fabc82622d5ce27ad1c ;;
+*)  echo "linux-shell: LINUX_KERNEL must be 6.8 or 6.14" >&2; exit 1 ;;
+esac
 BUSYBOX_DEB=pool/main/b/busybox/busybox-static_1.36.1-6ubuntu3_riscv64.deb
 BUSYBOX_SHA=c567d8dc47320ad4b17cc20a5a91d583b76a35da618d3b389f1770a358fafd41
 
@@ -55,7 +70,9 @@ fetch() {
     file=$WORK/$(basename "$1")
     if [ ! -f "$file" ]; then
         echo "linux-shell: downloading $(basename "$1")"
-        curl -fsSL -o "$file.part" "$MIRROR/$1" || die "download of $1 failed"
+        curl -fsSL -o "$file.part" "$MIRROR/$1" ||
+            curl -fsSL -o "$file.part" "$OLD_MIRROR/$1" ||
+            die "download of $1 failed"
         mv "$file.part" "$file"
     fi
     echo "$2  $file" | sha256sum -c --quiet - || {
@@ -78,15 +95,28 @@ unpack() {
 fetch "$KERNEL_DEB" "$KERNEL_SHA"
 fetch "$BUSYBOX_DEB" "$BUSYBOX_SHA"
 
-# Kernel: the package ships the Image gzipped as vmlinuz; QEMU's
-# -kernel on riscv wants it raw
-image=$WORK/Image
+# Kernel: the package ships the Image compressed as vmlinuz, either
+# gzipped (6.8) or as an EFI zboot image (6.14: "zimg" at offset 4, the
+# payload offset and size at 8 and 12, the method at 24). QEMU's -kernel
+# on riscv wants it raw.
+image=$WORK/Image-$KERNEL_VER
 if [ ! -f "$image" ]; then
     unpack "$WORK/$(basename "$KERNEL_DEB")" "$WORK/kernel-deb"
     vmlinuz=$WORK/kernel-deb/boot/vmlinuz-$KERNEL_VER
     [ -f "$vmlinuz" ] || die "no vmlinuz-$KERNEL_VER in the kernel package"
     if gzip -t "$vmlinuz" 2>/dev/null; then
         gzip -dc "$vmlinuz" > "$image.part"
+    elif [ "$(dd if="$vmlinuz" bs=1 skip=4 count=4 2>/dev/null)" = zimg ]; then
+        off=$(od -An -tu4 -j8 -N4 "$vmlinuz" | tr -d ' ')
+        size=$(od -An -tu4 -j12 -N4 "$vmlinuz" | tr -d ' ')
+        method=$(dd if="$vmlinuz" bs=1 skip=24 count=4 2>/dev/null)
+        case $method in
+        zstd) command -v zstd >/dev/null || die "zstd not found (needed for $KERNEL_VER)"
+              unz="zstd -dcq" ;;
+        gzip) unz="gzip -dc" ;;
+        *)    die "vmlinuz-$KERNEL_VER is compressed with $method, not gzip or zstd" ;;
+        esac
+        tail -c +$((off + 1)) "$vmlinuz" | head -c "$size" | $unz > "$image.part"
     else
         cp "$vmlinuz" "$image.part"
     fi
