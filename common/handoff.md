@@ -295,7 +295,7 @@ function returns `SBI_ERR_NOT_SUPPORTED` (`-2`).
 | TIME | `0x54494D45` | `set_timer` (0) |
 | IPI | `0x735049` | `send_ipi` (0) |
 | RFENCE | `0x52464E43` | `remote_fence_i` (0), `remote_sfence_vma` (1), `remote_sfence_vma_asid` (2) |
-| HSM | `0x48534D` | `hart_start` (0), `hart_get_status` (2) |
+| HSM | `0x48534D` | `hart_start` (0), `hart_stop` (1), `hart_get_status` (2) |
 
 `set_timer(a0)` programs the calling hart's `mtimecmp` with the absolute
 time `a0`, clears a pending supervisor timer interrupt and enables the
@@ -328,6 +328,11 @@ device tree as the opaque value. The call returns once the hart has been
 told; `hart_get_status` reports `START_PENDING` (`2`) until the hart has
 left `wfi`, then `STARTED` (`0`). Starting a hart that is not stopped
 returns `SBI_ERR_ALREADY_AVAILABLE` (`-6`).
+
+`hart_stop()` stops the calling hart. It does not return: the hart goes
+back to its park loop, its registers are not kept, its pending supervisor
+software and timer interrupts are cleared, and `hart_get_status` reports
+it `STOPPED` (`1`). `hart_start` can start it again, at any address.
 
 `hart_get_status(a0 = hart)` returns `STARTED` (`0`), `STOPPED` (`1`) or
 `START_PENDING` (`2`) in `a1`. The boot hart is `STARTED`.
@@ -371,7 +376,9 @@ prints `ipi=ok` from its software-interrupt handler), `riscv-rfence`
 `riscv-hsm` (with `-smp 2`, hart 1 is stopped, hart 7 does not exist,
 `hart_start` brings hart 1 up and a second start is refused; hart 1
 prints `hart1=ok a1=5157000012345678`, the opaque value, and is then
-reported started) and `riscv-no-kernel`. By hand:
+reported started), `riscv-hsm-stop` (with `-smp 2`, hart 1 is started,
+calls `hart_stop` and is reported stopped, twice, and `hart_stop` never
+returns) and `riscv-no-kernel`. By hand:
 
 ```bash
 make riscv

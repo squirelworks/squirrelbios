@@ -50,6 +50,7 @@
 
         .equ MIP_SSIP,          (1 << 1)
         .equ MIP_STIP,          (1 << 5)
+        .equ MSTATUS_SIE,       (1 << 1)
         .equ MIE_MTIE,          (1 << 7)
         .equ MCOUNTEREN_ALL,    0x7         /* CY, TM, IR readable below M */
 
@@ -198,7 +199,8 @@ halt:
         wfi
         j halt
 
-/* Secondary harts wait here for sbi_hart_start. Interrupts stay off at
+/* Secondary harts wait here for sbi_hart_start, and so does a hart that
+ * called sbi_hart_stop (a0 = hart ID either way). Interrupts stay off at
  * the CPU (mstatus.MIE = 0), but the machine software interrupt is enabled
  * in mie so that the hart_start CLINT msip write ends the wfi. */
 park:
@@ -383,8 +385,11 @@ sbi_rfence:
         j sbi_ok
 
 /* HSM extension: hart_start (0, a0 = hart, a1 = start address,
- * a2 = opaque), hart_get_status (2, a0 = hart). */
+ * a2 = opaque), hart_stop (1, the calling hart), hart_get_status (2,
+ * a0 = hart). */
 sbi_hsm:
+        li t0, 1
+        beq a6, t0, sbi_hart_stop
         li t0, MAX_HARTS
         bgeu a0, t0, sbi_invalid_param
         slli t0, a0, HART_ENTRY_SHIFT
@@ -434,6 +439,20 @@ sbi_hsm:
 sbi_hart_get_status:
         mv a1, t1
         j sbi_ok
+
+/* hart_stop: the calling hart goes back to park and does not return to
+ * S-mode. Put the trap stack back in mscratch, drop the S-mode interrupts
+ * it may have pending, and park. Its registers are not kept. */
+sbi_hart_stop:
+        addi sp, sp, TRAP_FRAME
+        csrw mscratch, sp
+        csrw mie, zero
+        li t0, MIP_SSIP | MIP_STIP
+        csrc mip, t0
+        li t0, MSTATUS_SIE
+        csrc mstatus, t0
+        csrr a0, mhartid
+        j park
 
 /* Check an SBI hart mask: bit N of a0 selects hart a1 + N, and a1 = -1
  * selects the calling hart. IPIs and fences reach only the calling hart,

@@ -52,6 +52,7 @@ stand-in OS image from `tests/` and checks the serial output:
 | `riscv-ipi` | `sbi_send_ipi` to the calling hart raises its software interrupt (`ipi=ok`); to the parked hart 1 it returns an error |
 | `riscv-rfence` | `remote_sfence_vma` and `remote_fence_i` for the calling hart succeed; a mask that also names the parked hart 1 returns an error |
 | `riscv-hsm` | `sbi_hart_start` brings the parked hart 1 up in S-mode with the opaque value in `a1` (`hart1=ok a1=...`), and `hart_get_status` reports stopped, then started |
+| `riscv-hsm-stop` | A started hart 1 calls `sbi_hart_stop`, never returns from it, is reported stopped, and starts again |
 | `riscv-no-kernel` | Without `-kernel`, the firmware reports it and halts |
 
 Needs `qemu-system-i386`, `qemu-system-aarch64` and `qemu-system-riscv64`.
