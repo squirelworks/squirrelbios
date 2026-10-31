@@ -61,6 +61,7 @@ stand-in OS image from `tests/` and checks the serial output:
 | `riscv-ipi` | `sbi_send_ipi` to the calling hart raises its software interrupt (`ipi=ok`); to the parked hart 1 it returns an error |
 | `riscv-ipi-smp` | With hart 1 started, IPIs reach it by mask bit, base and base `-1` (which also reaches the caller); remote fences on both harts return, also when both harts fence each other at once |
 | `riscv-fence-smp3` | With `-smp 3`, harts 0 and 1 both fence hart 2 many times at once, then each IPI reaches it |
+| `riscv-harts` | With `-smp 64`, hart 0 starts the other 63, each is reported started, and one fence whose mask names all 64 succeeds (`harts=64`) |
 | `riscv-rfence` | `remote_sfence_vma` and `remote_fence_i` for the calling hart succeed; a mask that also names the parked hart 1 returns an error |
 | `riscv-hsm` | `sbi_hart_start` brings the parked hart 1 up in S-mode with the opaque value in `a1` (`hart1=ok a1=...`), and `hart_get_status` reports stopped, then started |
 | `riscv-hsm-stop` | A started hart 1 turns on paging, calls `sbi_hart_stop`, never returns from it, is reported stopped, and starts again with `satp` and `sp` at 0 |
@@ -102,8 +103,8 @@ packages (about 40 MB, checked against their SHA-256) into
 `build/linux/linux-shell.log`.
 
 ```bash
-make linux-big                        # 64 harts, 64 GB: fails today, see ROADMAP.md
-make linux-big BIG_SMP=8 BIG_MEM=16G  # a smaller node
+make linux-big                        # 64 harts, 64 GB: fails today (32 online), see ROADMAP.md
+make linux-big BIG_SMP=32             # passes
 ```
 
 `make linux-big` is the same boot on a QEMU machine the size of one

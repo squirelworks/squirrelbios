@@ -237,6 +237,12 @@ run riscv-fence-smp3 "OS-ENTRY riscv fence-smp3|fence3=ok|!fence3=bad|!trap mcau
     "$QEMU_RISCV" -M virt -smp 3 -bios riscv/squirrel-bios.bin \
     -kernel $TEST_DIR/riscv-fence-smp3.bin
 
+# RISC-V: on 64 harts, hart 0 starts the other 63 one at a time and fences
+# all 64 with one mask
+run riscv-harts "OS-ENTRY riscv harts|harts=64|!harts=bad|!trap mcause=" \
+    "$QEMU_RISCV" -M virt -smp 64 -bios riscv/squirrel-bios.bin \
+    -kernel $TEST_DIR/riscv-harts.bin
+
 # RISC-V: a store, a load and a fetch in the firmware region fault to the
 # image's stvec; its own memory and the SBI still work
 run riscv-pmp "OS-ENTRY riscv pmp|pmp=ok|!pmp=bad|!trap mcause=" \

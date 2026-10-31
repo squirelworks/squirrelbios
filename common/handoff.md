@@ -390,7 +390,7 @@ M-mode entry gets the tree as QEMU wrote it.
 | Item | State |
 |------|-------|
 | NS16550A (`0x10000000`) | 115200 8N1 (divisor 2 from `virt`'s 3.6864 MHz UART clock), FIFOs on, interrupts off |
-| Other harts | Parked in `wfi` in M-mode, with `mstatus.MIE = 0` and only `mie.MSIE` set, until `sbi_hart_start` (below). Hart IDs 8 and up are never started. |
+| Other harts | Parked in `wfi` in M-mode, with `mstatus.MIE = 0` and only `mie.MSIE` set, until `sbi_hart_start` (below). The firmware tracks hart IDs 0 to 511 (QEMU `virt`'s limit, one socket); higher IDs are never started. |
 | CLINT | A hart's `mtimecmp` is written only by `sbi_set_timer` and the firmware's timer interrupt. A parked hart's `msip` is written by `sbi_hart_start`. `mtime` runs at 10 MHz (the device tree's `timebase-frequency`). |
 | PLIC | Not touched |
 | Test device (`0x100000`) | Written only by `sbi_system_reset`. S-mode can reach it too (PMP entry 1 opens everything outside the firmware region), but an OS should use SRST. |
@@ -548,6 +548,9 @@ prints `ipi=ok` from its software-interrupt handler), `riscv-ipi-smp`
 harts fence each other 20000 times at once without the firmware
 deadlocking), `riscv-fence-smp3` (with `-smp 3`, harts 0 and 1 both
 fence hart 2 20000 times at once, then hart 2 takes an IPI from each),
+`riscv-harts` (with `-smp 64`, hart 0 starts harts 1 to 63 one at a
+time, `hart_get_status` reports each started, and one `remote_fence_i`
+whose mask names all 64 harts succeeds: `harts=64`),
 `riscv-rfence`
 (with `-smp 2`, a fence whose mask also names hart 1 fails, and
 `remote_sfence_vma` and `remote_fence_i` for itself succeed),
