@@ -29,7 +29,7 @@ riscv: $(RISCV_BIN)
 
 # --- firmware ---------------------------------------------------------
 
-$(X86_ROM): x86/squirrel-bios.asm x86/memmap.inc
+$(X86_ROM): x86/squirrel-bios.asm x86/memmap.inc x86/klingon-font.inc
 	$(NASM) -f bin -i x86/ $< -o $@
 
 arm/squirrel-bios.o: arm/squirrel-bios.S

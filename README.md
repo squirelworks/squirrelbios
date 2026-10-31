@@ -1,5 +1,14 @@
 # SquirrelBIOS
 
+> **Joke branch: `klingon-font`.** An alien world where the PC's text font
+> was never ASCII. The x86 ROM puts the VGA into 80x25 text mode itself and
+> loads an original pIqaD-style 8x16 font, so every letter and digit on
+> screen is drawn in Klingon script. COM1 output is unchanged, so the smoke
+> tests still pass. Not for merging into `main`; see
+> [Klingon font](#klingon-font-joke-branch) below.
+>
+> ![SquirrelBIOS booting with the Klingon font](docs/klingon-font.png)
+
 Platform-specific firmware for Squirrel-OS/2.  
 Original code. Hands off to the OS after early init.
 
@@ -78,3 +87,35 @@ See `common/handoff.md` for the contract each architecture provides.
 [ROADMAP.md](ROADMAP.md) is where this firmware is going.
 [TODO.md](TODO.md) is the list of small changes that get there.
 One item in that list is one PR, branched from `main`.
+
+## Klingon font (joke branch)
+
+- `tools/klingon-font.py` holds the glyphs as ASCII art and writes
+  `x86/klingon-font.inc` (`python3 tools/klingon-font.py > x86/klingon-font.inc`).
+  The glyphs are original drawings in the spirit of pIqaD, not copied from
+  an existing font.
+- Latin letters map to the nearest Klingon letter (`d`→`D`, `k`/`c`→`q`,
+  `x`→`Q`, `f`→`v`, `z`→`S`); only `q` and `Q` differ by case. Digits use
+  pIqaD-style numerals, and `'` is the glottal stop letter.
+- `con_putc` folds the romanized `ch`, `gh`, `ng` and `tlh` into one glyph
+  each (code points 0x80-0x83) on the VGA side only.
+- `vga_init` turns on the display controller's PCI decoding, programs the
+  standard 80x25 registers and palette, and loads the font into plane 2.
+
+### Refreshing the branch later
+
+The joke lives in a few self-contained places: `vga_init`/`con_putc`, the
+data tables and `banner_tlh` at the end of `x86/squirrel-bios.asm`,
+`x86/klingon-font.inc`, `tools/klingon-font.py`, this section and the
+Makefile dependency. To pick up new work from `main`:
+
+```bash
+git fetch origin main
+git checkout klingon-font
+git rebase origin/main          # conflicts, if any, are in x86/squirrel-bios.asm
+make x86 && make test
+git push --force-with-lease origin klingon-font
+```
+
+New messages need nothing extra; anything printed through `con_print`
+comes out in Klingon.

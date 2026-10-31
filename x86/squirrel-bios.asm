@@ -8,6 +8,8 @@
 ; Behaviour:
 ;   - Set segments and stack
 ;   - Program COM1 (115200 8N1); every message goes to VGA text and COM1
+;   - Put the VGA into 80x25 text mode with the pIqaD-style font from
+;     klingon-font.inc (joke klingon-font branch); COM1 stays plain ASCII
 ;   - Build a memory map at 0x0000:0x0500 (memmap.inc)
 ;   - Print banner
 ;   - ATA PIO read of LBA 0 (sector 1) into 0x7C00, with timeouts,
@@ -49,6 +51,10 @@ VGA_SEG         equ 0xB800
 VGA_LINE        equ 160         ; bytes per 80-column text row
 ATTR_NORMAL     equ 0x0F
 ATTR_ERROR      equ 0x0C
+ATTR_KLINGON    equ 0x0A
+
+PCI_ADDR        equ 0xCF8
+PCI_DATA        equ 0xCFC
 
 entry:
     cli
@@ -63,11 +69,16 @@ entry:
 
     call build_memmap
     call serial_init
+    call vga_init
 
     ; Banner
     xor di, di
     mov si, banner
     mov ah, ATTR_NORMAL
+    call con_print
+    call con_newline
+    mov si, banner_tlh
+    mov ah, ATTR_KLINGON
     call con_print
     call con_newline
 
@@ -325,10 +336,212 @@ con_newline:
     pop ax
     ret
 
-; In: AL = character, AH = attribute, ES:DI = VGA cell.  Out: DI += 2.
+; In: AL = character, AH = attribute, ES:DI = VGA cell.  Out: DI advanced.
+; COM1 gets the character as is. On VGA the romanized ch, gh, ng and tlh
+; fold into one pIqaD glyph by rewriting the cells just written, so
+; DI moves back instead of forward for those.
 con_putc:
+    call serial_putc
+    push bx
+    push cx
+    push dx
+    mov cl, al
+    or cl, 0x20                 ; lower case, for letters
+    push ax
+    mov ax, di
+    xor dx, dx
+    mov bx, VGA_LINE
+    div bx                      ; DX = byte offset within the row
+    pop ax
+    cmp dx, 2                   ; never fold across rows
+    jb .plain
+    mov bl, [es:di-2]
+    or bl, 0x20
+    cmp cl, 'h'
+    je .h
+    cmp cl, 'g'
+    jne .plain
+    cmp bl, 'n'
+    jne .plain
+    mov byte [es:di-2], KL_NG
+    jmp .done
+.h:
+    mov bh, KL_CH
+    cmp bl, 'c'
+    je .fold
+    mov bh, KL_GH
+    cmp bl, 'g'
+    je .fold
+    cmp bl, 'l'
+    jne .plain
+    cmp dx, 4
+    jb .plain
+    mov bl, [es:di-4]
+    or bl, 0x20
+    cmp bl, 't'
+    jne .plain
+    mov byte [es:di-4], KL_TLH
+    sub di, 2
+    mov byte [es:di], ' '
+    jmp .done
+.fold:
+    mov [es:di-2], bh
+    jmp .done
+.plain:
     stosw
-    jmp serial_putc
+.done:
+    pop dx
+    pop cx
+    pop bx
+    ret
+
+; ---------------------------------------------------------------------------
+; VGA: 80x25 text mode from scratch (no VGA BIOS runs), Klingon font
+; ---------------------------------------------------------------------------
+
+vga_init:
+    pushad
+    push es
+    call vga_pci_enable
+
+    mov dx, 0x3C4               ; sequencer: hold in reset while
+    mov ax, 0x0100              ; the clock changes
+    out dx, ax
+    mov dx, 0x3C2               ; misc output: colour, 28 MHz, 400 lines
+    mov al, 0x67
+    out dx, al
+    mov si, vga_seq
+    mov dx, 0x3C4
+    mov cx, 5
+    call vga_write_indexed
+
+    mov dx, 0x3D4               ; CRTC: unprotect registers 0-7 first
+    mov ax, 0x0E11
+    out dx, ax
+    mov si, vga_crtc
+    mov cx, 25
+    call vga_write_indexed
+
+    mov si, vga_gc
+    mov dx, 0x3CE
+    mov cx, 9
+    call vga_write_indexed
+
+    mov dx, 0x3DA               ; attribute controller: reset flip-flop
+    in al, dx
+    mov dx, 0x3C0
+    mov si, vga_ac
+    xor bl, bl
+.ac:
+    mov al, bl
+    out dx, al
+    lodsb
+    out dx, al
+    inc bl
+    cmp bl, 21
+    jb .ac
+    mov al, 0x20                ; palette done, video on
+    out dx, al
+
+    mov dx, 0x3C8               ; DAC: the 16 text colours
+    xor al, al
+    out dx, al
+    inc dx
+    mov si, vga_dac
+    mov cx, 16 * 3
+.dac:
+    lodsb
+    out dx, al
+    loop .dac
+
+    ; Font: plane 2, 32 bytes per glyph, 16 used
+    mov dx, 0x3C4
+    mov ax, 0x0402              ; write plane 2 only
+    out dx, ax
+    mov ax, 0x0604              ; sequential addressing
+    out dx, ax
+    mov dx, 0x3CE
+    mov ax, 0x0204              ; read plane 2
+    out dx, ax
+    mov ax, 0x0005              ; no odd/even
+    out dx, ax
+    mov ax, 0x0006              ; A000, 64 KB
+    out dx, ax
+    mov ax, 0xA000
+    mov es, ax
+    mov si, klingon_font
+    xor di, di
+    mov bx, 256
+.glyph:
+    mov cx, 8
+    rep movsw
+    add di, 16
+    dec bx
+    jnz .glyph
+    mov dx, 0x3C4               ; back to text: planes 0 and 1, odd/even
+    mov ax, 0x0302
+    out dx, ax
+    mov ax, 0x0204
+    out dx, ax
+    mov dx, 0x3CE
+    mov ax, 0x0004
+    out dx, ax
+    mov ax, 0x1005
+    out dx, ax
+    mov ax, 0x0E06
+    out dx, ax
+
+    mov ax, VGA_SEG             ; clear the screen
+    mov es, ax
+    xor di, di
+    mov ax, 0x0720
+    mov cx, 80 * 25
+    rep stosw
+    pop es
+    popad
+    ret
+
+; In: DX = index port, DS:SI = values for indices 0.., CX = count.
+vga_write_indexed:
+    xor bl, bl
+.next:
+    mov al, bl
+    mov ah, [si]
+    out dx, ax
+    inc si
+    inc bl
+    loop .next
+    ret
+
+; The VGA's legacy ports and memory only decode once its PCI command
+; register allows it. Find the display controller on bus 0 and turn
+; on I/O and memory space.
+vga_pci_enable:
+    mov ebx, 0x80000000         ; bus 0, device 0, function 0
+.dev:
+    mov eax, ebx
+    or al, 0x08                 ; class code
+    mov dx, PCI_ADDR
+    out dx, eax
+    mov dx, PCI_DATA
+    in eax, dx
+    shr eax, 16
+    cmp ax, 0x0300              ; VGA-compatible display
+    je .found
+    add ebx, 0x800              ; next device
+    cmp ebx, 0x80010000
+    jb .dev
+    ret
+.found:
+    mov eax, ebx
+    or al, 0x04                 ; command
+    mov dx, PCI_ADDR
+    out dx, eax
+    mov dx, PCI_DATA
+    in ax, dx
+    or ax, 0x0003
+    out dx, ax
+    ret
 
 ; COM1: 115200 baud, 8N1, FIFOs on, interrupts off.
 serial_init:
@@ -379,8 +592,24 @@ serial_putc:
     ret
 
 %include "memmap.inc"
+%include "klingon-font.inc"
+
+; Standard 80x25 text mode register values
+vga_seq     db 0x03, 0x00, 0x03, 0x00, 0x02
+vga_crtc    db 0x5F, 0x4F, 0x50, 0x82, 0x55, 0x81, 0xBF, 0x1F
+            db 0x00, 0x4F, 0x2D, 0x0E, 0x00, 0x00, 0x00, 0x00   ; cursor off
+            db 0x9C, 0x8E, 0x8F, 0x28, 0x1F, 0x96, 0xB9, 0xA3, 0xFF
+vga_gc      db 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x0E, 0x00, 0xFF
+vga_ac      db 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07
+            db 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F
+            db 0x0C, 0x00, 0x0F, 0x08, 0x00
+vga_dac     db 0x00,0x00,0x00, 0x00,0x00,0x2A, 0x00,0x2A,0x00, 0x00,0x2A,0x2A
+            db 0x2A,0x00,0x00, 0x2A,0x00,0x2A, 0x2A,0x15,0x00, 0x2A,0x2A,0x2A
+            db 0x15,0x15,0x15, 0x15,0x15,0x3F, 0x15,0x3F,0x15, 0x15,0x3F,0x3F
+            db 0x3F,0x15,0x15, 0x3F,0x15,0x3F, 0x3F,0x3F,0x15, 0x3F,0x3F,0x3F
 
 banner      db 'SquirrelBIOS x86', 0
+banner_tlh  db "tlhIngan Hol yIjatlh! Qapla'", 0
 msg_nodrive db 'disk: no drive on primary master', 0
 msg_atapi   db 'disk: primary master is ATAPI (CD/DVD), not supported', 0
 msg_timeout db 'disk: timeout waiting for drive', 0
