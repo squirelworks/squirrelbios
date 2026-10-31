@@ -117,6 +117,11 @@
         .equ CLINT_OFF_MTIMECMP, 0x4000
         .equ MAX_SOCKETS,       8           /* QEMU virt's VIRT_SOCKETS_MAX */
 
+        /* AIA (aia=aplic, aia=aplic-imsic): APLIC sourcecfg[n] is at 4 * n */
+        .equ APLIC_SOURCECFG_D, 0x400       /* delegated to child (bits 9:0) */
+        .equ APLIC_MAX_SOURCE,  1023
+        .equ IRQ_M_EXT,         11          /* interrupts-extended: machine external */
+
         /* Harts the firmware can start: QEMU virt's limit (VIRT_CPUS_MAX,
          * 512 in QEMU 8.2), counted across all sockets. Without -numa they
          * share one socket and one CLINT; with -numa, clint_layout points
@@ -248,6 +253,11 @@ _start:
         li t0, MODE_S                       /* tell an S-mode OS to keep out */
         bne s4, t0, 3f
         mv a0, s1
+        call aia_setup
+        beqz a0, 4f
+        la a0, msg_aia
+        call puts
+4:      mv a0, s1
         call dt_reserve
 3:
         mv a0, s0
@@ -1141,6 +1151,184 @@ clint_layout:
         j 0b
 9:      ret
 
+/* a0 = device tree.  QEMU virt with aia=aplic or aia=aplic-imsic wires
+ * every device to an M-level APLIC (the root domain) whose S-level child
+ * an S-mode OS drives.  The root's riscv,delegate lists (child phandle,
+ * first source, last source); each such source gets sourcecfg = D plus
+ * the child's index in riscv,children, so its interrupts reach the
+ * child.  Then the M-level interrupt controllers are hidden from the OS
+ * by overwriting their nodes with FDT_NOP, in place: the root APLIC, and
+ * any interrupt controller whose interrupts-extended names only machine
+ * external interrupts (an M-level APLIC in direct mode, the M-level
+ * IMSIC).  Left in the tree, Linux probes the root APLIC, fails, and on
+ * the way resets its sourcecfg, which takes the delegation back.
+ * Returns a0 = the number of root APLICs set up (0 without AIA). */
+aia_setup:
+        addi sp, sp, -80
+        sd s1, 0(sp)
+        sd s2, 8(sp)
+        sd s3, 16(sp)
+        sd s4, 24(sp)
+        sd s5, 32(sp)
+        sd s6, 40(sp)
+        sd s7, 48(sp)
+        sd s8, 56(sp)
+        li a6, 0                            /* a6 = roots set up */
+        beqz a0, 9f
+        andi t0, a0, 3
+        bnez t0, 9f
+        ldbe t0, 0, a0, t1
+        li t1, FDT_MAGIC
+        bne t0, t1, 9f
+        ldbe t1, FDT_SIZE_STRUCT, a0, t2
+        ldbe t0, FDT_OFF_STRUCT, a0, t2
+        add t0, a0, t0                      /* t0 = token */
+        add s2, t0, t1                      /* s2 = end of the structure block */
+        ldbe t1, FDT_OFF_STRINGS, a0, t2
+        add s1, a0, t1                      /* s1 = strings block */
+        li s3, 0                            /* s3 = the open node's BEGIN_NODE */
+
+1:      bgeu t0, s2, 9f
+        ldbe t1, 0, t0, t2
+        addi t0, t0, 4
+        li t2, FDT_BEGIN_NODE
+        beq t1, t2, 2f
+        li t2, FDT_END_NODE
+        beq t1, t2, 4f
+        li t2, FDT_PROP
+        beq t1, t2, 6f
+        li t2, FDT_NOP
+        beq t1, t2, 1b
+        j 9f
+
+2:      addi s3, t0, -4                     /* a node: forget the last one */
+        li s4, 0                            /* s4, s5 = riscv,delegate value, length */
+        li s6, 0                            /* s6, s7 = riscv,children value, length */
+        li s8, 0                            /* s8 = reg value */
+        li a7, 0                            /* bit 0: M-external-only interrupts-extended,
+                                             * bit 1: anything else there, bit 2: interrupt-controller */
+3:      lbu t1, 0(t0)                       /* skip the name */
+        addi t0, t0, 1
+        bnez t1, 3b
+        addi t0, t0, 3
+        andi t0, t0, -4
+        j 1b
+
+4:      beqz s3, 1b                         /* end of a node (with no child open since) */
+        beqz s4, 5f
+        beqz s8, 5f
+        ldbe a0, 0, s8, t2                  /* a root APLIC: base from reg, two cells */
+        slli a0, a0, 32
+        ldbe t1, 4, s8, t2
+        or a0, a0, t1                       /* a0 = base */
+        addi a6, a6, 1
+        mv a1, s4                           /* a1 = triple */
+        add a2, s4, s5                      /* a2 = end of the triples */
+41:     addi t1, a1, 12
+        bgtu t1, a2, 5f
+        ldbe a3, 0, a1, t2                  /* child phandle */
+        li a4, 0                            /* a4 = its index in riscv,children */
+42:     slli t1, a4, 2
+        bgeu t1, s7, 44f                    /* not a child: skip the triple */
+        add t1, t1, s6
+        ldbe t3, 0, t1, t2
+        beq t3, a3, 43f
+        addi a4, a4, 1
+        j 42b
+43:     ldbe a3, 4, a1, t2                  /* first source */
+        ldbe a5, 8, a1, t2                  /* last source */
+        ori a4, a4, APLIC_SOURCECFG_D
+        li t1, APLIC_MAX_SOURCE
+        bleu a5, t1, 45f
+        mv a5, t1
+45:     beqz a3, 46f                        /* source 0 does not exist */
+        bgtu a3, a5, 44f
+        slli t1, a3, 2
+        add t1, t1, a0
+        sw a4, 0(t1)                        /* sourcecfg[source] */
+46:     addi a3, a3, 1
+        bleu a3, a5, 45b
+44:     addi a1, a1, 12
+        j 41b
+5:      bnez s4, 51f                        /* hide it? */
+        andi t1, a7, 7
+        li t2, 5                            /* interrupt controller, M external only */
+        bne t1, t2, 52f
+51:     li t1, 0x04000000                   /* FDT_NOP, big-endian */
+        mv t2, s3
+53:     sw t1, 0(t2)
+        addi t2, t2, 4
+        bltu t2, t0, 53b
+52:     li s3, 0
+        j 1b
+
+6:      ldbe a3, 0, t0, t2                  /* a property: a3 = length */
+        ldbe t1, 4, t0, t2
+        add a4, s1, t1                      /* a4 = its name */
+        addi a5, t0, 8                      /* a5 = its value */
+        beqz s3, 7f
+        mv a0, a4
+        la t1, str_riscv_delegate
+        jal t4, name_is
+        beqz t3, 61f
+        mv s4, a5
+        mv s5, a3
+        j 7f
+61:     mv a0, a4
+        la t1, str_riscv_children
+        jal t4, name_is
+        beqz t3, 62f
+        mv s6, a5
+        mv s7, a3
+        j 7f
+62:     mv a0, a4
+        la t1, str_reg
+        jal t4, name_is
+        beqz t3, 63f
+        li t1, 8
+        bltu a3, t1, 7f
+        mv s8, a5
+        j 7f
+63:     mv a0, a4
+        la t1, str_interrupt_controller
+        jal t4, name_is
+        beqz t3, 64f
+        ori a7, a7, 4
+        j 7f
+64:     mv a0, a4
+        la t1, str_interrupts_extended
+        jal t4, name_is
+        beqz t3, 7f
+        andi t1, a3, 7                      /* (phandle, irq) pairs */
+        bnez t1, 66f
+        beqz a3, 66f
+        mv t1, a5
+        add a0, a5, a3
+65:     ldbe t3, 4, t1, t2
+        li t2, IRQ_M_EXT
+        bne t3, t2, 66f
+        addi t1, t1, 8
+        bltu t1, a0, 65b
+        ori a7, a7, 1
+        j 7f
+66:     ori a7, a7, 2
+7:      addi a3, a3, 8 + 3                  /* skip length, name and value */
+        andi a3, a3, -4
+        add t0, t0, a3
+        j 1b
+
+9:      mv a0, a6
+        ld s1, 0(sp)
+        ld s2, 8(sp)
+        ld s3, 16(sp)
+        ld s4, 24(sp)
+        ld s5, 32(sp)
+        ld s6, 40(sp)
+        ld s7, 48(sp)
+        ld s8, 56(sp)
+        addi sp, sp, 80
+        ret
+
 /* t3 = 1 if the NUL-terminated string at a0 equals the one at t1, else 0.
  * Uses a0, t1 and t2; returns through t4. */
 name_is:
@@ -1239,6 +1427,11 @@ str_reserved_memory: .asciz "reserved-memory"
 str_cpus:       .asciz "cpus"
 str_reg:        .asciz "reg"
 str_numa_node_id: .asciz "numa-node-id"
+str_riscv_delegate: .asciz "riscv,delegate"
+str_riscv_children: .asciz "riscv,children"
+str_interrupt_controller: .asciz "interrupt-controller"
+str_interrupts_extended: .asciz "interrupts-extended"
+msg_aia:        .asciz "aia: APLIC sources delegated to S-mode, M-level interrupt controllers hidden\n"
 
 .align 12
     .skip 4096

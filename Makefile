@@ -34,7 +34,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/riscv-ipi-smp.bin $(TEST_DIR)/riscv-fence-smp3.bin \
              $(TEST_DIR)/riscv-harts.bin \
              $(TEST_DIR)/riscv-boot-hart.bin $(TEST_DIR)/riscv-kernel-hart2.bin \
-             $(TEST_DIR)/riscv-numa.bin
+             $(TEST_DIR)/riscv-numa.bin $(TEST_DIR)/riscv-aia.bin
 
 .PHONY: all x86 arm riscv test linux-shell linux-big linux-stress clean
 .DELETE_ON_ERROR:
@@ -231,6 +231,13 @@ $(TEST_DIR)/riscv-harts.o: tests/riscv-harts.S | $(TEST_DIR)
 $(TEST_DIR)/riscv-harts.elf: $(TEST_DIR)/riscv-harts.o
 	$(RISCV64)ld -Ttext=0x80200000 -o $@ $<
 $(TEST_DIR)/riscv-harts.bin: $(TEST_DIR)/riscv-harts.elf
+	$(RISCV64)objcopy -O binary $< $@
+
+$(TEST_DIR)/riscv-aia.o: tests/riscv-aia.S | $(TEST_DIR)
+	$(RISCV64)as -o $@ $<
+$(TEST_DIR)/riscv-aia.elf: $(TEST_DIR)/riscv-aia.o
+	$(RISCV64)ld -Ttext=0x80200000 -o $@ $<
+$(TEST_DIR)/riscv-aia.bin: $(TEST_DIR)/riscv-aia.elf
 	$(RISCV64)objcopy -O binary $< $@
 
 # riscv-numa: riscv-harts for 4 harts

@@ -245,6 +245,17 @@ run riscv-harts "OS-ENTRY riscv harts|harts=64|!harts=bad|!trap mcause=" \
     "$QEMU_RISCV" -M virt -smp 64 -bios riscv/squirrel-bios.bin \
     -kernel $TEST_DIR/riscv-harts.bin
 
+# RISC-V: with AIA, the UART's interrupt reaches an image that drives the
+# S-level APLIC, because the firmware delegated the sources to it
+run riscv-aia "aia: APLIC sources delegated|OS-ENTRY riscv aia|aia=ok|!aia=bad|!trap mcause=" \
+    "$QEMU_RISCV" -M virt,aia=aplic -bios riscv/squirrel-bios.bin \
+    -kernel $TEST_DIR/riscv-aia.bin
+
+# RISC-V: IPIs and fences still work on the AIA machine (still the CLINT)
+run riscv-aia-ipi "OS-ENTRY riscv ipi-smp|ipi-smp=ok|!ipi-smp=bad|!trap mcause=" \
+    "$QEMU_RISCV" -M virt,aia=aplic-imsic -smp 2 -bios riscv/squirrel-bios.bin \
+    -kernel $TEST_DIR/riscv-ipi-smp.bin
+
 # RISC-V: two NUMA nodes are two sockets, each with its own CLINT; the
 # harts of the second are started, and fenced, through theirs
 run riscv-numa "OS-ENTRY riscv harts|harts=ok|!harts=bad|!trap mcause=" \
