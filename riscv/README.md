@@ -21,4 +21,63 @@ qemu-system-riscv64 -M virt -nographic -bios riscv/squirrel-bios.bin -kernel ima
 
 QEMU puts the image at `0x80200000` on rv64, so link it there.
 
+## Trying Linux
+
+The quickest way is the scripted check from the top-level README, which
+downloads Ubuntu 24.04's riscv64 kernel (6.8) and busybox and boots them
+to a shell:
+
+```bash
+make linux-shell                                  # prints PASS linux-shell
+LINUX_SMP=4 tests/linux-shell.sh --interactive    # 4 harts, the shell is yours
+```
+
+To boot a kernel of your own, give QEMU a raw RISC-V `Image` (the file
+with `RISCV` at offset `0x30`; an EFI `vmlinuz` with `zimg` at offset 4
+is compressed and has to be unpacked first):
+
+```bash
+make riscv
+qemu-system-riscv64 -M virt -smp 4 -m 1G -nographic \
+    -bios riscv/squirrel-bios.bin -kernel Image \
+    -append "console=ttyS0 earlycon=uart8250,mmio,0x10000000"
+```
+
+Add `-initrd initramfs.cpio.gz` (or a disk) for a root file system.
+Without one, the boot ends at `Kernel panic - not syncing: VFS: Unable
+to mount root fs`, which means everything up to the root mount worked.
+Expect the firmware's `dt: firmware region ... reserved (no-map)` line,
+then Linux reporting `SBI specification v1.0 detected`, `SBI
+implementation ID=0x5351`, and the extensions below.
+
+`probe_extension` reports these SBI extensions, and no others:
+
+| Extension | Used by Linux for |
+|---|---|
+| Base (`0x10`) | spec version, implementation ID, probing |
+| TIME (`0x54494D45`) | the timer, on harts without Sstc (QEMU's default hart has it, so Linux writes `stimecmp` itself) |
+| IPI (`0x735049`) | inter-processor interrupts |
+| RFENCE (`0x52464E43`) | remote `fence.i` and TLB shootdowns |
+| HSM (`0x48534D`) | starting secondary harts (`-smp`), CPU hotplug |
+| SRST (`0x53525354`) | `poweroff` and `reboot` |
+
+Not provided: the legacy SBI v0.1 calls and the debug console (DBCN), so
+`earlycon=sbi` fails (`Malformed early option 'earlycon'`) and early
+messages only appear once `ttyS0` is up; use the `uart8250` earlycon
+above. Also not provided: PMU,
+system suspend and the other newer extensions, which Linux probes for and
+does without.
+
+Known limits:
+
+- A kernel that only reads `riscv,isa-extensions` from the device tree
+  (Ubuntu's 7.0 kernel, for example) stops early with `this kernel does
+  not parse "riscv,isa"`: QEMU 8.2 writes only `riscv,isa`. That is the
+  QEMU version, not the firmware; a newer QEMU writes both.
+- Only QEMU `virt` is supported: the firmware assumes its CLINT, UART,
+  test device and memory layout.
+
+Linux is not part of `make test` or CI, and no kernel, busybox or
+initramfs is kept in the repo.
+
 See `../common/handoff.md`.
