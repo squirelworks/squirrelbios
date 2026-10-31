@@ -128,7 +128,7 @@ until that extension's box is checked.
 
 ## 5. Consoles and small hardening
 
-- [ ] `riscv-uart-baud` — Program the RISC-V UART to 115200 8N1 and say so in the contract.
+- [x] `riscv-uart-baud` — Program the RISC-V UART to 115200 8N1 and say so in the contract.
   - Acceptance: the NS16550A divisor is set, `common/handoff.md` lists 115200 the way it does for COM1, and `riscv-boot` still sees the banner.
 
 - [ ] `x86-cmos-nmi` — Disable NMI for the duration of each CMOS read.
