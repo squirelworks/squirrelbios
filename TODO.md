@@ -94,7 +94,7 @@ until that extension's box is checked.
 - [x] `x86-boot-sig` — Refuse to jump when the boot sector has no `0xAA55` signature.
   - Acceptance: after a clean read, a last word other than `0xAA55` prints `disk: boot sector has no 0xAA55 signature` and `boot halted`, and is not retried. A new `x86-bad-sector` case uses a 512-byte image without the signature and expects that text. `x86-boot` (which has the signature) still passes. Depends on: `x86-handoff-check`.
 
-- [ ] `x86-extra-sectors` — Load the sectors a header in sector 0 asks for.
+- [x] `x86-extra-sectors` — Load the sectors a header in sector 0 asks for.
   - Acceptance: entry stays `0x0000:0x7C00` with `DL` and the memory map unchanged. When sector 0 contains the header below, read that many following sectors to the given real-mode address and only then jump. With the magic absent, behaviour is today's one-sector hand-off (`x86-boot` still passes). A new `x86-extra` case whose second sector prints `payload=ok` passes. A header that lands on the memory map or on the boot sector prints `disk: load overlaps firmware data` and `boot halted`.
   - Header, little-endian, immediately before the signature:
 
