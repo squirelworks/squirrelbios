@@ -77,7 +77,8 @@ run() {
 mkdir -p "$TEST_DIR"
 
 # x86: boot sector reached with DL = 0x80, IF = DF = 0, and a memory map in
-# ES:DI that has the required regions, sorted and not overlapping
+# ES:DI that has the required regions (an entry at 1 MB, if present, is
+# usable; its length is not fixed), sorted and not overlapping
 run x86-boot "SquirrelBIOS x86|OS-ENTRY x86 dl=ok memmap=ok flags=ok vga=ok" \
     "$QEMU_X86" -bios x86/squirrel-bios.rom \
     -drive format=raw,file=$TEST_DIR/x86-boot.bin,if=ide
