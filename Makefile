@@ -293,12 +293,21 @@ linux-shell: riscv
 # Needs zstd to unpack the 6.14 kernel.
 # BIG_NUMA splits it into that many NUMA nodes (sockets, each with its own
 # CLINT), the way a two-socket server is built.
+# The node also gets a network card (virtio-net-pci) and an NVMe drive
+# (backed by QEMU's null block driver, so no disk image is needed), and
+# both must show up under /sys/bus/pci/devices by vendor:device ID.
 BIG_SMP ?= 64
 BIG_MEM ?= 64G
 BIG_NUMA ?= 2
+BIG_DEVICES := -netdev user,id=net0 -device virtio-net-pci,netdev=net0 \
+               -blockdev null-co,node-name=nvme0,size=67108864 -device nvme,serial=squirrel0,drive=nvme0
+BIG_WORKLOAD := for d in /sys/bus/pci/devices/*; do echo pcidev $$(cat $$d/vendor):$$(cat $$d/device); done
+# virtio-net (Red Hat/virtio 1af4:1000) and NVMe (QEMU 1b36:0010)
+BIG_EXPECT := pcidev 0x1af4:0x1000|pcidev 0x1b36:0x0010
 linux-big: riscv
 	LINUX_KERNEL=6.14 LINUX_SMP=$(BIG_SMP) LINUX_MEM=$(BIG_MEM) LINUX_EXPECT_HARTS=$(BIG_SMP) \
-	    LINUX_NUMA=$(BIG_NUMA) \
+	    LINUX_NUMA=$(BIG_NUMA) LINUX_DEVICES='$(BIG_DEVICES)' \
+	    LINUX_WORKLOAD='$(BIG_WORKLOAD)' LINUX_EXPECT='$(BIG_EXPECT)' \
 	    LINUX_TIMEOUT=$${LINUX_TIMEOUT:-900} tests/linux-shell.sh
 
 # Optional, not part of make test: repeated Linux boots on 1 to 8 harts
