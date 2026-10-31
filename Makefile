@@ -4,8 +4,8 @@ all: x86 arm riscv
 
 x86: x86/squirrel-bios.rom
 
-x86/squirrel-bios.rom: x86/squirrel-bios.asm
-	nasm -f bin $< -o $@
+x86/squirrel-bios.rom: x86/squirrel-bios.asm x86/memmap.inc
+	nasm -f bin -i x86/ $< -o $@
 
 arm: arm/squirrel-bios.bin
 

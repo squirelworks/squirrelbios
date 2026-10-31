@@ -7,9 +7,10 @@
 ;
 ; Behaviour:
 ;   - Set segments and stack
+;   - Build a memory map at 0x0000:0x0500 (memmap.inc)
 ;   - Print banner to VGA text
 ;   - ATA PIO read of LBA 0 (sector 1) into 0x7C00
-;   - Jump to 0x0000:0x7C00 with DL = 0x80
+;   - Jump to 0x0000:0x7C00 with DL = 0x80, DI = 0x0500 (memory map)
 
 BITS 16
 
@@ -20,6 +21,8 @@ entry:
     mov es, ax
     mov ss, ax
     mov sp, 0x7C00
+
+    call build_memmap
 
     ; Banner
     mov ax, 0xB800
@@ -83,6 +86,7 @@ entry:
     mov ss, ax
     mov sp, 0x7C00
     mov dl, 0x80          ; boot drive
+    mov di, MEMMAP_ADDR   ; memory map header
     jmp 0x0000:0x7C00
 
 .fail:
@@ -99,6 +103,8 @@ entry:
 .halt:
     hlt
     jmp .halt
+
+%include "memmap.inc"
 
 banner  db 'SquirrelBIOS x86', 0
 failmsg db 'disk fail', 0
