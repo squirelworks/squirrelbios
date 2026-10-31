@@ -536,7 +536,12 @@ sbi_hart_stop:
         csrw mie, zero
         li t0, MIP_SSIP | MIP_STIP
         csrc mip, t0
-        li t0, MSTATUS_SIE
+        la t0, sstc_on                      /* with Sstc, STIP follows stimecmp */
+        ld t0, 0(t0)
+        beqz t0, 1f
+        li t0, -1
+        csrw CSR_STIMECMP, t0
+1:      li t0, MSTATUS_SIE
         csrc mstatus, t0
         csrr a0, mhartid
         j park

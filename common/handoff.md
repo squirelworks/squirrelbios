@@ -366,7 +366,8 @@ returns `SBI_ERR_ALREADY_AVAILABLE` (`-6`).
 `hart_stop()` stops the calling hart. It does not return: the hart goes
 back to its park loop, its registers are not kept (a later start has
 `satp = 0` again, whatever paging the hart had on), its pending supervisor
-software and timer interrupts are cleared, and `hart_get_status` reports
+software and timer interrupts are cleared (with Sstc, by setting
+`stimecmp` to the maximum), and `hart_get_status` reports
 it `STOPPED` (`1`). `hart_start` can start it again, at any address.
 
 `hart_get_status(a0 = hart)` returns `STARTED` (`0`), `STOPPED` (`1`) or
@@ -424,8 +425,8 @@ prints `ipi=ok` from its software-interrupt handler), `riscv-rfence`
 `hart_start` brings hart 1 up and a second start is refused; hart 1
 prints `hart1=ok a1=5157000012345678`, the opaque value, and is then
 reported started), `riscv-hsm-stop` (with `-smp 2`, hart 1 is started,
-turns on Sv39 paging, calls `hart_stop` and is reported stopped, then is
-started again with `satp` and `sp` both 0, and `hart_stop` never
+turns on Sv39 paging, sets a timer that is already due, calls `hart_stop` and is reported stopped, then is
+started again with `satp` and `sp` both 0 and no timer interrupt pending, and `hart_stop` never
 returns), `riscv-envcfg` (an image runs `cbo.zero` on a cache block
 and checks it is zero, runs `cbo.clean`, `cbo.flush` and `cbo.inval`
 without a trap, and gets the supervisor timer interrupt from a direct
