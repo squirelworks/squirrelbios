@@ -40,6 +40,9 @@ SMP=${LINUX_SMP:-1}
 MEM=${LINUX_MEM:-512M}
 EXPECT_HARTS=${LINUX_EXPECT_HARTS:-}
 NUMA=${LINUX_NUMA:-1}
+# LINUX_AIA=aplic gives the machine QEMU's AIA interrupt controllers
+# (an APLIC instead of the PLIC) in place of the defaults
+VIRT=virt${LINUX_AIA:+,aia=$LINUX_AIA}
 FIRMWARE=riscv/squirrel-bios.bin
 WORK=${LINUX_WORK:-build/linux}
 WORKLOAD=${LINUX_WORKLOAD:-}
@@ -170,7 +173,7 @@ initrd=$WORK/initramfs.cpio.gz
 # host with much less, as long as Linux does not touch all of it.
 # With NUMA each node gets its own backend and an equal share of harts.
 if [ "$NUMA" -le 1 ]; then
-    set -- -M virt,memory-backend=ram \
+    set -- -M "$VIRT,memory-backend=ram" \
         -object "memory-backend-ram,id=ram,size=$MEM,reserve=off"
 else
     case $MEM in
@@ -181,7 +184,7 @@ else
     total=${MEM%?}
     [ $((total % NUMA)) -eq 0 ] && [ $((SMP % NUMA)) -eq 0 ] ||
         die "LINUX_MEM and LINUX_SMP must divide evenly into $NUMA nodes"
-    set -- -M virt
+    set -- -M "$VIRT"
     n=0
     while [ "$n" -lt "$NUMA" ]; do
         first=$((n * SMP / NUMA))

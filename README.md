@@ -62,6 +62,8 @@ stand-in OS image from `tests/` and checks the serial output:
 | `riscv-ipi-smp` | With hart 1 started, IPIs reach it by mask bit, base and base `-1` (which also reaches the caller); remote fences on both harts return, also when both harts fence each other at once |
 | `riscv-fence-smp3` | With `-smp 3`, harts 0 and 1 both fence hart 2 many times at once, then each IPI reaches it |
 | `riscv-boot-hart` | With `fw_dynamic_info.boot_hart = 2` (a shim stands in for QEMU's reset code), hart 2 boots, HSM reports it started, and it starts hart 0 |
+| `riscv-aia` | On `-M virt,aia=aplic`, an image that drives the S-level APLIC gets the UART's interrupt (`aia=ok`), because the firmware delegated the sources |
+| `riscv-aia-ipi` | `riscv-ipi-smp` on `-M virt,aia=aplic-imsic`: IPIs and fences still work |
 | `riscv-numa` | With `-smp 4` in two NUMA nodes (two sockets, two CLINTs), harts 2 and 3 are started and fenced through the second CLINT (`harts=ok`) |
 | `riscv-harts` | With `-smp 64`, hart 0 starts the other 63, each is reported started, and one fence whose mask names all 64 succeeds (`harts=64`) |
 | `riscv-rfence` | `remote_sfence_vma` and `remote_fence_i` for the calling hart succeed; so does a mask that also names the stopped hart 1; a mask that names hart 2, which does not exist, returns an error |
@@ -119,7 +121,8 @@ guest RAM without reserving it, so the host does not need 64 GB.
 `LINUX_KERNEL=6.14` picks that kernel for `tests/linux-shell.sh` too.
 By default the node is two NUMA nodes of 32 harts and 32 GB each (QEMU
 makes them two sockets), and the check also requires Linux to bring up
-both nodes (`LINUX_NUMA` in the script).
+both nodes (`LINUX_NUMA` in the script). `LINUX_AIA=aplic make
+linux-big` runs the same node with QEMU's AIA interrupt controllers.
 
 ```bash
 make linux-stress                          # 1, 2, 3, 4 and 8 harts, 3 boots each

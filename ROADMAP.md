@@ -207,6 +207,9 @@ The work, roughly in order:
 4. **Interrupt controllers that scale.** QEMU `virt` with `aia=aplic-imsic`
    replaces the PLIC and CLINT-only IPIs with IMSIC message interrupts.
    Program the M-mode side so IPIs and the timer still work there.
+   *(Done for `aia=aplic`: sources delegated, M-level controllers hidden.
+   `aia=aplic-imsic` hangs Linux on QEMU 8.2 even with QEMU's own
+   OpenSBI; see `riscv-aia` in TODO.md.)*
 5. **PCIe.** The device tree already describes the `virt` host bridge.
    The firmware leaves it to Linux; the work is to check that a network
    card and an NVMe drive enumerate with many harts and lots of RAM.

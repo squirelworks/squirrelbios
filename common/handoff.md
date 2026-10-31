@@ -394,6 +394,7 @@ M-mode entry gets the tree as QEMU wrote it.
 | Other harts | Parked in `wfi` in M-mode, with `mstatus.MIE = 0` and only `mie.MSIE` set, until `sbi_hart_start` (below). The firmware tracks hart IDs 0 to 511 (QEMU `virt`'s limit, across all sockets), so harts in every socket can be started, each through its own socket's CLINT (below); higher IDs are never started. |
 | CLINT | One per socket. With `-numa`, QEMU makes each NUMA node a socket whose CLINT is `0x10000` above the previous one, with slots counted from the socket's lowest hart ID; the boot hart reads each `cpu` node's `reg` and `numa-node-id` and uses the right CLINT for every hart (up to 8 sockets). A hart's `mtimecmp` is written only by `sbi_set_timer` and the firmware's timer interrupt. A parked hart's `msip` is written by `sbi_hart_start`. `mtime` runs at 10 MHz (the device tree's `timebase-frequency`). |
 | PLIC | Not touched |
+| APLIC (`aia=aplic`, `aia=aplic-imsic`) | Before an S-mode entry, every source the root (M-level) APLIC's `riscv,delegate` names is delegated to its S-level child (`sourcecfg` = D plus the child's index), in each socket. The root APLIC node, and any interrupt controller whose `interrupts-extended` names only machine external interrupts (the M-level IMSIC, or the root's per-hart contexts in direct mode), are overwritten with `FDT_NOP` in the device tree, so the OS sees only the S-level ones. The firmware prints `aia: APLIC sources delegated to S-mode, M-level interrupt controllers hidden`. MSI mode's `smsiaddrcfg` is not programmed; see `riscv-aia` in TODO.md. IPIs and timers still go through the CLINT. |
 | Test device (`0x100000`) | Written only by `sbi_system_reset`. S-mode can reach it too (PMP entry 1 opens everything outside the firmware region), but an OS should use SRST. |
 
 Do not assume: SBI extensions other than base, TIME, IPI, RFENCE, HSM and SRST,
@@ -558,6 +559,9 @@ fence hart 2 20000 times at once, then hart 2 takes an IPI from each),
 `riscv-boot-hart` (with `-smp 4` and a shim that hands the firmware
 QEMU's `fw_dynamic_info` with `boot_hart = 2`: hart 2 enters the image,
 HSM reports it started and hart 0 stopped, and it starts hart 0),
+`riscv-aia` (on `aia=aplic`, an image that drives the S-level APLIC
+gets the UART's transmit interrupt, source 10, through it: `aia=ok`),
+`riscv-aia-ipi` (`riscv-ipi-smp` on `aia=aplic-imsic`),
 `riscv-numa` (`riscv-harts` on `-smp 4` in two NUMA nodes, so harts 2
 and 3 sit behind the second socket's CLINT: all start and take a fence,
 `harts=ok`), `riscv-harts` (with `-smp 64`, hart 0 starts harts 1 to 63 one at a
