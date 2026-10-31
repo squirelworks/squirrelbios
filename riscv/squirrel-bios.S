@@ -44,10 +44,19 @@
         .equ MIDELEG_S, (1 << 1) | (1 << 5) | (1 << 9)
 
         .equ CAUSE_ECALL_S,     9
+        .equ CAUSE_M_TIMER,     (1 << 63) | 7
+
+        .equ MIP_STIP,          (1 << 5)
+        .equ MIE_MTIE,          (1 << 7)
+        .equ MCOUNTEREN_ALL,    0x7         /* CY, TM, IR readable below M */
+
+        /* CLINT: one mtime, one mtimecmp per hart */
+        .equ CLINT_MTIMECMP,    0x02004000
 
         /* SBI: a7 = extension, a6 = function, a0-a5 = arguments.
          * Returns a0 = error, a1 = value. */
         .equ SBI_EXT_BASE,      0x10
+        .equ SBI_EXT_TIME,      0x54494d45
         .equ SBI_SPEC_VERSION,  0x01000000  /* 1.0 */
         .equ SBI_IMPL_ID,       0x5351      /* "SQ"; not BBL (0) or OpenSBI (1) */
         .equ SBI_IMPL_VERSION,  1
@@ -122,6 +131,8 @@ _start:
         csrw medeleg, t0
         li t0, MIDELEG_S
         csrw mideleg, t0
+        li t0, MCOUNTEREN_ALL               /* rdtime from S-mode */
+        csrw mcounteren, t0
         li t0, MSTATUS_MPP | MSTATUS_MPIE
         csrc mstatus, t0
         li t0, MSTATUS_MPP_S
@@ -159,14 +170,17 @@ park:
 
 /* Every trap lands here. mscratch holds the trap stack while the OS runs,
  * so the OS's sp is swapped out first and every register but a0 and a1
- * comes back unchanged. An ecall from S-mode is an SBI call. Anything else
- * is not resumed: print the cause and halt. */
+ * comes back unchanged. An ecall from S-mode is an SBI call, and the
+ * M-mode timer interrupt is passed on to S-mode. Anything else is not
+ * resumed: print the cause and halt. */
         .align 2
 trap:
         csrrw sp, mscratch, sp
         sd t0, 0(sp)
         sd t1, 8(sp)
         csrr t0, mcause
+        li t1, CAUSE_M_TIMER
+        beq t0, t1, m_timer
         li t1, CAUSE_ECALL_S
         bne t0, t1, trap_fatal
 
@@ -175,6 +189,8 @@ trap:
 sbi_call:
         li t0, SBI_EXT_BASE
         beq a7, t0, sbi_base
+        li t0, SBI_EXT_TIME
+        beq a7, t0, sbi_time
 sbi_not_supported:
         li a0, SBI_ERR_NOT_SUPPORTED
         j sbi_ret
@@ -184,10 +200,41 @@ sbi_ret:
         csrr t0, mepc
         addi t0, t0, 4                      /* past the ecall */
         csrw mepc, t0
+trap_ret:
         ld t0, 0(sp)
         ld t1, 8(sp)
         csrrw sp, mscratch, sp
         mret
+
+/* The S-mode timer is due: raise the supervisor timer interrupt, and push
+ * mtimecmp out of reach so the M-mode one stops firing. STIP then stays
+ * pending, once, until the next sbi_set_timer clears it. */
+m_timer:
+        li t0, MIP_STIP
+        csrs mip, t0
+        li t0, MIE_MTIE
+        csrc mie, t0
+        csrr t0, mhartid
+        slli t0, t0, 3
+        li t1, CLINT_MTIMECMP
+        add t0, t0, t1
+        li t1, -1
+        sd t1, 0(t0)
+        j trap_ret
+
+/* TIME extension: set_timer (0), a0 = absolute time in mtime ticks */
+sbi_time:
+        bnez a6, sbi_not_supported
+        csrr t0, mhartid
+        slli t0, t0, 3
+        li t1, CLINT_MTIMECMP
+        add t0, t0, t1
+        sd a0, 0(t0)
+        li t0, MIP_STIP
+        csrc mip, t0
+        li t0, MIE_MTIE
+        csrs mie, t0
+        j sbi_ok
 
 /* Base extension: a6 = function */
 sbi_base:
@@ -227,10 +274,12 @@ sbi_get_mimpid:
 
 /* a0 = extension ID.  a1 = 1 if implemented, 0 if not. */
 sbi_probe_extension:
-        li t0, SBI_EXT_BASE
-        li a1, 0
-        bne a0, t0, sbi_ok
         li a1, 1
+        li t0, SBI_EXT_BASE
+        beq a0, t0, sbi_ok
+        li t0, SBI_EXT_TIME
+        beq a0, t0, sbi_ok
+        li a1, 0
         j sbi_ok
 
 trap_fatal:

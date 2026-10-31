@@ -53,7 +53,7 @@ until that extension's box is checked.
 - [x] `riscv-sbi-base` — Implement the SBI base extension and return to the caller.
   - Acceptance: a stand-in `ecall`s `get_spec_version`, `get_impl_id`, and `probe_extension` for base. It prints `sbi=ok` only when the spec version is `0x01000000`, the impl id is the one recorded in the contract (not 0 and not 1), and probing base succeeds. Probing TIME, IPI, RFENCE, HSM, and SRST returns not present. `a0`/`a1` are the only registers changed. Depends on: `riscv-delegate`.
 
-- [ ] `riscv-sbi-time` — Implement `sbi_set_timer` on the CLINT.
+- [x] `riscv-sbi-time` — Implement `sbi_set_timer` on the CLINT.
   - Acceptance: the call programs `mtimecmp` for the requesting hart and enables the M-mode timer interrupt. The M-mode handler injects the supervisor timer interrupt and reprograms `mtimecmp` so the interrupt stays pending once. A stand-in sets a timer in the near future, enables S-mode timer interrupts, and prints `timer=ok` from its handler. `probe_extension` for TIME succeeds. Depends on: `riscv-sbi-base`.
 
 - [ ] `riscv-sbi-ipi` — Implement `sbi_send_ipi` for the running hart.
