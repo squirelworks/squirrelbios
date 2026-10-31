@@ -44,38 +44,47 @@ until that extension's box is checked.
 - [x] `riscv-trap` — Install an M-mode trap handler that prints the cause and halts.
   - Acceptance: `mtvec` points at a handler that prints `trap mcause=` and 16 lowercase hex digits (no `0x`), then `boot halted`. A new stand-in executes `ecall` and the `riscv-ecall` case expects `trap mcause=000000000000000b` (environment call from M-mode). `riscv-boot` does not trap. The contract states that `mtvec` is set and that the OS installs its own vector before it relies on traps. Depends on: `riscv-a2`.
 
-- [ ] `riscv-smode` — Honour `next_mode`, and enter S-mode with PMP allowing access.
+- [x] `riscv-smode` — Honour `next_mode`, and enter S-mode with PMP allowing access.
   - Acceptance: read `fw_dynamic_info` version and, when it is at least 2, `next_mode` at offset 24. Print it once while bringing the path up and expect `1` (S-mode) for `qemu-system-riscv64 -M virt -kernel`. On S-mode, program one PMP entry that grants S-mode read, write, and execute over the whole physical address space, set `mstatus.MPP` to S, and `mret` to the image. On M-mode, keep today's jump. `riscv-boot` still prints `hart=ok dtb=ok a2=ok`, which is the proof that the UART store and the device-tree load survive the mode switch. `riscv-ecall` now expects `trap mcause=0000000000000009`. The contract's privilege line matches this. Depends on: `riscv-trap`.
 
-- [ ] `riscv-delegate` — Delegate supervisor faults, and keep supervisor `ecall` in M-mode.
+- [x] `riscv-delegate` — Delegate supervisor faults, and keep supervisor `ecall` in M-mode.
   - Acceptance: `medeleg` includes illegal instruction, the access faults, and the page faults, and does not include environment call from S-mode. `mideleg` includes supervisor software, timer, and external interrupts. A new stand-in sets `stvec`, executes an illegal instruction, and prints `deleg=ok` from S-mode. Its `ecall` still reaches the M-mode handler (`mcause=0000000000000009`). Depends on: `riscv-smode`.
 
-- [ ] `riscv-sbi-base` — Implement the SBI base extension and return to the caller.
+- [x] `riscv-sbi-base` — Implement the SBI base extension and return to the caller.
   - Acceptance: a stand-in `ecall`s `get_spec_version`, `get_impl_id`, and `probe_extension` for base. It prints `sbi=ok` only when the spec version is `0x01000000`, the impl id is the one recorded in the contract (not 0 and not 1), and probing base succeeds. Probing TIME, IPI, RFENCE, HSM, and SRST returns not present. `a0`/`a1` are the only registers changed. Depends on: `riscv-delegate`.
 
-- [ ] `riscv-sbi-time` — Implement `sbi_set_timer` on the CLINT.
+- [x] `riscv-sbi-time` — Implement `sbi_set_timer` on the CLINT.
   - Acceptance: the call programs `mtimecmp` for the requesting hart and enables the M-mode timer interrupt. The M-mode handler injects the supervisor timer interrupt and reprograms `mtimecmp` so the interrupt stays pending once. A stand-in sets a timer in the near future, enables S-mode timer interrupts, and prints `timer=ok` from its handler. `probe_extension` for TIME succeeds. Depends on: `riscv-sbi-base`.
 
-- [ ] `riscv-sbi-ipi` — Implement `sbi_send_ipi` for the running hart.
+- [x] `riscv-sbi-ipi` — Implement `sbi_send_ipi` for the running hart.
   - Acceptance: the hart mask is the SBI scalar bit-vector, bit N of `a0` selecting hart `a1 + N`. A stand-in that IPIs itself passes `a0 = 1` and `a1` = its hart id, and prints `ipi=ok` from its supervisor software-interrupt handler. A hart mask that names only a hart that is not started returns an SBI error and does not wake a parked hart. `probe_extension` for IPI succeeds. Depends on: `riscv-sbi-base`.
 
-- [ ] `riscv-sbi-rfence` — Implement remote fence for the running hart.
+- [x] `riscv-sbi-rfence` — Implement remote fence for the running hart.
   - Acceptance: a stand-in calls `sbi_remote_sfence_vma` with the same scalar hart mask as `riscv-sbi-ipi` (only itself). The call returns success and the stand-in prints `rfence=ok`. A mask that includes a hart that has not been started returns an SBI error. `probe_extension` for RFENCE succeeds. Depends on: `riscv-sbi-base`.
 
-- [ ] `riscv-sbi-hsm` — Start a parked hart in S-mode.
+- [x] `riscv-sbi-hsm` — Start a parked hart in S-mode.
   - Acceptance: `sbi_hart_start` leaves the target hart's `wfi`, enters it in S-mode at the given address with `a0` = hart id and `a1` = the opaque argument, and `sbi_hart_get_status` reports started. Parked harts currently sit in `wfi` with interrupts off, so the wake has to be something this QEMU actually resumes (a CLINT software interrupt, with `mie` set if that is what resumes it). A `riscv-hsm` case with `-smp 2` prints `hart1=ok` from hart 1 and shows the opaque value the boot hart passed. Hart 1 does not receive the device tree unless that pointer was the opaque argument. `probe_extension` for HSM succeeds. Depends on: `riscv-smode`, `riscv-sbi-base`.
 
-- [ ] `riscv-sbi-hsm-stop` — Implement `sbi_hart_stop` for a hart that was started.
+- [x] `riscv-sbi-hsm-stop` — Implement `sbi_hart_stop` for a hart that was started.
   - Acceptance: a started secondary hart calls `sbi_hart_stop` and the boot hart's later `hart_get_status` reports stopped. The stopped hart does not keep printing. Depends on: `riscv-sbi-hsm`.
 
-- [ ] `riscv-sbi-srst` — Implement `sbi_system_reset`.
+- [x] `riscv-sbi-srst` — Implement `sbi_system_reset`.
   - Acceptance: a stand-in calls shutdown and the log contains `reset=ok` before the machine halts or QEMU exits. `probe_extension` for SRST succeeds. Depends on: `riscv-sbi-base`.
 
-- [ ] `riscv-pmp-firmware` — Stop S-mode from writing the firmware image.
+- [x] `riscv-pmp-firmware` — Stop S-mode from writing the firmware image.
   - Acceptance: PMP entry 0 covers the firmware image with write clear, and it sits at a lower index than the allow-all entry from `riscv-smode`. Leave it unlocked, so M-mode can still execute the SBI handler (a locked deny would apply to M-mode too). A stand-in store into the firmware range faults, S-mode reports it, and the log contains `pmp=ok`. Fetches of the stand-in at `0x80200000` still work. Depends on: `riscv-delegate`, `riscv-smode`.
 
+- [x] `riscv-dt-reserve` — Tell the OS the firmware region is reserved.
+  - Acceptance: before an S-mode entry the firmware adds `/reserved-memory` with a `no-map` child over `0x80000000`–`0x801FFFFF` to the device tree, so Linux does not use the memory PMP closes to it. A stand-in walks the tree, finds the node, and prints `dt=ok`; the rest of the tree still parses. Depends on: `riscv-pmp-firmware`.
+
+- [x] `riscv-menvcfg` — Turn on what Linux uses from S-mode on QEMU's default hart.
+  - Acceptance: the firmware sets `menvcfg` `CBIE`/`CBCFE`/`CBZE` and `STCE` where the hart has them, and `set_timer` writes `stimecmp` when Sstc is on. A stand-in runs `cbo.zero` and the other `cbo` instructions and gets a timer interrupt from a direct `stimecmp` write, and prints `envcfg=ok`; `riscv-timer` still passes. Without this, Linux 6.8 stops with an illegal instruction in `clear_page`. Depends on: `riscv-sbi-time`.
+
 - [ ] `riscv-linux-doc` — Document the QEMU command that tries a Linux `Image` on this SBI.
-  - Acceptance: `riscv/README.md` gives the command line, lists the extensions `probe_extension` now reports, and says a Linux image is not part of `make test`. No kernel binary is added to the repo. Depends on: `riscv-sbi-time`, `riscv-sbi-ipi`, `riscv-sbi-rfence`, `riscv-sbi-hsm`, `riscv-sbi-srst`.
+  - Acceptance: `riscv/README.md` gives the command line, lists the extensions `probe_extension` now reports, and says a Linux image is not part of `make test`. No kernel binary is added to the repo. Depends on: `riscv-sbi-time`, `riscv-sbi-ipi`, `riscv-sbi-rfence`, `riscv-sbi-hsm`, `riscv-sbi-srst`, `riscv-dt-reserve`, `riscv-menvcfg`.
+
+- [x] `riscv-linux-shell` — Check that a Linux kernel boots on this SBI all the way to a shell.
+  - Acceptance: `make linux-shell` (not part of `make test`) downloads pinned Ubuntu 24.04 riscv64 `linux-image` and `busybox-static` packages, checks their SHA-256, builds a busybox initramfs in `build/linux/`, and boots it. It prints `PASS linux-shell` when the prompt appears, `echo linux-shell=$((40+2))` prints `linux-shell=42`, and `poweroff` makes QEMU exit with status 0. No kernel, busybox or initramfs is added to the repo.
 
 ## 3. x86: load more than one sector
 

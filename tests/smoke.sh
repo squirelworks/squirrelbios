@@ -7,6 +7,8 @@
 # before SMOKE_TIMEOUT seconds (default 10). Expected strings are separated
 # by '|' and matched literally; one starting with '~' is an extended
 # regular expression instead, and one starting with '!' must not appear.
+# '@exit=N' requires QEMU to have exited by itself with status N; the
+# strings are checked once more after it exits, so a case can pass then.
 
 set -u
 
@@ -31,14 +33,21 @@ run() {
     "$@" -display none -monitor none -serial "file:$log" >/dev/null 2>&1 &
     qemu=$!
 
+    # kill -0 still succeeds on an exited child that has not been waited
+    # for, so ask ps whether it is a zombie
+    status=
     ok=0
     ticks=$((TIMEOUT * 10))
-    while [ "$ticks" -gt 0 ] && kill -0 "$qemu" 2>/dev/null; do
+    while [ "$ticks" -gt 0 ]; do
+        case $(ps -o stat= -p "$qemu" 2>/dev/null) in
+        ""|Z*) wait "$qemu" 2>/dev/null; status=$? ;;
+        esac
         ok=1
         old_ifs=$IFS
         IFS='|'
         for want in $expect; do
             case $want in
+            "@exit="*) [ "$status" = "${want#@exit=}" ] || ok=0 ;;
             "~"*) grep -qE -- "${want#?}" "$log" || ok=0 ;;
             "!"*) grep -qF -- "${want#?}" "$log" && ok=0 ;;
             *)    grep -qF -- "$want" "$log" || ok=0 ;;
@@ -46,11 +55,14 @@ run() {
         done
         IFS=$old_ifs
         [ "$ok" -eq 1 ] && break
+        [ -n "$status" ] && break
         sleep 0.1
         ticks=$((ticks - 1))
     done
-    kill "$qemu" 2>/dev/null
-    wait "$qemu" 2>/dev/null
+    if [ -z "$status" ]; then
+        kill "$qemu" 2>/dev/null
+        wait "$qemu" 2>/dev/null
+    fi
 
     if [ "$ok" -eq 1 ]; then
         echo "PASS  $name"
@@ -99,17 +111,93 @@ run arm-boot "SquirrelBIOS ARM|OS-ENTRY arm dtb=ok regs=ok" \
 run arm-no-kernel "boot: no kernel image|boot halted" \
     "$QEMU_ARM" -M virt -cpu cortex-a57 -bios arm/squirrel-bios.bin
 
-# RISC-V: -kernel image entered on hart 0 with the DTB in a1, and no trap
+# RISC-V: -kernel image entered in S-mode (QEMU's next_mode = 1) on hart 0
+# with the DTB in a1, so the UART store and the DTB load pass PMP, and no trap
 # reported (checked while the case runs, so a late trap may be missed)
-run riscv-boot "SquirrelBIOS RISC-V|OS-ENTRY riscv hart=ok dtb=ok a2=ok|!trap mcause=" \
+run riscv-boot "SquirrelBIOS RISC-V|next_mode=1|OS-ENTRY riscv hart=ok dtb=ok a2=ok|!trap mcause=" \
     "$QEMU_RISCV" -M virt -smp 2 -bios riscv/squirrel-bios.bin \
     -kernel $TEST_DIR/riscv-kernel.bin
 
-# RISC-V: a trap that reaches M-mode is reported with its cause, then halts.
-# 0xb is environment call from M-mode.
-run riscv-ecall "OS-ENTRY riscv ecall|trap mcause=000000000000000b|boot halted" \
+# RISC-V: an ecall from S-mode reaches the SBI in M-mode and returns
+# SBI_ERR_NOT_SUPPORTED for an extension that does not exist
+run riscv-ecall "OS-ENTRY riscv ecall|ecall=ok|!trap mcause=" \
     "$QEMU_RISCV" -M virt -bios riscv/squirrel-bios.bin \
     -kernel $TEST_DIR/riscv-ecall.bin
+
+# RISC-V: an illegal instruction is delegated to the image's stvec, and its
+# ecall from S-mode still reaches the SBI in M-mode
+run riscv-deleg "OS-ENTRY riscv deleg|deleg=ok|ecall=ok|!trap mcause=" \
+    "$QEMU_RISCV" -M virt -bios riscv/squirrel-bios.bin \
+    -kernel $TEST_DIR/riscv-deleg.bin
+
+# RISC-V: SBI base extension answers, with only a0 and a1 changed
+run riscv-sbi "OS-ENTRY riscv sbi|sbi=ok|!trap mcause=" \
+    "$QEMU_RISCV" -M virt -bios riscv/squirrel-bios.bin \
+    -kernel $TEST_DIR/riscv-sbi.bin
+
+# RISC-V: sbi_set_timer raises the supervisor timer interrupt once
+run riscv-timer "OS-ENTRY riscv timer|timer=ok|!timer=again|!timer=bad|!trap mcause=" \
+    "$QEMU_RISCV" -M virt -bios riscv/squirrel-bios.bin \
+    -kernel $TEST_DIR/riscv-timer.bin
+
+# RISC-V: sbi_send_ipi to itself raises a supervisor software interrupt;
+# to hart 1, which is parked and not started, it fails (-smp 2)
+run riscv-ipi "OS-ENTRY riscv ipi|ipi=ok|!ipi=bad|!trap mcause=" \
+    "$QEMU_RISCV" -M virt -smp 2 -bios riscv/squirrel-bios.bin \
+    -kernel $TEST_DIR/riscv-ipi.bin
+
+# RISC-V: remote fences for the calling hart succeed; a mask that also
+# names hart 1, which is not started, fails (-smp 2)
+run riscv-rfence "OS-ENTRY riscv rfence|rfence=ok|!rfence=bad|!trap mcause=" \
+    "$QEMU_RISCV" -M virt -smp 2 -bios riscv/squirrel-bios.bin \
+    -kernel $TEST_DIR/riscv-rfence.bin
+
+# RISC-V: sbi_hart_start brings the parked hart 1 up in S-mode with the
+# opaque value in a1, and hart_get_status follows it (-smp 2)
+run riscv-hsm "OS-ENTRY riscv hsm|hart1=ok a1=5157000012345678|hsm=ok|!hsm=bad|!trap mcause=" \
+    "$QEMU_RISCV" -M virt -smp 2 -bios riscv/squirrel-bios.bin \
+    -kernel $TEST_DIR/riscv-hsm.bin
+
+# RISC-V: a started hart calls sbi_hart_stop, is reported stopped, and
+# can be started again (-smp 2)
+run riscv-hsm-stop "OS-ENTRY riscv hsm-stop|hart1 up a1=1|hart1 up a1=2|stop=ok|!stop=bad|!trap mcause=" \
+    "$QEMU_RISCV" -M virt -smp 2 -bios riscv/squirrel-bios.bin \
+    -kernel $TEST_DIR/riscv-hsm-stop.bin
+
+# RISC-V: a store, a load and a fetch in the firmware region fault to the
+# image's stvec; its own memory and the SBI still work
+run riscv-pmp "OS-ENTRY riscv pmp|pmp=ok|!pmp=bad|!trap mcause=" \
+    "$QEMU_RISCV" -M virt -bios riscv/squirrel-bios.bin \
+    -kernel $TEST_DIR/riscv-pmp.bin
+
+# RISC-V: the device tree the image gets has the firmware region under
+# /reserved-memory with no-map, and still parses (-smp 2)
+run riscv-dt "dt: firmware region 0x80000000-0x801fffff reserved (no-map)|OS-ENTRY riscv dt|dt=ok|!dt=bad|!trap mcause=" \
+    "$QEMU_RISCV" -M virt -smp 2 -bios riscv/squirrel-bios.bin \
+    -kernel $TEST_DIR/riscv-dt.bin
+
+# RISC-V: cbo.zero, cbo.clean/flush/inval and a direct stimecmp timer work
+# from S-mode, as Linux uses them on this QEMU hart
+run riscv-envcfg "OS-ENTRY riscv envcfg|envcfg=ok|!envcfg=bad|!envcfg=trap|!trap mcause=" \
+    "$QEMU_RISCV" -M virt -bios riscv/squirrel-bios.bin \
+    -kernel $TEST_DIR/riscv-envcfg.bin
+
+# RISC-V: sbi_system_reset shutdown powers the machine off: QEMU exits
+# with status 0 after reset=ok, and the call never returns
+run riscv-srst "OS-ENTRY riscv srst|reset=ok|!reset=bad|!trap mcause=|@exit=0" \
+    "$QEMU_RISCV" -M virt -bios riscv/squirrel-bios.bin \
+    -kernel $TEST_DIR/riscv-srst.bin
+
+# RISC-V: a cold reboot resets the machine, which -no-reboot turns into
+# an exit with status 0
+run riscv-srst-reboot "OS-ENTRY riscv srst|reset=ok|!reset=bad|!trap mcause=|@exit=0" \
+    "$QEMU_RISCV" -M virt -no-reboot -bios riscv/squirrel-bios.bin \
+    -kernel $TEST_DIR/riscv-srst-reboot.bin
+
+# RISC-V: a shutdown for a system failure makes QEMU exit with status 1
+run riscv-srst-fail "OS-ENTRY riscv srst|reset=ok|!reset=bad|!trap mcause=|@exit=1" \
+    "$QEMU_RISCV" -M virt -bios riscv/squirrel-bios.bin \
+    -kernel $TEST_DIR/riscv-srst-fail.bin
 
 run riscv-no-kernel "boot: no kernel image|boot halted" \
     "$QEMU_RISCV" -M virt -bios riscv/squirrel-bios.bin

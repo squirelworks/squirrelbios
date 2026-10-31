@@ -15,7 +15,7 @@ Original code. Hands off to the OS after early init.
 ```
 x86/        64 KB ROM — VGA banner + ATA hand-off to 0x7C00
 arm/        AArch64 QEMU virt — PL011 banner + fw_cfg kernel load, DTB in x0
-riscv/      RISC-V QEMU virt — UART banner + M-mode jump to -kernel, DTB in a1
+riscv/      RISC-V QEMU virt — UART banner + S-mode entry to -kernel, DTB in a1
 tests/      stand-in OS images and smoke tests (make test)
 common/     hand-off contract
 ROADMAP.md  goals, principles, milestones
@@ -53,19 +53,50 @@ stand-in OS image from `tests/` and checks the serial output:
 | `x86-atapi` | With a CD-ROM as primary master, the firmware reports ATAPI and halts |
 | `arm-boot` | The `-kernel` image runs with a valid device tree in `x0` and `x1`–`x3` = 0 |
 | `arm-no-kernel` | Without `-kernel`, the firmware reports it and halts |
-| `riscv-boot` | The `-kernel` image runs on hart 0 (with `-smp 2`) with a valid device tree in `a1` and `a2 = 0`, and nothing traps |
-| `riscv-ecall` | An `ecall` from the image reaches the firmware's trap handler, which prints `trap mcause=000000000000000b` and halts |
+| `riscv-boot` | The `-kernel` image runs in S-mode (`next_mode=1`) on hart 0 (with `-smp 2`) with a valid device tree in `a1` and `a2 = 0`, and nothing traps |
+| `riscv-ecall` | An `ecall` from the image reaches the SBI and returns `SBI_ERR_NOT_SUPPORTED` for an extension that does not exist |
+| `riscv-deleg` | An illegal instruction traps to the image's own `stvec` (`deleg=ok`), and its `ecall` still reaches the SBI in M-mode |
+| `riscv-sbi` | The SBI base extension reports spec 1.0 and the SquirrelBIOS implementation ID, probes base, TIME, IPI, RFENCE, HSM and SRST as present, and changes no register but `a0` and `a1` |
+| `riscv-timer` | `sbi_set_timer` raises the supervisor timer interrupt once (`timer=ok`, never `timer=again`) |
+| `riscv-ipi` | `sbi_send_ipi` to the calling hart raises its software interrupt (`ipi=ok`); to the parked hart 1 it returns an error |
+| `riscv-rfence` | `remote_sfence_vma` and `remote_fence_i` for the calling hart succeed; a mask that also names the parked hart 1 returns an error |
+| `riscv-hsm` | `sbi_hart_start` brings the parked hart 1 up in S-mode with the opaque value in `a1` (`hart1=ok a1=...`), and `hart_get_status` reports stopped, then started |
+| `riscv-hsm-stop` | A started hart 1 turns on paging, calls `sbi_hart_stop`, never returns from it, is reported stopped, and starts again with `satp` and `sp` at 0 |
+| `riscv-pmp` | A store, a load and a fetch in the firmware region (`0x80000000`–`0x801FFFFF`) each fault to the image's `stvec` (`pmp=ok`); its own memory and the SBI still work |
+| `riscv-envcfg` | `cbo.zero`, `cbo.clean`/`flush`/`inval` and a timer set by writing `stimecmp` work from S-mode (`envcfg=ok`) |
+| `riscv-dt` | The device tree the image gets reserves the firmware region (`/reserved-memory`, `no-map`) and still parses |
+| `riscv-srst` | `sbi_system_reset` refuses a bad type, reason or function, then a shutdown makes QEMU exit with status 0 (`reset=ok`, never `reset=bad`) |
+| `riscv-srst-reboot` | A cold reboot resets the machine, which `-no-reboot` turns into a QEMU exit with status 0 |
+| `riscv-srst-fail` | A shutdown for a system failure makes QEMU exit with status 1 |
 | `riscv-no-kernel` | Without `-kernel`, the firmware reports it and halts |
 
 Needs `qemu-system-i386`, `qemu-system-aarch64` and `qemu-system-riscv64`.
 Serial logs are kept in `build/tests/*.log`. `SMOKE_TIMEOUT` (seconds,
-default 10) sets how long each case may take.
+default 10) sets how long each case may take. A case can also require
+QEMU to exit by itself with a given status (`@exit=N` in `tests/smoke.sh`).
 
 CI runs exactly this check: `.github/workflows/make-test.yml` installs
 `nasm`, the AArch64 and RISC-V cross toolchains and the three QEMU
 system emulators on Ubuntu 24.04, then runs `make test` on every push
 and pull request. The serial logs are uploaded as the `smoke-logs`
 artifact.
+
+### Linux to a shell (RISC-V, optional)
+
+```bash
+make linux-shell                      # scripted check, prints PASS linux-shell
+tests/linux-shell.sh --interactive    # the same boot, with the shell for you
+```
+
+Boots Ubuntu 24.04's riscv64 kernel (6.8) on the RISC-V firmware with a
+tiny busybox initramfs, and passes when the shell prompt appears, a
+command typed at it runs, and `poweroff` makes QEMU exit with status 0.
+Nothing is added to the repo: the script downloads two pinned Ubuntu
+packages (about 40 MB, checked against their SHA-256) into
+`build/linux/` and builds the initramfs there. Needs `curl`, `cpio` and
+`qemu-system-riscv64`. It is not part of `make test` or CI.
+`LINUX_TIMEOUT` (default 300 seconds) and `LINUX_SMP` (default 1 hart)
+change the run; the serial log is `build/linux/linux-shell.log`.
 
 ## Run
 
