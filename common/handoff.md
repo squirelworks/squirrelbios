@@ -47,6 +47,34 @@ The OS must not assume:
    not started (AArch64) or are parked until the OS starts them with
    `sbi_hart_start` (RISC-V).
 
+### Network boot
+
+The firmware does not boot over the network, on any architecture, and
+has no network driver. It starts the image that is already there: the
+one QEMU loaded with `-kernel` (RISC-V, AArch64) or the one on the
+primary disk (x86). A diskless node, such as one of the many identical
+nodes of a cluster, gets its OS in two steps. First it boots a small
+kernel and initramfs from wherever the machine keeps them (QEMU's
+`-kernel` and `-initrd`, or a small local disk). That kernel then brings
+up the network with its own drivers and fetches the real system: an NFS
+or network-block root, or a second kernel started with `kexec`.
+
+The reasons:
+
+- **Size and risk.** A network loader means a NIC driver (virtio-net
+  queues), DHCP, and TFTP or HTTP, all in assembly, for each
+  architecture. That is more code than the rest of the firmware, and it
+  would run before anything can check it.
+- **Linux does it better.** Linux already has every NIC driver, DHCP,
+  NFS root and `kexec`, and it can retry and report errors.
+- **The contract stays the same.** The hand-off stays "load the image
+  that is there, then jump", which `make test` checks on every
+  architecture.
+
+Revisit this only if a target machine has no way to supply the first
+kernel. That would be a separate TODO item with its own stand-in, a
+`make test` case that loads an image over QEMU's user-mode network.
+
 ## x86 PC
 
 ### Registers

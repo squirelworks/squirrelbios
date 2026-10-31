@@ -166,8 +166,8 @@ These items are not part of `make test`'s acceptance unless they say so.
 - [ ] `big-node-pcie` — Check that PCIe devices enumerate on a large node.
   - Acceptance: `make linux-big` with a `virtio-net-pci` and an `nvme` device sees both under `/sys/bus/pci/devices`. No firmware change unless the run shows one is needed.
 
-- [ ] `big-node-netboot` — Decide and document how a diskless node gets its kernel.
-  - Acceptance: a note in `common/handoff.md` saying whether the firmware loads a kernel over virtio-net or leaves network boot to the OS, with the reason. If the firmware does it, that is a separate item with its own stand-in.
+- [x] `big-node-netboot` — Decide and document how a diskless node gets its kernel.
+  - Acceptance: a note in `common/handoff.md` saying whether the firmware loads a kernel over virtio-net or leaves network boot to the OS, with the reason. If the firmware does it, that is a separate item with its own stand-in. *(Decided: the firmware leaves network boot to the OS. A diskless node boots a small kernel and initramfs that fetches the rest. See "Network boot" in `common/handoff.md`.)*
 
 - [ ] `big-node-errors` — Report hardware faults instead of only halting.
   - Acceptance: a written plan in this file for where machine faults go (the console line format, and what the OS is told), before any code.
