@@ -75,7 +75,6 @@ hart0:  bnez a0, 4b
         call puts
         j 4b
 .endif
-        j 4b
 
 puts:
         li t0, UART_BASE
