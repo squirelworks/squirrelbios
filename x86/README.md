@@ -15,6 +15,9 @@ qemu-system-i386 -bios squirrel-bios.rom -drive format=raw,file=boot.bin,if=ide 
 - Detects a missing drive or an ATAPI device and says so instead of hanging
 - On failure prints the reason and the ATA status/error registers, then halts
 - Refuses a sector whose last word is not `0xAA55` (not retried), then halts
+- When the sector has an SQBL header at `0x1F0`, reads the 1–128 sectors
+  after it to the header's `segment:offset` (below `0xA0000`, clear of the
+  memory map and the boot sector) before jumping to `0x7C00`
 - Builds a memory map at `0x0000:0x0500` from the RAM sizes in CMOS (`memmap.inc`)
 - On success jumps to `0x0000:0x7C00` with `DL = 0x80`, `ES:DI = 0x0000:0x0500`
 

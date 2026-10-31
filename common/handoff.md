@@ -65,9 +65,41 @@ The OS must not assume:
 
 | Range | Contents |
 |-------|----------|
-| `0x0500`–`0x05FF` | Memory map (below). Always at this address. |
-| below `0x7C00` | Firmware stack, a few bytes, free after the jump |
+| `0x0500`–`0x05FF` | Memory map (below). Always at this address. The firmware's own stack sits at the top of this page while it runs, and is free after the jump. |
 | `0x7C00`–`0x7DFF` | Sector 1 of the disk, the image that was jumped to |
+| SQBL load address | The extra sectors, when sector 1 has an SQBL header (below) |
+
+`SP` is `0x7C00`, so the first push lands at `0x7BFE`. An image that loads
+extra sectors right up to `0x7C00` should move the stack before it relies
+on the last bytes it loaded.
+
+### Extra sectors (SQBL header)
+
+The firmware reads one sector unless that sector asks for more. To ask,
+put this header at the end of sector 1, immediately before the
+signature. All fields are little-endian.
+
+| Offset | Size | Field |
+|--------|------|-------|
+| `0x1F0` | 4 | Magic bytes `53 51 42 4C` (`SQBL`). Absent means one sector. |
+| `0x1F4` | 2 | Extra sector count, 1–128. |
+| `0x1F6` | 2 | Load segment. |
+| `0x1F8` | 2 | Load offset. |
+| `0x1FA` | 4 | Reserved, zero. The firmware does not read it. |
+| `0x1FE` | 2 | `0xAA55` |
+
+With the magic present, the firmware reads that many sectors starting at
+LBA 1 (the sector after the boot sector) to linear address
+`segment * 16 + offset`, and only then jumps to `0x0000:0x7C00`, with the
+same registers and memory map as a one-sector boot. The loaded bytes are
+contiguous in linear memory; the firmware normalises the segment per
+sector, so a load may cross 64 KB boundaries.
+
+The load must start below `0xA0000` and end at or before it, and must not
+touch `0x0500`–`0x05FF` or `0x7C00`–`0x7DFF`. Anything else, including a
+count of 0 or above 128, is refused before the read (see Failures).
+Memory below `0x0500` is allowed: the firmware leaves no IVT or BIOS data
+there.
 
 ### Devices
 
@@ -112,7 +144,7 @@ PCI hole below 4 GB) is not RAM. Do not assume it is free.
 ### Failures
 
 The jump only happens after a clean read: the drive reported no `ERR`/`DF`,
-delivered exactly one sector and went idle, and the sector ends in the
+delivered exactly the sectors asked for and went idle, and sector 1 ends in the
 boot signature (bytes `55 AA` at offset `0x1FE`). Timeouts and read errors are
 retried up to 3 times, with an ATA soft reset (`SRST`) between attempts.
 On failure the firmware prints the reason and the ATA status and error
@@ -125,11 +157,15 @@ registers on COM1 (and the VGA text buffer), then halts:
 | `timeout waiting for drive` | `BSY` never cleared or the expected bit never came up |
 | `read of LBA 0 failed` | Drive set `ERR`/`DF`, or the transfer ended in a bad state |
 | `boot sector has no 0xAA55 signature` | The read was clean but the last word of the sector is not `0xAA55`. Not retried, and no status or error registers are printed. |
+| `load overlaps firmware data` | The SQBL load would touch the memory map page or the boot sector. Nothing is read. No registers printed. |
+| `load address is out of range` | The SQBL count is not 1–128, the load address is not below `0xA0000`, or the load runs past it. Nothing is read. No registers printed. |
+| `read of the extra sectors failed` | As `read of LBA 0 failed`, for the SQBL sectors. Retried like the first read. |
 
 ### How to test
 
 `make test` runs `x86-boot`, `x86-no-drive`, `x86-mem-low`,
-`x86-mem-high`, `x86-atapi` and `x86-bad-sector`. In `x86-boot` the boot sector checks
+`x86-mem-high`, `x86-atapi`, `x86-bad-sector`, `x86-extra`,
+`x86-extra-map`, `x86-extra-boot` and `x86-extra-range`. In `x86-boot` the boot sector checks
 `DL`, that `IF` and `DF` are clear, and that the memory map has the
 magic, 20-byte entries, ends by `0x0600`, contains the conventional and
 both reserved regions above exactly, and is sorted without overlaps. It
@@ -144,7 +180,12 @@ qemu-system-i386 -bios x86/squirrel-bios.rom -drive format=raw,file=boot.bin,if=
 
 Expect `SquirrelBIOS x86` on the terminal, then whatever `boot.bin`
 prints. `tests/x86-boot.asm` is a minimal boot sector that reports the
-hand-off state on COM1.
+hand-off state on COM1. `tests/x86-extra.asm` has an SQBL header that
+loads three sectors to `0x1000:0x0010`; its boot sector checks `DL` and
+the memory map pointer and jumps to them, and they print `payload=ok`
+when the last of them arrived too. Built with `-DOVERLAP_MAP`,
+`-DOVERLAP_BOOT` or `-DOUT_OF_RANGE`, its header asks for a load the
+firmware must refuse.
 
 ## AArch64 (QEMU virt)
 

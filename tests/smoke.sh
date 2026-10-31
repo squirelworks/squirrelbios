@@ -104,6 +104,24 @@ run x86-bad-sector "disk: boot sector has no 0xAA55 signature|boot halted|!OS-EN
     "$QEMU_X86" -bios x86/squirrel-bios.rom \
     -drive format=raw,file=$TEST_DIR/x86-bad-sector.bin,if=ide
 
+# x86: an SQBL header in sector 0 loads 3 more sectors to 0x1000:0x0010
+# before the usual jump to 0x7C00, which then jumps to them
+run x86-extra "OS-ENTRY x86 extra dl=ok memmap=ok payload=ok" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -drive format=raw,file=$TEST_DIR/x86-extra.bin,if=ide
+
+# x86: SQBL loads that would land on the memory map or the boot sector,
+# or run past 0xA0000, are refused before anything is read or jumped to
+run x86-extra-map "disk: load overlaps firmware data|boot halted|!OS-ENTRY" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -drive format=raw,file=$TEST_DIR/x86-extra-map.bin,if=ide
+run x86-extra-boot "disk: load overlaps firmware data|boot halted|!OS-ENTRY" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -drive format=raw,file=$TEST_DIR/x86-extra-boot.bin,if=ide
+run x86-extra-range "disk: load address is out of range|boot halted|!OS-ENTRY" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -drive format=raw,file=$TEST_DIR/x86-extra-range.bin,if=ide
+
 # x86: a CD-ROM as primary master is rejected, not read
 run x86-atapi "disk: primary master is ATAPI (CD/DVD), not supported|boot halted" \
     "$QEMU_X86" -bios x86/squirrel-bios.rom \

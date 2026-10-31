@@ -16,7 +16,10 @@ ARM_BIN   := arm/squirrel-bios.bin
 RISCV_BIN := riscv/squirrel-bios.bin
 
 TEST_DIR  := build/tests
-TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-bad-sector.bin $(TEST_DIR)/arm-kernel.bin $(TEST_DIR)/riscv-kernel.bin \
+TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-bad-sector.bin \
+             $(TEST_DIR)/x86-extra.bin $(TEST_DIR)/x86-extra-map.bin \
+             $(TEST_DIR)/x86-extra-boot.bin $(TEST_DIR)/x86-extra-range.bin \
+             $(TEST_DIR)/arm-kernel.bin $(TEST_DIR)/riscv-kernel.bin \
              $(TEST_DIR)/riscv-ecall.bin $(TEST_DIR)/riscv-deleg.bin \
              $(TEST_DIR)/riscv-sbi.bin $(TEST_DIR)/riscv-timer.bin \
              $(TEST_DIR)/riscv-ipi.bin $(TEST_DIR)/riscv-rfence.bin \
@@ -71,6 +74,16 @@ $(TEST_DIR)/x86-boot.bin: tests/x86-boot.asm | $(TEST_DIR)
 # The same sector with its last word zeroed instead of 0xAA55
 $(TEST_DIR)/x86-bad-sector.bin: tests/x86-boot.asm | $(TEST_DIR)
 	$(NASM) -f bin -DNO_SIG $< -o $@
+
+# SQBL header: a good load, then one per way the firmware must refuse it
+$(TEST_DIR)/x86-extra.bin: tests/x86-extra.asm | $(TEST_DIR)
+	$(NASM) -f bin $< -o $@
+$(TEST_DIR)/x86-extra-map.bin: tests/x86-extra.asm | $(TEST_DIR)
+	$(NASM) -f bin -DOVERLAP_MAP $< -o $@
+$(TEST_DIR)/x86-extra-boot.bin: tests/x86-extra.asm | $(TEST_DIR)
+	$(NASM) -f bin -DOVERLAP_BOOT $< -o $@
+$(TEST_DIR)/x86-extra-range.bin: tests/x86-extra.asm | $(TEST_DIR)
+	$(NASM) -f bin -DOUT_OF_RANGE $< -o $@
 
 $(TEST_DIR)/arm-kernel.o: tests/arm-kernel.S | $(TEST_DIR)
 	$(AARCH64)as -o $@ $<

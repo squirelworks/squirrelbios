@@ -14,9 +14,24 @@
 ;     status checks and retries (soft reset between attempts)
 ;   - On failure: print the reason and the ATA status/error registers, halt
 ;   - Check the 0xAA55 signature in the last word of the sector; halt if absent
+;   - If the sector carries an SQBL header (offset 0x1F0), read the extra
+;     sectors it asks for (LBA 1 on) to its load address, below 0xA0000
 ;   - On success: jump to 0x0000:0x7C00 with DL = 0x80, DI = 0x0500 (memory map)
 
 BITS 16
+
+; Firmware stack while it runs: the top of the memory map page, so a load
+; anywhere outside 0x0500-0x05FF and 0x7C00-0x7DFF cannot overwrite it.
+; The map ends by 0x0570 (5 entries) and the deepest call chain uses well
+; under 64 bytes.
+FW_STACK        equ 0x0600
+
+; SQBL header at the end of sector 0 (x86-extra-sectors)
+BOOT_SECTOR     equ 0x7C00
+SQBL_HDR        equ BOOT_SECTOR + 0x1F0
+SQBL_MAGIC      equ 0x4C425153  ; bytes 53 51 42 4C, 'SQBL'
+SQBL_MAX        equ 128         ; extra sectors
+LOAD_LIMIT      equ 0xA0000     ; first byte that is not conventional RAM
 
 ; Primary ATA channel, legacy ports
 ATA_DATA        equ 0x1F0
@@ -58,7 +73,7 @@ entry:
     mov ds, ax
     xor ax, ax
     mov ss, ax
-    mov sp, 0x7C00
+    mov sp, FW_STACK
     mov ax, VGA_SEG
     mov es, ax
 
@@ -72,36 +87,76 @@ entry:
     call con_print
     call con_newline
 
-    ; Disk: up to ATA_ATTEMPTS reads of LBA 0, soft reset between them
-    mov bp, ATA_ATTEMPTS
-.try:
-    call ata_read_lba0
-    jnc check_sig
-    cmp si, msg_nodrive         ; nothing to retry against
-    je disk_fail
-    cmp si, msg_atapi
-    je disk_fail
-    dec bp
-    jz disk_fail
-    call ata_reset
-    jmp .try
+    ; Disk: sector 0 (LBA 0) to 0x7C00
+    xor cl, cl
+    mov ch, 1
+    mov ebp, BOOT_SECTOR
+    call ata_read_retry
+    jc disk_fail
 
 ; A clean read without the signature is not a boot sector. Reading it
 ; again would give the same bytes, so this is not retried.
-check_sig:
-    cmp word [ss:0x7DFE], 0xAA55    ; SS = 0
-    je handoff
+    cmp word [ss:BOOT_SECTOR + 0x1FE], 0xAA55    ; SS = 0
+    je .signed
     mov si, msg_nosig
-    mov ah, ATTR_ERROR
-    call con_print
-    jmp boot_halt
+    jmp boot_fail
+.signed:
+
+    ; No SQBL header: the one-sector hand-off
+    cmp dword [ss:SQBL_HDR], SQBL_MAGIC
+    jne handoff
+
+    ; Extra sector count, 1-128
+    movzx ecx, word [ss:SQBL_HDR + 4]
+    test cx, cx
+    jz .range
+    cmp cx, SQBL_MAX
+    ja .range
+    ; EAX = segment * 16 + offset, EDX = end of the load
+    movzx eax, word [ss:SQBL_HDR + 6]
+    shl eax, 4
+    movzx edx, word [ss:SQBL_HDR + 8]
+    add eax, edx
+    cmp eax, LOAD_LIMIT
+    jae .range
+    mov edx, ecx
+    shl edx, 9
+    add edx, eax
+    cmp edx, LOAD_LIMIT
+    ja .range
+    ; [EAX, EDX) must miss the memory map page and the boot sector
+    cmp eax, MEMMAP_ADDR + 0x100
+    jae .past_map
+    cmp edx, MEMMAP_ADDR
+    ja .overlap
+.past_map:
+    cmp eax, BOOT_SECTOR + 0x200
+    jae .load
+    cmp edx, BOOT_SECTOR
+    ja .overlap
+.load:
+    mov ebp, eax
+    mov ch, cl                  ; count
+    mov cl, 1                   ; from LBA 1
+    call ata_read_retry
+    jnc handoff
+    cmp si, msg_readerr
+    jne disk_fail
+    mov si, msg_readerr_extra
+    jmp disk_fail
+.range:
+    mov si, msg_range
+    jmp boot_fail
+.overlap:
+    mov si, msg_overlap
+    jmp boot_fail
 
 handoff:
     xor ax, ax
     mov ds, ax
     mov es, ax
     mov ss, ax
-    mov sp, 0x7C00
+    mov sp, BOOT_SECTOR
     mov dl, 0x80                ; boot drive
     mov di, MEMMAP_ADDR         ; memory map header
     jmp 0x0000:0x7C00
@@ -118,6 +173,12 @@ disk_fail:
     call con_print
     mov al, bh
     call con_hex8
+    jmp boot_halt
+
+; In: SI = reason.  A failure that is not the drive's: no ATA registers.
+boot_fail:
+    mov ah, ATTR_ERROR
+    call con_print
 ; Ends the line in progress, prints 'boot halted' and halts.
 boot_halt:
     call con_newline
@@ -132,10 +193,44 @@ boot_halt:
 ; ATA PIO
 ; ---------------------------------------------------------------------------
 
-; Read LBA 0 of the primary master into 0x0000:0x7C00.
+; Read with up to ATA_ATTEMPTS attempts, soft reset between them.
+; In/Out: as ata_read.
+ata_read_retry:
+    push ax
+    mov al, ATA_ATTEMPTS
+.try:
+    call ata_read
+    jnc .done
+    cmp si, msg_nodrive         ; nothing to retry against
+    je .fail
+    cmp si, msg_atapi
+    je .fail
+    dec al
+    jz .fail
+    call ata_reset
+    jmp .try
+.fail:
+    stc
+.done:
+    pop ax
+    ret
+
+; Read sectors of the primary master into memory below 1 MB.
+; In:  CL = first LBA (0-255), CH = sector count (1-128),
+;      EBP = linear address of the destination.
 ; Out: CF = 0 on success.
 ;      CF = 1 on failure, SI = reason, BL = status, BH = error register.
-ata_read_lba0:
+;      Everything else is preserved.
+ata_read:
+    push eax
+    push ecx
+    push edx
+    push ebp
+    push di                     ; console cursor
+    push es
+    mov ah, ch                  ; sectors left (AL is the port byte)
+    mov bh, cl                  ; LBA (BL is the poll mask)
+
     ; 0xFF is a floating bus: no controller on the primary channel
     mov dx, ATA_STATUS
     in al, dx
@@ -173,11 +268,12 @@ ata_read_lba0:
     jnz .error
 
     mov dx, ATA_COUNT
-    mov al, 1
+    mov al, ah
     out dx, al
-    xor al, al                  ; LBA 0
+    mov al, bh
     mov dx, ATA_LBA_LO
     out dx, al
+    xor al, al
     mov dx, ATA_LBA_MID
     out dx, al
     mov dx, ATA_LBA_HI
@@ -186,24 +282,27 @@ ata_read_lba0:
     mov dx, ATA_STATUS
     mov al, CMD_READ_SECTORS
     out dx, al
-    call ata_delay400
 
+    ; One DRQ block per sector
+.sector:
+    call ata_delay400
     mov bl, ST_DRQ | ST_ERR | ST_DF
     call ata_poll
     jc .timeout
     test al, ST_ERR | ST_DF
     jnz .error
 
-    push es
-    push di                     ; console cursor
-    xor ax, ax
-    mov es, ax
-    mov di, 0x7C00
+    mov ecx, ebp                ; ES:DI = EBP, normalised so 512 bytes fit
+    shr ecx, 4
+    mov es, cx
+    mov di, bp
+    and di, 0x000F
     mov cx, 256
     mov dx, ATA_DATA
     rep insw
-    pop di
-    pop es
+    add ebp, 512
+    dec ah
+    jnz .sector
 
     ; Command must finish cleanly, otherwise the data is suspect
     call ata_delay400
@@ -215,7 +314,7 @@ ata_read_lba0:
     test al, ST_DRQ             ; drive still has data: count mismatch
     jnz .error
     clc
-    ret
+    jmp .out
 
 .nodrive:
     mov si, msg_nodrive
@@ -236,6 +335,13 @@ ata_read_lba0:
     in al, dx
     mov bh, al
     stc
+.out:
+    pop es
+    pop di
+    pop ebp
+    pop edx
+    pop ecx
+    pop eax
     ret
 
 ; Poll status until BSY is clear and any bit in BL is set.
@@ -259,7 +365,12 @@ ata_poll:
     ret
 
 ; Software reset of the primary channel, then wait for BSY to clear.
+; Preserves every register but the flags.
 ata_reset:
+    push eax
+    push ebx
+    push ecx
+    push edx
     mov dx, ATA_CTRL
     mov al, CTRL_SRST | CTRL_NIEN
     out dx, al
@@ -270,6 +381,10 @@ ata_reset:
     out dx, al
     mov bl, 0xFF & ~ST_BSY      ; any status once BSY drops
     call ata_poll
+    pop edx
+    pop ecx
+    pop ebx
+    pop eax
     ret
 
 ; ~400 ns: four reads of the alternate status register.
@@ -401,6 +516,9 @@ msg_atapi   db 'disk: primary master is ATAPI (CD/DVD), not supported', 0
 msg_timeout db 'disk: timeout waiting for drive', 0
 msg_readerr db 'disk: read of LBA 0 failed', 0
 msg_nosig   db 'disk: boot sector has no 0xAA55 signature', 0
+msg_readerr_extra db 'disk: read of the extra sectors failed', 0
+msg_overlap db 'disk: load overlaps firmware data', 0
+msg_range   db 'disk: load address is out of range', 0
 msg_status  db '  status=', 0
 msg_error   db ' error=', 0
 msg_halted  db 'boot halted', 0
