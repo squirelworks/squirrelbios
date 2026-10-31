@@ -7,7 +7,7 @@ make riscv
 qemu-system-riscv64 -M virt -nographic -bios riscv/squirrel-bios.bin -kernel image.bin
 ```
 
-- Hart 0 boots; other harts park in `wfi` until the OS starts them with `sbi_hart_start`; `sbi_hart_stop` sends a hart back
+- One hart boots: the one `fw_dynamic_info.boot_hart` names when it is below 512, otherwise hart 0 (QEMU's `-kernel` path always names 0); other harts park in `wfi` until the OS starts them with `sbi_hart_start`; `sbi_hart_stop` sends a hart back
 - Initialises the NS16550A UART (`0x10000000`, 115200 8N1) and prints `SquirrelBIOS RISC-V`
 - Finds the `-kernel` image QEMU loaded (via the `fw_dynamic_info` block in `a2`)
 - Enters it in the mode QEMU's `next_mode` asks for, S-mode for `-kernel`,

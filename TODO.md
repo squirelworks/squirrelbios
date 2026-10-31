@@ -152,8 +152,8 @@ These items are not part of `make test`'s acceptance unless they say so.
 - [x] `linux-big-kernel` — Let `make linux-big` check more than 32 harts.
   - Acceptance: the script takes a pinned kernel built with `NR_CPUS` of at least 64 (downloaded and checked by SHA-256 like today's, or a documented `LINUX_IMAGE=` override), and `make linux-big` with the default 64 harts prints `PASS linux-shell`. No kernel is added to the repo. Depends on: `riscv-many-harts`. *(As built: `LINUX_KERNEL=6.14` selects Ubuntu 25.04's `linux-image-6.14.0-13-generic`, an EFI zboot image the script unpacks with `zstd`; downloads fall back to old-releases once 25.04 moves there. `make linux-big` uses it and brings up 64 harts. `make linux-shell` keeps 6.8.)*
 
-- [ ] `riscv-boot-hart` — Boot the hart `fw_dynamic_info.boot_hart` names. *(Moved up from Speculative.)*
-  - Acceptance: as in the Speculative entry: `riscv-boot` still passes, and a case whose boot hart is not 0 prints `hart=ok` from that hart. Depends on: `riscv-many-harts`.
+- [x] `riscv-boot-hart` — Boot the hart `fw_dynamic_info.boot_hart` names. *(Moved up from Speculative.)*
+  - Acceptance: as in the Speculative entry: `riscv-boot` still passes, and a case whose boot hart is not 0 prints `hart=ok` from that hart. Depends on: `riscv-many-harts`. *(As built: QEMU's `-kernel` path always writes `boot_hart = 0`, so `riscv-boot-hart` loads a shim with QEMU's generic loader, points every hart's PC at it, and it hands the firmware a copy of QEMU's `fw_dynamic_info` with `boot_hart = 2`. A `boot_hart` at or above `MAX_HARTS`, or a struct older than version 2, means hart 0. A `boot_hart` below that which names no present hart leaves the machine with no boot hart; QEMU never passes one.)*
 
 - [ ] `riscv-sparse-harts` — Do not assume hart IDs are 0 to N-1.
   - Acceptance: the per-hart tables are indexed by a slot the firmware assigns, not by the raw hart ID, and a hart ID above `MAX_HARTS` gets a slot if one is free. A stand-in whose device tree names non-contiguous hart IDs starts each of them. Depends on: `riscv-many-harts`.

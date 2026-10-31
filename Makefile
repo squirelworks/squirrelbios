@@ -32,7 +32,8 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/riscv-srst-fail.bin $(TEST_DIR)/riscv-pmp.bin \
              $(TEST_DIR)/riscv-dt.bin $(TEST_DIR)/riscv-envcfg.bin \
              $(TEST_DIR)/riscv-ipi-smp.bin $(TEST_DIR)/riscv-fence-smp3.bin \
-             $(TEST_DIR)/riscv-harts.bin
+             $(TEST_DIR)/riscv-harts.bin \
+             $(TEST_DIR)/riscv-boot-hart.bin $(TEST_DIR)/riscv-kernel-hart2.bin
 
 .PHONY: all x86 arm riscv test linux-shell linux-big linux-stress clean
 .DELETE_ON_ERROR:
@@ -229,6 +230,21 @@ $(TEST_DIR)/riscv-harts.o: tests/riscv-harts.S | $(TEST_DIR)
 $(TEST_DIR)/riscv-harts.elf: $(TEST_DIR)/riscv-harts.o
 	$(RISCV64)ld -Ttext=0x80200000 -o $@ $<
 $(TEST_DIR)/riscv-harts.bin: $(TEST_DIR)/riscv-harts.elf
+	$(RISCV64)objcopy -O binary $< $@
+
+# riscv-boot-hart: a shim that hands the firmware fw_dynamic_info with
+# boot_hart = 2, and the stand-in built to expect hart 2
+$(TEST_DIR)/riscv-boot-hart.o: tests/riscv-boot-hart.S | $(TEST_DIR)
+	$(RISCV64)as -o $@ $<
+$(TEST_DIR)/riscv-boot-hart.elf: $(TEST_DIR)/riscv-boot-hart.o
+	$(RISCV64)ld -Ttext=0x81000000 -o $@ $<
+$(TEST_DIR)/riscv-boot-hart.bin: $(TEST_DIR)/riscv-boot-hart.elf
+	$(RISCV64)objcopy -O binary $< $@
+$(TEST_DIR)/riscv-kernel-hart2.o: tests/riscv-kernel.S | $(TEST_DIR)
+	$(RISCV64)as --defsym BOOT_HART=2 -o $@ $<
+$(TEST_DIR)/riscv-kernel-hart2.elf: $(TEST_DIR)/riscv-kernel-hart2.o
+	$(RISCV64)ld -Ttext=0x80200000 -o $@ $<
+$(TEST_DIR)/riscv-kernel-hart2.bin: $(TEST_DIR)/riscv-kernel-hart2.elf
 	$(RISCV64)objcopy -O binary $< $@
 
 # One SRST image per reset: shutdown, cold reboot, shutdown for a failure

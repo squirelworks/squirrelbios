@@ -235,8 +235,8 @@ Not tasks, until the OS needs one of them. They are listed in
 - RISC-V SBI debug console (`DBCN`), PMU, or vendor extensions.
 - Parsing the device tree for the UART and CLINT instead of the QEMU virt
   constants.
-- Honouring `fw_dynamic_info.boot_hart` when it is not hart 0 (part of
-  milestone 6 now).
+- Honouring `fw_dynamic_info.boot_hart` when it is not hart 0 (done
+  in milestone 6).
 - Checking a Linux or Squirrel-OS image into the repo. `make test` stays
   on the small stand-in images.
 

@@ -15,7 +15,7 @@ If the firmware and this file disagree, the firmware has a bug.
 | Memory description | Memory map at `ES:DI = 0x0000:0x0500` | Device tree `/memory` | Device tree `/memory` |
 | Console | COM1 `0x3F8`, 115200 8N1 | PL011 `0x09000000` | NS16550A `0x10000000`, 115200 8N1 |
 | Interrupts | `IF = 0` | `DAIF` masked | `mstatus.MIE`/`SIE` = 0, `mie = 0` |
-| CPUs running | Boot CPU only | Boot CPU only | Hart 0; others through `sbi_hart_start` |
+| CPUs running | Boot CPU only | Boot CPU only | The boot hart (`fw_dynamic_info.boot_hart`, else hart 0); others through `sbi_hart_start` |
 | Firmware services | None | None | SBI from S-mode: base, TIME, IPI, RFENCE, HSM, SRST |
 
 ## Rules for every architecture
@@ -398,7 +398,8 @@ M-mode entry gets the tree as QEMU wrote it.
 Do not assume: SBI extensions other than base, TIME, IPI, RFENCE, HSM and SRST,
 a set `stvec` (install one before the first delegated trap), secondary
 harts being available, or IPIs and remote fences reaching a hart that is
-not started.
+not started (they are skipped; a hart that starts again fences itself
+first).
 
 ### Traps
 
@@ -459,10 +460,14 @@ any `hart_start` started). Each hart selected gets a supervisor software
 interrupt (`mip.SSIP`; S-mode clears `sip.SSIP` in its handler): the
 caller at once, another hart through its M-mode software interrupt
 (CLINT `msip`), which the firmware turns into `SSIP` on that hart. The
-call returns once the interrupts are sent, not taken. A mask that names
-any hart that is not started returns `SBI_ERR_INVALID_PARAM` (`-3`) and
-raises nothing, on that hart or any other. An empty mask succeeds and
-does nothing.
+call returns once the interrupts are sent, not taken. A stopped hart
+(parked, or after `hart_stop`) is a valid hart and is skipped: it gets
+nothing, and the call still succeeds for the others. Linux names stopped
+harts after CPU hotplug, because an offline CPU stays in an address
+space's CPU mask. A mask that names a hart the machine does not have
+(one that never reached its park loop, or an ID of 512 or more) returns
+`SBI_ERR_INVALID_PARAM` (`-3`) and raises nothing, on that hart or any
+other. An empty mask succeeds and does nothing.
 
 The RFENCE functions take the same hart mask in `a0` and `a1`, with the
 same rules. Each hart selected runs `fence.i` (`remote_fence_i`) or a
@@ -541,18 +546,23 @@ TIME, IPI, RFENCE, HSM and SRST, and checks that only `a0`
 and `a1` changed), `riscv-timer` (an image sets a timer 10 ms ahead and
 prints `timer=ok` from its supervisor timer interrupt, which must not
 come back after it pushed the timer out), `riscv-ipi` (with `-smp 2`, an
-IPI to the parked hart 1 fails and raises nothing, and an IPI to itself
+IPI to the parked hart 1 succeeds and raises nothing on the caller, one to
+hart 2, which does not exist, fails, and an IPI to itself
 prints `ipi=ok` from its software-interrupt handler), `riscv-ipi-smp`
 (with `-smp 2`, hart 1 is started and takes IPIs by mask bit, by mask base and with base `-1`, which also reaches hart 0;
 `remote_fence_i` and `remote_sfence_vma` on both harts return; then both
 harts fence each other 20000 times at once without the firmware
 deadlocking), `riscv-fence-smp3` (with `-smp 3`, harts 0 and 1 both
 fence hart 2 20000 times at once, then hart 2 takes an IPI from each),
+`riscv-boot-hart` (with `-smp 4` and a shim that hands the firmware
+QEMU's `fw_dynamic_info` with `boot_hart = 2`: hart 2 enters the image,
+HSM reports it started and hart 0 stopped, and it starts hart 0),
 `riscv-harts` (with `-smp 64`, hart 0 starts harts 1 to 63 one at a
 time, `hart_get_status` reports each started, and one `remote_fence_i`
 whose mask names all 64 harts succeeds: `harts=64`),
 `riscv-rfence`
-(with `-smp 2`, a fence whose mask also names hart 1 fails, and
+(with `-smp 2`, a fence whose mask also names the stopped hart 1
+succeeds, one that names hart 2, which does not exist, fails, and
 `remote_sfence_vma` and `remote_fence_i` for itself succeed),
 `riscv-hsm` (with `-smp 2`, hart 1 is stopped, hart 7 does not exist,
 `hart_start` brings hart 1 up and a second start is refused; hart 1

@@ -1,7 +1,9 @@
 /* Smoke-test image for SquirrelBIOS RISC-V, linked at 0x80200000.
- * Probes RFENCE, then calls remote_sfence_vma for hart 1, which is parked
- * and not started (must fail), for itself (a0 = 1, a1 = its hart id; must
- * succeed), and remote_fence_i for itself. Prints rfence=ok.
+ * Probes RFENCE, then calls remote_sfence_vma for itself and hart 1, which
+ * is parked (stopped: valid, so this must succeed), for hart 2, which the
+ * machine does not have (-smp 2; must fail), for itself alone (a0 = 1,
+ * a1 = its hart id; must succeed), and remote_fence_i for itself. Prints
+ * rfence=ok.
  * Original code.
  */
 
@@ -33,7 +35,18 @@ _start:
         li a6, 1                            /* remote_sfence_vma */
         ecall
         mv t0, a0
-        la a0, msg_other_bad
+        la a0, msg_stopped_bad
+        bnez t0, fail
+
+        li a0, 5                            /* this hart and hart 2 */
+        li a1, 0
+        li a2, 0
+        li a3, -1
+        li a7, SBI_EXT_RFENCE
+        li a6, 1
+        ecall
+        mv t0, a0
+        la a0, msg_absent_bad
         beqz t0, fail
 
         li a0, 1                            /* this hart only */
@@ -73,6 +86,7 @@ puts:
 msg_entry:      .asciz "OS-ENTRY riscv rfence\n"
 msg_ok:         .asciz "rfence=ok\n"
 msg_probe_bad:  .asciz "rfence=bad probe\n"
-msg_other_bad:  .asciz "rfence=bad hart 1 was accepted\n"
+msg_stopped_bad: .asciz "rfence=bad stopped hart 1 was refused\n"
+msg_absent_bad: .asciz "rfence=bad hart 2 was accepted\n"
 msg_sfence_bad: .asciz "rfence=bad remote_sfence_vma failed\n"
 msg_fence_i_bad: .asciz "rfence=bad remote_fence_i failed\n"

@@ -201,13 +201,15 @@ run riscv-timer "OS-ENTRY riscv timer|timer=ok|!timer=again|!timer=bad|!trap mca
     -kernel $TEST_DIR/riscv-timer.bin
 
 # RISC-V: sbi_send_ipi to itself raises a supervisor software interrupt;
-# to hart 1, which is parked and not started, it fails (-smp 2)
+# to hart 1, which is parked (stopped), it succeeds and raises nothing
+# here; to hart 2, which the machine does not have, it fails (-smp 2)
 run riscv-ipi "OS-ENTRY riscv ipi|ipi=ok|!ipi=bad|!trap mcause=" \
     "$QEMU_RISCV" -M virt -smp 2 -bios riscv/squirrel-bios.bin \
     -kernel $TEST_DIR/riscv-ipi.bin
 
-# RISC-V: remote fences for the calling hart succeed; a mask that also
-# names hart 1, which is not started, fails (-smp 2)
+# RISC-V: remote fences for the calling hart succeed, also with the
+# stopped hart 1 in the mask; a mask that names hart 2, which the machine
+# does not have, fails (-smp 2)
 run riscv-rfence "OS-ENTRY riscv rfence|rfence=ok|!rfence=bad|!trap mcause=" \
     "$QEMU_RISCV" -M virt -smp 2 -bios riscv/squirrel-bios.bin \
     -kernel $TEST_DIR/riscv-rfence.bin
@@ -242,6 +244,16 @@ run riscv-fence-smp3 "OS-ENTRY riscv fence-smp3|fence3=ok|!fence3=bad|!trap mcau
 run riscv-harts "OS-ENTRY riscv harts|harts=64|!harts=bad|!trap mcause=" \
     "$QEMU_RISCV" -M virt -smp 64 -bios riscv/squirrel-bios.bin \
     -kernel $TEST_DIR/riscv-harts.bin
+
+# RISC-V: fw_dynamic_info names hart 2 as the boot hart (a shim stands in
+# for QEMU's reset code, which always says 0); hart 2 enters the image
+# and then starts hart 0
+run riscv-boot-hart "OS-ENTRY riscv hart=ok dtb=ok a2=ok|hart0 started from the boot hart|!boot-hart=bad|!trap mcause=" \
+    "$QEMU_RISCV" -M virt -smp 4 -bios riscv/squirrel-bios.bin \
+    -kernel $TEST_DIR/riscv-kernel-hart2.bin \
+    -device loader,file=$TEST_DIR/riscv-boot-hart.bin,addr=0x81000000,force-raw=on \
+    -device loader,addr=0x81000000,cpu-num=0 -device loader,addr=0x81000000,cpu-num=1 \
+    -device loader,addr=0x81000000,cpu-num=2 -device loader,addr=0x81000000,cpu-num=3
 
 # RISC-V: a store, a load and a fetch in the firmware region fault to the
 # image's stvec; its own memory and the SBI still work

@@ -34,6 +34,7 @@
         .equ FWDYN_OFF_VERSION, 8
         .equ FWDYN_OFF_NEXT,    16
         .equ FWDYN_OFF_MODE,    24          /* version 2 and later */
+        .equ FWDYN_OFF_BOOT,    40          /* boot_hart, version 2 and later */
         .equ MODE_S,            1
         .equ MODE_M,            3
 
@@ -172,14 +173,32 @@ _start:
         la t1, trap_stacks
         add t0, t0, t1
         csrw mscratch, t0
-        bnez a0, park                       /* only hart 0 boots */
+
+        /* One hart boots: fw_dynamic_info.boot_hart when the struct is
+         * there (version 2 or later) and names a hart below MAX_HARTS,
+         * otherwise hart 0. QEMU's own -kernel path always says 0. */
+        li t1, 0                            /* t1 = the boot hart */
+        beqz a2, 1f
+        ld t0, FWDYN_OFF_MAGIC(a2)
+        li t2, FWDYN_MAGIC
+        bne t0, t2, 1f
+        ld t0, FWDYN_OFF_VERSION(a2)
+        li t2, 2
+        bltu t0, t2, 1f
+        ld t0, FWDYN_OFF_BOOT(a2)
+        li t2, MAX_HARTS
+        bgeu t0, t2, 1f
+        mv t1, t0
+1:      bne a0, t1, park
 
         mv s0, a0                           /* hart ID */
         mv s1, a1                           /* device tree */
         mv s2, a2                           /* fw_dynamic_info */
         la sp, stack_top
 
-        la t0, hart_table                   /* hart 0 is running */
+        slli t0, s0, HART_ENTRY_SHIFT       /* the boot hart is running */
+        la t1, hart_table
+        add t0, t0, t1
         sd zero, HART_STATE(t0)
 
         call uart_init
@@ -622,8 +641,12 @@ dw_end\@:
         add t3, t3, t6
 .endm
 
-/* Every hart a mask names must be started: otherwise go to
- * sbi_invalid_param, before any work is sent. */
+/* Every hart a mask names must exist: otherwise go to sbi_invalid_param,
+ * before any work is sent.  A stopped hart is valid (the SBI spec only
+ * refuses harts the platform does not have), and send_mask and wait_mask
+ * skip it: it has no IPI to take, and enter_s fences before it runs S-mode
+ * again.  Linux names stopped harts after CPU hotplug, because a CPU
+ * stays in an address space's mask after it goes offline. */
 check_mask:
         li t2, -1
         beq a1, t2, 3f                      /* every started hart */
@@ -641,7 +664,8 @@ check_mask:
         beqz t5, 4f
         hart_entry
         ld t5, HART_STATE(t3)
-        bnez t5, sbi_invalid_param          /* not HSM_STARTED */
+        li t6, HSM_ABSENT
+        beq t5, t6, sbi_invalid_param       /* never reached park */
 4:      addi t4, t4, 1
         li t5, MAX_HARTS
         bltu t4, t5, 1b
