@@ -139,7 +139,8 @@ mkfifo "$pipe.in" "$pipe.out"
 qemu=$!
 cat "$pipe.out" > "$log" &
 reader=$!
-exec 3>"$pipe.in"
+# Read-write, so the open does not block if QEMU fails to start
+exec 3<>"$pipe.in"
 cleanup() {
     exec 3>&-
     kill "$qemu" "$reader" 2>/dev/null || true
