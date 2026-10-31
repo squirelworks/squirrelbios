@@ -35,6 +35,13 @@
         .equ MSTATUS_MPP_S,     0x0800
         .equ MSTATUS_MPIE,      0x80
         .equ PMP_RWX_NAPOT,     0x1f        /* R | W | X | A = NAPOT */
+        .equ PMP_NONE_NAPOT,    0x18        /* A = NAPOT, no access */
+/* The firmware region: everything below QEMU's rv64 kernel load address
+ * (0x80200000). PMP entry 0 denies it to S-mode; NAPOT needs a
+ * power-of-two size aligned to that size. */
+        .equ FW_BASE,           0x80000000
+        .equ FW_SIZE,           0x200000    /* 2 MB */
+        .equ FW_PMPADDR,        (FW_BASE >> 2) | ((FW_SIZE / 2 - 1) >> 2)
 
         /* Exceptions S-mode handles itself: misaligned, access faults,
          * illegal instruction, breakpoint, ecall from U-mode, page faults.
@@ -161,9 +168,10 @@ _start:
         li t0, MODE_M
         beq s4, t0, enter_m
 
-/* Enter S-mode at s3 with a0 and a1 as they are: one PMP entry granting
- * R/W/X over all of physical memory (without one, every S-mode access
- * faults), translation off (satp = 0, which a restart after hart_stop
+/* Enter S-mode at s3 with a0 and a1 as they are: PMP entry 0 denying the
+ * firmware region to S-mode (no read, write or execute; unlocked, so it
+ * does not apply to M-mode), entry 1 granting R/W/X over the rest of
+ * physical memory (without it, every S-mode access faults), translation off (satp = 0, which a restart after hart_stop
  * relies on), supervisor faults and interrupts delegated to S-mode, then
  * mret with MPP = S, interrupts still off and sp = 0, so an image that
  * uses sp before setting it faults instead of writing firmware memory.
@@ -171,9 +179,11 @@ _start:
 enter_s:
         csrw mie, zero
         csrw satp, zero
-        li t0, -1
+        li t0, FW_PMPADDR
         csrw pmpaddr0, t0
-        li t0, PMP_RWX_NAPOT
+        li t0, -1
+        csrw pmpaddr1, t0
+        li t0, PMP_NONE_NAPOT | (PMP_RWX_NAPOT << 8)
         csrw pmpcfg0, t0
         sfence.vma
         li t0, MEDELEG_S

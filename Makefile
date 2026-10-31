@@ -21,7 +21,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/arm-kernel.bin $(TEST_DIR)/ris
              $(TEST_DIR)/riscv-ipi.bin $(TEST_DIR)/riscv-rfence.bin \
              $(TEST_DIR)/riscv-hsm.bin $(TEST_DIR)/riscv-hsm-stop.bin \
              $(TEST_DIR)/riscv-srst.bin $(TEST_DIR)/riscv-srst-reboot.bin \
-             $(TEST_DIR)/riscv-srst-fail.bin
+             $(TEST_DIR)/riscv-srst-fail.bin $(TEST_DIR)/riscv-pmp.bin
 
 .PHONY: all x86 arm riscv test clean
 .DELETE_ON_ERROR:
@@ -48,7 +48,13 @@ riscv/squirrel-bios.o: riscv/squirrel-bios.S
 	$(RISCV64)as -o $@ $<
 riscv/squirrel-bios.elf: riscv/squirrel-bios.o
 	$(RISCV64)ld -Ttext=0x80000000 -o $@ $<
+# The image, .bss included, must fit the 2 MB region PMP entry 0 denies to
+# S-mode (FW_BASE and FW_SIZE in squirrel-bios.S)
 $(RISCV_BIN): riscv/squirrel-bios.elf
+	@end=$$($(RISCV64)nm $< | awk '$$3 == "_end" { print $$1 }'); \
+	if [ $$((0x$$end)) -gt $$((0x80200000)) ]; then \
+	    echo "riscv: image ends at 0x$$end, past the PMP-protected region" >&2; exit 1; \
+	fi
 	$(RISCV64)objcopy -O binary $< $@
 
 # --- test payloads (stand-ins for the OS) ------------------------------
@@ -127,6 +133,13 @@ $(TEST_DIR)/riscv-hsm-stop.o: tests/riscv-hsm-stop.S | $(TEST_DIR)
 $(TEST_DIR)/riscv-hsm-stop.elf: $(TEST_DIR)/riscv-hsm-stop.o
 	$(RISCV64)ld -Ttext=0x80200000 -o $@ $<
 $(TEST_DIR)/riscv-hsm-stop.bin: $(TEST_DIR)/riscv-hsm-stop.elf
+	$(RISCV64)objcopy -O binary $< $@
+
+$(TEST_DIR)/riscv-pmp.o: tests/riscv-pmp.S | $(TEST_DIR)
+	$(RISCV64)as -o $@ $<
+$(TEST_DIR)/riscv-pmp.elf: $(TEST_DIR)/riscv-pmp.o
+	$(RISCV64)ld -Ttext=0x80200000 -o $@ $<
+$(TEST_DIR)/riscv-pmp.bin: $(TEST_DIR)/riscv-pmp.elf
 	$(RISCV64)objcopy -O binary $< $@
 
 # One SRST image per reset: shutdown, cold reboot, shutdown for a failure

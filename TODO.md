@@ -71,7 +71,7 @@ until that extension's box is checked.
 - [x] `riscv-sbi-srst` — Implement `sbi_system_reset`.
   - Acceptance: a stand-in calls shutdown and the log contains `reset=ok` before the machine halts or QEMU exits. `probe_extension` for SRST succeeds. Depends on: `riscv-sbi-base`.
 
-- [ ] `riscv-pmp-firmware` — Stop S-mode from writing the firmware image.
+- [x] `riscv-pmp-firmware` — Stop S-mode from writing the firmware image.
   - Acceptance: PMP entry 0 covers the firmware image with write clear, and it sits at a lower index than the allow-all entry from `riscv-smode`. Leave it unlocked, so M-mode can still execute the SBI handler (a locked deny would apply to M-mode too). A stand-in store into the firmware range faults, S-mode reports it, and the log contains `pmp=ok`. Fetches of the stand-in at `0x80200000` still work. Depends on: `riscv-delegate`, `riscv-smode`.
 
 - [ ] `riscv-linux-doc` — Document the QEMU command that tries a Linux `Image` on this SBI.

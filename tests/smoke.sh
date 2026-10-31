@@ -164,6 +164,12 @@ run riscv-hsm-stop "OS-ENTRY riscv hsm-stop|hart1 up a1=1|hart1 up a1=2|stop=ok|
     "$QEMU_RISCV" -M virt -smp 2 -bios riscv/squirrel-bios.bin \
     -kernel $TEST_DIR/riscv-hsm-stop.bin
 
+# RISC-V: a store, a load and a fetch in the firmware region fault to the
+# image's stvec; its own memory and the SBI still work
+run riscv-pmp "OS-ENTRY riscv pmp|pmp=ok|!pmp=bad|!trap mcause=" \
+    "$QEMU_RISCV" -M virt -bios riscv/squirrel-bios.bin \
+    -kernel $TEST_DIR/riscv-pmp.bin
+
 # RISC-V: sbi_system_reset shutdown powers the machine off: QEMU exits
 # with status 0 after reset=ok, and the call never returns
 run riscv-srst "OS-ENTRY riscv srst|reset=ok|!reset=bad|!trap mcause=|@exit=0" \
