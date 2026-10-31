@@ -237,6 +237,7 @@ the device tree. It then adds `linux,initrd-start` and
 `totalsize`, and their names are appended to the strings block. With no
 initrd the device tree is left exactly as QEMU provided it.
 
+### Load address
 
 If the image starts with a Linux arm64 `Image` header (magic bytes
 `41 52 4D 64` at offset `0x38`), the firmware follows it:
