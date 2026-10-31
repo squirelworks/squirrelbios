@@ -23,6 +23,10 @@
 #   STRESS_KERNEL   6.8 (default) or 6.14, as LINUX_KERNEL for linux-shell.sh;
 #                   6.8 is built for at most 32 harts, 6.14 for 512
 #
+# LINUX_NUMA and LINUX_AIA reach every boot as they are: for example
+# LINUX_NUMA=2 STRESS_KERNEL=6.14 STRESS_SMP=64 STRESS_MEM=8G runs two
+# sockets (each hart count and STRESS_MEM must divide by LINUX_NUMA).
+#
 # Logs of failed boots are kept in build/stress/fail-*.log.
 set -eu
 
@@ -42,8 +46,9 @@ die() { echo "linux-stress: $*" >&2; exit 1; }
 command -v "$RISCV_CC" >/dev/null || die "$RISCV_CC not found (a riscv64 Linux C compiler)"
 mkdir -p "$OUT"
 "$RISCV_CC" -O2 -static -pthread -Wall -o "$OUT/smpstress" tests/smpstress.c
-# One plain run first downloads and checks the kernel and busybox
-LINUX_KERNEL=$KERNEL tests/linux-shell.sh >/dev/null || die "plain linux-shell run failed"
+# One plain run first downloads and checks the kernel and busybox. It
+# boots one hart, which LINUX_NUMA cannot split, so it runs without it.
+LINUX_NUMA=1 LINUX_KERNEL=$KERNEL tests/linux-shell.sh >/dev/null || die "plain linux-shell run failed"
 
 # boot ID SMP: one boot in its own work directory -> a result line
 boot() {
