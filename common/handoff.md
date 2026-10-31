@@ -106,6 +106,7 @@ there.
 | Device | State |
 |--------|-------|
 | COM1 (`0x3F8`) | 115200 8N1, FIFOs on, UART interrupts off |
+| CMOS / RTC (`0x70`/`0x71`) | Index `0x0D` (status register D), NMI enabled (bit 7 of `0x70` clear). The firmware masks NMI only while it reads a register. |
 | Primary ATA channel | Idle. `nIEN` is set if a retry reset the channel. |
 | VGA | Not initialised. Text was written to `0xB8000`, but the VGA is not in text mode and has no font, so on QEMU nothing shows. |
 

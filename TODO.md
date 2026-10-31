@@ -131,7 +131,7 @@ until that extension's box is checked.
 - [x] `riscv-uart-baud` — Program the RISC-V UART to 115200 8N1 and say so in the contract.
   - Acceptance: the NS16550A divisor is set, `common/handoff.md` lists 115200 the way it does for COM1, and `riscv-boot` still sees the banner.
 
-- [ ] `x86-cmos-nmi` — Disable NMI for the duration of each CMOS read.
+- [x] `x86-cmos-nmi` — Disable NMI for the duration of each CMOS read.
   - Acceptance: `cmos_read` sets bit 7 of port `0x70` while it indexes the register. `x86-boot`, `x86-mem-low`, and `x86-mem-high` still pass. Depends on: `x86-mem-low`, `x86-mem-high`.
 
 - [ ] `x86-vga` — Put the VGA into 80x25 text mode and load an original font.
