@@ -176,11 +176,13 @@ What it showed on the first run (QEMU 8.2, Ubuntu 6.8 riscv64 kernel):
   a 64 GB guest on a smaller host; the script sets it.
 - **Harts 8 and up never started.** `MAX_HARTS` was 8, so Linux printed
   `CPU8: failed to start` and ran on 8. Fixed by `riscv-many-harts`: the
-  firmware now tracks 512 harts, and Linux brings up 32 (the kernel's
-  limit, next point).
-- **The test kernel stops at 32.** Ubuntu's generic riscv64 kernel is
+  firmware now tracks 512 harts.
+- **The test kernel stopped at 32.** Ubuntu 24.04's riscv64 kernel is
   built with `NR_CPUS=32` and ignores harts 32 to 63 (`Invalid cpuid`).
-  Past 32 harts the check needs a kernel built with a larger `NR_CPUS`.
+  Fixed by `linux-big-kernel`: `make linux-big` uses Ubuntu 25.04's 6.14
+  kernel, and all 64 harts come up. Ubuntu's 7.0 kernel does not boot on
+  QEMU 8.2's default hart: it no longer reads `riscv,isa` and stops
+  with a kernel BUG before SMP.
 
 The work, roughly in order:
 

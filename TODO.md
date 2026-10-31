@@ -149,8 +149,8 @@ These items are not part of `make test`'s acceptance unless they say so.
 - [x] `riscv-many-harts` — Start every hart QEMU `virt` can give the firmware, not just 8.
   - Acceptance: `MAX_HARTS` covers `-smp 64` at least (QEMU 8.2 allows up to 512 on `virt`). The trap stacks, `hart_table` and `.bss` still fit under `0x80200000` (the Makefile check). A `-smp 64` stand-in starts every secondary with `sbi_hart_start` and prints `harts=64`. `make linux-big BIG_SMP=32` passes. `riscv-ipi-smp` and `riscv-fence-smp3` still pass. *(As built: `MAX_HARTS` is 512, QEMU 8.2's `virt` limit in one socket; the image ends below `0x8002d000`. A mask with base 0 now covers all 64 bits; the old check shifted by 64, which wraps to 0 and refused every such mask once `MAX_HARTS` reached 64.)*
 
-- [ ] `linux-big-kernel` — Let `make linux-big` check more than 32 harts.
-  - Acceptance: the script takes a pinned kernel built with `NR_CPUS` of at least 64 (downloaded and checked by SHA-256 like today's, or a documented `LINUX_IMAGE=` override), and `make linux-big` with the default 64 harts prints `PASS linux-shell`. No kernel is added to the repo. Depends on: `riscv-many-harts`.
+- [x] `linux-big-kernel` — Let `make linux-big` check more than 32 harts.
+  - Acceptance: the script takes a pinned kernel built with `NR_CPUS` of at least 64 (downloaded and checked by SHA-256 like today's, or a documented `LINUX_IMAGE=` override), and `make linux-big` with the default 64 harts prints `PASS linux-shell`. No kernel is added to the repo. Depends on: `riscv-many-harts`. *(As built: `LINUX_KERNEL=6.14` selects Ubuntu 25.04's `linux-image-6.14.0-13-generic`, an EFI zboot image the script unpacks with `zstd`; downloads fall back to old-releases once 25.04 moves there. `make linux-big` uses it and brings up 64 harts. `make linux-shell` keeps 6.8.)*
 
 - [ ] `riscv-boot-hart` — Boot the hart `fw_dynamic_info.boot_hart` names. *(Moved up from Speculative.)*
   - Acceptance: as in the Speculative entry: `riscv-boot` still passes, and a case whose boot hart is not 0 prints `hart=ok` from that hart. Depends on: `riscv-many-harts`.
