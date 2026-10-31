@@ -44,7 +44,7 @@ until that extension's box is checked.
 - [x] `riscv-trap` — Install an M-mode trap handler that prints the cause and halts.
   - Acceptance: `mtvec` points at a handler that prints `trap mcause=` and 16 lowercase hex digits (no `0x`), then `boot halted`. A new stand-in executes `ecall` and the `riscv-ecall` case expects `trap mcause=000000000000000b` (environment call from M-mode). `riscv-boot` does not trap. The contract states that `mtvec` is set and that the OS installs its own vector before it relies on traps. Depends on: `riscv-a2`.
 
-- [ ] `riscv-smode` — Honour `next_mode`, and enter S-mode with PMP allowing access.
+- [x] `riscv-smode` — Honour `next_mode`, and enter S-mode with PMP allowing access.
   - Acceptance: read `fw_dynamic_info` version and, when it is at least 2, `next_mode` at offset 24. Print it once while bringing the path up and expect `1` (S-mode) for `qemu-system-riscv64 -M virt -kernel`. On S-mode, program one PMP entry that grants S-mode read, write, and execute over the whole physical address space, set `mstatus.MPP` to S, and `mret` to the image. On M-mode, keep today's jump. `riscv-boot` still prints `hart=ok dtb=ok a2=ok`, which is the proof that the UART store and the device-tree load survive the mode switch. `riscv-ecall` now expects `trap mcause=0000000000000009`. The contract's privilege line matches this. Depends on: `riscv-trap`.
 
 - [ ] `riscv-delegate` — Delegate supervisor faults, and keep supervisor `ecall` in M-mode.

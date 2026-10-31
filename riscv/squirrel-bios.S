@@ -1,7 +1,8 @@
 /* SquirrelBIOS — RISC-V firmware for QEMU virt
- * Prints banner on UART, then jumps in M-mode to the -kernel image QEMU
- * loaded, with the hart ID in a0 and the device tree in a1. Any trap
- * that reaches M-mode prints mcause and halts.
+ * Prints banner on UART, then enters the -kernel image QEMU loaded in the
+ * mode QEMU asked for (S-mode for -kernel, through mret), with the hart ID
+ * in a0 and the device tree in a1. Any trap that reaches M-mode prints
+ * mcause and halts.
  * Original code.
  *
  * Build (from repo root):
@@ -23,7 +24,16 @@
          * magic, version, next_addr, next_mode, options, boot_hart (XLEN each) */
         .equ FWDYN_MAGIC,       0x4942534f  /* "OSBI" */
         .equ FWDYN_OFF_MAGIC,   0
+        .equ FWDYN_OFF_VERSION, 8
         .equ FWDYN_OFF_NEXT,    16
+        .equ FWDYN_OFF_MODE,    24          /* version 2 and later */
+        .equ MODE_S,            1
+        .equ MODE_M,            3
+
+        .equ MSTATUS_MPP,       0x1800
+        .equ MSTATUS_MPP_S,     0x0800
+        .equ MSTATUS_MPIE,      0x80
+        .equ PMP_RWX_NAPOT,     0x1f        /* R | W | X | A = NAPOT */
 
 .global _start
 _start:
@@ -50,10 +60,25 @@ _start:
         ld s3, FWDYN_OFF_NEXT(s2)
         beqz s3, no_kernel
 
+        /* next_mode: only version 2 and later carry it; older is M-mode */
+        li s4, MODE_M
+        ld t0, FWDYN_OFF_VERSION(s2)
+        li t1, 2
+        bltu t0, t1, 1f
+        ld s4, FWDYN_OFF_MODE(s2)
+1:      li t0, MODE_S
+        beq s4, t0, 2f
+        li t0, MODE_M
+        bne s4, t0, bad_mode
+2:
         la a0, msg_jump
         call puts
         mv a0, s3
         call puthex
+        la a0, msg_mode
+        call puts
+        addi a0, s4, '0'
+        call putc
         li a0, '\n'
         call putc
 
@@ -61,7 +86,37 @@ _start:
         mv a1, s1
         li a2, 0
         fence.i
+        li t0, MODE_M
+        beq s4, t0, enter_m
+
+        /* S-mode: one PMP entry granting R/W/X over all of physical memory
+         * (without one, every S-mode access faults), then mret to the image
+         * with MPP = S and interrupts still off. */
+        li t0, -1
+        csrw pmpaddr0, t0
+        li t0, PMP_RWX_NAPOT
+        csrw pmpcfg0, t0
+        sfence.vma
+        li t0, MSTATUS_MPP | MSTATUS_MPIE
+        csrc mstatus, t0
+        li t0, MSTATUS_MPP_S
+        csrs mstatus, t0
+        csrw mepc, s3
+        mret
+
+enter_m:
         jr s3
+
+bad_mode:
+        la a0, msg_bad_mode
+        call puts
+        mv a0, s4
+        call puthex
+        li a0, '\n'
+        call putc
+        la a0, msg_halted
+        call puts
+        j halt
 
 no_kernel:
         la a0, msg_no_kernel
@@ -159,6 +214,8 @@ puthex:
 
 banner:         .asciz "SquirrelBIOS RISC-V\n"
 msg_jump:       .asciz "jumping to kernel at 0x"
+msg_mode:       .asciz ", next_mode="
+msg_bad_mode:   .asciz "boot: unsupported next_mode "
 msg_no_kernel:  .asciz "boot: no kernel image (pass -kernel to QEMU)\n"
 msg_trap:       .asciz "trap mcause="
 msg_halted:     .asciz "boot halted\n"
