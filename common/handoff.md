@@ -467,5 +467,6 @@ qemu-system-riscv64 -M virt -nographic -bios riscv/squirrel-bios.bin -kernel ima
 ```
 
 Expect `SquirrelBIOS RISC-V`, then `jumping to kernel at
-0x0000000080200000, next_mode=1`, then whatever the image prints.
+0x0000000080200000, next_mode=1`, then whatever the image prints. For a
+Linux kernel, see "Trying Linux" in `riscv/README.md`.
 `tests/riscv-kernel.S` is a minimal image.

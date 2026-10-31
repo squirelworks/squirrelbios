@@ -83,7 +83,7 @@ until that extension's box is checked.
 - [x] `riscv-ipi-smp` — Make IPIs and remote fences reach other started harts.
   - Acceptance: `send_ipi` raises `SSIP` on every started hart the mask names, and the RFENCE functions run the fence on each and return when all have. A `-smp 2` stand-in gets IPIs on hart 1 by mask bit, base and base `-1`, fences both harts, and has both harts fence each other many times at once without a deadlock, then prints `ipi-smp=ok`. A fence returns only after a pass that began after the request finished on each target; a `-smp 3` stand-in has two harts fence a third at once. Without this, Linux with `-smp 2` stalls after bringing up its CPUs. Depends on: `riscv-sbi-ipi`, `riscv-sbi-rfence`, `riscv-sbi-hsm`.
 
-- [ ] `riscv-linux-doc` — Document the QEMU command that tries a Linux `Image` on this SBI.
+- [x] `riscv-linux-doc` — Document the QEMU command that tries a Linux `Image` on this SBI.
   - Acceptance: `riscv/README.md` gives the command line, lists the extensions `probe_extension` now reports, and says a Linux image is not part of `make test`. No kernel binary is added to the repo. Depends on: `riscv-sbi-time`, `riscv-sbi-ipi`, `riscv-sbi-rfence`, `riscv-sbi-hsm`, `riscv-sbi-srst`, `riscv-dt-reserve`, `riscv-menvcfg`, `riscv-ipi-smp`.
 
 - [x] `riscv-linux-shell` — Check that a Linux kernel boots on this SBI all the way to a shell.
