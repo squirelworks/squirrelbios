@@ -220,7 +220,7 @@ entered through `mret`.
 |------|-------|
 | `pc` | `next_addr` from QEMU, `0x80200000` on rv64 (RAM base + 2 MB) |
 | Privilege | S-mode when `next_mode` is `1` (what `-kernel` gives), M-mode when it is `3`, or when `fw_dynamic_info` is older than version 2 and has no `next_mode` |
-| PMP | S-mode entry: entry 0 is NAPOT over the whole physical address space with R, W and X, unlocked. Other entries are untouched. M-mode entry: untouched. |
+| PMP | S-mode entry: entry 0 is NAPOT over the firmware region `0x80000000`–`0x801FFFFF` with R, W and X all clear, so any S-mode load, store or fetch there takes an access fault (`5`, `7` or `1`, delegated to S-mode). Entry 1 is NAPOT over the whole physical address space with R, W and X. Both are unlocked, so neither applies to M-mode. Other entries are untouched. M-mode entry: untouched. |
 | `medeleg` | S-mode entry: misaligned fetch, load and store (`0`, `4`, `6`), the access faults (`1`, `5`, `7`), illegal instruction (`2`), breakpoint (`3`), `ecall` from U-mode (`8`) and the page faults (`12`, `13`, `15`). Not `ecall` from S-mode (`9`). M-mode entry: untouched. |
 | `mideleg` | S-mode entry: supervisor software, timer and external interrupts (`SSIP`, `STIP`, `SEIP`). M-mode entry: untouched. |
 | `satp` | S-mode entry: `0` (bare, translation off), written by the firmware on every entry, including a restart after `hart_stop`. M-mode entry: untouched (bare after reset). |
@@ -237,7 +237,7 @@ entered through `mret`.
 
 | Range | Contents |
 |-------|----------|
-| `0x80000000`–`0x801FFFFF` | Firmware image, stack and SBI. Stays in use after the jump: do not overwrite it. The device tree does not reserve it. |
+| `0x80000000`–`0x801FFFFF` | Firmware image, stack and SBI. Stays in use after the jump, and S-mode cannot read, write or execute it (PMP above). The device tree does not reserve it yet, so an OS that takes all of `/memory` faults when it touches this range. |
 | `0x80200000`–… | The image |
 | `a1` | Device tree, placed by QEMU near the top of RAM |
 
@@ -251,7 +251,7 @@ RAM size and layout come from the device tree (`/memory`).
 | Other harts | Parked in `wfi` in M-mode, with `mstatus.MIE = 0` and only `mie.MSIE` set, until `sbi_hart_start` (below). Hart IDs 8 and up are never started. |
 | CLINT | A hart's `mtimecmp` is written only by `sbi_set_timer` and the firmware's timer interrupt. A parked hart's `msip` is written by `sbi_hart_start`. `mtime` runs at 10 MHz (the device tree's `timebase-frequency`). |
 | PLIC | Not touched |
-| Test device (`0x100000`) | Written only by `sbi_system_reset`. S-mode can reach it too (the PMP entry opens all memory), but an OS should use SRST. |
+| Test device (`0x100000`) | Written only by `sbi_system_reset`. S-mode can reach it too (PMP entry 1 opens everything outside the firmware region), but an OS should use SRST. |
 
 Do not assume: SBI extensions other than base, TIME, IPI, RFENCE, HSM and SRST,
 a set `stvec` (install one before the first delegated trap), secondary
@@ -323,7 +323,7 @@ fences (functions 3–6) return `SBI_ERR_NOT_SUPPORTED`.
 
 `hart_start(a0 = hart, a1 = start address, a2 = opaque)` takes a hart
 that is stopped (parked) and enters it in S-mode at the start address,
-set up like the boot hart (same PMP entry, delegation, `mcounteren` and
+set up like the boot hart (same PMP entries, delegation, `mcounteren` and
 `mtvec`, its own trap stack, `satp = 0`, `sp = 0`), with `a0` = its hart
 ID and `a1` = the opaque value. `a1` is the device tree only if the caller passed the
 device tree as the opaque value. The call returns once the hart has been
@@ -394,7 +394,10 @@ prints `hart1=ok a1=5157000012345678`, the opaque value, and is then
 reported started), `riscv-hsm-stop` (with `-smp 2`, hart 1 is started,
 turns on Sv39 paging, calls `hart_stop` and is reported stopped, then is
 started again with `satp` and `sp` both 0, and `hart_stop` never
-returns), `riscv-srst` (an image probes SRST, gets bad types, reasons
+returns), `riscv-pmp` (an image stores to the first and last dword of
+the firmware region, loads from it and jumps into it, and gets an access
+fault at its own `stvec` each time, with `stval` the address; a store to
+its own memory and an `ecall` still work), `riscv-srst` (an image probes SRST, gets bad types, reasons
 and functions refused, prints `reset=ok` and shuts down; QEMU must exit
 with status 0 and the call must not return), `riscv-srst-reboot` (the
 same with a cold reboot under `-no-reboot`, status 0), `riscv-srst-fail`
