@@ -10,7 +10,7 @@ If the firmware and this file disagree, the firmware has a bug.
 |---|---|---|---|
 | Image source | LBA 0 of the primary master ATA disk | `-kernel`, read through fw_cfg DMA | `-kernel`, loaded by QEMU |
 | Entry | `0x0000:0x7C00` | `0x40200000` | `0x80200000` (rv64) |
-| CPU mode | 16-bit real mode | EL1 (EL2 with `virtualization=on`), MMU off | S-mode (QEMU's `next_mode`), `satp` bare |
+| CPU mode | 16-bit real mode | EL1 (EL2 with `virtualization=on`), MMU off | S-mode (QEMU's `next_mode`), `satp = 0` |
 | Boot argument | `DL = 0x80` | `x0` = device tree | `a0` = hart ID, `a1` = device tree |
 | Memory description | Memory map at `ES:DI = 0x0000:0x0500` | Device tree `/memory` | Device tree `/memory` |
 | Console | COM1 `0x3F8`, 115200 8N1 | PL011 `0x09000000` | NS16550A `0x10000000` |
@@ -223,7 +223,7 @@ entered through `mret`.
 | PMP | S-mode entry: entry 0 is NAPOT over the whole physical address space with R, W and X, unlocked. Other entries are untouched. M-mode entry: untouched. |
 | `medeleg` | S-mode entry: misaligned fetch, load and store (`0`, `4`, `6`), the access faults (`1`, `5`, `7`), illegal instruction (`2`), breakpoint (`3`), `ecall` from U-mode (`8`) and the page faults (`12`, `13`, `15`). Not `ecall` from S-mode (`9`). M-mode entry: untouched. |
 | `mideleg` | S-mode entry: supervisor software, timer and external interrupts (`SSIP`, `STIP`, `SEIP`). M-mode entry: untouched. |
-| `satp` | Untouched (bare after reset) |
+| `satp` | S-mode entry: `0` (bare, translation off), written by the firmware on every entry, including a restart after `hart_stop`. M-mode entry: untouched (bare after reset). |
 | `mtvec` | Firmware trap handler, direct mode (below) |
 | `mscratch` | Firmware trap stack. Owned by the firmware. |
 | `mcounteren` | S-mode entry: `CY`, `TM` and `IR` set, so S-mode can read `cycle`, `time` and `instret`. M-mode entry: untouched. |
@@ -231,7 +231,7 @@ entered through `mret`.
 | `a0` | Hart ID (`0`) |
 | `a1` | Device tree address, as QEMU passed it to the firmware |
 | `a2` | `0` |
-| `sp` | Inside the firmware image |
+| `sp` | S-mode entry: `0`, so an image that uses it before setting its own stack faults. M-mode entry: inside the firmware image. |
 
 ### Memory
 
@@ -322,15 +322,16 @@ fences (functions 3–6) return `SBI_ERR_NOT_SUPPORTED`.
 `hart_start(a0 = hart, a1 = start address, a2 = opaque)` takes a hart
 that is stopped (parked) and enters it in S-mode at the start address,
 set up like the boot hart (same PMP entry, delegation, `mcounteren` and
-`mtvec`, its own trap stack), with `a0` = its hart ID and `a1` = the
-opaque value. `a1` is the device tree only if the caller passed the
+`mtvec`, its own trap stack, `satp = 0`, `sp = 0`), with `a0` = its hart
+ID and `a1` = the opaque value. `a1` is the device tree only if the caller passed the
 device tree as the opaque value. The call returns once the hart has been
 told; `hart_get_status` reports `START_PENDING` (`2`) until the hart has
 left `wfi`, then `STARTED` (`0`). Starting a hart that is not stopped
 returns `SBI_ERR_ALREADY_AVAILABLE` (`-6`).
 
 `hart_stop()` stops the calling hart. It does not return: the hart goes
-back to its park loop, its registers are not kept, its pending supervisor
+back to its park loop, its registers are not kept (a later start has
+`satp = 0` again, whatever paging the hart had on), its pending supervisor
 software and timer interrupts are cleared, and `hart_get_status` reports
 it `STOPPED` (`1`). `hart_start` can start it again, at any address.
 
@@ -377,7 +378,8 @@ prints `ipi=ok` from its software-interrupt handler), `riscv-rfence`
 `hart_start` brings hart 1 up and a second start is refused; hart 1
 prints `hart1=ok a1=5157000012345678`, the opaque value, and is then
 reported started), `riscv-hsm-stop` (with `-smp 2`, hart 1 is started,
-calls `hart_stop` and is reported stopped, twice, and `hart_stop` never
+turns on Sv39 paging, calls `hart_stop` and is reported stopped, then is
+started again with `satp` and `sp` both 0, and `hart_stop` never
 returns) and `riscv-no-kernel`. By hand:
 
 ```bash
