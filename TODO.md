@@ -19,7 +19,7 @@ the contract (`disk: ...` / `boot: ...`, then `boot halted`).
 - [x] `x86-handoff-check` — The x86 stand-in checks the memory map and the flags, not only the magic.
   - Acceptance: `tests/x86-boot.asm` prints `memmap=ok` only after the magic is `'SQMM'`, the entry size is 20, the table ends at or before `0x0600`, the conventional and reserved regions from `common/handoff.md` are present, and the entries are sorted by base and do not overlap. It prints `flags=ok` only when `IF` and `DF` are clear. Do not hardcode QEMU's default RAM size. `x86-boot` expects `OS-ENTRY x86 dl=ok memmap=ok flags=ok`.
 
-- [ ] `x86-atapi` — Smoke-test the ATAPI reject. No firmware change.
+- [x] `x86-atapi` — Smoke-test the ATAPI reject. No firmware change.
   - Acceptance: a new `x86-atapi` case boots with a CD-ROM as the primary master and expects `disk: primary master is ATAPI (CD/DVD), not supported` and `boot halted`. `x86-boot` still passes.
 
 - [ ] `x86-mem-low` — Smoke-test the CMOS path used when RAM is at most 16 MB.

@@ -123,7 +123,7 @@ registers on COM1 (and the VGA text buffer), then halts:
 
 ### How to test
 
-`make test` runs `x86-boot` and `x86-no-drive`. In `x86-boot` the boot
+`make test` runs `x86-boot`, `x86-no-drive` and `x86-atapi`. In `x86-boot` the boot
 sector checks `DL`, that `IF` and `DF` are clear, and that the memory map
 has the magic, 20-byte entries, ends by `0x0600`, contains the
 conventional and both reserved regions above exactly, and is sorted

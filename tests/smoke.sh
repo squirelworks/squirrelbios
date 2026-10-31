@@ -68,6 +68,11 @@ run x86-boot "SquirrelBIOS x86|OS-ENTRY x86 dl=ok memmap=ok flags=ok" \
 run x86-no-drive "disk: no drive on primary master|boot halted" \
     "$QEMU_X86" -bios x86/squirrel-bios.rom
 
+# x86: a CD-ROM as primary master is rejected, not read
+run x86-atapi "disk: primary master is ATAPI (CD/DVD), not supported|boot halted" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -drive format=raw,file=$TEST_DIR/x86-boot.bin,if=ide,media=cdrom
+
 # AArch64: -kernel image entered with the DTB in x0
 run arm-boot "SquirrelBIOS ARM|OS-ENTRY arm dtb=ok regs=ok" \
     "$QEMU_ARM" -M virt -cpu cortex-a57 -bios arm/squirrel-bios.bin \
