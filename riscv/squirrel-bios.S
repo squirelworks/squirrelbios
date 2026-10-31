@@ -622,8 +622,12 @@ dw_end\@:
         add t3, t3, t6
 .endm
 
-/* Every hart a mask names must be started: otherwise go to
- * sbi_invalid_param, before any work is sent. */
+/* Every hart a mask names must exist: otherwise go to sbi_invalid_param,
+ * before any work is sent.  A stopped hart is valid (the SBI spec only
+ * refuses harts the platform does not have), and send_mask and wait_mask
+ * skip it: it has no IPI to take, and enter_s fences before it runs S-mode
+ * again.  Linux names stopped harts after CPU hotplug, because a CPU
+ * stays in an address space's mask after it goes offline. */
 check_mask:
         li t2, -1
         beq a1, t2, 3f                      /* every started hart */
@@ -641,7 +645,8 @@ check_mask:
         beqz t5, 4f
         hart_entry
         ld t5, HART_STATE(t3)
-        bnez t5, sbi_invalid_param          /* not HSM_STARTED */
+        li t6, HSM_ABSENT
+        beq t5, t6, sbi_invalid_param       /* never reached park */
 4:      addi t4, t4, 1
         li t5, MAX_HARTS
         bltu t4, t5, 1b

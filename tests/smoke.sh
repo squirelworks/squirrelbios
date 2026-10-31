@@ -201,13 +201,15 @@ run riscv-timer "OS-ENTRY riscv timer|timer=ok|!timer=again|!timer=bad|!trap mca
     -kernel $TEST_DIR/riscv-timer.bin
 
 # RISC-V: sbi_send_ipi to itself raises a supervisor software interrupt;
-# to hart 1, which is parked and not started, it fails (-smp 2)
+# to hart 1, which is parked (stopped), it succeeds and raises nothing
+# here; to hart 2, which the machine does not have, it fails (-smp 2)
 run riscv-ipi "OS-ENTRY riscv ipi|ipi=ok|!ipi=bad|!trap mcause=" \
     "$QEMU_RISCV" -M virt -smp 2 -bios riscv/squirrel-bios.bin \
     -kernel $TEST_DIR/riscv-ipi.bin
 
-# RISC-V: remote fences for the calling hart succeed; a mask that also
-# names hart 1, which is not started, fails (-smp 2)
+# RISC-V: remote fences for the calling hart succeed, also with the
+# stopped hart 1 in the mask; a mask that names hart 2, which the machine
+# does not have, fails (-smp 2)
 run riscv-rfence "OS-ENTRY riscv rfence|rfence=ok|!rfence=bad|!trap mcause=" \
     "$QEMU_RISCV" -M virt -smp 2 -bios riscv/squirrel-bios.bin \
     -kernel $TEST_DIR/riscv-rfence.bin
