@@ -41,7 +41,7 @@ addresses, and the `hart_start` argument rules are in
 [ROADMAP.md](ROADMAP.md). `probe_extension` returns 0 for an extension
 until that extension's box is checked.
 
-- [ ] `riscv-trap` — Install an M-mode trap handler that prints the cause and halts.
+- [x] `riscv-trap` — Install an M-mode trap handler that prints the cause and halts.
   - Acceptance: `mtvec` points at a handler that prints `trap mcause=` and 16 lowercase hex digits (no `0x`), then `boot halted`. A new stand-in executes `ecall` and the `riscv-ecall` case expects `trap mcause=000000000000000b` (environment call from M-mode). `riscv-boot` does not trap. The contract states that `mtvec` is set and that the OS installs its own vector before it relies on traps. Depends on: `riscv-a2`.
 
 - [ ] `riscv-smode` — Honour `next_mode`, and enter S-mode with PMP allowing access.

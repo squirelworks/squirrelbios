@@ -44,7 +44,8 @@ stand-in OS image from `tests/` and checks the serial output:
 | `x86-atapi` | With a CD-ROM as primary master, the firmware reports ATAPI and halts |
 | `arm-boot` | The `-kernel` image runs with a valid device tree in `x0` and `x1`–`x3` = 0 |
 | `arm-no-kernel` | Without `-kernel`, the firmware reports it and halts |
-| `riscv-boot` | The `-kernel` image runs on hart 0 (with `-smp 2`) with a valid device tree in `a1` and `a2 = 0` |
+| `riscv-boot` | The `-kernel` image runs on hart 0 (with `-smp 2`) with a valid device tree in `a1` and `a2 = 0`, and nothing traps |
+| `riscv-ecall` | An `ecall` from the image reaches the firmware's trap handler, which prints `trap mcause=000000000000000b` and halts |
 | `riscv-no-kernel` | Without `-kernel`, the firmware reports it and halts |
 
 Needs `qemu-system-i386`, `qemu-system-aarch64` and `qemu-system-riscv64`.

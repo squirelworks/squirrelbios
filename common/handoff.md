@@ -217,6 +217,7 @@ privilege.
 | `pc` | `next_addr` from QEMU, `0x80200000` on rv64 (RAM base + 2 MB) |
 | Privilege | M-mode |
 | `satp` | Untouched (bare after reset) |
+| `mtvec` | Firmware trap handler, direct mode (below) |
 | `mstatus.MIE`, `mie` | `0` |
 | `a0` | Hart ID (`0`) |
 | `a1` | Device tree address, as QEMU passed it to the firmware |
@@ -242,7 +243,17 @@ RAM size and layout come from the device tree (`/memory`).
 | CLINT, PLIC | Not touched |
 
 Do not assume: an SBI (there is none, so a Linux kernel will not boot
-this way), a set `mtvec`, PMP entries, or secondary harts being available.
+this way), PMP entries, or secondary harts being available.
+
+### Traps
+
+`mtvec` points at a firmware handler, so a trap taken before the OS
+installs its own vector is reported instead of jumping to address 0. The
+handler does not return. It prints `trap mcause=` and the cause as 16
+lowercase hex digits (no `0x`), then `boot halted`, and halts. It reuses
+the firmware stack. The OS installs its own `mtvec` before it relies on
+traps, for example an `ecall` (cause `000000000000000b`, environment call
+from M-mode) or an illegal instruction.
 
 ### Failures
 
@@ -253,7 +264,9 @@ firmware prints `boot: no kernel image (pass -kernel to QEMU)`, then
 ### How to test
 
 `make test` runs `riscv-boot` (an image checks `a0`, the device tree in
-`a1` and `a2 = 0`, with `-smp 2`) and `riscv-no-kernel`. By hand:
+`a1` and `a2 = 0`, with `-smp 2`, and the log must not show a trap),
+`riscv-ecall` (an image executes `ecall` and the handler reports
+`trap mcause=000000000000000b`) and `riscv-no-kernel`. By hand:
 
 ```bash
 make riscv

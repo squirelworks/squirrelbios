@@ -6,7 +6,7 @@
 # Each case passes when every expected string appears in the serial log
 # before SMOKE_TIMEOUT seconds (default 10). Expected strings are separated
 # by '|' and matched literally; one starting with '~' is an extended
-# regular expression instead.
+# regular expression instead, and one starting with '!' must not appear.
 
 set -u
 
@@ -40,6 +40,7 @@ run() {
         for want in $expect; do
             case $want in
             "~"*) grep -qE -- "${want#?}" "$log" || ok=0 ;;
+            "!"*) grep -qF -- "${want#?}" "$log" && ok=0 ;;
             *)    grep -qF -- "$want" "$log" || ok=0 ;;
             esac
         done
@@ -98,10 +99,17 @@ run arm-boot "SquirrelBIOS ARM|OS-ENTRY arm dtb=ok regs=ok" \
 run arm-no-kernel "boot: no kernel image|boot halted" \
     "$QEMU_ARM" -M virt -cpu cortex-a57 -bios arm/squirrel-bios.bin
 
-# RISC-V: -kernel image entered on hart 0 with the DTB in a1
-run riscv-boot "SquirrelBIOS RISC-V|OS-ENTRY riscv hart=ok dtb=ok a2=ok" \
+# RISC-V: -kernel image entered on hart 0 with the DTB in a1, and no trap
+# reported (checked while the case runs, so a late trap may be missed)
+run riscv-boot "SquirrelBIOS RISC-V|OS-ENTRY riscv hart=ok dtb=ok a2=ok|!trap mcause=" \
     "$QEMU_RISCV" -M virt -smp 2 -bios riscv/squirrel-bios.bin \
     -kernel $TEST_DIR/riscv-kernel.bin
+
+# RISC-V: a trap that reaches M-mode is reported with its cause, then halts.
+# 0xb is environment call from M-mode.
+run riscv-ecall "OS-ENTRY riscv ecall|trap mcause=000000000000000b|boot halted" \
+    "$QEMU_RISCV" -M virt -bios riscv/squirrel-bios.bin \
+    -kernel $TEST_DIR/riscv-ecall.bin
 
 run riscv-no-kernel "boot: no kernel image|boot halted" \
     "$QEMU_RISCV" -M virt -bios riscv/squirrel-bios.bin
