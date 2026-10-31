@@ -170,6 +170,12 @@ run riscv-pmp "OS-ENTRY riscv pmp|pmp=ok|!pmp=bad|!trap mcause=" \
     "$QEMU_RISCV" -M virt -bios riscv/squirrel-bios.bin \
     -kernel $TEST_DIR/riscv-pmp.bin
 
+# RISC-V: the device tree the image gets has the firmware region under
+# /reserved-memory with no-map, and still parses (-smp 2)
+run riscv-dt "dt: firmware region 0x80000000-0x801fffff reserved (no-map)|OS-ENTRY riscv dt|dt=ok|!dt=bad|!trap mcause=" \
+    "$QEMU_RISCV" -M virt -smp 2 -bios riscv/squirrel-bios.bin \
+    -kernel $TEST_DIR/riscv-dt.bin
+
 # RISC-V: sbi_system_reset shutdown powers the machine off: QEMU exits
 # with status 0 after reset=ok, and the call never returns
 run riscv-srst "OS-ENTRY riscv srst|reset=ok|!reset=bad|!trap mcause=|@exit=0" \

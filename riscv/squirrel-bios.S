@@ -43,6 +43,34 @@
         .equ FW_SIZE,           0x200000    /* 2 MB */
         .equ FW_PMPADDR,        (FW_BASE >> 2) | ((FW_SIZE / 2 - 1) >> 2)
 
+/* Flattened device tree (big-endian) */
+        .equ FDT_MAGIC,         0xd00dfeed
+        .equ FDT_TOTALSIZE,     4           /* header field offsets */
+        .equ FDT_OFF_STRUCT,    8
+        .equ FDT_OFF_STRINGS,   12
+        .equ FDT_LAST_COMP,     24
+        .equ FDT_SIZE_STRINGS,  32
+        .equ FDT_SIZE_STRUCT,   36
+        .equ FDT_BEGIN_NODE,    1
+        .equ FDT_END_NODE,      2
+        .equ FDT_PROP,          3
+        .equ FDT_NOP,           4
+        .equ FDT_END,           9
+/* QEMU puts the tree at a 2 MB boundary, ending at or below the end of
+ * RAM (or 3 GB), with free RAM after it. RAM sizes are whole MB, so RAM
+ * goes on at least to the next 1 MB boundary after the tree. */
+        .equ FDT_ROOM,          0x100000
+/* dt_node and dt_strings (end of file): sizes and the offsets of the name
+ * fields in dt_node, checked against the data there */
+        .equ DT_NODE_LEN,       140
+        .equ DT_STRINGS_LEN,    45
+        .equ DT_GROW,           DT_NODE_LEN + DT_STRINGS_LEN
+        .equ DT_NAME_ADDR_CELLS, 28
+        .equ DT_NAME_SIZE_CELLS, 44
+        .equ DT_NAME_RANGES,    60
+        .equ DT_NAME_REG,       100
+        .equ DT_NAME_NO_MAP,    128
+
         /* Exceptions S-mode handles itself: misaligned, access faults,
          * illegal instruction, breakpoint, ecall from U-mode, page faults.
          * Not ecall from S-mode (9): that is the SBI, kept in M-mode. */
@@ -161,6 +189,11 @@ _start:
         li a0, '\n'
         call putc
 
+        li t0, MODE_S                       /* tell an S-mode OS to keep out */
+        bne s4, t0, 3f
+        mv a0, s1
+        call dt_reserve
+3:
         mv a0, s0
         mv a1, s1
         li a2, 0
@@ -563,6 +596,179 @@ trap_fatal:
         j halt
 
 /* ------------------------------------------------------------------ */
+/* Device tree                                                         */
+/* ------------------------------------------------------------------ */
+
+/* rd = big-endian 32-bit word at off(base), any alignment */
+.macro ldbe rd, off, base, tmp
+        lbu \rd, \off(\base)
+        slli \rd, \rd, 8
+        lbu \tmp, \off+1(\base)
+        or \rd, \rd, \tmp
+        slli \rd, \rd, 8
+        lbu \tmp, \off+2(\base)
+        or \rd, \rd, \tmp
+        slli \rd, \rd, 8
+        lbu \tmp, \off+3(\base)
+        or \rd, \rd, \tmp
+.endm
+
+/* off(base) = rs as a big-endian 32-bit word */
+.macro stbe rs, off, base, tmp
+        srli \tmp, \rs, 24
+        sb \tmp, \off(\base)
+        srli \tmp, \rs, 16
+        sb \tmp, \off+1(\base)
+        srli \tmp, \rs, 8
+        sb \tmp, \off+2(\base)
+        sb \rs, \off+3(\base)
+.endm
+
+/* a0 = device tree.  Adds /reserved-memory with a no-map child over the
+ * firmware region, so an OS that reads the tree does not use memory it
+ * cannot reach (PMP entry 0).  The node goes at the end of the root node,
+ * and its property names at the end of the strings block, which grows the
+ * tree in place by DT_GROW bytes.  Prints what it did.  Leaves the tree as
+ * it is, and says so, when it is not laid out the way QEMU writes it
+ * (strings block last, right after the structure block), already has a
+ * /reserved-memory node, or has no room to grow. */
+dt_reserve:
+        addi sp, sp, -16
+        sd ra, 0(sp)
+        la t6, msg_dt_odd
+        beqz a0, 9f
+        andi t0, a0, 3
+        bnez t0, 9f
+        ldbe t0, 0, a0, t1
+        li t1, FDT_MAGIC
+        bne t0, t1, 9f
+        ldbe t0, FDT_LAST_COMP, a0, t1
+        li t1, 17
+        bgtu t0, t1, 9f
+        ldbe a1, FDT_TOTALSIZE, a0, t1
+        ldbe a2, FDT_OFF_STRUCT, a0, t1
+        ldbe a3, FDT_OFF_STRINGS, a0, t1
+        ldbe a4, FDT_SIZE_STRINGS, a0, t1
+        ldbe a5, FDT_SIZE_STRUCT, a0, t1
+        add t0, a2, a5
+        bne t0, a3, 9f                      /* strings right after struct */
+        add t0, a3, a4
+        bne t0, a1, 9f                      /* and last */
+        add a6, a0, a3                      /* a6 = end of the structure block */
+        ldbe t0, -4, a6, t1
+        li t1, FDT_END
+        bne t0, t1, 9f
+        ldbe t0, -8, a6, t1
+        li t1, FDT_END_NODE                 /* the root node's end */
+        bne t0, t1, 9f
+
+        /* Walk the tree: no /reserved-memory yet */
+        add t0, a0, a2                      /* t0 = token */
+        li t5, 0                            /* depth: 1 in the root node */
+1:      bgeu t0, a6, 9f
+        ldbe t1, 0, t0, t2
+        addi t0, t0, 4
+        li t2, FDT_BEGIN_NODE
+        beq t1, t2, 2f
+        li t2, FDT_END_NODE
+        beq t1, t2, 5f
+        li t2, FDT_NOP
+        beq t1, t2, 1b
+        li t2, FDT_END
+        beq t1, t2, 6f
+        li t2, FDT_PROP
+        bne t1, t2, 9f
+        ldbe t1, 0, t0, t2                  /* value length */
+        addi t1, t1, 8 + 3                  /* length and name offset words */
+        andi t1, t1, -4
+        add t0, t0, t1
+        j 1b
+2:      addi t5, t5, 1                      /* node: compare a child of the root */
+        li t2, 2
+        bne t5, t2, 4f
+        la t1, str_reserved_memory
+        mv t2, t0
+3:      lbu t3, 0(t1)
+        beqz t3, 7f
+        lbu t4, 0(t2)
+        bne t3, t4, 4f
+        addi t1, t1, 1
+        addi t2, t2, 1
+        j 3b
+7:      lbu t4, 0(t2)                       /* "reserved-memory" or "reserved-memory@..." */
+        la t6, msg_dt_exists
+        beqz t4, 9f
+        li t3, '@'
+        beq t4, t3, 9f
+        la t6, msg_dt_odd
+4:      lbu t1, 0(t0)                       /* skip the name */
+        addi t0, t0, 1
+        bnez t1, 4b
+        addi t0, t0, 3
+        andi t0, t0, -4
+        j 1b
+5:      addi t5, t5, -1
+        j 1b
+6:
+        /* Room: up to the next FDT_ROOM boundary after the tree */
+        la t6, msg_dt_room
+        add t0, a0, a1
+        li t1, FDT_ROOM - 1
+        add t2, t0, t1
+        not t1, t1
+        and t2, t2, t1
+        li t1, DT_GROW
+        add t0, t0, t1
+        bgtu t0, t2, 9f
+
+        /* Move the root's end, END and the strings up by DT_NODE_LEN */
+        addi a7, a6, -8                     /* a7 = where the node goes */
+        add t0, a0, a1                      /* copy down from the old end */
+1:      addi t0, t0, -1
+        lbu t1, 0(t0)
+        sb t1, DT_NODE_LEN(t0)
+        bne t0, a7, 1b
+        la t0, dt_node                      /* the node */
+        mv t2, a7
+        li t3, DT_NODE_LEN
+1:      lbu t1, 0(t0)
+        sb t1, 0(t2)
+        addi t0, t0, 1
+        addi t2, t2, 1
+        addi t3, t3, -1
+        bnez t3, 1b
+        .irp off, DT_NAME_ADDR_CELLS, DT_NAME_SIZE_CELLS, DT_NAME_RANGES, DT_NAME_REG, DT_NAME_NO_MAP
+        ldbe t1, \off, a7, t2              /* name offsets: after the old strings */
+        add t1, t1, a4
+        stbe t1, \off, a7, t2
+        .endr
+        la t0, dt_strings                   /* the names, at the new end */
+        add t2, a0, a1
+        addi t2, t2, DT_NODE_LEN
+        li t3, DT_STRINGS_LEN
+1:      lbu t1, 0(t0)
+        sb t1, 0(t2)
+        addi t0, t0, 1
+        addi t2, t2, 1
+        addi t3, t3, -1
+        bnez t3, 1b
+
+        addi t1, a3, DT_NODE_LEN
+        stbe t1, FDT_OFF_STRINGS, a0, t2
+        addi t1, a5, DT_NODE_LEN
+        stbe t1, FDT_SIZE_STRUCT, a0, t2
+        addi t1, a4, DT_STRINGS_LEN
+        stbe t1, FDT_SIZE_STRINGS, a0, t2
+        addi t1, a1, DT_GROW
+        stbe t1, FDT_TOTALSIZE, a0, t2
+        la t6, msg_dt_ok
+9:      mv a0, t6
+        call puts
+        ld ra, 0(sp)
+        addi sp, sp, 16
+        ret
+
+/* ------------------------------------------------------------------ */
 /* NS16550A                                                            */
 /* ------------------------------------------------------------------ */
 
@@ -634,6 +840,11 @@ msg_bad_mode:   .asciz "boot: unsupported next_mode "
 msg_no_kernel:  .asciz "boot: no kernel image (pass -kernel to QEMU)\n"
 msg_trap:       .asciz "trap mcause="
 msg_halted:     .asciz "boot halted\n"
+msg_dt_ok:      .asciz "dt: firmware region 0x80000000-0x801fffff reserved (no-map)\n"
+msg_dt_odd:     .asciz "dt: firmware region not reserved: unexpected device tree layout\n"
+msg_dt_exists:  .asciz "dt: firmware region not reserved: /reserved-memory already present\n"
+msg_dt_room:    .asciz "dt: firmware region not reserved: no room to grow the device tree\n"
+str_reserved_memory: .asciz "reserved-memory"
 
 .align 12
     .skip 4096
@@ -649,3 +860,56 @@ hart_table:
     .rept MAX_HARTS
     .dword HSM_ABSENT, 0, 0, 0
     .endr
+
+/* The node dt_reserve adds to the device tree, big-endian. Name offsets
+ * are into dt_strings; dt_reserve adds the old strings size to each. */
+.macro be32 v
+        .byte ((\v) >> 24) & 0xff, ((\v) >> 16) & 0xff, ((\v) >> 8) & 0xff, (\v) & 0xff
+.endm
+
+        .section .rodata
+        .align 2
+dt_node:
+        be32 FDT_BEGIN_NODE
+        .asciz "reserved-memory"                /* 16 bytes */
+        be32 FDT_PROP
+        be32 4
+n_addr: be32 s_addr - dt_strings
+        be32 2
+        be32 FDT_PROP
+        be32 4
+n_size: be32 s_size - dt_strings
+        be32 2
+        be32 FDT_PROP
+        be32 0
+n_rng:  be32 s_rng - dt_strings
+        be32 FDT_BEGIN_NODE
+        .asciz "squirrelbios@80000000"          /* 22 bytes */
+        .byte 0, 0                              /* pad to 24 */
+        be32 FDT_PROP
+        be32 16
+n_reg:  be32 s_reg - dt_strings
+        be32 0
+        be32 FW_BASE
+        be32 0
+        be32 FW_SIZE
+        be32 FDT_PROP
+        be32 0
+n_nomap: be32 s_nomap - dt_strings
+        be32 FDT_END_NODE
+        be32 FDT_END_NODE
+dt_node_end:
+dt_strings:
+s_addr: .asciz "#address-cells"
+s_size: .asciz "#size-cells"
+s_rng:  .asciz "ranges"
+s_reg:  .asciz "reg"
+s_nomap: .asciz "no-map"
+dt_strings_end:
+
+        .if (dt_node_end - dt_node != DT_NODE_LEN) || (dt_strings_end - dt_strings != DT_STRINGS_LEN)
+        .error "dt_node or dt_strings changed size: update DT_NODE_LEN and DT_STRINGS_LEN"
+        .endif
+        .if (n_addr - dt_node != DT_NAME_ADDR_CELLS) || (n_size - dt_node != DT_NAME_SIZE_CELLS) || (n_rng - dt_node != DT_NAME_RANGES) || (n_reg - dt_node != DT_NAME_REG) || (n_nomap - dt_node != DT_NAME_NO_MAP)
+        .error "a name offset in dt_node moved: update the DT_NAME_ constants"
+        .endif

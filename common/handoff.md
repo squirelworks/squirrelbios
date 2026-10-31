@@ -237,11 +237,38 @@ entered through `mret`.
 
 | Range | Contents |
 |-------|----------|
-| `0x80000000`–`0x801FFFFF` | Firmware image, stack and SBI. Stays in use after the jump, and S-mode cannot read, write or execute it (PMP above). The device tree does not reserve it yet, so an OS that takes all of `/memory` faults when it touches this range. |
+| `0x80000000`–`0x801FFFFF` | Firmware image, stack and SBI. Stays in use after the jump, and S-mode cannot read, write or execute it (PMP above). The device tree marks it reserved (below). |
 | `0x80200000`–… | The image |
 | `a1` | Device tree, placed by QEMU near the top of RAM |
 
 RAM size and layout come from the device tree (`/memory`).
+
+Before an S-mode entry, the boot hart adds this to the device tree, at
+the end of the root node, so an OS that reads `/reserved-memory` (Linux
+does) leaves the firmware region alone and does not map it:
+
+```dts
+reserved-memory {
+	#address-cells = <2>;
+	#size-cells = <2>;
+	ranges;
+
+	squirrelbios@80000000 {
+		reg = <0x0 0x80000000 0x0 0x200000>;
+		no-map;
+	};
+};
+```
+
+The tree grows in place by 185 bytes, `totalsize` and the other header
+sizes are updated, and the firmware prints `dt: firmware region
+0x80000000-0x801fffff reserved (no-map)`. It leaves the tree unchanged,
+and prints `dt: firmware region not reserved:` and the reason, when the
+tree already has a `/reserved-memory` node (a tree passed with `-dtb`
+must then reserve the region itself), is not laid out as QEMU writes it
+(strings block last, right after the structure block), or has no room to
+grow before the next 1 MB boundary. The boot goes on either way. An
+M-mode entry gets the tree as QEMU wrote it.
 
 ### Devices and harts
 
@@ -394,7 +421,11 @@ prints `hart1=ok a1=5157000012345678`, the opaque value, and is then
 reported started), `riscv-hsm-stop` (with `-smp 2`, hart 1 is started,
 turns on Sv39 paging, calls `hart_stop` and is reported stopped, then is
 started again with `satp` and `sp` both 0, and `hart_stop` never
-returns), `riscv-pmp` (an image stores to the first and last dword of
+returns), `riscv-dt` (with `-smp 2`, an image walks the device tree and
+finds `/reserved-memory` with `#address-cells` and `#size-cells` 2,
+`ranges`, and a child with `reg` over the firmware region and `no-map`;
+the `/memory` node, the header sizes and the end token are still right),
+`riscv-pmp` (an image stores to the first and last dword of
 the firmware region, loads from it and jumps into it, and gets an access
 fault at its own `stvec` each time, with `stval` the address; a store to
 its own memory and an `ecall` still work), `riscv-srst` (an image probes SRST, gets bad types, reasons
