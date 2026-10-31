@@ -56,7 +56,7 @@ until that extension's box is checked.
 - [x] `riscv-sbi-time` — Implement `sbi_set_timer` on the CLINT.
   - Acceptance: the call programs `mtimecmp` for the requesting hart and enables the M-mode timer interrupt. The M-mode handler injects the supervisor timer interrupt and reprograms `mtimecmp` so the interrupt stays pending once. A stand-in sets a timer in the near future, enables S-mode timer interrupts, and prints `timer=ok` from its handler. `probe_extension` for TIME succeeds. Depends on: `riscv-sbi-base`.
 
-- [ ] `riscv-sbi-ipi` — Implement `sbi_send_ipi` for the running hart.
+- [x] `riscv-sbi-ipi` — Implement `sbi_send_ipi` for the running hart.
   - Acceptance: the hart mask is the SBI scalar bit-vector, bit N of `a0` selecting hart `a1 + N`. A stand-in that IPIs itself passes `a0 = 1` and `a1` = its hart id, and prints `ipi=ok` from its supervisor software-interrupt handler. A hart mask that names only a hart that is not started returns an SBI error and does not wake a parked hart. `probe_extension` for IPI succeeds. Depends on: `riscv-sbi-base`.
 
 - [ ] `riscv-sbi-rfence` — Implement remote fence for the running hart.

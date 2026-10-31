@@ -128,6 +128,12 @@ run riscv-timer "OS-ENTRY riscv timer|timer=ok|!timer=again|!timer=bad|!trap mca
     "$QEMU_RISCV" -M virt -bios riscv/squirrel-bios.bin \
     -kernel $TEST_DIR/riscv-timer.bin
 
+# RISC-V: sbi_send_ipi to itself raises a supervisor software interrupt;
+# to hart 1, which is parked and not started, it fails (-smp 2)
+run riscv-ipi "OS-ENTRY riscv ipi|ipi=ok|!ipi=bad|!trap mcause=" \
+    "$QEMU_RISCV" -M virt -smp 2 -bios riscv/squirrel-bios.bin \
+    -kernel $TEST_DIR/riscv-ipi.bin
+
 run riscv-no-kernel "boot: no kernel image|boot halted" \
     "$QEMU_RISCV" -M virt -bios riscv/squirrel-bios.bin
 

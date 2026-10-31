@@ -16,7 +16,7 @@ If the firmware and this file disagree, the firmware has a bug.
 | Console | COM1 `0x3F8`, 115200 8N1 | PL011 `0x09000000` | NS16550A `0x10000000` |
 | Interrupts | `IF = 0` | `DAIF` masked | `mstatus.MIE`/`SIE` = 0, `mie = 0` |
 | CPUs running | Boot CPU only | Boot CPU only | Hart 0 only |
-| Firmware services | None | None | SBI from S-mode: base and TIME |
+| Firmware services | None | None | SBI from S-mode: base, TIME, IPI |
 
 ## Rules for every architecture
 
@@ -251,8 +251,8 @@ RAM size and layout come from the device tree (`/memory`).
 | CLINT | `mtimecmp` of hart 0 is written only by `sbi_set_timer` and the firmware's timer interrupt. `mtime` runs at 10 MHz (the device tree's `timebase-frequency`). |
 | PLIC | Not touched |
 
-Do not assume: SBI extensions other than base and TIME (a Linux kernel
-needs more), a set `stvec` (install one before the first
+Do not assume: SBI extensions other than base, TIME and IPI (a Linux
+kernel needs more), a set `stvec` (install one before the first
 delegated trap), or secondary harts being available.
 
 ### Traps
@@ -291,6 +291,7 @@ function returns `SBI_ERR_NOT_SUPPORTED` (`-2`).
 |---|---|---|
 | Base | `0x10` | `get_spec_version` (0), `get_impl_id` (1), `get_impl_version` (2), `probe_extension` (3), `get_mvendorid` (4), `get_marchid` (5), `get_mimpid` (6) |
 | TIME | `0x54494D45` | `set_timer` (0) |
+| IPI | `0x735049` | `send_ipi` (0) |
 
 `set_timer(a0)` programs the calling hart's `mtimecmp` with the absolute
 time `a0`, clears a pending supervisor timer interrupt and enables the
@@ -300,9 +301,17 @@ interrupt stays pending, once, until S-mode calls `set_timer` again. To
 stop the timer, call `set_timer` with a time that is never reached
 (`-1`).
 
+`send_ipi(a0, a1)` takes the SBI hart mask: bit N of `a0` selects hart
+`a1 + N`, and `a1 = -1` selects every running hart. Only the boot hart
+runs, so the only hart it can reach is the caller, which gets a
+supervisor software interrupt (`mip.SSIP`; S-mode clears `sip.SSIP` in
+its handler). A mask that names any hart that is not running returns
+`SBI_ERR_INVALID_PARAM` (`-3`) and raises nothing, on that hart or on
+the caller. An empty mask succeeds and does nothing.
+
 `probe_extension` returns `a1 = 1` for the extensions in this table and
-`0` for every other one, including IPI, RFENCE, HSM and SRST until they
-are implemented.
+`0` for every other one, including RFENCE, HSM and SRST until they are
+implemented.
 
 ### Failures
 
@@ -323,10 +332,13 @@ gets `SBI_ERR_NOT_SUPPORTED` back for an extension that does not exist),
 `riscv-deleg` (an image sets `stvec`, executes an illegal instruction and
 prints `deleg=ok` from its S-mode handler, then its `ecall` still reaches
 the SBI), `riscv-sbi` (an image calls the base functions, probes base,
-TIME and the four unimplemented extensions, and checks that only `a0`
+TIME, IPI and the three unimplemented extensions, and checks that only `a0`
 and `a1` changed), `riscv-timer` (an image sets a timer 10 ms ahead and
 prints `timer=ok` from its supervisor timer interrupt, which must not
-come back after it pushed the timer out) and `riscv-no-kernel`. By hand:
+come back after it pushed the timer out), `riscv-ipi` (with `-smp 2`, an
+IPI to the parked hart 1 fails and raises nothing, and an IPI to itself
+prints `ipi=ok` from its software-interrupt handler) and
+`riscv-no-kernel`. By hand:
 
 ```bash
 make riscv

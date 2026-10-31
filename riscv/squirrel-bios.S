@@ -46,6 +46,7 @@
         .equ CAUSE_ECALL_S,     9
         .equ CAUSE_M_TIMER,     (1 << 63) | 7
 
+        .equ MIP_SSIP,          (1 << 1)
         .equ MIP_STIP,          (1 << 5)
         .equ MIE_MTIE,          (1 << 7)
         .equ MCOUNTEREN_ALL,    0x7         /* CY, TM, IR readable below M */
@@ -57,10 +58,12 @@
          * Returns a0 = error, a1 = value. */
         .equ SBI_EXT_BASE,      0x10
         .equ SBI_EXT_TIME,      0x54494d45
+        .equ SBI_EXT_IPI,       0x735049
         .equ SBI_SPEC_VERSION,  0x01000000  /* 1.0 */
         .equ SBI_IMPL_ID,       0x5351      /* "SQ"; not BBL (0) or OpenSBI (1) */
         .equ SBI_IMPL_VERSION,  1
         .equ SBI_ERR_NOT_SUPPORTED, -2
+        .equ SBI_ERR_INVALID_PARAM, -3
 
 .global _start
 _start:
@@ -178,21 +181,28 @@ trap:
         csrrw sp, mscratch, sp
         sd t0, 0(sp)
         sd t1, 8(sp)
+        sd t2, 16(sp)
+        sd t3, 24(sp)
         csrr t0, mcause
         li t1, CAUSE_M_TIMER
         beq t0, t1, m_timer
         li t1, CAUSE_ECALL_S
         bne t0, t1, trap_fatal
 
-/* SBI dispatcher.  t0 and t1 are saved. A function sets a1 and goes to
+/* SBI dispatcher.  t0-t3 are saved. A function sets a1 and goes to
  * sbi_ok, or sets a0 to an error and goes to sbi_ret. */
 sbi_call:
         li t0, SBI_EXT_BASE
         beq a7, t0, sbi_base
         li t0, SBI_EXT_TIME
         beq a7, t0, sbi_time
+        li t0, SBI_EXT_IPI
+        beq a7, t0, sbi_ipi
 sbi_not_supported:
         li a0, SBI_ERR_NOT_SUPPORTED
+        j sbi_ret
+sbi_invalid_param:
+        li a0, SBI_ERR_INVALID_PARAM
         j sbi_ret
 sbi_ok:
         li a0, 0
@@ -203,6 +213,8 @@ sbi_ret:
 trap_ret:
         ld t0, 0(sp)
         ld t1, 8(sp)
+        ld t2, 16(sp)
+        ld t3, 24(sp)
         csrrw sp, mscratch, sp
         mret
 
@@ -272,12 +284,48 @@ sbi_get_mimpid:
         csrr a1, mimpid
         j sbi_ok
 
+/* IPI extension: send_ipi (0), a0 = hart mask, a1 = hart mask base.
+ * Only the calling hart is running, so that is the only one it can
+ * reach: it gets a supervisor software interrupt. */
+sbi_ipi:
+        bnez a6, sbi_not_supported
+        jal t2, hart_mask
+        beqz t0, sbi_ok
+        li t0, MIP_SSIP
+        csrs mip, t0
+        j sbi_ok
+
+/* Check an SBI hart mask: bit N of a0 selects hart a1 + N, and a1 = -1
+ * selects every running hart. Only the calling hart runs, so a mask that
+ * names any other hart is an invalid parameter (jumps to
+ * sbi_invalid_param). Otherwise t0 = 1 if the calling hart is selected,
+ * 0 if the mask is empty. Uses t1 and t3, returns through t2. */
+hart_mask:
+        li t0, 1
+        li t1, -1
+        beq a1, t1, 2f
+        csrr t1, mhartid
+        sub t1, t1, a1                      /* bit of the calling hart */
+        li t0, 0
+        li t3, 64
+        bgeu t1, t3, 1f                     /* below the base or past bit 63 */
+        li t0, 1
+        sll t0, t0, t1
+1:      not t3, t0
+        and t3, t3, a0
+        bnez t3, sbi_invalid_param          /* a hart that is not running */
+        and t0, t0, a0
+        snez t0, t0
+2:      jr t2
+
 /* a0 = extension ID.  a1 = 1 if implemented, 0 if not. */
 sbi_probe_extension:
         li a1, 1
         li t0, SBI_EXT_BASE
         beq a0, t0, sbi_ok
         li t0, SBI_EXT_TIME
+        beq a0, t0, sbi_ok
+        li t0, SBI_EXT_IPI
         beq a0, t0, sbi_ok
         li a1, 0
         j sbi_ok
