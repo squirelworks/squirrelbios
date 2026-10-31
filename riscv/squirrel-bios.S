@@ -60,6 +60,7 @@
         .equ SBI_EXT_BASE,      0x10
         .equ SBI_EXT_TIME,      0x54494d45
         .equ SBI_EXT_IPI,       0x735049
+        .equ SBI_EXT_RFENCE,    0x52464e43
         .equ SBI_SPEC_VERSION,  0x01000000  /* 1.0 */
         .equ SBI_IMPL_ID,       0x5351      /* "SQ"; not BBL (0) or OpenSBI (1) */
         .equ SBI_IMPL_VERSION,  1
@@ -200,6 +201,8 @@ sbi_call:
         beq a7, t0, sbi_time
         li t0, SBI_EXT_IPI
         beq a7, t0, sbi_ipi
+        li t0, SBI_EXT_RFENCE
+        beq a7, t0, sbi_rfence
 sbi_not_supported:
         li a0, SBI_ERR_NOT_SUPPORTED
         j sbi_ret
@@ -298,6 +301,23 @@ sbi_ipi:
         csrs mip, t0
         j sbi_ok
 
+/* RFENCE extension, a0 = hart mask, a1 = hart mask base:
+ *   remote_fence_i (0), remote_sfence_vma (1, a2 = start, a3 = size),
+ *   remote_sfence_vma_asid (2, a4 = ASID).
+ * Only the calling hart runs, so the fence is done here, on it. The
+ * sfence.vma flushes everything, which covers any start, size and ASID.
+ * The hypervisor fences (3-6) are not supported. */
+sbi_rfence:
+        li t0, 2
+        bgtu a6, t0, sbi_not_supported
+        jal t2, hart_mask
+        beqz t0, sbi_ok
+        bnez a6, 1f
+        fence.i
+        j sbi_ok
+1:      sfence.vma
+        j sbi_ok
+
 /* Check an SBI hart mask: bit N of a0 selects hart a1 + N, and a1 = -1
  * selects every running hart. Only the calling hart runs, so a mask that
  * names any other hart is an invalid parameter (jumps to
@@ -329,6 +349,8 @@ sbi_probe_extension:
         li t0, SBI_EXT_TIME
         beq a0, t0, sbi_ok
         li t0, SBI_EXT_IPI
+        beq a0, t0, sbi_ok
+        li t0, SBI_EXT_RFENCE
         beq a0, t0, sbi_ok
         li a1, 0
         j sbi_ok

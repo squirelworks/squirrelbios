@@ -59,7 +59,7 @@ until that extension's box is checked.
 - [x] `riscv-sbi-ipi` — Implement `sbi_send_ipi` for the running hart.
   - Acceptance: the hart mask is the SBI scalar bit-vector, bit N of `a0` selecting hart `a1 + N`. A stand-in that IPIs itself passes `a0 = 1` and `a1` = its hart id, and prints `ipi=ok` from its supervisor software-interrupt handler. A hart mask that names only a hart that is not started returns an SBI error and does not wake a parked hart. `probe_extension` for IPI succeeds. Depends on: `riscv-sbi-base`.
 
-- [ ] `riscv-sbi-rfence` — Implement remote fence for the running hart.
+- [x] `riscv-sbi-rfence` — Implement remote fence for the running hart.
   - Acceptance: a stand-in calls `sbi_remote_sfence_vma` with the same scalar hart mask as `riscv-sbi-ipi` (only itself). The call returns success and the stand-in prints `rfence=ok`. A mask that includes a hart that has not been started returns an SBI error. `probe_extension` for RFENCE succeeds. Depends on: `riscv-sbi-base`.
 
 - [ ] `riscv-sbi-hsm` — Start a parked hart in S-mode.
