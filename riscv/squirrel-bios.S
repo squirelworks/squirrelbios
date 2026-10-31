@@ -154,10 +154,14 @@ _start:
 
 /* Enter S-mode at s3 with a0 and a1 as they are: one PMP entry granting
  * R/W/X over all of physical memory (without one, every S-mode access
- * faults), supervisor faults and interrupts delegated to S-mode, then mret
- * with MPP = S and interrupts still off. Used by every hart. */
+ * faults), translation off (satp = 0, which a restart after hart_stop
+ * relies on), supervisor faults and interrupts delegated to S-mode, then
+ * mret with MPP = S, interrupts still off and sp = 0, so an image that
+ * uses sp before setting it faults instead of writing firmware memory.
+ * Used by every hart. */
 enter_s:
         csrw mie, zero
+        csrw satp, zero
         li t0, -1
         csrw pmpaddr0, t0
         li t0, PMP_RWX_NAPOT
@@ -174,6 +178,7 @@ enter_s:
         li t0, MSTATUS_MPP_S
         csrs mstatus, t0
         csrw mepc, s3
+        li sp, 0
         mret
 
 enter_m:
