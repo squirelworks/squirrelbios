@@ -31,7 +31,7 @@ the contract (`disk: ...` / `boot: ...`, then `boot halted`).
 - [x] `riscv-a2` — The RISC-V stand-in checks `a2`.
   - Acceptance: `tests/riscv-kernel.S` prints `a2=ok` only when `a2` is 0. `riscv-boot` expects `OS-ENTRY riscv hart=ok dtb=ok a2=ok`.
 
-- [ ] `ci-make-test` — Run `make test` on every push and pull request.
+- [x] `ci-make-test` — Run `make test` on every push and pull request.
   - Acceptance: a workflow installs `nasm`, `gcc-aarch64-linux-gnu`, `gcc-riscv64-linux-gnu`, `qemu-system-x86`, `qemu-system-arm`, and `qemu-system-misc`, runs `make test`, and the README says that is the check CI runs. Depends on: `x86-handoff-check`, `riscv-a2`.
 
 ## 2. RISC-V: S-mode and an SBI
