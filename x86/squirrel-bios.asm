@@ -8,7 +8,7 @@
 ; Behaviour:
 ;   - Set segments and stack
 ;   - Program COM1 (115200 8N1); every message goes to VGA text and COM1
-;   - Put the VGA into 80x25 text mode with the pIqaD-style font from
+;   - Put the VGA into 80x25 text mode with the pIqaD font from
 ;     klingon-font.inc (joke klingon-font branch); COM1 stays plain ASCII
 ;   - Build a memory map at 0x0000:0x0500 (memmap.inc)
 ;   - Print banner

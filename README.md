@@ -2,7 +2,7 @@
 
 > **Joke branch: `klingon-font`.** An alien world where the PC's text font
 > was never ASCII. The x86 ROM puts the VGA into 80x25 text mode itself and
-> loads an original pIqaD-style 8x16 font, so every letter and digit on
+> loads a hand-drawn pIqaD 8x16 font, so every letter and digit on
 > screen is drawn in Klingon script. COM1 output is unchanged, so the smoke
 > tests still pass. Not for merging into `main`; see
 > [Klingon font](#klingon-font-joke-branch) below.
@@ -92,11 +92,11 @@ One item in that list is one PR, branched from `main`.
 
 - `tools/klingon-font.py` holds the glyphs as ASCII art and writes
   `x86/klingon-font.inc` (`python3 tools/klingon-font.py > x86/klingon-font.inc`).
-  The glyphs are original drawings in the spirit of pIqaD, not copied from
-  an existing font.
+  The glyphs are real pIqaD letters, traced stroke for stroke from a
+  sixteen-segment pIqaD chart, not copied from an existing font.
 - Latin letters map to the nearest Klingon letter (`d`→`D`, `k`/`c`→`q`,
   `x`→`Q`, `f`→`v`, `z`→`S`); only `q` and `Q` differ by case. Digits use
-  pIqaD-style numerals, and `'` is the glottal stop letter.
+  pIqaD numerals, and `'` is the glottal stop letter.
 - `con_putc` folds the romanized `ch`, `gh`, `ng` and `tlh` into one glyph
   each (code points 0x80-0x83) on the VGA side only.
 - `vga_init` turns on the display controller's PCI decoding, programs the
