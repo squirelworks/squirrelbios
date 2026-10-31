@@ -106,17 +106,22 @@ run riscv-boot "SquirrelBIOS RISC-V|next_mode=1|OS-ENTRY riscv hart=ok dtb=ok a2
     "$QEMU_RISCV" -M virt -smp 2 -bios riscv/squirrel-bios.bin \
     -kernel $TEST_DIR/riscv-kernel.bin
 
-# RISC-V: a trap that reaches M-mode is reported with its cause, then halts.
-# 0x9 is environment call from S-mode, so the image runs in S-mode.
-run riscv-ecall "OS-ENTRY riscv ecall|trap mcause=0000000000000009|boot halted" \
+# RISC-V: an ecall from S-mode reaches the SBI in M-mode and returns
+# SBI_ERR_NOT_SUPPORTED for an extension that does not exist
+run riscv-ecall "OS-ENTRY riscv ecall|ecall=ok|!trap mcause=" \
     "$QEMU_RISCV" -M virt -bios riscv/squirrel-bios.bin \
     -kernel $TEST_DIR/riscv-ecall.bin
 
 # RISC-V: an illegal instruction is delegated to the image's stvec, and its
-# ecall from S-mode still reaches the firmware (cause 0x9)
-run riscv-deleg "OS-ENTRY riscv deleg|deleg=ok|trap mcause=0000000000000009|boot halted" \
+# ecall from S-mode still reaches the SBI in M-mode
+run riscv-deleg "OS-ENTRY riscv deleg|deleg=ok|ecall=ok|!trap mcause=" \
     "$QEMU_RISCV" -M virt -bios riscv/squirrel-bios.bin \
     -kernel $TEST_DIR/riscv-deleg.bin
+
+# RISC-V: SBI base extension answers, with only a0 and a1 changed
+run riscv-sbi "OS-ENTRY riscv sbi|sbi=ok|!trap mcause=" \
+    "$QEMU_RISCV" -M virt -bios riscv/squirrel-bios.bin \
+    -kernel $TEST_DIR/riscv-sbi.bin
 
 run riscv-no-kernel "boot: no kernel image|boot halted" \
     "$QEMU_RISCV" -M virt -bios riscv/squirrel-bios.bin

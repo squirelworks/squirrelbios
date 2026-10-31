@@ -50,7 +50,7 @@ until that extension's box is checked.
 - [x] `riscv-delegate` — Delegate supervisor faults, and keep supervisor `ecall` in M-mode.
   - Acceptance: `medeleg` includes illegal instruction, the access faults, and the page faults, and does not include environment call from S-mode. `mideleg` includes supervisor software, timer, and external interrupts. A new stand-in sets `stvec`, executes an illegal instruction, and prints `deleg=ok` from S-mode. Its `ecall` still reaches the M-mode handler (`mcause=0000000000000009`). Depends on: `riscv-smode`.
 
-- [ ] `riscv-sbi-base` — Implement the SBI base extension and return to the caller.
+- [x] `riscv-sbi-base` — Implement the SBI base extension and return to the caller.
   - Acceptance: a stand-in `ecall`s `get_spec_version`, `get_impl_id`, and `probe_extension` for base. It prints `sbi=ok` only when the spec version is `0x01000000`, the impl id is the one recorded in the contract (not 0 and not 1), and probing base succeeds. Probing TIME, IPI, RFENCE, HSM, and SRST returns not present. `a0`/`a1` are the only registers changed. Depends on: `riscv-delegate`.
 
 - [ ] `riscv-sbi-time` — Implement `sbi_set_timer` on the CLINT.
