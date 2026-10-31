@@ -99,10 +99,20 @@ check_memmap:
     cmp eax, ebx
     jb .bad
 .sorted:
+    ; 1 MB, when present, is usable. Its length is the machine's RAM
+    ; below 4 GB, so that length is not compared.
+    cmp eax, 0x00100000
+    jne .not_ext
+    test edi, edi
+    jnz .not_ext
+    cmp dword [si + 16], 1
+    jne .bad
+.not_ext:
     mov ebx, eax
     mov edx, edi
     add ebx, [si + 8]
     adc edx, [si + 12]
+    jc .bad                     ; a length that wraps overlaps address 0
 
     ; Required regions match exactly: base, length and type
     push cx

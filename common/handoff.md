@@ -197,7 +197,9 @@ registers on COM1 (and the VGA text buffer), then halts:
 `x86-extra-map`, `x86-extra-boot` and `x86-extra-range`. In `x86-boot` the boot sector checks
 `DL`, that `IF` and `DF` are clear, and that the memory map has the
 magic, 20-byte entries, ends by `0x0600`, contains the conventional and
-both reserved regions above exactly, and is sorted without overlaps. Its
+both reserved regions above exactly, requires an entry at `0x00100000`
+to be usable when one is present (its length is not checked), and is
+sorted without overlaps. Its
 SQBL header loads a second sector, which reads the VGA registers and
 prints `vga=ok` when they describe 80x25 text at `0xB8000` (colour I/O,
 text mode in the graphics and attribute controllers, 80 characters,
