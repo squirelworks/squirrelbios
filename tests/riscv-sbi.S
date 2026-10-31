@@ -31,6 +31,8 @@
         bne \reg, t0, bad
 .endm
 
+        .option norelax                     /* no gp-relative addressing: gp is not set up */
+
 .global _start
 _start:
         la a0, msg_entry
@@ -49,9 +51,10 @@ _start:
         li t2, 3
         beqz a1, bad
 
-        sbi SBI_EXT_BASE, 3, SBI_EXT_TIME
+        sbi SBI_EXT_BASE, 3, SBI_EXT_TIME   /* present */
         expect a0, 0, 4
-        expect a1, 0, 4
+        li t2, 4
+        beqz a1, bad
         sbi SBI_EXT_BASE, 3, SBI_EXT_IPI
         expect a0, 0, 5
         expect a1, 0, 5
@@ -147,6 +150,7 @@ msg_entry:      .asciz "OS-ENTRY riscv sbi\n"
 msg_ok:         .asciz "sbi=ok\n"
 msg_bad:        .asciz "sbi=bad "
 
+        .data
         .align 3
 clobbered:      .dword 0
 /* Register n is regs_in[n]: a different pattern per register */

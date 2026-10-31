@@ -16,7 +16,7 @@ If the firmware and this file disagree, the firmware has a bug.
 | Console | COM1 `0x3F8`, 115200 8N1 | PL011 `0x09000000` | NS16550A `0x10000000` |
 | Interrupts | `IF = 0` | `DAIF` masked | `mstatus.MIE`/`SIE` = 0, `mie = 0` |
 | CPUs running | Boot CPU only | Boot CPU only | Hart 0 only |
-| Firmware services | None | None | SBI from S-mode: base extension only |
+| Firmware services | None | None | SBI from S-mode: base and TIME |
 
 ## Rules for every architecture
 
@@ -225,6 +225,7 @@ entered through `mret`.
 | `satp` | Untouched (bare after reset) |
 | `mtvec` | Firmware trap handler, direct mode (below) |
 | `mscratch` | Firmware trap stack. Owned by the firmware. |
+| `mcounteren` | S-mode entry: `CY`, `TM` and `IR` set, so S-mode can read `cycle`, `time` and `instret`. M-mode entry: untouched. |
 | `mstatus.MIE`, `mstatus.SIE`, `mie` | `0` |
 | `a0` | Hart ID (`0`) |
 | `a1` | Device tree address, as QEMU passed it to the firmware |
@@ -247,10 +248,11 @@ RAM size and layout come from the device tree (`/memory`).
 |------|-------|
 | NS16550A (`0x10000000`) | 8N1, FIFOs on, interrupts off |
 | Other harts | Parked in `wfi` with interrupts off. They are never released. |
-| CLINT, PLIC | Not touched |
+| CLINT | `mtimecmp` of hart 0 is written only by `sbi_set_timer` and the firmware's timer interrupt. `mtime` runs at 10 MHz (the device tree's `timebase-frequency`). |
+| PLIC | Not touched |
 
-Do not assume: SBI extensions other than base (a Linux kernel still
-needs TIME and more), a set `stvec` (install one before the first
+Do not assume: SBI extensions other than base and TIME (a Linux kernel
+needs more), a set `stvec` (install one before the first
 delegated trap), or secondary harts being available.
 
 ### Traps
@@ -260,7 +262,9 @@ above at its own `stvec`. Everything else, `ecall` from S-mode included,
 reaches M-mode.
 
 `mtvec` points at a firmware handler. An `ecall` from S-mode (cause `9`)
-is an SBI call and returns (below). Any other trap that reaches M-mode is
+is an SBI call and returns (below). The M-mode timer interrupt is how
+`sbi_set_timer` fires: the firmware raises the supervisor timer interrupt
+(`mip.STIP`) and returns to where S-mode was. Any other trap that reaches M-mode is
 reported instead of jumping to address 0, and does not return: the
 handler prints `trap mcause=` and the cause as 16 lowercase hex digits
 (no `0x`), then `boot halted`, and halts. With the delegation above, an
@@ -286,10 +290,19 @@ function returns `SBI_ERR_NOT_SUPPORTED` (`-2`).
 | Extension | ID | Functions |
 |---|---|---|
 | Base | `0x10` | `get_spec_version` (0), `get_impl_id` (1), `get_impl_version` (2), `probe_extension` (3), `get_mvendorid` (4), `get_marchid` (5), `get_mimpid` (6) |
+| TIME | `0x54494D45` | `set_timer` (0) |
+
+`set_timer(a0)` programs the calling hart's `mtimecmp` with the absolute
+time `a0`, clears a pending supervisor timer interrupt and enables the
+M-mode timer interrupt. When `mtime` reaches it, the firmware sets
+`mip.STIP` and pushes `mtimecmp` to the maximum, so the supervisor timer
+interrupt stays pending, once, until S-mode calls `set_timer` again. To
+stop the timer, call `set_timer` with a time that is never reached
+(`-1`).
 
 `probe_extension` returns `a1 = 1` for the extensions in this table and
-`0` for every other one, including TIME, IPI, RFENCE, HSM and SRST until
-they are implemented.
+`0` for every other one, including IPI, RFENCE, HSM and SRST until they
+are implemented.
 
 ### Failures
 
@@ -309,9 +322,11 @@ not show a trap), `riscv-ecall` (an image executes `ecall` and
 gets `SBI_ERR_NOT_SUPPORTED` back for an extension that does not exist),
 `riscv-deleg` (an image sets `stvec`, executes an illegal instruction and
 prints `deleg=ok` from its S-mode handler, then its `ecall` still reaches
-the SBI), `riscv-sbi` (an image calls the base functions, probes base
-and the five unimplemented extensions, and checks that only `a0` and
-`a1` changed) and `riscv-no-kernel`. By hand:
+the SBI), `riscv-sbi` (an image calls the base functions, probes base,
+TIME and the four unimplemented extensions, and checks that only `a0`
+and `a1` changed), `riscv-timer` (an image sets a timer 10 ms ahead and
+prints `timer=ok` from its supervisor timer interrupt, which must not
+come back after it pushed the timer out) and `riscv-no-kernel`. By hand:
 
 ```bash
 make riscv
