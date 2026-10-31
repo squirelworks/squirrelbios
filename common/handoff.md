@@ -197,7 +197,7 @@ Linux arm64 boot protocol, so a raw Linux `Image` can be booted the same way.
 
 | Item | Value |
 |------|-------|
-| `PC` | `0x40200000` (RAM base + 2 MB), first byte of the image |
+| `PC` | First byte of the image, at its load address (below): `0x40200000` (RAM base + 2 MB) unless an Image header fixes it elsewhere |
 | Exception level | Whatever QEMU started the firmware at: EL1 by default, EL2 with `virtualization=on` |
 | MMU, D-cache | Off, set by the firmware: `SCTLR_ELx.M` and `.C` are cleared at the EL above just before the jump. No page tables are built. |
 | Endianness | Little-endian: `SCTLR_ELx.EE` (and `E0E` at EL1) cleared |
@@ -217,9 +217,28 @@ Linux arm64 boot protocol, so a raw Linux `Image` can be booted the same way.
 
 RAM size and layout come from the device tree (`/memory`).
 
-Before loading, the firmware checks that the image fits: it must start at
-or above `0x40200000` (clear of the device tree and the firmware scratch)
-and end at or before the end of RAM. The RAM size is fw_cfg key `0x03`
+### Load address
+
+If the image starts with a Linux arm64 `Image` header (magic bytes
+`41 52 4D 64` at offset `0x38`), the firmware follows it:
+
+| `flags` bit 3 | Load and entry address |
+|---------------|------------------------|
+| set (placement anywhere; every Linux since 4.6) | `0x40200000` |
+| clear (placement fixed) | the 2 MB-aligned RAM base plus `text_offset` (offset 8), i.e. `0x40000000 + text_offset` |
+
+`image_size` (offset 16) is how much memory the image needs at that
+address, BSS included, so the fit check below uses it when it is
+non-zero. A non-zero `image_size` smaller than the file is a broken
+header and is refused. Without the magic the image is loaded raw at
+`0x40200000`, as before.
+
+Before loading, the firmware checks that the image fits at its load
+address: it must start at or above `0x40200000` (clear of the device tree
+and the firmware scratch) and end, after `image_size` bytes when the
+header gives one, at or before the end of RAM. A fixed-placement image
+with a `text_offset` below 2 MB (such as `0x80000` from Linux before 4.6)
+is therefore refused. The RAM size is fw_cfg key `0x03`
 (8 bytes, little-endian) when QEMU fills it in. QEMU's `virt` machine
 leaves that key at 0 (checked on QEMU 8.2), so the firmware then takes the
 length of the device tree `/memory` range that starts at `0x40000000`.
@@ -233,7 +252,9 @@ length of the device tree `/memory` range that starts at `0x40000000`.
 
 Do not assume: whether the I-cache is enabled, a configured GIC or timer, PSCI beyond what
 the device tree advertises, or that the image was relocated or
-decompressed. It is copied as raw bytes, so link it at `0x40200000`.
+decompressed. It is copied as raw bytes, so link it at its load
+address. An uncompressed Linux `Image` boots as it is; a `vmlinuz` must
+be decompressed first.
 
 ### Failures
 
@@ -244,6 +265,7 @@ The firmware prints one of these on the PL011, then `boot halted`, and halts:
 | `fw_cfg with DMA not found` | Not on QEMU virt, or a QEMU too old for fw_cfg DMA |
 | `no kernel image (pass -kernel to QEMU)` | fw_cfg reports a kernel size of 0 |
 | `kernel does not fit in RAM` | The image would run past the end of RAM or start below `0x40200000`. Nothing is loaded. |
+| `Image header image_size is smaller than the image` | The `Image` header's non-zero `image_size` is below the number of bytes fw_cfg holds |
 | `RAM size not found (fw_cfg or device tree /memory)` | fw_cfg key `0x03` is 0 and there is no device tree, or it has no `/memory` range at `0x40000000` |
 | `fw_cfg DMA read of the kernel failed` | The DMA transfer reported an error |
 | `fw_cfg DMA read of the kernel did not complete` | The transfer neither finished nor reported an error within 1 s (by the generic counter, `CNTPCT_EL0` against `CNTFRQ_EL0`) |
@@ -254,14 +276,19 @@ The firmware prints one of these on the PL011, then `boot halted`, and halts:
 tree, and that the `SCTLR` of its EL has `M`, `C` and `EE` clear with
 `DAIF` fully masked), `arm-boot-el2` (the same image entered at EL2 with
 `virtualization=on`), `arm-too-big` (a 31 MB image with `-m 32`, built
-under `build/tests/` and never committed, is refused) and `arm-no-kernel`. By hand:
+under `build/tests/` and never committed, is refused), `arm-image-fixed`
+(an `Image` header with placement fixed and `text_offset = 0x400000` runs
+at `0x40400000`), `arm-image-reloc` (bit 3 set, the same `text_offset`,
+runs at `0x40200000`), `arm-image-short` (a header whose `image_size` is
+below the file size is refused) and `arm-no-kernel`. By hand:
 
 ```bash
 make arm
 qemu-system-aarch64 -M virt -cpu cortex-a57 -nographic -bios arm/squirrel-bios.bin -kernel image.bin
 ```
 
-Expect `SquirrelBIOS ARM`, then `kernel loaded at 0x40200000, jumping`,
+Expect `SquirrelBIOS ARM`, then `kernel loaded at 0x40200000, jumping`
+(or the address an `Image` header asked for),
 then whatever the image prints. `tests/arm-kernel.S` is a minimal image.
 
 ## RISC-V (QEMU virt)

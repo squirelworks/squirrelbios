@@ -20,6 +20,8 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-bad-sector.bin \
              $(TEST_DIR)/x86-extra.bin $(TEST_DIR)/x86-extra-map.bin \
              $(TEST_DIR)/x86-extra-boot.bin $(TEST_DIR)/x86-extra-range.bin \
              $(TEST_DIR)/arm-kernel.bin $(TEST_DIR)/arm-too-big.bin \
+             $(TEST_DIR)/arm-image-fixed.bin $(TEST_DIR)/arm-image-reloc.bin \
+             $(TEST_DIR)/arm-image-short.bin \
              $(TEST_DIR)/riscv-kernel.bin \
              $(TEST_DIR)/riscv-ecall.bin $(TEST_DIR)/riscv-deleg.bin \
              $(TEST_DIR)/riscv-sbi.bin $(TEST_DIR)/riscv-timer.bin \
@@ -97,6 +99,22 @@ $(TEST_DIR)/arm-kernel.bin: $(TEST_DIR)/arm-kernel.elf
 # when loaded at 0x40200000. Built here, never committed.
 $(TEST_DIR)/arm-too-big.bin: | $(TEST_DIR)
 	truncate -s 31M $@
+
+# Image header: fixed placement (RAM base + text_offset), relocatable, and
+# an image_size smaller than the file
+$(TEST_DIR)/arm-image-fixed.o: tests/arm-image.S | $(TEST_DIR)
+	$(AARCH64)as -o $@ $<
+$(TEST_DIR)/arm-image-reloc.o: tests/arm-image.S | $(TEST_DIR)
+	$(AARCH64)as --defsym RELOC=1 -o $@ $<
+$(TEST_DIR)/arm-image-short.o: tests/arm-image.S | $(TEST_DIR)
+	$(AARCH64)as --defsym SHORT=1 -o $@ $<
+$(TEST_DIR)/arm-image-fixed.elf: $(TEST_DIR)/arm-image-fixed.o
+	$(AARCH64)ld -Ttext=0x40400000 -o $@ $<
+$(TEST_DIR)/arm-image-reloc.elf $(TEST_DIR)/arm-image-short.elf: %.elf: %.o
+	$(AARCH64)ld -Ttext=0x40200000 -o $@ $<
+ARM_IMAGES := $(TEST_DIR)/arm-image-fixed $(TEST_DIR)/arm-image-reloc $(TEST_DIR)/arm-image-short
+$(ARM_IMAGES:=.bin): %.bin: %.elf
+	$(AARCH64)objcopy -O binary $< $@
 
 $(TEST_DIR)/riscv-kernel.o: tests/riscv-kernel.S | $(TEST_DIR)
 	$(RISCV64)as -o $@ $<

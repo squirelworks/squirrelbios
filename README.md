@@ -48,6 +48,8 @@ stand-in OS image from `tests/` and checks the serial output:
 | `arm-boot` | The `-kernel` image runs with a valid device tree in `x0`, `x1`–`x3` = 0, MMU and D-cache off, little-endian, `DAIF` masked |
 | `arm-boot-el2` | The same at EL2 (`virtualization=on`) |
 | `arm-too-big` | An image that would run past the end of RAM is refused before it is loaded |
+| `arm-image-fixed`, `arm-image-reloc` | A Linux `Image` header is honoured: fixed placement loads at RAM base + `text_offset`, relocatable stays at `0x40200000` |
+| `arm-image-short` | An `Image` header whose `image_size` is below the file size is refused |
 | `arm-no-kernel` | Without `-kernel`, the firmware reports it and halts |
 | `riscv-boot` | The `-kernel` image runs in S-mode (`next_mode=1`) on hart 0 (with `-smp 2`) with a valid device tree in `a1` and `a2 = 0`, and nothing traps |
 | `riscv-ecall` | An `ecall` from the image reaches the SBI and returns `SBI_ERR_NOT_SUPPORTED` for an extension that does not exist |
