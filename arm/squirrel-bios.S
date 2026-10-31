@@ -35,6 +35,16 @@
         .equ KERNEL_LOAD,   0x40200000      /* RAM + 2 MB, Linux arm64 friendly */
         .equ FDT_MAGIC,     0xd00dfeed
 
+        /* Linux arm64 Image header (Documentation/arch/arm64/booting.rst) */
+        .equ IMG_TEXT_OFFSET, 8             /* u64 */
+        .equ IMG_IMAGE_SIZE,  16            /* u64, effective size incl. BSS */
+        .equ IMG_FLAGS,       24            /* u64 */
+        .equ IMG_MAGIC,       0x38          /* bytes 41 52 4D 64, "ARM\x64" */
+        .equ IMG_MAGIC_LE,    0x644d5241
+        .equ IMG_HDR_SIZE,    64
+        .equ IMG_FLAG_ANYWHERE, 3           /* bit 3: placement not fixed */
+        .equ RAM_ALIGN_MASK,  0x1fffff      /* 2 MB */
+
         /* SCTLR_ELx bits cleared before the jump: MMU, D-cache, and both
          * endianness bits (EE for this EL, E0E for EL0; E0E is RES0 at
          * EL2 without E2H and at EL3, where clearing it changes nothing) */
@@ -96,12 +106,46 @@ _start:
         cbz x21, no_ram_size
 1:
 
-        ldr x0, =KERNEL_LOAD
-        mov w1, w20
+        /* x23 = load address, x24 = bytes the image needs there.
+         * No Image header: the raw load at KERNEL_LOAD, file size. */
+        ldr x23, =KERNEL_LOAD
+        mov w24, w20
+        cmp w20, #IMG_HDR_SIZE
+        b.lo 3f
+        sub sp, sp, #IMG_HDR_SIZE
+        mov x0, sp
+        mov w1, #IMG_HDR_SIZE
+        mov w2, #FWCFG_KERNEL_DATA
+        bl fwcfg_dma_read
+        cmp w0, #2
+        b.eq load_timeout
+        cbnz w0, load_failed
+        ldr w0, [sp, #IMG_MAGIC]
+        ldr w1, =IMG_MAGIC_LE
+        cmp w0, w1
+        b.ne 2f
+        /* image_size: 0 on kernels before 3.17, otherwise the whole
+         * footprint, BSS included, so never below the file size */
+        ldr x0, [sp, #IMG_IMAGE_SIZE]
+        cbz x0, 1f
+        cmp x0, x24
+        b.lo bad_image_size
+        mov x24, x0
+1:      ldr x0, [sp, #IMG_FLAGS]
+        tbnz x0, #IMG_FLAG_ANYWHERE, 2f
+        ldr x0, [sp, #IMG_TEXT_OFFSET]      /* fixed: 2 MB-aligned base + text_offset */
+        ldr x1, =RAM_BASE
+        and x1, x1, #~RAM_ALIGN_MASK
+        adds x23, x1, x0
+        b.cs too_big
+2:      add sp, sp, #IMG_HDR_SIZE
+3:
+        mov x0, x23
+        mov x1, x24
         bl check_fit
         cbnz w0, too_big
 
-        ldr x0, =KERNEL_LOAD
+        mov x0, x23
         mov w1, w20
         mov w2, #FWCFG_KERNEL_DATA
         bl fwcfg_dma_read
@@ -111,6 +155,10 @@ _start:
 
         adr x0, msg_loaded
         bl puts
+        mov x0, x23
+        bl puthex
+        adr x0, msg_jumping
+        bl puts
 
         bl entry_state
 
@@ -119,7 +167,7 @@ _start:
         mov x1, #0
         mov x2, #0
         mov x3, #0
-        ldr x4, =KERNEL_LOAD
+        mov x4, x23
         dsb sy
         isb
         br x4
@@ -135,6 +183,9 @@ too_big:
         b fail
 no_ram_size:
         adr x0, msg_no_ram_size
+        b fail
+bad_image_size:
+        adr x0, msg_bad_image_size
         b fail
 load_failed:
         adr x0, msg_load_failed
@@ -429,6 +480,31 @@ uart_init:
         str w2, [x1, #UART_CR]
         ret
 
+/* x0 = value.  Prints 8 lowercase hex digits, or 16 when it does not
+ * fit in 32 bits.  Uses x0-x6. */
+puthex:
+        mov x5, x0
+        mov x6, #28
+        lsr x1, x5, #32
+        cbz x1, 1f
+        mov x6, #60
+1:      ldr x1, =UART_BASE
+2:      lsr x2, x5, x6
+        and x2, x2, #0xf
+        cmp x2, #10
+        add x3, x2, #'0'
+        add x4, x2, #('a' - 10)
+        csel x2, x3, x4, lo
+        ldr w4, =UART_TIMEOUT
+3:      ldr w3, [x1, #UART_FR]
+        tbz w3, #5, 4f
+        subs w4, w4, #1
+        b.ne 3b
+4:      str w2, [x1, #UART_DR]
+        subs x6, x6, #4
+        b.pl 2b
+        ret
+
 /* x0 = zero-terminated string.  Gives up on a character after
  * UART_TIMEOUT polls so a stuck FIFO cannot hang the firmware. */
 puts:
@@ -447,7 +523,9 @@ puts:
         .ltorg
 
 banner:         .asciz "SquirrelBIOS ARM\n"
-msg_loaded:     .asciz "kernel loaded at 0x40200000, jumping\n"
+msg_loaded:     .asciz "kernel loaded at 0x"
+msg_jumping:    .asciz ", jumping\n"
+msg_bad_image_size: .asciz "boot: Image header image_size is smaller than the image\n"
 msg_no_fwcfg:   .asciz "boot: fw_cfg with DMA not found\n"
 msg_no_kernel:  .asciz "boot: no kernel image (pass -kernel to QEMU)\n"
 msg_too_big:    .asciz "boot: kernel does not fit in RAM\n"

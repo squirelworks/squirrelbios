@@ -143,6 +143,19 @@ run arm-too-big "boot: kernel does not fit in RAM|boot halted|!kernel loaded" \
     "$QEMU_ARM" -M virt -cpu cortex-a57 -m 32 -bios arm/squirrel-bios.bin \
     -kernel $TEST_DIR/arm-too-big.bin
 
+# AArch64: an Image header with placement fixed loads at RAM base +
+# text_offset; with bit 3 set it stays at 0x40200000 whatever text_offset
+# says; an image_size below the file size is refused
+run arm-image-fixed "kernel loaded at 0x40400000|OS-ENTRY arm image at=ok" \
+    "$QEMU_ARM" -M virt -cpu cortex-a57 -bios arm/squirrel-bios.bin \
+    -kernel $TEST_DIR/arm-image-fixed.bin
+run arm-image-reloc "kernel loaded at 0x40200000|OS-ENTRY arm image at=ok" \
+    "$QEMU_ARM" -M virt -cpu cortex-a57 -bios arm/squirrel-bios.bin \
+    -kernel $TEST_DIR/arm-image-reloc.bin
+run arm-image-short "boot: Image header image_size is smaller than the image|boot halted|!OS-ENTRY" \
+    "$QEMU_ARM" -M virt -cpu cortex-a57 -bios arm/squirrel-bios.bin \
+    -kernel $TEST_DIR/arm-image-short.bin
+
 run arm-no-kernel "boot: no kernel image|boot halted" \
     "$QEMU_ARM" -M virt -cpu cortex-a57 -bios arm/squirrel-bios.bin
 
