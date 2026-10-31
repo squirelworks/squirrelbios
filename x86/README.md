@@ -4,12 +4,19 @@
 
 ```bash
 nasm -f bin squirrel-bios.asm -o squirrel-bios.rom
-qemu-system-i386 -bios squirrel-bios.rom -drive format=raw,file=boot.bin,if=ide
+qemu-system-i386 -bios squirrel-bios.rom -drive format=raw,file=boot.bin,if=ide -serial stdio
 ```
 
 - Reset vector at offset 0xFFF0
-- Prints banner to VGA
-- ATA PIO reads LBA 0 into `0x7C00`
-- Jumps to `0x0000:0x7C00` with `DL = 0x80`
+- Programs COM1 at 115200 8N1; every message goes to VGA text and COM1
+- Prints banner
+- ATA PIO reads LBA 0 into `0x7C00`, with timeouts on every status wait,
+  `ERR`/`DF` checks, and up to 3 attempts with a soft reset in between
+- Detects a missing drive or an ATAPI device and says so instead of hanging
+- On failure prints the reason and the ATA status/error registers, then halts
+- On success jumps to `0x0000:0x7C00` with `DL = 0x80`
+
+The VGA is not put into text mode (no font is loaded), so under QEMU use
+COM1 to see the output.
 
 See `../common/handoff.md`.
