@@ -4,11 +4,13 @@ Platform-specific firmware for Squirrel-OS/2.
 Original code. Hands off to the OS after early init.
 
 ```
-x86/      64 KB ROM — VGA banner + ATA hand-off to 0x7C00
-arm/      AArch64 QEMU virt — PL011 banner + fw_cfg kernel load, DTB in x0
-riscv/    RISC-V QEMU virt — UART banner + M-mode jump to -kernel, DTB in a1
-tests/    stand-in OS images and smoke tests (make test)
-common/   hand-off contract
+x86/        64 KB ROM — VGA banner + ATA hand-off to 0x7C00
+arm/        AArch64 QEMU virt — PL011 banner + fw_cfg kernel load, DTB in x0
+riscv/      RISC-V QEMU virt — UART banner + M-mode jump to -kernel, DTB in a1
+tests/      stand-in OS images and smoke tests (make test)
+common/     hand-off contract
+ROADMAP.md  goals, principles, milestones
+TODO.md     small tasks, one per PR
 ```
 
 ## Build
@@ -60,3 +62,9 @@ qemu-system-riscv64 -M virt -nographic -bios riscv/squirrel-bios.bin -kernel ima
 ```
 
 See `common/handoff.md` for the contract each architecture provides.
+
+## Roadmap
+
+[ROADMAP.md](ROADMAP.md) is where this firmware is going.
+[TODO.md](TODO.md) is the list of small changes that get there.
+One item in that list is one PR, branched from `main`.
