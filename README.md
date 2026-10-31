@@ -121,6 +121,20 @@ By default the node is two NUMA nodes of 32 harts and 32 GB each (QEMU
 makes them two sockets), and the check also requires Linux to bring up
 both nodes (`LINUX_NUMA` in the script).
 
+```bash
+make linux-stress                          # 1, 2, 3, 4 and 8 harts, 3 boots each
+STRESS_HOTPLUG=1 make linux-stress         # with CPUs going offline and online
+```
+
+`make linux-stress` boots the same kernel many times and runs
+`tests/smpstress.c` in it: two threads per hart that map and unmap
+memory, rewrite and flush code, ping-pong through pipes and sleep, so the
+harts keep asking each other for remote fences and IPIs through the
+firmware. A boot fails if `smpstress` sees stale memory or instructions,
+or the kernel logs a failed SBI call, an oops or an RCU stall. Needs
+`riscv64-linux-gnu-gcc`; the knobs are at the top of
+`tests/linux-stress.sh`.
+
 ## Run
 
 ```bash

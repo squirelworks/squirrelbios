@@ -36,7 +36,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/riscv-boot-hart.bin $(TEST_DIR)/riscv-kernel-hart2.bin \
              $(TEST_DIR)/riscv-numa.bin
 
-.PHONY: all x86 arm riscv test linux-shell linux-big clean
+.PHONY: all x86 arm riscv test linux-shell linux-big linux-stress clean
 .DELETE_ON_ERROR:
 
 all: x86 arm riscv
@@ -293,6 +293,13 @@ linux-big: riscv
 	LINUX_KERNEL=6.14 LINUX_SMP=$(BIG_SMP) LINUX_MEM=$(BIG_MEM) LINUX_EXPECT_HARTS=$(BIG_SMP) \
 	    LINUX_NUMA=$(BIG_NUMA) \
 	    LINUX_TIMEOUT=$${LINUX_TIMEOUT:-900} tests/linux-shell.sh
+
+# Optional, not part of make test: repeated Linux boots on 1 to 8 harts
+# with tests/smpstress.c keeping the harts fencing and interrupting each
+# other (needs riscv64-linux-gnu-gcc). STRESS_HOTPLUG=1 adds CPU hotplug.
+# See tests/linux-stress.sh for the knobs.
+linux-stress: riscv
+	tests/linux-stress.sh
 
 clean:
 	rm -f $(X86_ROM) \
