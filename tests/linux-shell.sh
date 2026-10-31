@@ -20,6 +20,12 @@
 # (default 512M) the guest RAM. LINUX_EXPECT_HARTS, when set, also
 # requires the shell's banner to report that many harts online.
 # The serial log is kept in build/linux/linux-shell.log.
+#
+# For tests/linux-stress.sh: LINUX_WORK (default build/linux) is the
+# work directory, so several runs can go at once; LINUX_EXTRA lists
+# files copied into the initramfs /bin; LINUX_WORKLOAD is a command line
+# typed at the prompt after the first command, and the run waits for it
+# to finish before poweroff.
 
 set -eu
 
@@ -29,7 +35,9 @@ SMP=${LINUX_SMP:-1}
 MEM=${LINUX_MEM:-512M}
 EXPECT_HARTS=${LINUX_EXPECT_HARTS:-}
 FIRMWARE=riscv/squirrel-bios.bin
-WORK=build/linux
+WORK=${LINUX_WORK:-build/linux}
+WORKLOAD=${LINUX_WORKLOAD:-}
+EXTRA=${LINUX_EXTRA:-}
 MIRROR=${UBUNTU_PORTS:-http://ports.ubuntu.com/ubuntu-ports}
 
 # Pinned to the noble release pocket, which the mirror keeps for the
@@ -102,6 +110,7 @@ mkdir -p "$root/bin" "$root/dev" "$root/proc" "$root/sys" "$root/tmp"
 cp "$WORK/busybox-deb/usr/bin/busybox" "$root/bin/busybox"
 rm -rf "$WORK/busybox-deb"
 ln -s busybox "$root/bin/sh"
+for f in $EXTRA; do cp "$f" "$root/bin/"; done
 # /init runs before /dev/console exists (an unprivileged build cannot
 # make device nodes), so it mounts devtmpfs and then reattaches its own
 # stdin, stdout and stderr to the console
@@ -192,6 +201,12 @@ fi
 # The shell's own echo of this line shows $((40+2)), not 42
 printf 'echo linux-shell=$((40+2))\n' >&3
 wait_for "linux-shell=42" "command at the prompt"
+# An optional workload, typed as one line; it must end by printing
+# workload=done (the shell echo shows workload=do""ne, so it is split)
+if [ -n "$WORKLOAD" ]; then
+    printf '%s; echo workload=do""ne\n' "$WORKLOAD" >&3
+    wait_for "workload=done" "workload"
+fi
 printf 'poweroff -f\n' >&3
 while running; do
     [ "$(date +%s)" -lt "$deadline" ] || fail "QEMU still running after poweroff"

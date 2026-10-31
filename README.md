@@ -112,6 +112,20 @@ first item of the large-node milestone in [ROADMAP.md](ROADMAP.md) and is
 expected to fail until that milestone lands. QEMU maps the guest RAM
 without reserving it, so the host does not need 64 GB.
 
+```bash
+make linux-stress                          # 1, 2, 3, 4 and 8 harts, 3 boots each
+STRESS_HOTPLUG=1 make linux-stress         # with CPUs going offline and online
+```
+
+`make linux-stress` boots the same kernel many times and runs
+`tests/smpstress.c` in it: two threads per hart that map and unmap
+memory, rewrite and flush code, ping-pong through pipes and sleep, so the
+harts keep asking each other for remote fences and IPIs through the
+firmware. A boot fails if `smpstress` sees stale memory or instructions,
+or the kernel logs a failed SBI call, an oops or an RCU stall. Needs
+`riscv64-linux-gnu-gcc`; the knobs are at the top of
+`tests/linux-stress.sh`.
+
 ## Run
 
 ```bash
