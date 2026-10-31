@@ -34,6 +34,15 @@
         .equ KERNEL_LOAD,   0x40200000      /* RAM + 2 MB, Linux arm64 friendly */
         .equ FDT_MAGIC,     0xd00dfeed
 
+        /* SCTLR_ELx bits cleared before the jump: MMU, D-cache, and both
+         * endianness bits (EE for this EL, E0E for EL0; E0E is RES0 at
+         * EL2 without E2H and at EL3, where clearing it changes nothing) */
+        .equ SCTLR_M,       (1 << 0)
+        .equ SCTLR_C,       (1 << 2)
+        .equ SCTLR_E0E,     (1 << 24)
+        .equ SCTLR_EE,      (1 << 25)
+        .equ SCTLR_CLEAR,   (SCTLR_M | SCTLR_C | SCTLR_E0E | SCTLR_EE)
+
 .global _start
 _start:
         msr daifset, #0xf
@@ -81,6 +90,8 @@ _start:
         cmp w2, w3
         csel x0, x1, x0, eq
 
+        bl entry_state
+
         mov x1, #0
         mov x2, #0
         mov x3, #0
@@ -104,6 +115,35 @@ fail:
 halt:
         wfi
         b halt
+
+/* MMU and D-cache off, little-endian, at the EL QEMU started us in
+ * (EL1, EL2 or EL3); interrupts stay masked; the I-cache holds nothing
+ * stale from before the image was loaded. Uses x5-x6 only. */
+entry_state:
+        msr daifset, #0xf
+        mrs x5, CurrentEL
+        ubfx x5, x5, #2, #2
+        ldr x6, =SCTLR_CLEAR
+        cmp x5, #3
+        b.eq 3f
+        cmp x5, #2
+        b.eq 2f
+        mrs x5, sctlr_el1
+        bic x5, x5, x6
+        msr sctlr_el1, x5
+        b 9f
+2:      mrs x5, sctlr_el2
+        bic x5, x5, x6
+        msr sctlr_el2, x5
+        b 9f
+3:      mrs x5, sctlr_el3
+        bic x5, x5, x6
+        msr sctlr_el3, x5
+9:      isb
+        ic iallu
+        dsb ish
+        isb
+        ret
 
 /* ------------------------------------------------------------------ */
 /* fw_cfg                                                              */

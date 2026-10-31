@@ -199,7 +199,9 @@ Linux arm64 boot protocol, so a raw Linux `Image` can be booted the same way.
 |------|-------|
 | `PC` | `0x40200000` (RAM base + 2 MB), first byte of the image |
 | Exception level | Whatever QEMU started the firmware at: EL1 by default, EL2 with `virtualization=on` |
-| MMU, D-cache | Off. No page tables are built. |
+| MMU, D-cache | Off, set by the firmware: `SCTLR_ELx.M` and `.C` are cleared at the EL above just before the jump. No page tables are built. |
+| Endianness | Little-endian: `SCTLR_ELx.EE` (and `E0E` at EL1) cleared |
+| I-cache | Invalidated (`ic iallu`, then `dsb ish; isb`) after the image was loaded. `SCTLR_ELx.I` is left as it was. |
 | `DAIF` | All masked |
 | `x0` | Device tree address (`0x40000000`) if a valid FDT is there, otherwise `0` |
 | `x1`–`x3` | `0` |
@@ -222,7 +224,7 @@ RAM size and layout come from the device tree (`/memory`).
 | PL011 (`0x09000000`) | Enabled (`UARTEN`, `TXE`, `RXE`), baud rate as QEMU left it |
 | GIC, timers | Not touched |
 
-Do not assume: I-cache state, a configured GIC or timer, PSCI beyond what
+Do not assume: whether the I-cache is enabled, a configured GIC or timer, PSCI beyond what
 the device tree advertises, or that the image was relocated or
 decompressed. It is copied as raw bytes, so link it at `0x40200000`.
 
@@ -238,8 +240,10 @@ The firmware prints one of these on the PL011, then `boot halted`, and halts:
 
 ### How to test
 
-`make test` runs `arm-boot` (an image checks `x0`–`x3` and the device
-tree) and `arm-no-kernel`. By hand:
+`make test` runs `arm-boot` (an image checks `x0`–`x3`, the device
+tree, and that the `SCTLR` of its EL has `M`, `C` and `EE` clear with
+`DAIF` fully masked), `arm-boot-el2` (the same image entered at EL2 with
+`virtualization=on`) and `arm-no-kernel`. By hand:
 
 ```bash
 make arm

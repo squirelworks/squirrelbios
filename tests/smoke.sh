@@ -128,8 +128,13 @@ run x86-atapi "disk: primary master is ATAPI (CD/DVD), not supported|boot halted
     -drive format=raw,file=$TEST_DIR/x86-boot.bin,if=ide,media=cdrom
 
 # AArch64: -kernel image entered with the DTB in x0
-run arm-boot "SquirrelBIOS ARM|OS-ENTRY arm dtb=ok regs=ok" \
+run arm-boot "SquirrelBIOS ARM|OS-ENTRY arm dtb=ok regs=ok sctlr=ok" \
     "$QEMU_ARM" -M virt -cpu cortex-a57 -bios arm/squirrel-bios.bin \
+    -kernel $TEST_DIR/arm-kernel.bin
+
+# AArch64: the same at EL2 (virtualization=on), so SCTLR_EL2 is the one set
+run arm-boot-el2 "SquirrelBIOS ARM|OS-ENTRY arm dtb=ok regs=ok sctlr=ok" \
+    "$QEMU_ARM" -M virt,virtualization=on -cpu cortex-a57 -bios arm/squirrel-bios.bin \
     -kernel $TEST_DIR/arm-kernel.bin
 
 run arm-no-kernel "boot: no kernel image|boot halted" \

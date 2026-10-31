@@ -111,7 +111,7 @@ until that extension's box is checked.
 
 ## 4. AArch64: finish the Linux entry
 
-- [ ] `arm-sctlr` — Enter the image with the MMU and D-cache off, on purpose.
+- [x] `arm-sctlr` — Enter the image with the MMU and D-cache off, on purpose.
   - Acceptance: before the jump, at the EL QEMU started the firmware in, clear `SCTLR.M` and `SCTLR.C`, clear the endianness bits so the CPU is little-endian, keep `DAIF` masked, and invalidate the instruction cache (`ic iallu`, then a barrier). The stand-in reads the `SCTLR` of its current exception level and prints `sctlr=ok` only when `M` and `C` are clear and `DAIF` is fully masked. `arm-boot` expects `OS-ENTRY arm dtb=ok regs=ok sctlr=ok`. The contract describes this as firmware state.
 
 - [ ] `arm-dma-timeout` — Give up if an fw_cfg DMA never completes.
