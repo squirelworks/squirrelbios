@@ -30,8 +30,8 @@ qemu-system-i386 -bios x86/squirrel-bios.rom -drive format=raw,file=boot.bin,if=
 # AArch64
 qemu-system-aarch64 -M virt -cpu cortex-a57 -nographic -bios arm/squirrel-bios.bin
 
-# RISC-V
-qemu-system-riscv64 -M virt -nographic -bios riscv/squirrel-bios.bin
+# RISC-V (image linked at 0x80200000)
+qemu-system-riscv64 -M virt -nographic -bios riscv/squirrel-bios.bin -kernel image.bin
 ```
 
 See `common/handoff.md` for the contract each architecture provides.
