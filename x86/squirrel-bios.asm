@@ -13,6 +13,7 @@
 ;   - ATA PIO read of LBA 0 (sector 1) into 0x7C00, with timeouts,
 ;     status checks and retries (soft reset between attempts)
 ;   - On failure: print the reason and the ATA status/error registers, halt
+;   - Check the 0xAA55 signature in the last word of the sector; halt if absent
 ;   - On success: jump to 0x0000:0x7C00 with DL = 0x80, DI = 0x0500 (memory map)
 
 BITS 16
@@ -75,7 +76,7 @@ entry:
     mov bp, ATA_ATTEMPTS
 .try:
     call ata_read_lba0
-    jnc handoff
+    jnc check_sig
     cmp si, msg_nodrive         ; nothing to retry against
     je disk_fail
     cmp si, msg_atapi
@@ -84,6 +85,16 @@ entry:
     jz disk_fail
     call ata_reset
     jmp .try
+
+; A clean read without the signature is not a boot sector. Reading it
+; again would give the same bytes, so this is not retried.
+check_sig:
+    cmp word [ss:0x7DFE], 0xAA55    ; SS = 0
+    je handoff
+    mov si, msg_nosig
+    mov ah, ATTR_ERROR
+    call con_print
+    jmp boot_halt
 
 handoff:
     xor ax, ax
@@ -107,6 +118,8 @@ disk_fail:
     call con_print
     mov al, bh
     call con_hex8
+; Ends the line in progress, prints 'boot halted' and halts.
+boot_halt:
     call con_newline
     mov si, msg_halted
     call con_print
@@ -182,12 +195,14 @@ ata_read_lba0:
     jnz .error
 
     push es
+    push di                     ; console cursor
     xor ax, ax
     mov es, ax
     mov di, 0x7C00
     mov cx, 256
     mov dx, ATA_DATA
     rep insw
+    pop di
     pop es
 
     ; Command must finish cleanly, otherwise the data is suspect
@@ -385,6 +400,7 @@ msg_nodrive db 'disk: no drive on primary master', 0
 msg_atapi   db 'disk: primary master is ATAPI (CD/DVD), not supported', 0
 msg_timeout db 'disk: timeout waiting for drive', 0
 msg_readerr db 'disk: read of LBA 0 failed', 0
+msg_nosig   db 'disk: boot sector has no 0xAA55 signature', 0
 msg_status  db '  status=', 0
 msg_error   db ' error=', 0
 msg_halted  db 'boot halted', 0

@@ -16,7 +16,7 @@ ARM_BIN   := arm/squirrel-bios.bin
 RISCV_BIN := riscv/squirrel-bios.bin
 
 TEST_DIR  := build/tests
-TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/arm-kernel.bin $(TEST_DIR)/riscv-kernel.bin \
+TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-bad-sector.bin $(TEST_DIR)/arm-kernel.bin $(TEST_DIR)/riscv-kernel.bin \
              $(TEST_DIR)/riscv-ecall.bin $(TEST_DIR)/riscv-deleg.bin \
              $(TEST_DIR)/riscv-sbi.bin $(TEST_DIR)/riscv-timer.bin \
              $(TEST_DIR)/riscv-ipi.bin $(TEST_DIR)/riscv-rfence.bin \
@@ -67,6 +67,10 @@ $(TEST_DIR):
 
 $(TEST_DIR)/x86-boot.bin: tests/x86-boot.asm | $(TEST_DIR)
 	$(NASM) -f bin $< -o $@
+
+# The same sector with its last word zeroed instead of 0xAA55
+$(TEST_DIR)/x86-bad-sector.bin: tests/x86-boot.asm | $(TEST_DIR)
+	$(NASM) -f bin -DNO_SIG $< -o $@
 
 $(TEST_DIR)/arm-kernel.o: tests/arm-kernel.S | $(TEST_DIR)
 	$(AARCH64)as -o $@ $<

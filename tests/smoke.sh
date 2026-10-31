@@ -98,6 +98,12 @@ run x86-mem-high "OS-ENTRY x86 dl=ok memmap=ok flags=ok|~^mm 0000000100000000 [0
     "$QEMU_X86" -bios x86/squirrel-bios.rom -m 5120 \
     -drive format=raw,file=$TEST_DIR/x86-boot.bin,if=ide
 
+# x86: a clean read of a sector without 0xAA55 is refused once, not
+# retried and not jumped to
+run x86-bad-sector "disk: boot sector has no 0xAA55 signature|boot halted|!OS-ENTRY|!disk: timeout|!disk: read of LBA 0" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -drive format=raw,file=$TEST_DIR/x86-bad-sector.bin,if=ide
+
 # x86: a CD-ROM as primary master is rejected, not read
 run x86-atapi "disk: primary master is ATAPI (CD/DVD), not supported|boot halted" \
     "$QEMU_X86" -bios x86/squirrel-bios.rom \

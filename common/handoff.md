@@ -112,7 +112,8 @@ PCI hole below 4 GB) is not RAM. Do not assume it is free.
 ### Failures
 
 The jump only happens after a clean read: the drive reported no `ERR`/`DF`,
-delivered exactly one sector and went idle. Timeouts and read errors are
+delivered exactly one sector and went idle, and the sector ends in the
+boot signature (bytes `55 AA` at offset `0x1FE`). Timeouts and read errors are
 retried up to 3 times, with an ATA soft reset (`SRST`) between attempts.
 On failure the firmware prints the reason and the ATA status and error
 registers on COM1 (and the VGA text buffer), then halts:
@@ -123,11 +124,12 @@ registers on COM1 (and the VGA text buffer), then halts:
 | `primary master is ATAPI (CD/DVD), not supported` | ATAPI signature found. Not retried. |
 | `timeout waiting for drive` | `BSY` never cleared or the expected bit never came up |
 | `read of LBA 0 failed` | Drive set `ERR`/`DF`, or the transfer ended in a bad state |
+| `boot sector has no 0xAA55 signature` | The read was clean but the last word of the sector is not `0xAA55`. Not retried, and no status or error registers are printed. |
 
 ### How to test
 
 `make test` runs `x86-boot`, `x86-no-drive`, `x86-mem-low`,
-`x86-mem-high` and `x86-atapi`. In `x86-boot` the boot sector checks
+`x86-mem-high`, `x86-atapi` and `x86-bad-sector`. In `x86-boot` the boot sector checks
 `DL`, that `IF` and `DF` are clear, and that the memory map has the
 magic, 20-byte entries, ends by `0x0600`, contains the conventional and
 both reserved regions above exactly, and is sorted without overlaps. It

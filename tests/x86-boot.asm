@@ -222,4 +222,8 @@ saved_dx    dw 0
 saved_di    dw 0
 
 times 510 - ($ - $$) db 0
+%ifdef NO_SIG
+dw 0                            ; x86-bad-sector: a full sector, no signature
+%else
 dw 0xAA55
+%endif
