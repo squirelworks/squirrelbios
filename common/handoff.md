@@ -217,6 +217,13 @@ Linux arm64 boot protocol, so a raw Linux `Image` can be booted the same way.
 
 RAM size and layout come from the device tree (`/memory`).
 
+Before loading, the firmware checks that the image fits: it must start at
+or above `0x40200000` (clear of the device tree and the firmware scratch)
+and end at or before the end of RAM. The RAM size is fw_cfg key `0x03`
+(8 bytes, little-endian) when QEMU fills it in. QEMU's `virt` machine
+leaves that key at 0 (checked on QEMU 8.2), so the firmware then takes the
+length of the device tree `/memory` range that starts at `0x40000000`.
+
 ### Devices
 
 | Device | State |
@@ -236,6 +243,8 @@ The firmware prints one of these on the PL011, then `boot halted`, and halts:
 |---------|---------|
 | `fw_cfg with DMA not found` | Not on QEMU virt, or a QEMU too old for fw_cfg DMA |
 | `no kernel image (pass -kernel to QEMU)` | fw_cfg reports a kernel size of 0 |
+| `kernel does not fit in RAM` | The image would run past the end of RAM or start below `0x40200000`. Nothing is loaded. |
+| `RAM size not found (fw_cfg or device tree /memory)` | fw_cfg key `0x03` is 0 and there is no device tree, or it has no `/memory` range at `0x40000000` |
 | `fw_cfg DMA read of the kernel failed` | The DMA transfer reported an error |
 | `fw_cfg DMA read of the kernel did not complete` | The transfer neither finished nor reported an error within 1 s (by the generic counter, `CNTPCT_EL0` against `CNTFRQ_EL0`) |
 
@@ -244,7 +253,8 @@ The firmware prints one of these on the PL011, then `boot halted`, and halts:
 `make test` runs `arm-boot` (an image checks `x0`–`x3`, the device
 tree, and that the `SCTLR` of its EL has `M`, `C` and `EE` clear with
 `DAIF` fully masked), `arm-boot-el2` (the same image entered at EL2 with
-`virtualization=on`) and `arm-no-kernel`. By hand:
+`virtualization=on`), `arm-too-big` (a 31 MB image with `-m 32`, built
+under `build/tests/` and never committed, is refused) and `arm-no-kernel`. By hand:
 
 ```bash
 make arm

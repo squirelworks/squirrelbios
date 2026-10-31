@@ -8,6 +8,8 @@ qemu-system-aarch64 -M virt -cpu cortex-a57 -nographic -bios arm/squirrel-bios.b
 ```
 
 - Masks interrupts, enables the PL011 UART (`0x09000000`) and prints `SquirrelBIOS ARM`
+- Checks that the image fits in RAM (size from fw_cfg key `0x03`, or the
+  device tree `/memory` node, which is what QEMU `virt` provides)
 - Reads the `-kernel` image through QEMU's fw_cfg DMA interface to `0x40200000`
 - Before the jump, at the EL it was started in, clears `SCTLR_ELx` `M`, `C`
   and the endianness bits, keeps `DAIF` masked and invalidates the I-cache

@@ -117,7 +117,7 @@ until that extension's box is checked.
 - [x] `arm-dma-timeout` — Give up if an fw_cfg DMA never completes.
   - Acceptance: the poll in `fwcfg_dma_read` stops after a finite number of iterations, prints `boot: fw_cfg DMA read of the kernel failed` (the existing line) or a new line documented next to it, then `boot halted`. `arm-boot` and `arm-no-kernel` still pass, so a completed transfer is unchanged. Depends on: `arm-sctlr`.
 
-- [ ] `arm-ram-size` — Refuse a kernel that does not fit in RAM.
+- [x] `arm-ram-size` — Refuse a kernel that does not fit in RAM.
   - Acceptance: read fw_cfg key `0x03` (RAM size, 8 little-endian bytes). If `0x40200000 + kernel_size` extends past `0x40000000 + ram_size`, or the image would overlap the device tree below `0x40200000`, print `boot: kernel does not fit in RAM` and `boot halted`. `arm-boot` still passes. A new `arm-too-big` case builds a large image under `build/tests/` (do not commit it) and expects that message. Depends on: `arm-dma-timeout`.
 
 - [ ] `arm-image-header` — Honour the ARM64 `Image` header when its magic is present.
