@@ -11,6 +11,7 @@ SquirrelBIOS hands control to the OS with a minimal, documented state.
 | Segments | `DS = ES = SS = 0` |
 | Stack | `SP = 0x7C00` |
 | Boot drive | `DL = 0x80` |
+| Memory map | `ES:DI = 0x0000:0x0500` (header below, always at this address) |
 | Memory | Sector 1 loaded at `0x7C00` |
 | Interrupts | Disabled on entry (`CLI` before jump) |
 | Console | COM1 (`0x3F8`) programmed 115200 8N1, UART interrupts off |
@@ -36,6 +37,34 @@ Timeouts and read errors are retried up to 3 times, with an ATA soft reset
 The firmware does not program the VGA into text mode or load a font, so
 on QEMU the VGA window stays blank and COM1 is the console to watch
 (`-serial stdio` or `-nographic`).
+
+### x86 memory map
+
+There is no `INT 15h, E820` after hand-off, so the firmware builds the
+same kind of table in memory before jumping. It is derived from the RAM
+sizes QEMU stores in CMOS (`0x30/0x31`, `0x34/0x35`, `0x5B`–`0x5D`).
+
+| Offset | Size | Field |
+|--------|------|-------|
+| `0x0500` | 4 | Magic `'SQMM'` (bytes `53 51 4D 4D`) |
+| `0x0504` | 2 | Entry count |
+| `0x0506` | 2 | Entry size in bytes (20) |
+| `0x0508` | 20 × count | Entries |
+
+Each entry uses the E820 layout: 64-bit base, 64-bit length, 32-bit type
+(`1` usable, `2` reserved). Entries are sorted by base and do not overlap.
+
+| Range | Type | Present |
+|-------|------|---------|
+| `0x00000000`–`0x0009FFFF` | usable | always |
+| `0x000A0000`–`0x000FFFFF` | reserved (VGA window, ROMs) | always |
+| `0x00100000`–top of low RAM | usable | when RAM > 1 MB |
+| `0xFEC00000`–`0xFFFFFFFF` | reserved (IOAPIC, LAPIC, firmware) | always |
+| `0x100000000`–… | usable | when RAM is mapped above 4 GB |
+
+The table lives in usable memory. Copy it, or check the magic first, before
+reusing `0x0500`–`0x05FF`. Memory not covered by an entry (for example the
+PCI hole below 4 GB) is not RAM. Do not assume it is free.
 
 ## AArch64 (QEMU virt)
 

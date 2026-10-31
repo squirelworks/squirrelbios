@@ -8,11 +8,12 @@
 ; Behaviour:
 ;   - Set segments and stack
 ;   - Program COM1 (115200 8N1); every message goes to VGA text and COM1
+;   - Build a memory map at 0x0000:0x0500 (memmap.inc)
 ;   - Print banner
 ;   - ATA PIO read of LBA 0 (sector 1) into 0x7C00, with timeouts,
 ;     status checks and retries (soft reset between attempts)
 ;   - On failure: print the reason and the ATA status/error registers, halt
-;   - On success: jump to 0x0000:0x7C00 with DL = 0x80
+;   - On success: jump to 0x0000:0x7C00 with DL = 0x80, DI = 0x0500 (memory map)
 
 BITS 16
 
@@ -60,6 +61,7 @@ entry:
     mov ax, VGA_SEG
     mov es, ax
 
+    call build_memmap
     call serial_init
 
     ; Banner
@@ -90,6 +92,7 @@ handoff:
     mov ss, ax
     mov sp, 0x7C00
     mov dl, 0x80                ; boot drive
+    mov di, MEMMAP_ADDR         ; memory map header
     jmp 0x0000:0x7C00
 
 ; In: SI = reason, BL = ATA status, BH = ATA error register
@@ -374,6 +377,8 @@ serial_putc:
     pop cx
     pop ax
     ret
+
+%include "memmap.inc"
 
 banner      db 'SquirrelBIOS x86', 0
 msg_nodrive db 'disk: no drive on primary master', 0
