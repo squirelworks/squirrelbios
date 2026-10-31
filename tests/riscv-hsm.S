@@ -18,7 +18,7 @@
         .equ SBI_ERR_INVALID_PARAM, -3
         .equ SBI_ERR_ALREADY_AVAILABLE, -6
         .equ OPAQUE,            0x5157000012345678
-        .equ WAIT,              0x1000000   /* polls before giving up */
+        .equ WAIT,              50000000    /* ticks of time before giving up: 5 s at virt's 10 MHz */
 
 /* ecall HSM function \fid with a0 = \hart, a1 = \addr, a2 = \opaque */
 .macro hsm fid, hart, addr=0, opaque=0
@@ -77,11 +77,13 @@ _start:
         bne a0, t0, fail_t1
 
         la s2, hart1_done                   /* wait for hart 1 to report */
-        li s3, WAIT
+        rdtime s3
+        li t4, WAIT
+        add s3, s3, t4                      /* deadline */
 1:      ld t0, 0(s2)
         bnez t0, 2f
-        addi s3, s3, -1
-        bnez s3, 1b
+        rdtime t4
+        bltu t4, s3, 1b
         la t1, msg_timeout
         j fail_t1
 2:
