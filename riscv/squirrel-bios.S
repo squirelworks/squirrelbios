@@ -80,7 +80,7 @@
 
         .equ CAUSE_ECALL_S,     9
         .equ MIE_MSIE,          (1 << 3)
-        .equ TRAP_FRAME,        64          /* t0-t6 and ra, below trap_stack_top */
+        .equ TRAP_FRAME,        80          /* t0-t6, ra, a2, a3, below trap_stack_top */
         .equ CAUSE_M_SOFT,      (1 << 63) | 3
         .equ CAUSE_M_TIMER,     (1 << 63) | 7
 
@@ -109,11 +109,13 @@
         .equ TRAP_STACK,        256         /* per hart */
 
         /* hart_table entry: state, start address, opaque (8 bytes each) */
-        .equ HART_ENTRY_SHIFT,  5           /* 32 bytes */
+        .equ HART_ENTRY_SHIFT,  6           /* 64 bytes */
         .equ HART_STATE,        0
         .equ HART_ADDR,         8
         .equ HART_OPAQUE,       16
         .equ HART_PENDING,      24          /* work other harts asked of it */
+        .equ HART_START,        32          /* passes over HART_PENDING begun */
+        .equ HART_DONE,         40          /* number of the last pass finished */
         .equ PEND_SSIP,         1           /* raise the supervisor software interrupt */
         .equ PEND_FENCE_I,      2
         .equ PEND_SFENCE,       4           /* sfence.vma, all of it */
@@ -339,6 +341,8 @@ trap:
         sd t5, 40(sp)
         sd t6, 48(sp)
         sd ra, 56(sp)
+        sd a2, 64(sp)
+        sd a3, 72(sp)
         csrr t0, mcause
         li t1, CAUSE_M_TIMER
         beq t0, t1, m_timer
@@ -386,6 +390,8 @@ trap_ret:
         ld t5, 40(sp)
         ld t6, 48(sp)
         ld ra, 56(sp)
+        ld a2, 64(sp)
+        ld a3, 72(sp)
         addi sp, sp, TRAP_FRAME
         csrrw sp, mscratch, sp
         mret
@@ -654,8 +660,12 @@ send_mask:
         ret
 
 /* Wait until every other hart send_mask reached has done the work in t0.
- * While waiting, do work sent to this hart, so two harts fencing each
- * other at once do not wait for ever. */
+ * A request counts as done only after a pass over HART_PENDING that began
+ * after it was posted has finished: first the bits must leave PENDING
+ * (some pass took them, and that pass had begun by then), then HART_DONE
+ * must reach the HART_START read after that.  While waiting, do work sent
+ * to this hart, so two harts fencing each other do not wait for ever.
+ * Uses a2 as well. */
 wait_mask:
         csrr t1, mhartid
         li t4, 0
@@ -667,29 +677,43 @@ wait_mask:
         bnez t5, 3f
 2:      ld t5, HART_PENDING(t3)
         and t5, t5, t0
-        beqz t5, 3f
+        beqz t5, 4f
         mv t5, t1                           /* meanwhile, this hart's own work */
         jal t2, take_work
+        hart_entry
         j 2b
+4:      fence r, r
+        ld a2, HART_START(t3)               /* the pass that took our bits has begun */
+5:      ld t5, HART_DONE(t3)
+        bgeu t5, a2, 3f
+        mv t5, t1
+        jal t2, take_work
+        hart_entry
+        j 5b
 3:      addi t4, t4, 1
         li t5, MAX_HARTS
         bltu t4, t5, 1b
         ret
 
-/* t5 = hart ID (this hart): do the work in its HART_PENDING, then clear
- * those bits, so a hart waiting in wait_mask sees it done.  Uses t3, t5,
- * t6; keeps t0, t1, t4; returns through t2. */
+/* t5 = hart ID (this hart): one pass over its HART_PENDING.  Number the
+ * pass (HART_START), take all the bits at once, do the work, then record
+ * the pass as done (HART_DONE).  A request posted after the take waits
+ * for a later pass.  Uses t3, t5, t6 and a3; keeps t0, t1, t4, a2;
+ * returns through t2. */
 take_work:
         slli t5, t5, HART_ENTRY_SHIFT
         la t6, hart_table
-        add t5, t5, t6
-        addi t3, t5, HART_PENDING
-        ld t5, 0(t3)
-        beqz t5, 4f
+        add t3, t5, t6                      /* t3 = this hart's entry */
+        li t6, 1
+        addi t5, t3, HART_START
+        amoadd.d.aqrl a3, t6, (t5)
+        addi a3, a3, 1                      /* a3 = this pass's number */
+        addi t5, t3, HART_PENDING
+        amoswap.d.aqrl t5, zero, (t5)       /* t5 = the work */
         do_work t5, t6
-        not t5, t5
-        amoand.d.aqrl zero, t5, (t3)
-4:      jr t2
+        fence rw, rw
+        sd a3, HART_DONE(t3)
+        jr t2
 
 /* M-mode software interrupt on a started hart: another hart sent work. */
 m_soft:
@@ -1034,7 +1058,7 @@ sstc_on:                                    /* 1 once enter_s found Sstc */
     .dword 0
 hart_table:
     .rept MAX_HARTS
-    .dword HSM_ABSENT, 0, 0, 0
+    .dword HSM_ABSENT, 0, 0, 0, 0, 0, 0, 0
     .endr
 
 /* The node dt_reserve adds to the device tree, big-endian. Name offsets

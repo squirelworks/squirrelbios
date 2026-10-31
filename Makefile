@@ -23,7 +23,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/arm-kernel.bin $(TEST_DIR)/ris
              $(TEST_DIR)/riscv-srst.bin $(TEST_DIR)/riscv-srst-reboot.bin \
              $(TEST_DIR)/riscv-srst-fail.bin $(TEST_DIR)/riscv-pmp.bin \
              $(TEST_DIR)/riscv-dt.bin $(TEST_DIR)/riscv-envcfg.bin \
-             $(TEST_DIR)/riscv-ipi-smp.bin
+             $(TEST_DIR)/riscv-ipi-smp.bin $(TEST_DIR)/riscv-fence-smp3.bin
 
 .PHONY: all x86 arm riscv test clean
 .DELETE_ON_ERROR:
@@ -163,6 +163,13 @@ $(TEST_DIR)/riscv-ipi-smp.o: tests/riscv-ipi-smp.S | $(TEST_DIR)
 $(TEST_DIR)/riscv-ipi-smp.elf: $(TEST_DIR)/riscv-ipi-smp.o
 	$(RISCV64)ld -Ttext=0x80200000 -o $@ $<
 $(TEST_DIR)/riscv-ipi-smp.bin: $(TEST_DIR)/riscv-ipi-smp.elf
+	$(RISCV64)objcopy -O binary $< $@
+
+$(TEST_DIR)/riscv-fence-smp3.o: tests/riscv-fence-smp3.S | $(TEST_DIR)
+	$(RISCV64)as -o $@ $<
+$(TEST_DIR)/riscv-fence-smp3.elf: $(TEST_DIR)/riscv-fence-smp3.o
+	$(RISCV64)ld -Ttext=0x80200000 -o $@ $<
+$(TEST_DIR)/riscv-fence-smp3.bin: $(TEST_DIR)/riscv-fence-smp3.elf
 	$(RISCV64)objcopy -O binary $< $@
 
 # One SRST image per reset: shutdown, cold reboot, shutdown for a failure

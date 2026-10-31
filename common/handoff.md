@@ -356,8 +356,12 @@ same rules. Each hart selected runs `fence.i` (`remote_fence_i`) or a
 full `sfence.vma` (both `remote_sfence_vma` functions), which covers any
 `start`, `size` and ASID: the caller at once, the others in their M-mode
 software interrupt. The call returns when every hart selected has run
-it. Two harts may fence each other at the same time: while one waits, it
-also runs the fences asked of it. The hypervisor
+it after the call was made: a target takes all its requests at once and
+numbers each such pass, and the caller waits until its request has been
+taken and the pass that took it has finished, so a pass already under way
+when the request arrived does not count. Two harts may fence each other at
+the same time: while one waits, it also runs the fences asked of it. A
+hart that stops drops what was asked of it; the call still returns. The hypervisor
 fences (functions 3–6) return `SBI_ERR_NOT_SUPPORTED`.
 
 `hart_start(a0 = hart, a1 = start address, a2 = opaque)` takes a hart
@@ -428,7 +432,9 @@ prints `ipi=ok` from its software-interrupt handler), `riscv-ipi-smp`
 (with `-smp 2`, hart 1 is started and takes IPIs by mask bit, by mask base and with base `-1`, which also reaches hart 0;
 `remote_fence_i` and `remote_sfence_vma` on both harts return; then both
 harts fence each other 20000 times at once without the firmware
-deadlocking), `riscv-rfence`
+deadlocking), `riscv-fence-smp3` (with `-smp 3`, harts 0 and 1 both
+fence hart 2 20000 times at once, then hart 2 takes an IPI from each),
+`riscv-rfence`
 (with `-smp 2`, a fence whose mask also names hart 1 fails, and
 `remote_sfence_vma` and `remote_fence_i` for itself succeed),
 `riscv-hsm` (with `-smp 2`, hart 1 is stopped, hart 7 does not exist,
