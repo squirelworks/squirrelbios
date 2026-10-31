@@ -19,7 +19,9 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/arm-kernel.bin $(TEST_DIR)/ris
              $(TEST_DIR)/riscv-ecall.bin $(TEST_DIR)/riscv-deleg.bin \
              $(TEST_DIR)/riscv-sbi.bin $(TEST_DIR)/riscv-timer.bin \
              $(TEST_DIR)/riscv-ipi.bin $(TEST_DIR)/riscv-rfence.bin \
-             $(TEST_DIR)/riscv-hsm.bin $(TEST_DIR)/riscv-hsm-stop.bin
+             $(TEST_DIR)/riscv-hsm.bin $(TEST_DIR)/riscv-hsm-stop.bin \
+             $(TEST_DIR)/riscv-srst.bin $(TEST_DIR)/riscv-srst-reboot.bin \
+             $(TEST_DIR)/riscv-srst-fail.bin
 
 .PHONY: all x86 arm riscv test clean
 .DELETE_ON_ERROR:
@@ -125,6 +127,19 @@ $(TEST_DIR)/riscv-hsm-stop.o: tests/riscv-hsm-stop.S | $(TEST_DIR)
 $(TEST_DIR)/riscv-hsm-stop.elf: $(TEST_DIR)/riscv-hsm-stop.o
 	$(RISCV64)ld -Ttext=0x80200000 -o $@ $<
 $(TEST_DIR)/riscv-hsm-stop.bin: $(TEST_DIR)/riscv-hsm-stop.elf
+	$(RISCV64)objcopy -O binary $< $@
+
+# One SRST image per reset: shutdown, cold reboot, shutdown for a failure
+$(TEST_DIR)/riscv-srst.o: tests/riscv-srst.S | $(TEST_DIR)
+	$(RISCV64)as -o $@ $<
+$(TEST_DIR)/riscv-srst-reboot.o: tests/riscv-srst.S | $(TEST_DIR)
+	$(RISCV64)as --defsym RESET_TYPE=1 -o $@ $<
+$(TEST_DIR)/riscv-srst-fail.o: tests/riscv-srst.S | $(TEST_DIR)
+	$(RISCV64)as --defsym RESET_REASON=1 -o $@ $<
+SRST_IMAGES := $(TEST_DIR)/riscv-srst $(TEST_DIR)/riscv-srst-reboot $(TEST_DIR)/riscv-srst-fail
+$(SRST_IMAGES:=.elf): %.elf: %.o
+	$(RISCV64)ld -Ttext=0x80200000 -o $@ $<
+$(SRST_IMAGES:=.bin): %.bin: %.elf
 	$(RISCV64)objcopy -O binary $< $@
 
 test: all $(TEST_BINS)

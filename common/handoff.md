@@ -16,7 +16,7 @@ If the firmware and this file disagree, the firmware has a bug.
 | Console | COM1 `0x3F8`, 115200 8N1 | PL011 `0x09000000` | NS16550A `0x10000000` |
 | Interrupts | `IF = 0` | `DAIF` masked | `mstatus.MIE`/`SIE` = 0, `mie = 0` |
 | CPUs running | Boot CPU only | Boot CPU only | Hart 0; others through `sbi_hart_start` |
-| Firmware services | None | None | SBI from S-mode: base, TIME, IPI, RFENCE, HSM |
+| Firmware services | None | None | SBI from S-mode: base, TIME, IPI, RFENCE, HSM, SRST |
 
 ## Rules for every architecture
 
@@ -251,8 +251,9 @@ RAM size and layout come from the device tree (`/memory`).
 | Other harts | Parked in `wfi` in M-mode, with `mstatus.MIE = 0` and only `mie.MSIE` set, until `sbi_hart_start` (below). Hart IDs 8 and up are never started. |
 | CLINT | A hart's `mtimecmp` is written only by `sbi_set_timer` and the firmware's timer interrupt. A parked hart's `msip` is written by `sbi_hart_start`. `mtime` runs at 10 MHz (the device tree's `timebase-frequency`). |
 | PLIC | Not touched |
+| Test device (`0x100000`) | Written only by `sbi_system_reset`. S-mode can reach it too (the PMP entry opens all memory), but an OS should use SRST. |
 
-Do not assume: SBI extensions other than base, TIME, IPI, RFENCE and HSM,
+Do not assume: SBI extensions other than base, TIME, IPI, RFENCE, HSM and SRST,
 a set `stvec` (install one before the first delegated trap), secondary
 harts being available, or IPIs and remote fences reaching a hart other
 than the caller (they do not yet, even once it is started).
@@ -296,6 +297,7 @@ function returns `SBI_ERR_NOT_SUPPORTED` (`-2`).
 | IPI | `0x735049` | `send_ipi` (0) |
 | RFENCE | `0x52464E43` | `remote_fence_i` (0), `remote_sfence_vma` (1), `remote_sfence_vma_asid` (2) |
 | HSM | `0x48534D` | `hart_start` (0), `hart_stop` (1), `hart_get_status` (2) |
+| SRST | `0x53525354` | `system_reset` (0) |
 
 `set_timer(a0)` programs the calling hart's `mtimecmp` with the absolute
 time `a0`, clears a pending supervisor timer interrupt and enables the
@@ -344,8 +346,20 @@ that has not done so yet, `hart_start` and `hart_get_status` wait up to
 100 ms (by `mtime`) for it, then treat it as absent: a hart ID with no
 hart behind it, or 8 and above, returns `SBI_ERR_INVALID_PARAM`.
 
+`system_reset(a0 = type, a1 = reason)` takes type shutdown (`0`), cold
+reboot (`1`) or warm reboot (`2`), and reason no reason (`0`) or system
+failure (`1`). It goes through QEMU `virt`'s test device at `0x100000`:
+a shutdown powers the machine off and QEMU exits with status 0, or 1 for
+a system failure; both reboots reset the whole machine (all harts) and
+the firmware boots again, so a warm reboot keeps no more state than a
+cold one. With `-no-reboot`, QEMU exits with status 0 instead. On
+success the call does not return. Any other type or reason, vendor ones
+included, returns `SBI_ERR_INVALID_PARAM` (`-3`). If the machine is
+still running 1 s (by `mtime`) after the request, the call returns
+`SBI_ERR_FAILED` (`-1`).
+
 `probe_extension` returns `a1 = 1` for the extensions in this table and
-`0` for every other one, including SRST until it is implemented.
+`0` for every other one.
 
 ### Failures
 
@@ -366,7 +380,7 @@ gets `SBI_ERR_NOT_SUPPORTED` back for an extension that does not exist),
 `riscv-deleg` (an image sets `stvec`, executes an illegal instruction and
 prints `deleg=ok` from its S-mode handler, then its `ecall` still reaches
 the SBI), `riscv-sbi` (an image calls the base functions, probes base,
-TIME, IPI, RFENCE, HSM and SRST, which is not implemented, and checks that only `a0`
+TIME, IPI, RFENCE, HSM and SRST, and checks that only `a0`
 and `a1` changed), `riscv-timer` (an image sets a timer 10 ms ahead and
 prints `timer=ok` from its supervisor timer interrupt, which must not
 come back after it pushed the timer out), `riscv-ipi` (with `-smp 2`, an
@@ -380,7 +394,11 @@ prints `hart1=ok a1=5157000012345678`, the opaque value, and is then
 reported started), `riscv-hsm-stop` (with `-smp 2`, hart 1 is started,
 turns on Sv39 paging, calls `hart_stop` and is reported stopped, then is
 started again with `satp` and `sp` both 0, and `hart_stop` never
-returns) and `riscv-no-kernel`. By hand:
+returns), `riscv-srst` (an image probes SRST, gets bad types, reasons
+and functions refused, prints `reset=ok` and shuts down; QEMU must exit
+with status 0 and the call must not return), `riscv-srst-reboot` (the
+same with a cold reboot under `-no-reboot`, status 0), `riscv-srst-fail`
+(a shutdown for a system failure, status 1) and `riscv-no-kernel`. By hand:
 
 ```bash
 make riscv

@@ -67,9 +67,10 @@ _start:
         expect a0, 0, 7
         li t2, 7
         beqz a1, bad
-        sbi SBI_EXT_BASE, 3, SBI_EXT_SRST
+        sbi SBI_EXT_BASE, 3, SBI_EXT_SRST   /* present */
         expect a0, 0, 8
-        expect a1, 0, 8
+        li t2, 8
+        beqz a1, bad
 
         sbi 0x0a000000, 0                   /* no such extension */
         expect a0, SBI_ERR_NOT_SUPPORTED, 9

@@ -74,6 +74,13 @@
         .equ HSM_ABSENT,        -1          /* no such hart has reached park */
         .equ HSM_CHECKIN_WAIT,  1000000     /* mtime ticks: 100 ms at 10 MHz */
 
+/* QEMU virt "sifive_test" finisher: a 32-bit write powers off or resets */
+        .equ TEST_FINISHER,     0x100000
+        .equ FINISHER_FAIL,     0x3333      /* exit code in bits 31:16 */
+        .equ FINISHER_PASS,     0x5555      /* power off */
+        .equ FINISHER_RESET,    0x7777
+        .equ SRST_WAIT,         10000000    /* mtime ticks: 1 s at 10 MHz */
+
         /* SBI: a7 = extension, a6 = function, a0-a5 = arguments.
          * Returns a0 = error, a1 = value. */
         .equ SBI_EXT_BASE,      0x10
@@ -81,9 +88,11 @@
         .equ SBI_EXT_IPI,       0x735049
         .equ SBI_EXT_RFENCE,    0x52464e43
         .equ SBI_EXT_HSM,       0x48534d
+        .equ SBI_EXT_SRST,      0x53525354
         .equ SBI_SPEC_VERSION,  0x01000000  /* 1.0 */
         .equ SBI_IMPL_ID,       0x5351      /* "SQ"; not BBL (0) or OpenSBI (1) */
         .equ SBI_IMPL_VERSION,  1
+        .equ SBI_ERR_FAILED,    -1
         .equ SBI_ERR_NOT_SUPPORTED, -2
         .equ SBI_ERR_INVALID_PARAM, -3
         .equ SBI_ERR_ALREADY_AVAILABLE, -6
@@ -271,6 +280,8 @@ sbi_call:
         beq a7, t0, sbi_rfence
         li t0, SBI_EXT_HSM
         beq a7, t0, sbi_hsm
+        li t0, SBI_EXT_SRST
+        beq a7, t0, sbi_srst
 sbi_not_supported:
         li a0, SBI_ERR_NOT_SUPPORTED
         j sbi_ret
@@ -482,6 +493,35 @@ hart_mask:
         snez t0, t0
 2:      jr t2
 
+/* SRST extension: system_reset (0, a0 = type, a1 = reason).  Types:
+ * shutdown (0), cold reboot (1), warm reboot (2), all through the QEMU
+ * test finisher.  Reasons: none (0), system failure (1); a shutdown for
+ * a system failure makes QEMU exit with status 1.  On success the call
+ * does not return; if the machine is still running SRST_WAIT later, it
+ * returns SBI_ERR_FAILED. */
+sbi_srst:
+        bnez a6, sbi_not_supported
+        li t0, 1
+        bgtu a1, t0, sbi_invalid_param
+        li t0, FINISHER_RESET
+        bnez a0, 1f
+        li t0, FINISHER_PASS
+        beqz a1, 2f
+        li t0, (1 << 16) | FINISHER_FAIL
+        j 2f
+1:      li t1, 2
+        bgtu a0, t1, sbi_invalid_param
+2:      li t1, TEST_FINISHER
+        sw t0, 0(t1)
+        li t1, CLINT_MTIME
+        ld t2, 0(t1)
+        li t0, SRST_WAIT
+        add t2, t2, t0
+3:      ld t0, 0(t1)                        /* QEMU acts on the write a little later */
+        bltu t0, t2, 3b
+        li a0, SBI_ERR_FAILED
+        j sbi_ret
+
 /* a0 = extension ID.  a1 = 1 if implemented, 0 if not. */
 sbi_probe_extension:
         li a1, 1
@@ -494,6 +534,8 @@ sbi_probe_extension:
         li t0, SBI_EXT_RFENCE
         beq a0, t0, sbi_ok
         li t0, SBI_EXT_HSM
+        beq a0, t0, sbi_ok
+        li t0, SBI_EXT_SRST
         beq a0, t0, sbi_ok
         li a1, 0
         j sbi_ok

@@ -68,7 +68,7 @@ until that extension's box is checked.
 - [x] `riscv-sbi-hsm-stop` — Implement `sbi_hart_stop` for a hart that was started.
   - Acceptance: a started secondary hart calls `sbi_hart_stop` and the boot hart's later `hart_get_status` reports stopped. The stopped hart does not keep printing. Depends on: `riscv-sbi-hsm`.
 
-- [ ] `riscv-sbi-srst` — Implement `sbi_system_reset`.
+- [x] `riscv-sbi-srst` — Implement `sbi_system_reset`.
   - Acceptance: a stand-in calls shutdown and the log contains `reset=ok` before the machine halts or QEMU exits. `probe_extension` for SRST succeeds. Depends on: `riscv-sbi-base`.
 
 - [ ] `riscv-pmp-firmware` — Stop S-mode from writing the firmware image.
