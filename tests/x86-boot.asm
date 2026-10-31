@@ -1,6 +1,7 @@
 ; Smoke-test boot sector for SquirrelBIOS x86.
 ; Stands in for the OS: checks the hand-off state and reports on COM1,
-; which the firmware has already programmed.
+; which the firmware has already programmed. Then lists the memory map,
+; one "mm <base> <length> <type>" line per entry, for the RAM-size cases.
 ; Original code.
 
 BITS 16
@@ -43,6 +44,8 @@ start:
     mov si, msg_flags_bad
 .flags:
     call puts
+
+    call dump_memmap
 
 .halt:
     cli
@@ -122,10 +125,70 @@ check_memmap:
     stc
     ret
 
+; Print each entry as "mm " + 16 hex digits base, length, then the type.
+dump_memmap:
+    cmp dword [MM_ADDR], 'SQMM'
+    jne .done
+    mov bp, [MM_ADDR + 4]
+    cmp bp, (MM_END - MM_ADDR - 8) / MM_ENTRY
+    ja .done
+    mov bx, MM_ADDR + 8
+.entry:
+    test bp, bp
+    jz .done
+    mov si, msg_mm
+    call puts
+    call hex64                  ; base
+    add bx, 8
+    call hex64                  ; length
+    mov al, [bx + 8]            ; type
+    add al, '0'
+    call putc
+    mov si, msg_crlf
+    call puts
+    add bx, MM_ENTRY - 8
+    dec bp
+    jmp .entry
+.done:
+    ret
+
+; Qword at [BX] as 16 hex digits and a space
+hex64:
+    mov eax, [bx + 4]
+    call hex32
+    mov eax, [bx]
+    call hex32
+    mov al, ' '
+    jmp putc
+
+; EAX as 8 hex digits
+hex32:
+    mov cx, 8
+.digit:
+    rol eax, 4
+    push eax
+    and al, 0x0F
+    add al, '0'
+    cmp al, '9'
+    jbe .out
+    add al, 'A' - '9' - 1
+.out:
+    call putc
+    pop eax
+    loop .digit
+    ret
+
 puts:
     lodsb
     test al, al
     jz .done
+    call putc
+    jmp puts
+.done:
+    ret
+
+; AL to COM1. Clobbers AH and DX.
+putc:
     mov ah, al
     mov dx, COM1 + 5
 .wait:
@@ -135,8 +198,6 @@ puts:
     mov al, ah
     mov dx, COM1
     out dx, al
-    jmp puts
-.done:
     ret
 
 ; Regions every map must contain: base, length, type (all below 4 GB)
@@ -152,7 +213,9 @@ msg_dl_bad    db ' dl=bad', 0
 msg_mm_ok     db ' memmap=ok', 0
 msg_mm_bad    db ' memmap=bad', 0
 msg_flags_ok  db ' flags=ok', 13, 10, 0
-msg_flags_bad db ' flags=bad', 13, 10, 0
+msg_flags_bad db ' flags=bad'
+msg_crlf      db 13, 10, 0
+msg_mm        db 'mm ', 0
 
 saved_flags dw 0
 saved_dx    dw 0

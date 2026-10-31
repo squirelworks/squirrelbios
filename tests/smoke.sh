@@ -68,6 +68,12 @@ run x86-boot "SquirrelBIOS x86|OS-ENTRY x86 dl=ok memmap=ok flags=ok" \
 run x86-no-drive "disk: no drive on primary master|boot halted" \
     "$QEMU_X86" -bios x86/squirrel-bios.rom
 
+# x86: with 8 MB, CMOS 0x34/0x35 are zero and extended RAM comes from
+# 0x30/0x31 (KB above 1 MB): 7 MB usable at 1 MB
+run x86-mem-low "OS-ENTRY x86 dl=ok memmap=ok flags=ok|mm 0000000000100000 0000000000700000 1" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom -m 8 \
+    -drive format=raw,file=$TEST_DIR/x86-boot.bin,if=ide
+
 # x86: a CD-ROM as primary master is rejected, not read
 run x86-atapi "disk: primary master is ATAPI (CD/DVD), not supported|boot halted" \
     "$QEMU_X86" -bios x86/squirrel-bios.rom \

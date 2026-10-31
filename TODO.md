@@ -22,7 +22,7 @@ the contract (`disk: ...` / `boot: ...`, then `boot halted`).
 - [x] `x86-atapi` — Smoke-test the ATAPI reject. No firmware change.
   - Acceptance: a new `x86-atapi` case boots with a CD-ROM as the primary master and expects `disk: primary master is ATAPI (CD/DVD), not supported` and `boot halted`. `x86-boot` still passes.
 
-- [ ] `x86-mem-low` — Smoke-test the CMOS path used when RAM is at most 16 MB.
+- [x] `x86-mem-low` — Smoke-test the CMOS path used when RAM is at most 16 MB.
   - Acceptance: a new `x86-mem-low` case passes `-m 8` and expects a usable entry at base `0x00100000` of length `0x00700000`. That length is what `x86/memmap.inc` computes from CMOS `0x30`/`0x31` when `0x34`/`0x35` are zero. If this QEMU stores a different pair of bytes, match the test to those bytes and record them in the PR. `x86-boot` stays free of a hardcoded default RAM size. Depends on: `x86-handoff-check`.
 
 - [ ] `x86-mem-high` — Smoke-test the RAM-above-4 GB entry.

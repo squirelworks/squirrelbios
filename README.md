@@ -39,6 +39,7 @@ stand-in OS image from `tests/` and checks the serial output:
 |------|-------------|
 | `x86-boot` | The boot sector runs with `DL = 0x80` and `IF = DF = 0`, and the memory map at `ES:DI` has the required regions, sorted and not overlapping |
 | `x86-no-drive` | With no disk, the firmware reports it and halts |
+| `x86-mem-low` | With `-m 8`, the map has 7 MB usable at 1 MB (the CMOS `0x30`/`0x31` path) |
 | `x86-atapi` | With a CD-ROM as primary master, the firmware reports ATAPI and halts |
 | `arm-boot` | The `-kernel` image runs with a valid device tree in `x0` and `x1`–`x3` = 0 |
 | `arm-no-kernel` | Without `-kernel`, the firmware reports it and halts |
