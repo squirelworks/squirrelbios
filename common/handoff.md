@@ -8,15 +8,15 @@ If the firmware and this file disagree, the firmware has a bug.
 
 | | x86 PC | AArch64 (QEMU virt) | RISC-V (QEMU virt) |
 |---|---|---|---|
-| Image source | LBA 0 of the primary master ATA disk | `-kernel`, read through fw_cfg DMA | `-kernel`, loaded by QEMU |
-| Entry | `0x0000:0x7C00` | `0x40200000` | `0x80200000` (rv64) |
+| Image source | LBA 0 of the primary master ATA disk; sectors 1–192 as well when they are a `S2OK` image | `-kernel`, read through fw_cfg DMA | `-kernel`, loaded by QEMU |
+| Entry | `0x0000:0x7C00`, or `0x0000:0x8000` for a `S2OK` image | `0x40200000` | `0x80200000` (rv64) |
 | CPU mode | 16-bit real mode | EL1 (EL2 with `virtualization=on`), MMU off | S-mode (QEMU's `next_mode`), `satp = 0` |
 | Boot argument | `DL = 0x80` | `x0` = device tree | `a0` = hart ID, `a1` = device tree |
 | Memory description | Memory map at `ES:DI = 0x0000:0x0500` | Device tree `/memory` | Device tree `/memory` |
 | Console | COM1 `0x3F8`, 115200 8N1 | PL011 `0x09000000` | NS16550A `0x10000000`, 115200 8N1 |
 | Interrupts | `IF = 0` | `DAIF` masked | `mstatus.MIE`/`SIE` = 0, `mie = 0` |
 | CPUs running | Boot CPU only | Boot CPU only | The boot hart (`fw_dynamic_info.boot_hart`, else hart 0); others through `sbi_hart_start` |
-| Firmware services | None | None | SBI from S-mode: base, TIME, IPI, RFENCE, HSM, SRST |
+| Firmware services | None. On the `S2OK` entry only, `INT 15h` `E820` returns the memory map | None | SBI from S-mode: base, TIME, IPI, RFENCE, HSM, SRST |
 
 ## Rules for every architecture
 
@@ -33,9 +33,10 @@ The firmware guarantees:
 The OS must not assume:
 
 1. **Firmware services.** There are none after hand-off, apart from the
-   RISC-V SBI listed below: no BIOS interrupts on x86 (`INT 10h`,
-   `INT 13h`, `INT 15h` do not exist), and no UEFI. Anything else the OS
-   needs, it drives itself.
+   RISC-V SBI listed below and one x86 exception: on the `S2OK` kernel
+   entry, `INT 15h` with `EAX = 0xE820` returns the memory map. `INT 10h`
+   and `INT 13h` do not exist, and neither does any other `INT 15h`
+   function. No UEFI. Anything else the OS needs, it drives itself.
 2. **A usable stack.** Set your own stack before using it heavily.
 3. **Trap or interrupt vectors.** Install your own before unmasking
    interrupts.
@@ -94,7 +95,8 @@ kernel. That would be a separate TODO item with its own stand-in, a
 | Range | Contents |
 |-------|----------|
 | `0x0500`–`0x05FF` | Memory map (below). Always at this address. The firmware's own stack sits at the top of this page while it runs, and is free after the jump. |
-| `0x7C00`–`0x7DFF` | Sector 1 of the disk, the image that was jumped to |
+| `0x7C00`–`0x7DFF` | Sector 1 of the disk. The one-sector and SQBL paths jump here |
+| `0x8000`–`0x1FFFF` | The kernel, when the image is the `S2OK` one below. That path jumps to `0x8000` |
 | SQBL load address | The extra sectors, when sector 1 has an SQBL header (below) |
 
 `SP` is `0x7C00`, so the first push lands at `0x7BFE`. An image that loads
@@ -126,8 +128,45 @@ sector, so a load may cross 64 KB boundaries.
 The load must start below `0xA0000` and end at or before it, and must not
 touch `0x0500`–`0x05FF` or `0x7C00`–`0x7DFF`. Anything else, including a
 count of 0 or above 128, is refused before the read (see Failures).
-Memory below `0x0500` is allowed: the firmware leaves no IVT or BIOS data
-there.
+Memory below `0x0500` is allowed. The one-sector and SQBL paths leave no
+IVT there. The `S2OK` path fills the IVT before it jumps; see below.
+
+### Squirrel-OS/2 image (`S2OK`)
+
+Squirrel-OS/2's own boot sector does not use the SQBL header. It expects
+SeaBIOS disk services this firmware does not provide, and it is not
+entered. The calls it would make, which are not implemented:
+
+| Call | What the boot sector uses it for |
+|------|----------------------------------|
+| `INT 13h` `AH = 0x42` | Three reads of 64 sectors (LBAs 1, 65 and 129) to `0x8000`, `0x10000` and `0x18000` |
+| `INT 13h` `AH = 0x08`, then `AH = 0x02` and `AH = 0x00` | Cylinder/head/sector fallback, one sector at a time, with a reset between tries |
+| `INT 10h` `AH = 0x0E` | The failure text, if those reads fail |
+
+Instead, when sector 0 has no SQBL magic and LBA 192's last dword is
+`S2OK` (bytes `53 32 4F 4B`), the firmware reads LBAs 1–192 (96 KB) to
+`0x8000` and jumps to `0x0000:0x8000`. The registers are the same as the
+`0x7C00` hand-off (`DL = 0x80`, `DS = ES = SS = 0`, `SP = 0x7C00`,
+`DI = 0x0500`, `IF = 0`, `DF = 0`). It prints `kernel loaded at
+0x00008000, jumping` first. A disk that is too small, or whose LBA 192
+does not end in `S2OK`, takes the one-sector path. That probe is a
+single read and is not reported as a disk error.
+
+Before the jump the firmware fills the real-mode IVT. Every vector
+points at a stub in the ROM (`0xF000`, where this 64 KB image is
+mapped). The stub handles one call:
+
+| Call | Result |
+|------|--------|
+| `INT 15h`, `EAX = 0xE820`, `EDX = 'SMAP'`, `ECX >= 20`, `EBX` an entry index | CF clear, `EAX = 'SMAP'`, `ECX = 20`, that SQMM entry copied to `ES:DI`. `EBX` is the next index, or 0 after the last entry |
+| Anything else, including `INT 13h` and `INT 10h` | CF set. No register changes |
+
+That `E820` data is the memory map already built at `0x0500`, one entry
+per call, in the same order. The kernel this image enters asks for the
+map that way (24 bytes; the firmware writes the 20-byte entry and leaves
+the caller's extra dword). There is still no disk service and no
+teletype. A CPU that fails the kernel's own check and calls `INT 10h`
+gets CF set and no text.
 
 ### Devices
 
@@ -138,15 +177,17 @@ there.
 | Primary ATA channel | Idle. `nIEN` is set if a retry reset the channel. |
 | VGA | 80x25 colour text at `0xB8000` (the standard 720x400 text timings, 9x16 cells), CRTC at `0x3D4`. The font in plane 2 is the firmware's own 8x16 font (printable ASCII; other codes are blank). The DAC holds the 16 usual text colours. The firmware's messages are on screen in light grey on black, red for errors; the cursor is at the top left. |
 
-Do not assume: BIOS interrupt services, an initialised IVT, A20 state
+Do not assume: BIOS interrupt services other than the `S2OK` path's
+`INT 15h` `E820`, an IVT on the one-sector and SQBL paths, A20 state
 (enabled on QEMU, but the firmware does not touch it), or VGA graphics
 modes and a VGA BIOS (no option ROM is run).
 
 ### Memory map
 
-There is no `INT 15h, E820` after hand-off, so the firmware builds the
-same kind of table in memory before jumping. It is derived from the RAM
-sizes QEMU stores in CMOS (`0x30/0x31`, `0x34/0x35`, `0x5B`–`0x5D`).
+The firmware builds the table below before jumping, from the RAM sizes
+QEMU stores in CMOS (`0x30/0x31`, `0x34/0x35`, `0x5B`–`0x5D`). On the
+one-sector and SQBL paths nothing serves it through `INT 15h`. On the
+`S2OK` path, `INT 15h` `E820` returns these same entries.
 
 | Offset | Size | Field |
 |--------|------|-------|
@@ -189,12 +230,14 @@ registers on COM1 (and the VGA text buffer), then halts:
 | `load overlaps firmware data` | The SQBL load would touch the memory map page or the boot sector. Nothing is read. No registers printed. |
 | `load address is out of range` | The SQBL count is not 1–128, the load address is not below `0xA0000`, or the load runs past it. Nothing is read. No registers printed. |
 | `read of the extra sectors failed` | As `read of LBA 0 failed`, for the SQBL sectors. Retried like the first read. |
+| `read of the kernel image failed` | As `read of LBA 0 failed`, for the `S2OK` sectors after the signature probe. Retried like the first read. |
+| `kernel image has no S2OK signature` | The signature was present in the probe and absent after the load. Not retried, and no status or error registers are printed. |
 
 ### How to test
 
 `make test` runs `x86-boot`, `x86-no-drive`, `x86-mem-low`,
 `x86-mem-high`, `x86-atapi`, `x86-bad-sector`, `x86-extra`,
-`x86-extra-map`, `x86-extra-boot` and `x86-extra-range`. In `x86-boot` the boot sector checks
+`x86-extra-map`, `x86-extra-boot`, `x86-extra-range` and `x86-osload`. In `x86-boot` the boot sector checks
 `DL`, that `IF` and `DF` are clear, and that the memory map has the
 magic, 20-byte entries, ends by `0x0600`, contains the conventional and
 both reserved regions above exactly, requires an entry at `0x00100000`
@@ -221,7 +264,24 @@ loads three sectors to `0x1000:0x0010`; its boot sector checks `DL` and
 the memory map pointer and jumps to them, and they print `payload=ok`
 when the last of them arrived too. Built with `-DOVERLAP_MAP`,
 `-DOVERLAP_BOOT` or `-DOUT_OF_RANGE`, its header asks for a load the
-firmware must refuse.
+firmware must refuse. `x86-osload` is a disk with no SQBL header and
+192 sectors signed `S2OK`. The firmware enters `0x8000`, the image
+checks `DL`, the flags, the map pointer and the signature, walks
+`INT 15h` `E820` against the SQMM entries, and checks that `INT 13h`
+returns with CF set (`disk=absent`). It must not print
+`entered-boot-sector`.
+
+A Squirrel-OS/2 hard-disk image is not part of `make test`. Build
+`os.img` in that repo and run `tests/os-boot.sh path/to/os.img` (or
+`make os-boot OS_IMG=path/to/os.img`). It passes when the VGA text
+buffer shows the `Squirrel-OS/2` banner and a line that is the `>`
+prompt. By hand, the same image with a display:
+
+```bash
+qemu-system-i386 -bios x86/squirrel-bios.rom -drive format=raw,file=os.img,if=ide -serial stdio
+```
+
+The firmware line is on COM1. The banner and the prompt are on the VGA.
 
 ## AArch64 (QEMU virt)
 
