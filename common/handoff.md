@@ -16,7 +16,7 @@ If the firmware and this file disagree, the firmware has a bug.
 | Console | COM1 `0x3F8`, 115200 8N1 | PL011 `0x09000000` | NS16550A `0x10000000`, 115200 8N1 |
 | Interrupts | `IF = 0`; PIT/PIC programmed, IRQ0 unmasked | `DAIF` masked | `mstatus.MIE`/`SIE` = 0, `mie = 0` |
 | CPUs running | Boot CPU only | Boot CPU only | The boot hart (`fw_dynamic_info.boot_hart`, else hart 0); others through `sbi_hart_start` |
-| Firmware services | `INT 13h` `AH=00/02/08/42`, `INT 10h` `AH=02/03/06/07/0E/0F`, `INT 15h` `E820`, `INT 16h` `AH=00/01`, `INT 1Ah` `AH=00/02` | None | SBI from S-mode: base, TIME, IPI, RFENCE, HSM, SRST |
+| Firmware services | `INT 13h` `AH=00/02/03/08/42/43`, `INT 10h` `AH=02/03/06/07/0E/0F`, `INT 15h` `E820`, `INT 16h` `AH=00/01`, `INT 1Ah` `AH=00/02` | None | SBI from S-mode: base, TIME, IPI, RFENCE, HSM, SRST |
 
 ## Rules for every architecture
 
@@ -35,7 +35,8 @@ The OS must not assume:
 1. **Firmware services.** There are none after hand-off, apart from the
    RISC-V SBI listed below and the x86 calls below. `INT 15h` with
    `EAX = 0xE820` returns the memory map. `INT 13h` `AH = 0x00`, `0x02`,
-   `0x08` and `0x42` read the primary master. `INT 10h` `AH = 0x0E`
+   `0x08` and `0x42` read the primary master; `AH = 0x03` and `0x43`
+   write it. `INT 10h` `AH = 0x0E`
    writes one character to the VGA text screen; `AH = 0x02`/`0x03` set
    or get the cursor, `AH = 0x06`/`0x07` scroll, and `AH = 0x0F` reports
    the 80x25 mode. `INT 16h` `AH = 0x00` and `0x01` read or check the
@@ -158,8 +159,10 @@ The boot sector's calls, which the firmware serves on every path:
 | Call | Behaviour |
 |------|-----------|
 | `INT 13h` `AH = 0x42` | Extended read. `DS:SI` points at a 16-byte disk address packet (size byte `0x10`, reserved, word count 1–128, word offset, word segment, qword LBA). The buffer must lie entirely below `0xA0000`. The LBA must fit in 28 bits. CF clear and `AH = 0` on success. |
+| `INT 13h` `AH = 0x43` | Extended write. Same packet rules as `AH = 0x42`. CF clear and `AH = 0` on success. |
 | `INT 13h` `AH = 0x08` | Drive parameters for `DL = 0x80`. CF clear, `AH = 0`, `DH = 15` (16 heads), `CL` bits 5–0 `= 63` (sectors per track), `CH = 0xFF` and `CL` bits 7–6 `= 3` (1023 cylinders), `DL = 1`. `ES:DI` and `BL` are left alone. |
 | `INT 13h` `AH = 0x02` | CHS read of `AL` sectors (1–128) to `ES:BX`, using that same geometry. Cylinder is `CH` plus `CL` bits 7–6, sector is `CL` bits 5–0, head is `DH`. CF clear, `AH = 0`, `AL` unchanged on success. |
+| `INT 13h` `AH = 0x03` | CHS write of `AL` sectors from `ES:BX`, same geometry and status rules as `AH = 0x02`. |
 | `INT 13h` `AH = 0x00` | Reset the primary channel. CF clear and `AH = 0` when the drive comes ready. |
 | `INT 10h` `AH = 0x02` | Set cursor: `DH` = row, `DL` = column (clamped to 80x25). Page `BH` ignored. CF clear. |
 | `INT 10h` `AH = 0x03` | Get cursor: `DH`/`DL` = row/column, `CH`/`CL` = `0x06`/`0x07`, `BH` = 0. CF clear. |
@@ -179,7 +182,7 @@ entirely below `0xA0000`, returns with CF set and `AH = 0x01`. A sector
 that is not on the disk returns with CF set and `AH = 0x04` (read) or
 `AH = 0x05` (reset failed) or `AH = 0x80` (timeout). `AH = 0x02` reports
 `AL = 0` when nothing was transferred. Only the primary master is a
-drive; there is no write, no floppy, and no second disk.
+drive; there is no floppy and no second disk.
 
 Before the jump the firmware fills the real-mode IVT. The vectors for
 `INT 08h` (IRQ0), `INT 09h` (IRQ1), `INT 10h`, `INT 13h`, `INT 15h`,
@@ -298,7 +301,7 @@ registers on COM1 (and the VGA text buffer), then halts:
 `make test` runs `x86-boot`, `x86-no-drive`, `x86-mem-low`,
 `x86-mem-high`, `x86-atapi`, `x86-bad-sector`, `x86-extra`,
 `x86-extra-map`, `x86-extra-boot`, `x86-extra-range`, `x86-osload`,
-`x86-int13`, `x86-bda`, `x86-a20`, `x86-pit`, `x86-kbd`, `x86-time` and `x86-vid`. In `x86-boot` the boot sector checks
+`x86-int13`, `x86-bda`, `x86-a20`, `x86-pit`, `x86-kbd`, `x86-time`, `x86-vid` and `x86-write`. In `x86-boot` the boot sector checks
 `DL`, that `IF` and `DF` are clear, and that the memory map has the
 magic, 20-byte entries, ends by `0x0600`, contains the conventional and
 both reserved regions above exactly, requires an entry at `0x00100000`
@@ -351,6 +354,8 @@ prints `pit=ok` only when `IF` is clear again.
 `AH=0x02` BCD time fields, and prints `time=ok`.
 `x86-vid` exercises `INT 10h` set/get cursor, get mode, teletype, and
 scroll, and prints `vid=ok`.
+`x86-write` writes LBA 1 with `AH=0x43` and LBA 2 with `AH=0x03`, reads
+them back, and prints `write=ok`.
 
 A Squirrel-OS/2 hard-disk image is not part of `make test`. Build
 `os.img` in that repo and run `tests/os-boot.sh path/to/os.img` (or

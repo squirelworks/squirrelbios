@@ -75,7 +75,8 @@ ST_ERR          equ 0x01
 CTRL_NIEN       equ 0x02        ; no interrupts, we poll
 CTRL_SRST       equ 0x04
 
-CMD_READ_SECTORS equ 0x20
+CMD_READ_SECTORS  equ 0x20
+CMD_WRITE_SECTORS equ 0x30
 
 ATA_TIMEOUT     equ 0x00400000  ; status polls before giving up
 ATA_ATTEMPTS    equ 3
@@ -535,8 +536,10 @@ kbd_wait_in:
 ;                     line, and the kernel's old-CPU line)
 ;   INT 13h AH=0x00   reset the primary master
 ;   INT 13h AH=0x02   CHS read
+;   INT 13h AH=0x03   CHS write
 ;   INT 13h AH=0x08   drive parameters (16 heads, 63 sectors)
 ;   INT 13h AH=0x42   extended read (LBA), packet size 0x10
+;   INT 13h AH=0x43   extended write (LBA), packet size 0x10
 ;   INT 15h EAX=E820  next SQMM entry, same table as 0x0500
 ;   INT 16h AH=0x00   read keystroke (wait)
 ;   INT 16h AH=0x01   check keystroke (ZF clear if ready)
@@ -1111,10 +1114,14 @@ int13_handler:
     je .reset
     cmp ah, 0x02
     je .read_chs
+    cmp ah, 0x03
+    je .write_chs
     cmp ah, 0x08
     je .params
     cmp ah, 0x42
     je .read_ext
+    cmp ah, 0x43
+    je .write_ext
     jmp .invalid
 
 .reset:
@@ -1142,35 +1149,25 @@ int13_handler:
     jmp .out
 
 .read_ext:
-    cmp byte [bp + 20], 0x80
-    jne .invalid
-    cmp byte [si], 0x10             ; packet size
-    jne .invalid
-    movzx ecx, word [si + 2]        ; sector count
-    test cx, cx
-    jz .invalid
-    cmp cx, 128
-    ja .invalid
-    cmp dword [si + 12], 0          ; LBA high half
-    jne .invalid
-    mov eax, [si + 8]
-    test eax, 0xF0000000
-    jnz .invalid
-    movzx edx, word [si + 6]        ; segment
-    shl edx, 4
-    movzx ebx, word [si + 4]        ; offset
-    add edx, ebx                    ; linear destination
-    mov ebx, ecx
-    shl ebx, 9
-    add ebx, edx                    ; end
-    cmp edx, LOAD_LIMIT
-    jae .invalid
-    cmp ebx, LOAD_LIMIT
-    ja .invalid
+    call disk_parse_packet
+    jc .invalid
     push bp
     mov ebp, edx
     call disk_clear_stale
     call ata_read                   ; EAX = LBA, CL = count, EBP = dest
+    pop bp
+    jc .ioerr
+    mov byte [bp + 29], ST_OK
+    and word [bp + 36], 0xFFFE
+    jmp .out
+
+.write_ext:
+    call disk_parse_packet
+    jc .invalid
+    push bp
+    mov ebp, edx
+    call disk_clear_stale
+    call ata_write
     pop bp
     jc .ioerr
     mov byte [bp + 29], ST_OK
@@ -1234,6 +1231,63 @@ int13_handler:
     and word [bp + 36], 0xFFFE
     jmp .out
 
+.write_chs:
+    cmp byte [bp + 20], 0x80
+    jne .invalid
+    movzx esi, byte [bp + 28]
+    test si, si
+    jz .invalid
+    cmp si, 128
+    ja .invalid
+    movzx eax, byte [bp + 24]
+    and al, 0x3F
+    jz .notfound
+    cmp al, DISK_SPT
+    ja .notfound
+    movzx ebx, al
+    movzx eax, byte [bp + 24]
+    shr ax, 6
+    and ax, 3
+    shl ax, 8
+    movzx edx, byte [bp + 25]
+    or eax, edx
+    movzx edx, byte [bp + 21]
+    cmp dx, DISK_HEADS
+    jae .notfound
+    push ebx
+    push edx
+    mov ebx, DISK_HEADS
+    mul ebx
+    pop edx
+    add eax, edx
+    mov ebx, DISK_SPT
+    mul ebx
+    pop edx
+    dec edx
+    add eax, edx
+    movzx edx, word [bp + 16]
+    mov bx, es
+    movzx ebx, bx
+    shl ebx, 4
+    add edx, ebx
+    mov ebx, esi
+    shl ebx, 9
+    add ebx, edx
+    cmp edx, LOAD_LIMIT
+    jae .invalid
+    cmp ebx, LOAD_LIMIT
+    ja .invalid
+    push bp
+    mov ebp, edx
+    mov ecx, esi
+    call disk_clear_stale
+    call ata_write
+    pop bp
+    jc .ioerr_chs
+    mov byte [bp + 29], ST_OK
+    and word [bp + 36], 0xFFFE
+    jmp .out
+
 .ioerr_chs:
     mov byte [bp + 28], 0           ; no sector transferred
 .ioerr:
@@ -1274,6 +1328,40 @@ disk_status:
     jne .done
     mov al, ST_NOTREADY
 .done:
+    ret
+
+; Parse a 16-byte disk address packet at DS:SI.
+; Out: CF clear, EAX = LBA, CL = count, EDX = linear buffer; CF set if bad.
+disk_parse_packet:
+    cmp byte [bp + 20], 0x80
+    jne .bad
+    cmp byte [si], 0x10
+    jne .bad
+    movzx ecx, word [si + 2]
+    test cx, cx
+    jz .bad
+    cmp cx, 128
+    ja .bad
+    cmp dword [si + 12], 0
+    jne .bad
+    mov eax, [si + 8]
+    test eax, 0xF0000000
+    jnz .bad
+    movzx edx, word [si + 6]
+    shl edx, 4
+    movzx ebx, word [si + 4]
+    add edx, ebx
+    mov ebx, ecx
+    shl ebx, 9
+    add ebx, edx
+    cmp edx, LOAD_LIMIT
+    jae .bad
+    cmp ebx, LOAD_LIMIT
+    ja .bad
+    clc
+    ret
+.bad:
+    stc
     ret
 
 ; A failed command leaves ERR set, and ata_read refuses to start another
@@ -1511,6 +1599,163 @@ ata_read:
     pop ecx
     pop eax
     stc                         ; ADD above clears CF, so set it last
+    ret
+.ok:
+    pop es
+    pop ebx
+    pop esi
+    pop edi
+    pop ebp
+    pop edx
+    pop ecx
+    pop eax
+    clc
+    ret
+
+; Write sectors of the primary master from memory below 1 MB.
+; Same register convention as ata_read.
+ata_write:
+    push eax
+    push ecx
+    push edx
+    push ebp
+    push edi
+    push esi
+    push ebx
+    push es
+    movzx esi, cl
+    mov edi, eax
+
+    test si, si
+    jz .badarg
+    cmp si, 128
+    ja .badarg
+    test edi, 0xF0000000
+    jnz .badarg
+
+    mov dx, ATA_STATUS
+    in al, dx
+    cmp al, 0xFF
+    je .nodrive
+
+    mov dx, ATA_DRIVE
+    mov eax, edi
+    shr eax, 24
+    and al, 0x0F
+    or al, 0xE0
+    out dx, al
+    call ata_delay400
+
+    mov dx, ATA_STATUS
+    in al, dx
+    cmp al, 0xFF
+    je .nodrive
+    test al, al
+    jnz .present
+    mov dx, ATA_LBA_MID
+    in al, dx
+    cmp al, 0x14
+    jne .nodrive
+    mov dx, ATA_LBA_HI
+    in al, dx
+    cmp al, 0xEB
+    je .atapi
+    jmp .nodrive
+.present:
+
+    mov bl, ST_DRDY | ST_ERR | ST_DF
+    call ata_poll
+    jc .timeout
+    test al, ST_ERR | ST_DF
+    jnz .error
+
+    mov dx, ATA_COUNT
+    mov ax, si
+    out dx, al
+    mov eax, edi
+    mov dx, ATA_LBA_LO
+    out dx, al
+    shr eax, 8
+    mov dx, ATA_LBA_MID
+    out dx, al
+    shr eax, 8
+    mov dx, ATA_LBA_HI
+    out dx, al
+
+    mov dx, ATA_STATUS
+    mov al, CMD_WRITE_SECTORS
+    out dx, al
+
+    cld
+.sector:
+    call ata_delay400
+    mov bl, ST_DRQ | ST_ERR | ST_DF
+    call ata_poll
+    jc .timeout
+    test al, ST_ERR | ST_DF
+    jnz .error
+
+    mov ecx, ebp
+    shr ecx, 4
+    mov es, cx
+    mov di, bp
+    and di, 0x000F
+    push ds
+    push si
+    mov si, di
+    mov ax, es
+    mov ds, ax
+    mov cx, 256
+    mov dx, ATA_DATA
+    rep outsw
+    pop si
+    pop ds
+    add ebp, 512
+    dec si
+    jnz .sector
+
+    call ata_delay400
+    mov bl, ST_DRDY | ST_ERR | ST_DF
+    call ata_poll
+    jc .timeout
+    test al, ST_ERR | ST_DF
+    jnz .error
+    test al, ST_DRQ
+    jnz .error
+    clc
+    jmp .ok
+
+.badarg:
+    mov si, msg_readerr
+    xor bx, bx
+    jmp .fail
+.nodrive:
+    mov si, msg_nodrive
+    jmp .failed
+.atapi:
+    mov si, msg_atapi
+    jmp .failed
+.timeout:
+    mov si, msg_timeout
+    jmp .failed
+.error:
+    mov si, msg_readerr
+.failed:
+    mov dx, ATA_STATUS
+    in al, dx
+    mov bl, al
+    mov dx, ATA_ERROR
+    in al, dx
+    mov bh, al
+.fail:
+    pop es
+    add sp, 8
+    pop edi
+    pop ebp
+    pop edx
+    pop ecx
+    pop eax
+    stc
     ret
 .ok:
     pop es

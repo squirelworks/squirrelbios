@@ -270,7 +270,7 @@ so the IVT surface stays the contract.
     prints `vid=ok`. `AH=0x0E` stays working. No VESA. Depends on:
     `x86-bda`.
 
-- [ ] `x86-int13-write` — Disk writes on the primary master.
+- [x] `x86-int13-write` — Disk writes on the primary master.
   - Acceptance: `AH=0x03` (CHS) and `AH=0x43` (extended) write sectors
     that a later read returns. Carry and `AH` status match the read
     path's style. A stand-in prints `write=ok`. Depends on: `x86-int13`
