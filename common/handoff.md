@@ -14,7 +14,7 @@ If the firmware and this file disagree, the firmware has a bug.
 | Boot argument | `DL = 0x80` | `x0` = device tree | `a0` = hart ID, `a1` = device tree |
 | Memory description | Memory map at `ES:DI = 0x0000:0x0500` | Device tree `/memory` | Device tree `/memory` |
 | Console | COM1 `0x3F8`, 115200 8N1 | PL011 `0x09000000` | NS16550A `0x10000000`, 115200 8N1 |
-| Interrupts | `IF = 0` | `DAIF` masked | `mstatus.MIE`/`SIE` = 0, `mie = 0` |
+| Interrupts | `IF = 0`; PIT/PIC programmed, IRQ0 unmasked | `DAIF` masked | `mstatus.MIE`/`SIE` = 0, `mie = 0` |
 | CPUs running | Boot CPU only | Boot CPU only | The boot hart (`fw_dynamic_info.boot_hart`, else hart 0); others through `sbi_hart_start` |
 | Firmware services | `INT 13h` `AH=00/02/08/42`, `INT 10h` `AH=0E`, `INT 15h` `E820`. Nothing else | None | SBI from S-mode: base, TIME, IPI, RFENCE, HSM, SRST |
 
@@ -167,10 +167,11 @@ that is not on the disk returns with CF set and `AH = 0x04` (read) or
 drive; there is no write, no floppy, and no second disk.
 
 Before the jump the firmware fills the real-mode IVT. The vectors for
-`INT 10h`, `INT 13h` and `INT 15h` point at those services in the ROM
-(`0xF000`, where this 64 KB image is mapped). Every other vector is an
-`iret` that does not change flags, so a stray timer tick cannot flip CF.
-Both PICs are masked.
+`INT 08h` (IRQ0), `INT 10h`, `INT 13h` and `INT 15h` point at those
+services in the ROM (`0xF000`, where this 64 KB image is mapped). Every
+other vector is an `iret` that does not change flags, so a stray IRQ
+cannot flip CF. `IF` stays clear; IRQ0 is unmasked on the PIC so a later
+`STI` receives timer ticks.
 
 `INT 15h` `E820` is the same on every path:
 
@@ -191,7 +192,9 @@ with `INT 10h` `AH = 0x0E`.
 |--------|-------|
 | COM1 (`0x3F8`) | 115200 8N1, FIFOs on, UART interrupts off |
 | CMOS / RTC (`0x70`/`0x71`) | Index `0x0D` (status register D), NMI enabled (bit 7 of `0x70` clear). The firmware masks NMI only while it reads a register. |
-| 8259 PICs (`0x20`, `0xA0`) | Both masks are `0xFF` (every IRQ masked). The OS programs them itself. |
+| 8259 PICs (`0x20`, `0xA0`) | IBM PC AT layout: master IRQs at `INT 08h`–`0Fh`, slave at `INT 70h`–`77h`, slave on IRQ2. Master mask `0xFE` (IRQ0 open); slave mask `0xFF`. |
+| 8253/8254 PIT | Channel 0 mode 3, divisor 65536 (~18.2 Hz). IRQ0 increments `0x046C`. |
+| Local APIC | Virtual-wire mode when CPUID reports an APIC: spurious vector enabled, LVT0 = ExtINT, LVT1 = NMI, so the 8259 delivers IRQ0 on QEMU's default CPU. |
 | Primary ATA channel | Idle. `nIEN` is set if a retry or an `INT 13h` reset touched the channel. |
 | VGA | 80x25 colour text at `0xB8000` (the standard 720x400 text timings, 9x16 cells), CRTC at `0x3D4`. The font in plane 2 is the firmware's own 8x16 font (printable ASCII; other codes are blank). The DAC holds the 16 usual text colours. The firmware's messages are on screen in light grey on black, red for errors. The teletype cursor starts at the top left and the CRTC cursor follows it. |
 
@@ -205,6 +208,8 @@ addresses (segment 0):
 | `0x0410` | word | Equipment list `0x0220`: 80x25 colour (bits 4–5 = `10`), one serial port (bits 9–11 = 1). No floppies or parallel ports. |
 | `0x0413` | word | Conventional memory size in KB: `640` (`0x00000`–`0x9FFFF`, matching the SQMM usable entry). |
 | `0x0450` | 2 bytes | Page-0 cursor: column then row. Starts at `(0, 0)`; `INT 10h` `AH=0x0E` keeps both inside 80x25. |
+| `0x046C` | dword | Timer ticks since midnight. IRQ0 (`INT 08h`) increments it; wraps at `0x1800B0` (~24 h at 18.2 Hz) and sets `0x0470` to 1. Starts at 0. |
+| `0x0470` | byte | 24-hour rollover flag for the tick count. Starts at 0. |
 
 Other BDA bytes are not filled by this firmware yet.
 
@@ -272,7 +277,7 @@ registers on COM1 (and the VGA text buffer), then halts:
 `make test` runs `x86-boot`, `x86-no-drive`, `x86-mem-low`,
 `x86-mem-high`, `x86-atapi`, `x86-bad-sector`, `x86-extra`,
 `x86-extra-map`, `x86-extra-boot`, `x86-extra-range`, `x86-osload`,
-`x86-int13`, `x86-bda` and `x86-a20`. In `x86-boot` the boot sector checks
+`x86-int13`, `x86-bda`, `x86-a20` and `x86-pit`. In `x86-boot` the boot sector checks
 `DL`, that `IF` and `DF` are clear, and that the memory map has the
 magic, 20-byte entries, ends by `0x0600`, contains the conventional and
 both reserved regions above exactly, requires an entry at `0x00100000`
@@ -316,6 +321,8 @@ cursor at `0x0450` is still inside 80x25 after the banner, and prints
 `bda=ok`.
 `x86-a20` writes at `0x500000`, checks that `0x100500` and `0x000500`
 are independent (A20 open), and prints `a20=ok`.
+`x86-pit` finds `IF` clear, `STI`s until `0x046C` advances, `CLI`s, and
+prints `pit=ok` only when `IF` is clear again.
 
 A Squirrel-OS/2 hard-disk image is not part of `make test`. Build
 `os.img` in that repo and run `tests/os-boot.sh path/to/os.img` (or

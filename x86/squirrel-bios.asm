@@ -13,6 +13,7 @@
 ;   - Build a memory map at 0x0000:0x0500 (memmap.inc)
 ;   - Fill BDA equipment, conventional KB, and the teletype cursor
 ;   - Enable the A20 gate (port 0x92) before the hand-off jump
+;   - Program the PIT (~18.2 Hz) and both PICs (IRQ0 at INT 08h)
 ;   - Print banner
 ;   - ATA PIO read of LBA 0 (sector 1) into 0x7C00, with timeouts,
 ;     status checks and retries (soft reset between attempts)
@@ -94,10 +95,22 @@ DISK_CYL_HI_CL  equ 0xFF
 BDA_EQUIP       equ 0x0410      ; equipment list word
 BDA_MEMSIZE     equ 0x0413      ; conventional memory size, KB
 BDA_CURSOR      equ 0x0450      ; column, then row, one byte each (page 0)
+BDA_TICKS       equ 0x046C      ; dword: PIT ticks since midnight (IRQ0)
+BDA_TICK_OVR    equ 0x0470      ; byte: 24-hour overflow flag
 ; Equipment: 80x25 colour (bits 4-5 = 10), one serial port (bits 9-11 = 1).
 ; No floppies, no parallel ports. Matches COM1 + VGA text in this firmware.
 BDA_EQUIP_VAL   equ 0x0220
 BDA_MEM_KB      equ 640         ; 0x00000-0x9FFFF, as in the memory map
+; PIT channel 0: divisor 0 => 65536, ~18.2065 Hz from 1.193182 MHz
+PIT_CMD         equ 0x43
+PIT_CH0         equ 0x40
+PIT_MODE        equ 0x36        ; ch0, lobyte/hibyte, mode 3, binary
+; 8259s: IBM PC AT — IRQ0..7 at INT 08h..0Fh, IRQ8..15 at INT 70h..77h
+PIC1_CMD        equ 0x20
+PIC1_DATA       equ 0x21
+PIC2_CMD        equ 0xA0
+PIC2_DATA       equ 0xA1
+PIC_TICKS_DAY   equ 0x1800B0    ; ticks in 24 hours at ~18.2 Hz
 
 ; INT 13h status
 ST_OK           equ 0x00
@@ -115,12 +128,10 @@ ATTR_ERROR      equ 0x0C
 entry:
     cli
     cld
-    ; The boot sector enables interrupts. Mask both PICs so a timer
-    ; tick cannot run between an INT 13h and the jc that checks it.
-    ; The OS programs the PIC itself once it is up.
+    ; Mask both PICs until pit_pic_init programs them for the hand-off.
     mov al, 0xFF
-    out 0x21, al
-    out 0xA1, al
+    out PIC1_DATA, al
+    out PIC2_DATA, al
     mov ax, cs                  ; strings live in the ROM segment
     mov ds, ax
     xor ax, ax
@@ -244,8 +255,7 @@ kernel_fail:
     mov si, msg_kernel
     jmp disk_fail
 kernel_go:
-    call enable_a20
-    call install_ivt
+    call prepare_runtime
     mov si, msg_kload
     mov ah, ATTR_NORMAL
     call con_print
@@ -265,8 +275,7 @@ kernel_entry:
     jmp 0x0000:OS_LOAD
 
 handoff:
-    call enable_a20
-    call install_ivt
+    call prepare_runtime
     xor ax, ax
     mov ds, ax
     mov es, ax
@@ -275,6 +284,15 @@ handoff:
     mov dl, 0x80                ; boot drive
     mov di, MEMMAP_ADDR         ; memory map header
     jmp 0x0000:0x7C00
+
+; A20, APIC virtual-wire, PIT, PIC, IVT. IF stays clear; IRQ0 is unmasked
+; so a later STI sees the timer. Called once on every hand-off path.
+prepare_runtime:
+    call enable_a20
+    call apic_virtual_wire
+    call pit_pic_init
+    call install_ivt
+    ret
 
 ; In: SI = reason, BL = ATA status, BH = ATA error register
 disk_fail:
@@ -313,6 +331,8 @@ bda_init:
     mov word [ss:BDA_EQUIP], BDA_EQUIP_VAL
     mov word [ss:BDA_MEMSIZE], BDA_MEM_KB
     mov word [ss:BDA_CURSOR], 0
+    mov dword [ss:BDA_TICKS], 0
+    mov byte [ss:BDA_TICK_OVR], 0
     ret
 
 ; Enable the A20 line through the fast gate at port 0x92 (System Control
@@ -324,6 +344,119 @@ enable_a20:
     or al, 0x02
     and al, 0xFE
     out 0x92, al
+    pop ax
+    ret
+
+; Put the local APIC in virtual-wire mode so the 8259's ExtINT reaches
+; the CPU (QEMU's default CPU otherwise keeps IRQ0 from the PIT). Skips
+; when CPUID reports no APIC. Uses a brief unreal-mode DS to touch
+; 0xFEE00000. Clobbers EAX/EBX/ECX/EDX and transiently DS.
+APIC_BASE       equ 0xFEE00000
+APIC_SPIV       equ 0xF0
+APIC_LVT0       equ 0x350
+APIC_LVT1       equ 0x360
+
+apic_virtual_wire:
+    push eax
+    push ebx
+    push ecx
+    push edx
+    push ds
+    pushf
+    cli
+    mov eax, 1
+    cpuid
+    test edx, 1 << 9
+    jz .out
+    ; Ensure the APIC is globally enabled at the usual base.
+    mov ecx, 0x1B
+    rdmsr
+    or eax, 1 << 11
+    and eax, 0xFFFFF000
+    or eax, (APIC_BASE & 0xFFFFF000) | (1 << 11) | (1 << 8)
+    xor edx, edx
+    wrmsr
+    call unreal_ds
+    mov eax, APIC_BASE
+    ; SPIV: software enable, spurious vector 0xFF
+    mov dword [dword eax + APIC_SPIV], 0x1FF
+    ; LVT0: ExtINT delivery, unmasked (virtual wire)
+    mov dword [dword eax + APIC_LVT0], 0x700
+    ; LVT1: NMI
+    mov dword [dword eax + APIC_LVT1], 0x400
+.out:
+    popf
+    pop ds
+    pop edx
+    pop ecx
+    pop ebx
+    pop eax
+    ret
+
+; Load DS with a 4 GB flat data segment, then leave protected mode so the
+; cached descriptor stays (unreal mode). GDT lives in this ROM; GDTR is
+; built on the stack because the ROM is not writable.
+unreal_ds:
+    push eax
+    push bx
+    xor eax, eax
+    mov ax, cs
+    shl eax, 4
+    add eax, apic_gdt
+    sub sp, 6
+    mov bx, sp
+    mov word [ss:bx], apic_gdt_end - apic_gdt - 1
+    mov dword [ss:bx + 2], eax
+    lgdt [ss:bx]
+    add sp, 6
+    mov eax, cr0
+    or al, 1
+    mov cr0, eax
+    mov ax, 0x08
+    mov ds, ax
+    mov eax, cr0
+    and al, 0xFE
+    mov cr0, eax
+    pop bx
+    pop eax
+    ret
+
+align 8
+apic_gdt:
+    dq 0
+    dw 0xFFFF, 0x0000
+    db 0x00, 10010010b, 11001111b, 0x00
+apic_gdt_end:
+
+; PIT channel 0 at ~18.2 Hz; both 8259s in the IBM PC AT layout.
+; Master mask leaves IRQ0 open; everything else stays masked. IF is still
+; clear, so no interrupt runs until the OS (or a stand-in) STIs.
+pit_pic_init:
+    push ax
+    mov al, PIT_MODE
+    out PIT_CMD, al
+    xor al, al                  ; divisor 0 = 65536
+    out PIT_CH0, al
+    out PIT_CH0, al
+
+    mov al, 0x11                ; ICW1: edge, cascade, ICW4 needed
+    out PIC1_CMD, al
+    out PIC2_CMD, al
+    mov al, 0x08                ; ICW2 master: IRQ0 -> INT 08h
+    out PIC1_DATA, al
+    mov al, 0x70                ; ICW2 slave: IRQ8 -> INT 70h
+    out PIC2_DATA, al
+    mov al, 0x04                ; ICW3 master: slave on IRQ2
+    out PIC1_DATA, al
+    mov al, 0x02                ; ICW3 slave: cascade id 2
+    out PIC2_DATA, al
+    mov al, 0x01                ; ICW4: 8086 mode
+    out PIC1_DATA, al
+    out PIC2_DATA, al
+    mov al, 0xFE                ; OCW1: unmask IRQ0 only
+    out PIC1_DATA, al
+    mov al, 0xFF
+    out PIC2_DATA, al
     pop ax
     ret
 
@@ -340,8 +473,8 @@ enable_a20:
 ;   INT 15h EAX=E820  next SQMM entry, same table as 0x0500
 ;
 ; Any other request on those three vectors returns with CF set.
-; Every other vector just irets: the boot sector enables interrupts,
-; and a timer tick must not flip CF under a jc.
+; IRQ0 (INT 08h) increments the BDA tick count. Every other vector just
+; irets: a stray IRQ must not flip CF under a jc after INT 13h.
 ; ---------------------------------------------------------------------------
 
 install_ivt:
@@ -360,6 +493,7 @@ install_ivt:
     mov ax, 0xF000
     stosw
     loop .fill
+    mov word [es:0x08 * 4], irq0_handler
     mov word [es:0x10 * 4], int10_handler
     mov word [es:0x13 * 4], int13_handler
     mov word [es:0x15 * 4], int15_handler
@@ -370,6 +504,26 @@ install_ivt:
     ret
 
 int_unhandled:
+    iret
+
+; IRQ0: PIT tick. Increments BDA_TICKS; wraps at a day and sets the
+; overflow byte. EOI to the master PIC. Preserves all registers and the
+; flags the interrupted code had on the stack.
+irq0_handler:
+    push ax
+    push ds
+    xor ax, ax
+    mov ds, ax
+    add dword [BDA_TICKS], 1
+    cmp dword [BDA_TICKS], PIC_TICKS_DAY
+    jb .eoi
+    mov dword [BDA_TICKS], 0
+    mov byte [BDA_TICK_OVR], 1
+.eoi:
+    mov al, 0x20
+    out PIC1_CMD, al
+    pop ds
+    pop ax
     iret
 
 ; Stacked real-mode frame: [bp+2] = IP, [bp+4] = CS, [bp+6] = FLAGS.
