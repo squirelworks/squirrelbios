@@ -16,7 +16,7 @@ If the firmware and this file disagree, the firmware has a bug.
 | Console | COM1 `0x3F8`, 115200 8N1 | PL011 `0x09000000` | NS16550A `0x10000000`, 115200 8N1 |
 | Interrupts | `IF = 0`; PIT/PIC programmed, IRQ0 unmasked | `DAIF` masked | `mstatus.MIE`/`SIE` = 0, `mie = 0` |
 | CPUs running | Boot CPU only | Boot CPU only | The boot hart (`fw_dynamic_info.boot_hart`, else hart 0); others through `sbi_hart_start` |
-| Firmware services | `INT 13h` `AH=00/02/08/42`, `INT 10h` `AH=0E`, `INT 15h` `E820`, `INT 16h` `AH=00/01`, `INT 1Ah` `AH=00/02` | None | SBI from S-mode: base, TIME, IPI, RFENCE, HSM, SRST |
+| Firmware services | `INT 13h` `AH=00/02/08/42`, `INT 10h` `AH=02/03/06/07/0E/0F`, `INT 15h` `E820`, `INT 16h` `AH=00/01`, `INT 1Ah` `AH=00/02` | None | SBI from S-mode: base, TIME, IPI, RFENCE, HSM, SRST |
 
 ## Rules for every architecture
 
@@ -36,12 +36,14 @@ The OS must not assume:
    RISC-V SBI listed below and the x86 calls below. `INT 15h` with
    `EAX = 0xE820` returns the memory map. `INT 13h` `AH = 0x00`, `0x02`,
    `0x08` and `0x42` read the primary master. `INT 10h` `AH = 0x0E`
-   writes one character to the VGA text screen. `INT 16h` `AH = 0x00`
-   and `0x01` read or check the keyboard buffer. `INT 1Ah` `AH = 0x00`
-   returns the tick count; `AH = 0x02` reads the RTC time in BCD. Any
-   other function on those vectors returns with CF set (`INT 16h` check
-   uses ZF instead). No other software interrupt is serviced. No UEFI.
-   Anything else the OS needs, it drives itself.
+   writes one character to the VGA text screen; `AH = 0x02`/`0x03` set
+   or get the cursor, `AH = 0x06`/`0x07` scroll, and `AH = 0x0F` reports
+   the 80x25 mode. `INT 16h` `AH = 0x00` and `0x01` read or check the
+   keyboard buffer. `INT 1Ah` `AH = 0x00` returns the tick count;
+   `AH = 0x02` reads the RTC time in BCD. Any other function on those
+   vectors returns with CF set (`INT 16h` check uses ZF instead). No
+   other software interrupt is serviced. No UEFI. Anything else the OS
+   needs, it drives itself.
 2. **A usable stack.** Set your own stack before using it heavily.
 3. **Trap or interrupt vectors.** Install your own before unmasking
    interrupts.
@@ -159,7 +161,11 @@ The boot sector's calls, which the firmware serves on every path:
 | `INT 13h` `AH = 0x08` | Drive parameters for `DL = 0x80`. CF clear, `AH = 0`, `DH = 15` (16 heads), `CL` bits 5–0 `= 63` (sectors per track), `CH = 0xFF` and `CL` bits 7–6 `= 3` (1023 cylinders), `DL = 1`. `ES:DI` and `BL` are left alone. |
 | `INT 13h` `AH = 0x02` | CHS read of `AL` sectors (1–128) to `ES:BX`, using that same geometry. Cylinder is `CH` plus `CL` bits 7–6, sector is `CL` bits 5–0, head is `DH`. CF clear, `AH = 0`, `AL` unchanged on success. |
 | `INT 13h` `AH = 0x00` | Reset the primary channel. CF clear and `AH = 0` when the drive comes ready. |
+| `INT 10h` `AH = 0x02` | Set cursor: `DH` = row, `DL` = column (clamped to 80x25). Page `BH` ignored. CF clear. |
+| `INT 10h` `AH = 0x03` | Get cursor: `DH`/`DL` = row/column, `CH`/`CL` = `0x06`/`0x07`, `BH` = 0. CF clear. |
+| `INT 10h` `AH = 0x06` / `0x07` | Scroll up / down. `AL` = lines (`0` blanks the window), `BH` = blank attribute, `CH`/`CL`–`DH`/`DL` = window. Full-screen one-line scrolls move rows; other windows are blanked. CF clear. |
 | `INT 10h` `AH = 0x0E` | Teletype `AL` onto the VGA text screen in the normal attribute, from the cursor at `0x0450` (column, then row). CR, LF, BS and BEL behave as a teletype; the screen scrolls at row 25. Other registers are kept. CF clear. |
+| `INT 10h` `AH = 0x0F` | Get mode: `AL` = 3 (80x25 colour), `AH` = 80 columns, `BH` = 0. CF clear. |
 | `INT 16h` `AH = 0x00` | Wait for a keystroke. Returns `AL` = ASCII, `AH` = set-1 make scancode. CF clear. |
 | `INT 16h` `AH = 0x01` | Check the buffer. ZF clear and `AX` as above when a key is ready (not removed); ZF set when empty. CF clear. |
 | `INT 16h` other `AH` | CF set. |
@@ -292,7 +298,7 @@ registers on COM1 (and the VGA text buffer), then halts:
 `make test` runs `x86-boot`, `x86-no-drive`, `x86-mem-low`,
 `x86-mem-high`, `x86-atapi`, `x86-bad-sector`, `x86-extra`,
 `x86-extra-map`, `x86-extra-boot`, `x86-extra-range`, `x86-osload`,
-`x86-int13`, `x86-bda`, `x86-a20`, `x86-pit`, `x86-kbd` and `x86-time`. In `x86-boot` the boot sector checks
+`x86-int13`, `x86-bda`, `x86-a20`, `x86-pit`, `x86-kbd`, `x86-time` and `x86-vid`. In `x86-boot` the boot sector checks
 `DL`, that `IF` and `DF` are clear, and that the memory map has the
 magic, 20-byte entries, ends by `0x0600`, contains the conventional and
 both reserved regions above exactly, requires an entry at `0x00100000`
@@ -343,6 +349,8 @@ prints `pit=ok` only when `IF` is clear again.
 `0x1E`, refuses an unknown `AH` with CF set, and prints `kbd=ok`.
 `x86-time` waits for a non-zero `INT 1Ah` `AH=0x00` tick count, checks
 `AH=0x02` BCD time fields, and prints `time=ok`.
+`x86-vid` exercises `INT 10h` set/get cursor, get mode, teletype, and
+scroll, and prints `vid=ok`.
 
 A Squirrel-OS/2 hard-disk image is not part of `make test`. Build
 `os.img` in that repo and run `tests/os-boot.sh path/to/os.img` (or
