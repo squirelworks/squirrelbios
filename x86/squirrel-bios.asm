@@ -15,6 +15,7 @@
 ;   - Enable the A20 gate (port 0x92) before the hand-off jump
 ;   - Program the PIT (~18.2 Hz) and both PICs (IRQ0/IRQ1)
 ;   - Enable the i8042 (set-1 XLAT) and INT 16h keyboard services
+;   - INT 1Ah: ticks since midnight and RTC time (BCD)
 ;   - Print banner
 ;   - ATA PIO read of LBA 0 (sector 1) into 0x7C00, with timeouts,
 ;     status checks and retries (soft reset between attempts)
@@ -539,6 +540,8 @@ kbd_wait_in:
 ;   INT 15h EAX=E820  next SQMM entry, same table as 0x0500
 ;   INT 16h AH=0x00   read keystroke (wait)
 ;   INT 16h AH=0x01   check keystroke (ZF clear if ready)
+;   INT 1Ah AH=0x00   read tick count since midnight
+;   INT 1Ah AH=0x02   read RTC time (BCD)
 ;
 ; Any other request on those vectors returns with CF set (INT 16h check
 ; clears CF and uses ZF). IRQ0 increments the BDA tick count; IRQ1 feeds
@@ -567,6 +570,7 @@ install_ivt:
     mov word [es:0x13 * 4], int13_handler
     mov word [es:0x15 * 4], int15_handler
     mov word [es:0x16 * 4], int16_handler
+    mov word [es:0x1A * 4], int1a_handler
     pop cx
     pop ax
     pop di
@@ -730,6 +734,63 @@ int16_handler:
     iret
 
 ; --- end keyboard --------------------------------------------------------
+
+; INT 1Ah: AH=0x00 read ticks (CX:DX, AL = midnight flag then clear it);
+; AH=0x02 read RTC time in BCD (CH=hours, CL=minutes, DH=seconds, DL=0).
+; Other AH -> CF set. Stacked frame: [bp+2]=IP, [bp+4]=CS, [bp+6]=FLAGS.
+int1a_handler:
+    push bp
+    mov bp, sp
+    cmp ah, 0x00
+    je .ticks
+    cmp ah, 0x02
+    je .rtc
+    or word [bp + 6], 1
+    pop bp
+    iret
+
+.ticks:
+    push ds
+    xor ax, ax
+    mov ds, ax
+    mov dx, [BDA_TICKS]         ; low word
+    mov cx, [BDA_TICKS + 2]     ; high word
+    mov al, [BDA_TICK_OVR]
+    mov byte [BDA_TICK_OVR], 0
+    pop ds
+    and word [bp + 6], 0xFFFE
+    pop bp
+    iret
+
+.rtc:
+    push ax
+    push bx
+    ; Wait for Update-In-Progress (CMOS 0x0A bit 7) to clear.
+    mov bx, 0x1000
+.wait_uip:
+    mov al, 0x0A
+    call cmos_read
+    test al, 0x80
+    jz .read
+    dec bx
+    jnz .wait_uip
+.read:
+    mov al, 0x00                ; seconds
+    call cmos_read
+    mov dh, al
+    mov al, 0x02                ; minutes
+    call cmos_read
+    mov cl, al
+    mov al, 0x04                ; hours
+    call cmos_read
+    mov ch, al
+    xor dl, dl                  ; daylight saving = 0
+    pop bx
+    pop ax
+    mov ah, 0x02                ; keep function number
+    and word [bp + 6], 0xFFFE
+    pop bp
+    iret
 
 
 ; Stacked real-mode frame: [bp+2] = IP, [bp+4] = CS, [bp+6] = FLAGS.

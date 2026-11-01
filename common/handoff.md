@@ -16,7 +16,7 @@ If the firmware and this file disagree, the firmware has a bug.
 | Console | COM1 `0x3F8`, 115200 8N1 | PL011 `0x09000000` | NS16550A `0x10000000`, 115200 8N1 |
 | Interrupts | `IF = 0`; PIT/PIC programmed, IRQ0 unmasked | `DAIF` masked | `mstatus.MIE`/`SIE` = 0, `mie = 0` |
 | CPUs running | Boot CPU only | Boot CPU only | The boot hart (`fw_dynamic_info.boot_hart`, else hart 0); others through `sbi_hart_start` |
-| Firmware services | `INT 13h` `AH=00/02/08/42`, `INT 10h` `AH=0E`, `INT 15h` `E820`, `INT 16h` `AH=00/01` | None | SBI from S-mode: base, TIME, IPI, RFENCE, HSM, SRST |
+| Firmware services | `INT 13h` `AH=00/02/08/42`, `INT 10h` `AH=0E`, `INT 15h` `E820`, `INT 16h` `AH=00/01`, `INT 1Ah` `AH=00/02` | None | SBI from S-mode: base, TIME, IPI, RFENCE, HSM, SRST |
 
 ## Rules for every architecture
 
@@ -37,10 +37,11 @@ The OS must not assume:
    `EAX = 0xE820` returns the memory map. `INT 13h` `AH = 0x00`, `0x02`,
    `0x08` and `0x42` read the primary master. `INT 10h` `AH = 0x0E`
    writes one character to the VGA text screen. `INT 16h` `AH = 0x00`
-   and `0x01` read or check the keyboard buffer. Any other function on
-   those vectors returns with CF set (`INT 16h` check uses ZF instead).
-   No other software interrupt is serviced. No UEFI. Anything else the
-   OS needs, it drives itself.
+   and `0x01` read or check the keyboard buffer. `INT 1Ah` `AH = 0x00`
+   returns the tick count; `AH = 0x02` reads the RTC time in BCD. Any
+   other function on those vectors returns with CF set (`INT 16h` check
+   uses ZF instead). No other software interrupt is serviced. No UEFI.
+   Anything else the OS needs, it drives itself.
 2. **A usable stack.** Set your own stack before using it heavily.
 3. **Trap or interrupt vectors.** Install your own before unmasking
    interrupts.
@@ -162,6 +163,9 @@ The boot sector's calls, which the firmware serves on every path:
 | `INT 16h` `AH = 0x00` | Wait for a keystroke. Returns `AL` = ASCII, `AH` = set-1 make scancode. CF clear. |
 | `INT 16h` `AH = 0x01` | Check the buffer. ZF clear and `AX` as above when a key is ready (not removed); ZF set when empty. CF clear. |
 | `INT 16h` other `AH` | CF set. |
+| `INT 1Ah` `AH = 0x00` | Tick count since midnight: `CX:DX` from `0x046C`, `AL` = midnight overflow at `0x0470` (then cleared). CF clear. |
+| `INT 1Ah` `AH = 0x02` | RTC time from CMOS in BCD: `CH` = hours, `CL` = minutes, `DH` = seconds, `DL` = 0 (no daylight flag). Waits for Update-In-Progress to clear. CF clear. (`AH = 0x04` date is not implemented.) |
+| `INT 1Ah` other `AH` | CF set. |
 
 `DL` must be `0x80` for the disk calls. Anything else, a packet that is
 not 16 bytes, a zero count, a count above 128, or a buffer that is not
@@ -172,13 +176,13 @@ that is not on the disk returns with CF set and `AH = 0x04` (read) or
 drive; there is no write, no floppy, and no second disk.
 
 Before the jump the firmware fills the real-mode IVT. The vectors for
-`INT 08h` (IRQ0), `INT 09h` (IRQ1), `INT 10h`, `INT 13h`, `INT 15h` and
-`INT 16h` point at those services in the ROM (`0xF000`, where this 64 KB
-image is mapped). Every other vector is an `iret` that does not change
-flags, so a stray IRQ cannot flip CF. `IF` stays clear; IRQ0 and IRQ1
-are unmasked on the PIC so a later `STI` receives timer and keyboard
-IRQs. The i8042 command byte has XLAT set so the guest sees set-1
-scancodes.
+`INT 08h` (IRQ0), `INT 09h` (IRQ1), `INT 10h`, `INT 13h`, `INT 15h`,
+`INT 16h` and `INT 1Ah` point at those services in the ROM (`0xF000`,
+where this 64 KB image is mapped). Every other vector is an `iret` that
+does not change flags, so a stray IRQ cannot flip CF. `IF` stays clear;
+IRQ0 and IRQ1 are unmasked on the PIC so a later `STI` receives timer
+and keyboard IRQs. The i8042 command byte has XLAT set so the guest sees
+set-1 scancodes.
 
 `INT 15h` `E820` is the same on every path:
 
@@ -288,7 +292,7 @@ registers on COM1 (and the VGA text buffer), then halts:
 `make test` runs `x86-boot`, `x86-no-drive`, `x86-mem-low`,
 `x86-mem-high`, `x86-atapi`, `x86-bad-sector`, `x86-extra`,
 `x86-extra-map`, `x86-extra-boot`, `x86-extra-range`, `x86-osload`,
-`x86-int13`, `x86-bda`, `x86-a20`, `x86-pit` and `x86-kbd`. In `x86-boot` the boot sector checks
+`x86-int13`, `x86-bda`, `x86-a20`, `x86-pit`, `x86-kbd` and `x86-time`. In `x86-boot` the boot sector checks
 `DL`, that `IF` and `DF` are clear, and that the memory map has the
 magic, 20-byte entries, ends by `0x0600`, contains the conventional and
 both reserved regions above exactly, requires an entry at `0x00100000`
@@ -337,6 +341,8 @@ prints `pit=ok` only when `IF` is clear again.
 `x86-kbd` (via `tests/x86-kbd-run.sh`) injects `a` through QMP after
 `OS-ENTRY`, checks `INT 16h` `AH=0x01`/`0x00` for ASCII `a` and scancode
 `0x1E`, refuses an unknown `AH` with CF set, and prints `kbd=ok`.
+`x86-time` waits for a non-zero `INT 1Ah` `AH=0x00` tick count, checks
+`AH=0x02` BCD time fields, and prints `time=ok`.
 
 A Squirrel-OS/2 hard-disk image is not part of `make test`. Build
 `os.img` in that repo and run `tests/os-boot.sh path/to/os.img` (or

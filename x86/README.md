@@ -19,6 +19,8 @@ qemu-system-i386 -bios squirrel-bios.rom -drive format=raw,file=boot.bin,if=ide 
   `INT 09h`); IRQ0 increments the BDA tick dword at `0x046C`
 - Enables the i8042 with set-1 translation; `INT 16h` `AH=0x00`/`0x01`
   read the BDA keyboard buffer filled by IRQ1
+- `INT 1Ah` `AH=0x00` returns the tick count; `AH=0x02` reads RTC time
+  in BCD from CMOS
 - Prints banner
 - ATA PIO reads LBA 0 into `0x7C00`, with timeouts on every status wait,
   `ERR`/`DF` checks, and up to 3 attempts with a soft reset in between
