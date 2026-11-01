@@ -19,8 +19,9 @@ BIOS, UEFI, or a vendored third-party firmware.
 3. On x86, load a real image. A one-sector image is read to `0x7C00`.
    An SQBL header asks for more sectors. A Squirrel-OS/2 image, whose
    last kernel dword is `S2OK`, is read to `0x8000` and entered there.
-   Its boot sector would call `INT 13h`, which this firmware does not
-   provide, so that sector is not entered.
+   Any other disk is entered at `0x7C00`. `INT 13h` `AH=0x00`, `0x02`,
+   `0x08` and `0x42` read the primary master, so that boot sector can
+   load a kernel itself, and `INT 10h` `AH=0x0E` is a VGA teletype.
 4. On AArch64, enter a Linux `Image` the way the arm64 boot protocol
    describes. The registers and the device tree are already there; the
    CPU state, the image header, and the RAM limit are not finished.
@@ -257,8 +258,8 @@ Not tasks, until the OS needs one of them. They are listed in
 
 ## Out of scope
 
-- Runtime firmware services after the jump: x86 `INT 10h` / `INT 13h`,
-  and `INT 15h` other than `E820` on the `S2OK` entry. UEFI, and ACPI
-  as a requirement for the hand-off.
+- A full video BIOS, or `INT 13h` beyond `AH=0x00`, `0x02`, `0x08` and
+  `0x42` on the primary master. `INT 15h` other than `E820`. UEFI, and
+  ACPI as a requirement for the hand-off.
 - Vendoring another project's firmware and calling it SquirrelBIOS.
 - Boards other than QEMU PC, QEMU AArch64 `virt`, and QEMU RISC-V `virt`.

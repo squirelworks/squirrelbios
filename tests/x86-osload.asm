@@ -4,7 +4,8 @@
 ; one-sector hand-off and this sector says so. The 192 sectors after it
 ; are the "kernel": the last dword is 'S2OK', and the first bytes run at
 ; 0x8000. They check the hand-off registers, that INT 15h E820 returns
-; the SQMM table, and that INT 13h is not a disk service.
+; the SQMM table, and that an INT 13h AH=42 with a packet that is not
+; 16 bytes long comes back with carry set.
 
 BITS 16
 
