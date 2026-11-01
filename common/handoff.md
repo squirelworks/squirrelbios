@@ -16,7 +16,7 @@ If the firmware and this file disagree, the firmware has a bug.
 | Console | COM1 `0x3F8`, 115200 8N1 | PL011 `0x09000000` | NS16550A `0x10000000`, 115200 8N1 |
 | Interrupts | `IF = 0`; PIT/PIC programmed, IRQ0 unmasked | `DAIF` masked | `mstatus.MIE`/`SIE` = 0, `mie = 0` |
 | CPUs running | Boot CPU only | Boot CPU only | The boot hart (`fw_dynamic_info.boot_hart`, else hart 0); others through `sbi_hart_start` |
-| Firmware services | `INT 13h` `AH=00/02/08/42`, `INT 10h` `AH=0E`, `INT 15h` `E820`. Nothing else | None | SBI from S-mode: base, TIME, IPI, RFENCE, HSM, SRST |
+| Firmware services | `INT 13h` `AH=00/02/08/42`, `INT 10h` `AH=0E`, `INT 15h` `E820`, `INT 16h` `AH=00/01` | None | SBI from S-mode: base, TIME, IPI, RFENCE, HSM, SRST |
 
 ## Rules for every architecture
 
@@ -33,12 +33,14 @@ The firmware guarantees:
 The OS must not assume:
 
 1. **Firmware services.** There are none after hand-off, apart from the
-   RISC-V SBI listed below and three x86 calls. `INT 15h` with
+   RISC-V SBI listed below and the x86 calls below. `INT 15h` with
    `EAX = 0xE820` returns the memory map. `INT 13h` `AH = 0x00`, `0x02`,
    `0x08` and `0x42` read the primary master. `INT 10h` `AH = 0x0E`
-   writes one character to the VGA text screen. Any other function on
-   those vectors returns with CF set. No other software interrupt is
-   serviced. No UEFI. Anything else the OS needs, it drives itself.
+   writes one character to the VGA text screen. `INT 16h` `AH = 0x00`
+   and `0x01` read or check the keyboard buffer. Any other function on
+   those vectors returns with CF set (`INT 16h` check uses ZF instead).
+   No other software interrupt is serviced. No UEFI. Anything else the
+   OS needs, it drives itself.
 2. **A usable stack.** Set your own stack before using it heavily.
 3. **Trap or interrupt vectors.** Install your own before unmasking
    interrupts.
@@ -157,6 +159,9 @@ The boot sector's calls, which the firmware serves on every path:
 | `INT 13h` `AH = 0x02` | CHS read of `AL` sectors (1–128) to `ES:BX`, using that same geometry. Cylinder is `CH` plus `CL` bits 7–6, sector is `CL` bits 5–0, head is `DH`. CF clear, `AH = 0`, `AL` unchanged on success. |
 | `INT 13h` `AH = 0x00` | Reset the primary channel. CF clear and `AH = 0` when the drive comes ready. |
 | `INT 10h` `AH = 0x0E` | Teletype `AL` onto the VGA text screen in the normal attribute, from the cursor at `0x0450` (column, then row). CR, LF, BS and BEL behave as a teletype; the screen scrolls at row 25. Other registers are kept. CF clear. |
+| `INT 16h` `AH = 0x00` | Wait for a keystroke. Returns `AL` = ASCII, `AH` = set-1 make scancode. CF clear. |
+| `INT 16h` `AH = 0x01` | Check the buffer. ZF clear and `AX` as above when a key is ready (not removed); ZF set when empty. CF clear. |
+| `INT 16h` other `AH` | CF set. |
 
 `DL` must be `0x80` for the disk calls. Anything else, a packet that is
 not 16 bytes, a zero count, a count above 128, or a buffer that is not
@@ -167,11 +172,13 @@ that is not on the disk returns with CF set and `AH = 0x04` (read) or
 drive; there is no write, no floppy, and no second disk.
 
 Before the jump the firmware fills the real-mode IVT. The vectors for
-`INT 08h` (IRQ0), `INT 10h`, `INT 13h` and `INT 15h` point at those
-services in the ROM (`0xF000`, where this 64 KB image is mapped). Every
-other vector is an `iret` that does not change flags, so a stray IRQ
-cannot flip CF. `IF` stays clear; IRQ0 is unmasked on the PIC so a later
-`STI` receives timer ticks.
+`INT 08h` (IRQ0), `INT 09h` (IRQ1), `INT 10h`, `INT 13h`, `INT 15h` and
+`INT 16h` point at those services in the ROM (`0xF000`, where this 64 KB
+image is mapped). Every other vector is an `iret` that does not change
+flags, so a stray IRQ cannot flip CF. `IF` stays clear; IRQ0 and IRQ1
+are unmasked on the PIC so a later `STI` receives timer and keyboard
+IRQs. The i8042 command byte has XLAT set so the guest sees set-1
+scancodes.
 
 `INT 15h` `E820` is the same on every path:
 
@@ -192,9 +199,10 @@ with `INT 10h` `AH = 0x0E`.
 |--------|-------|
 | COM1 (`0x3F8`) | 115200 8N1, FIFOs on, UART interrupts off |
 | CMOS / RTC (`0x70`/`0x71`) | Index `0x0D` (status register D), NMI enabled (bit 7 of `0x70` clear). The firmware masks NMI only while it reads a register. |
-| 8259 PICs (`0x20`, `0xA0`) | IBM PC AT layout: master IRQs at `INT 08h`–`0Fh`, slave at `INT 70h`–`77h`, slave on IRQ2. Master mask `0xFE` (IRQ0 open); slave mask `0xFF`. |
+| 8259 PICs (`0x20`, `0xA0`) | IBM PC AT layout: master IRQs at `INT 08h`–`0Fh`, slave at `INT 70h`–`77h`, slave on IRQ2. Master mask `0xFC` (IRQ0 and IRQ1 open); slave mask `0xFF`. |
 | 8253/8254 PIT | Channel 0 mode 3, divisor 65536 (~18.2 Hz). IRQ0 increments `0x046C`. |
-| Local APIC | Virtual-wire mode when CPUID reports an APIC: spurious vector enabled, LVT0 = ExtINT, LVT1 = NMI, so the 8259 delivers IRQ0 on QEMU's default CPU. |
+| i8042 keyboard (`0x60`/`0x64`) | Command byte `0x65` (IRQ1 + SYS + XLAT). IRQ1 enqueues set-1 make codes into the BDA ring buffer. |
+| Local APIC | Virtual-wire mode when CPUID reports an APIC: spurious vector enabled, LVT0 = ExtINT, LVT1 = NMI, so the 8259 delivers IRQs on QEMU's default CPU. |
 | Primary ATA channel | Idle. `nIEN` is set if a retry or an `INT 13h` reset touched the channel. |
 | VGA | 80x25 colour text at `0xB8000` (the standard 720x400 text timings, 9x16 cells), CRTC at `0x3D4`. The font in plane 2 is the firmware's own 8x16 font (printable ASCII; other codes are blank). The DAC holds the 16 usual text colours. The firmware's messages are on screen in light grey on black, red for errors. The teletype cursor starts at the top left and the CRTC cursor follows it. |
 
@@ -210,6 +218,9 @@ addresses (segment 0):
 | `0x0450` | 2 bytes | Page-0 cursor: column then row. Starts at `(0, 0)`; `INT 10h` `AH=0x0E` keeps both inside 80x25. |
 | `0x046C` | dword | Timer ticks since midnight. IRQ0 (`INT 08h`) increments it; wraps at `0x1800B0` (~24 h at 18.2 Hz) and sets `0x0470` to 1. Starts at 0. |
 | `0x0470` | byte | 24-hour rollover flag for the tick count. Starts at 0. |
+| `0x041A` | word | Keyboard buffer head (offset; starts at `0x041E`). |
+| `0x041C` | word | Keyboard buffer tail (offset; starts at `0x041E`). |
+| `0x041E`–`0x043D` | 16 words | Keyboard ring: low byte ASCII, high byte set-1 make scancode. |
 
 Other BDA bytes are not filled by this firmware yet.
 
@@ -277,7 +288,7 @@ registers on COM1 (and the VGA text buffer), then halts:
 `make test` runs `x86-boot`, `x86-no-drive`, `x86-mem-low`,
 `x86-mem-high`, `x86-atapi`, `x86-bad-sector`, `x86-extra`,
 `x86-extra-map`, `x86-extra-boot`, `x86-extra-range`, `x86-osload`,
-`x86-int13`, `x86-bda`, `x86-a20` and `x86-pit`. In `x86-boot` the boot sector checks
+`x86-int13`, `x86-bda`, `x86-a20`, `x86-pit` and `x86-kbd`. In `x86-boot` the boot sector checks
 `DL`, that `IF` and `DF` are clear, and that the memory map has the
 magic, 20-byte entries, ends by `0x0600`, contains the conventional and
 both reserved regions above exactly, requires an entry at `0x00100000`
@@ -323,6 +334,9 @@ cursor at `0x0450` is still inside 80x25 after the banner, and prints
 are independent (A20 open), and prints `a20=ok`.
 `x86-pit` finds `IF` clear, `STI`s until `0x046C` advances, `CLI`s, and
 prints `pit=ok` only when `IF` is clear again.
+`x86-kbd` (via `tests/x86-kbd-run.sh`) injects `a` through QMP after
+`OS-ENTRY`, checks `INT 16h` `AH=0x01`/`0x00` for ASCII `a` and scancode
+`0x1E`, refuses an unknown `AH` with CF set, and prints `kbd=ok`.
 
 A Squirrel-OS/2 hard-disk image is not part of `make test`. Build
 `os.img` in that repo and run `tests/os-boot.sh path/to/os.img` (or
