@@ -20,7 +20,7 @@ TEST_DIR  := build/tests
 TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)/x86-bad-sector.bin \
              $(TEST_DIR)/x86-extra.bin $(TEST_DIR)/x86-extra-map.bin \
              $(TEST_DIR)/x86-extra-boot.bin $(TEST_DIR)/x86-extra-range.bin \
-             $(TEST_DIR)/x86-osload.bin \
+             $(TEST_DIR)/x86-osload.bin $(TEST_DIR)/x86-int13.bin \
              $(TEST_DIR)/arm-kernel.bin $(TEST_DIR)/arm-too-big.bin \
              $(TEST_DIR)/arm-image-fixed.bin $(TEST_DIR)/arm-image-reloc.bin \
              $(TEST_DIR)/arm-image-short.bin $(TEST_DIR)/arm-initrd.img \
@@ -100,6 +100,10 @@ $(TEST_DIR)/x86-extra-range.bin: tests/x86-extra.asm | $(TEST_DIR)
 
 # Boot sector plus a 96 KB 'S2OK' image, the shape of Squirrel-OS/2's disk
 $(TEST_DIR)/x86-osload.bin: tests/x86-osload.asm | $(TEST_DIR)
+	$(NASM) -f bin $< -o $@
+
+# Boot sector that loads 192 sectors with INT 13h, the calls Squirrel-OS/2 makes
+$(TEST_DIR)/x86-int13.bin: tests/x86-int13.asm | $(TEST_DIR)
 	$(NASM) -f bin $< -o $@
 
 $(TEST_DIR)/arm-kernel.o: tests/arm-kernel.S | $(TEST_DIR)

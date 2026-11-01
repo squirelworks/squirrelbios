@@ -21,10 +21,12 @@ qemu-system-i386 -bios squirrel-bios.rom -drive format=raw,file=boot.bin,if=ide 
   after it to the header's `segment:offset` (below `0xA0000`, clear of the
   memory map and the boot sector) before jumping to `0x7C00`
 - When it does not, and LBA 192 ends in `S2OK`, reads LBAs 1–192 to
-  `0x8000` and jumps there. The boot sector is not entered (it would
-  call `INT 13h`). The IVT's only service is `INT 15h` `E820`, which
-  returns the memory map; every other software interrupt returns with
-  carry set
+  `0x8000` and jumps there. The boot sector is not entered
+- Otherwise jumps to `0x7C00`. The IVT is installed either way:
+  `INT 13h` `AH=0x00` / `0x02` / `0x08` / `0x42` read the primary
+  master (so a boot sector can load a kernel itself), `INT 10h`
+  `AH=0x0E` is a VGA teletype, and `INT 15h` `E820` returns the memory
+  map. Any other function on those vectors returns with carry set
 - Builds a memory map at `0x0000:0x0500` from the RAM sizes in CMOS (`memmap.inc`)
 - On success jumps to `0x0000:0x7C00` with `DL = 0x80`, `ES:DI = 0x0000:0x0500`
 
