@@ -26,7 +26,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/x86-time.bin $(TEST_DIR)/x86-vid.bin \
              $(TEST_DIR)/x86-write.bin $(TEST_DIR)/x86-int15a20.bin \
              $(TEST_DIR)/x86-slave.bin $(TEST_DIR)/x86-acpi.bin \
-             $(TEST_DIR)/x86-smbios.bin \
+             $(TEST_DIR)/x86-smbios.bin $(TEST_DIR)/x86-bzimage.bin \
              $(TEST_DIR)/arm-kernel.bin $(TEST_DIR)/arm-too-big.bin \
              $(TEST_DIR)/arm-image-fixed.bin $(TEST_DIR)/arm-image-reloc.bin \
              $(TEST_DIR)/arm-image-short.bin $(TEST_DIR)/arm-initrd.img \
@@ -154,6 +154,10 @@ $(TEST_DIR)/x86-acpi.bin: tests/x86-acpi.asm | $(TEST_DIR)
 
 # SMBIOS entry point in the ROM area: _SM_ checksums and Type 0
 $(TEST_DIR)/x86-smbios.bin: tests/x86-smbios.asm | $(TEST_DIR)
+	$(NASM) -f bin $< -o $@
+
+# Minimal bzImage (HdrS) with a 32-bit payload at 1 MB
+$(TEST_DIR)/x86-bzimage.bin: tests/x86-bzimage.asm | $(TEST_DIR)
 	$(NASM) -f bin $< -o $@
 
 $(TEST_DIR)/arm-kernel.o: tests/arm-kernel.S | $(TEST_DIR)

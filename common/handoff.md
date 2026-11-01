@@ -8,8 +8,8 @@ If the firmware and this file disagree, the firmware has a bug.
 
 | | x86 PC | AArch64 (QEMU virt) | RISC-V (QEMU virt) |
 |---|---|---|---|
-| Image source | LBA 0 of the primary master ATA disk, or the primary slave when the master is absent; sectors 1–192 as well when they are a `S2OK` image | `-kernel`, read through fw_cfg DMA | `-kernel`, loaded by QEMU |
-| Entry | `0x0000:0x7C00`, or `0x0000:0x8000` for a `S2OK` image | `0x40200000` | `0x80200000` (rv64) |
+| Image source | LBA 0 of the primary master ATA disk, or the primary slave when the master is absent; sectors 1–192 as well when they are a `S2OK` image; a Linux `bzImage` (`HdrS`) loads its protected-mode kernel at 1 MB | `-kernel`, read through fw_cfg DMA | `-kernel`, loaded by QEMU |
+| Entry | `0x0000:0x7C00`, or `0x0000:0x8000` for a `S2OK` image, or 32-bit PM at `code32_start` (usually `0x100000`) for a `bzImage` | `0x40200000` | `0x80200000` (rv64) |
 | CPU mode | 16-bit real mode | EL1 (EL2 with `virtualization=on`), MMU off | S-mode (QEMU's `next_mode`), `satp = 0` |
 | Boot argument | `DL = 0x80` (master) or `0x81` (slave) | `x0` = device tree | `a0` = hart ID, `a1` = device tree |
 | Memory description | Memory map at `ES:DI = 0x0000:0x0500` | Device tree `/memory` | Device tree `/memory` |
@@ -252,6 +252,23 @@ A SMBIOS 2.4 entry point sits in the BIOS ROM:
 Both EPS checksums are valid. Find the entry point by scanning
 `0xF0000`–`0xFFFFF` on a 16-byte stride for `_SM_`.
 
+### Linux bzImage
+
+When sector 0 has `0xAA55`, no `SQBL` header, and offset `0x202` is
+`HdrS`, the firmware treats the disk as a bzImage:
+
+1. `setup_sects` at `0x1F1` (0 means 4) and `syssize` at `0x1F4`
+   (paragraphs) size the protected-mode image.
+2. That image is read from LBA `setup_sects+1` to linear `0x100000`
+   through a bounce buffer (ATA PIO stays below 1 MB).
+3. A boot_params page at `0x90000` is zeroed and the first `0x250` header
+   bytes are copied into it.
+4. The CPU enters 32-bit protected mode with a flat GDT; `ESI` =
+   `0x90000`, and control jumps to `code32_start` (dword at `0x214`,
+   default `0x100000`).
+
+`SQBL` and `S2OK` are checked before `HdrS`. No initrd, no command line.
+
 ### BIOS data area
 
 Filled after the memory map and VGA init, before the banner. Absolute
@@ -338,8 +355,8 @@ registers on COM1 (and the VGA text buffer), then halts:
 `x86-mem-high`, `x86-atapi`, `x86-bad-sector`, `x86-extra`,
 `x86-extra-map`, `x86-extra-boot`, `x86-extra-range`, `x86-osload`,
 `x86-int13`, `x86-bda`, `x86-a20`, `x86-pit`, `x86-kbd`, `x86-time`,
-`x86-vid`, `x86-write`, `x86-int15a20`, `x86-slave`, `x86-acpi` and
-`x86-smbios`. In `x86-boot` the boot sector checks
+`x86-vid`, `x86-write`, `x86-int15a20`, `x86-slave`, `x86-acpi`,
+`x86-smbios` and `x86-bzimage`. In `x86-boot` the boot sector checks
 `DL`, that `IF` and `DF` are clear, and that the memory map has the
 magic, 20-byte entries, ends by `0x0600`, contains the conventional and
 both reserved regions above exactly, requires an entry at `0x00100000`

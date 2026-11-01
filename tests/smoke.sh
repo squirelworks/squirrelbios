@@ -202,6 +202,11 @@ run x86-smbios "SquirrelBIOS x86|OS-ENTRY x86 smbios=ok" \
     "$QEMU_X86" -bios x86/squirrel-bios.rom \
     -drive format=raw,file=$TEST_DIR/x86-smbios.bin,if=ide
 
+# x86: Linux bzImage (HdrS) loaded at 1 MB; PM payload prints bz=ok
+run x86-bzimage "SquirrelBIOS x86|bzImage loaded at 0x00100000, jumping|bz=ok|!entered-boot-sector|!boot halted" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -drive format=raw,file=$TEST_DIR/x86-bzimage.bin,if=ide
+
 # x86: a CD-ROM as primary master is rejected, not read
 run x86-atapi "disk: primary master is ATAPI (CD/DVD), not supported|boot halted" \
     "$QEMU_X86" -bios x86/squirrel-bios.rom \

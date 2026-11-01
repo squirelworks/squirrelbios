@@ -298,7 +298,7 @@ so the IVT surface stays the contract.
   - Acceptance: a stand-in finds the anchor and prints `smbios=ok`.
     Depends on: `x86-a20`.
 
-- [ ] `x86-bzimage` — Load a Linux `bzImage`.
+- [x] `x86-bzimage` — Load a Linux `bzImage`.
   - Acceptance: detect the setup header, load the protected-mode kernel
     above 1 MB, jump the documented entry with the usual register
     protocol for this loader. A tiny protected-mode stand-in (or a

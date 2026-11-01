@@ -13,6 +13,7 @@
 ;   - Build a memory map at 0x0000:0x0500 (memmap.inc)
 ;   - Fill BDA equipment, conventional KB, and the teletype cursor
 ;   - SMBIOS 2.4 entry point at 0xFD000; ACPI 1.0 tables at 0xFE000
+;   - Linux bzImage (HdrS): load PM kernel at 1 MB and enter it
 ;   - Enable the A20 gate (port 0x92) before the hand-off jump
 ;   - Program the PIT (~18.2 Hz) and both PICs (IRQ0/IRQ1)
 ;   - Enable the i8042 (set-1 XLAT) and INT 16h keyboard services
@@ -57,6 +58,11 @@ OS_SECTORS      equ 192
 OS_SIG          equ 0x4B4F3253  ; bytes 53 32 4F 4B, 'S2OK'
 OS_PROBE        equ 0x1000      ; scratch sector for the signature probe
 OS_SIG_LIN      equ OS_LOAD + OS_SECTORS * 512 - 4
+; Linux bzImage: PM kernel at 1 MB; bounce buffer for ATA (below 1 MB).
+BZ_LOAD         equ 0x100000
+BZ_BOUNCE       equ 0x8000
+BZ_BOOT_PARAMS  equ 0x90000
+BZ_MAX_SECTORS  equ 128
 
 ; Primary ATA channel, legacy ports
 ATA_DATA        equ 0x1F0
@@ -250,11 +256,21 @@ entry:
     mov si, msg_overlap
     jmp boot_fail
 
-; A 96 KB image signed 'S2OK' is the kernel the boot sector would have
-; read with INT 13h. Load it here and enter it. A missing signature, or
-; a disk too small to hold one, is the one-sector hand-off: the probe is
-; a single try, so a short image is not reported as a disk error.
+; Linux bzImage (HdrS at 0x202) or a 96 KB 'S2OK' image, else one sector.
+; HdrS lives in sector 1; setup_sects is in sector 0 at 0x1F1.
 maybe_os:
+    mov eax, 1
+    mov cl, 1
+    mov ebp, BOOT_SECTOR + 512
+    call ata_read
+    jnc .have_sect1
+    call ata_reset
+    jmp maybe_s2ok
+.have_sect1:
+    cmp dword [ss:BOOT_SECTOR + 0x202], 'HdrS'
+    je bzimage_go
+
+maybe_s2ok:
     mov eax, OS_SECTORS         ; LBA of the last kernel sector
     mov cl, 1
     mov ebp, OS_PROBE
@@ -308,6 +324,148 @@ kernel_entry:
     mov dl, [ss:BOOT_DL]
     mov di, MEMMAP_ADDR
     jmp 0x0000:OS_LOAD
+
+;; Load a Linux bzImage: setup_sects at 0x1F1, HdrS already seen, syssize
+; at 0x1F4 (paragraphs). Copy the PM image to 0x100000 through a bounce
+; buffer, fill a tiny boot_params, then enter 32-bit protected mode at
+; code32_start (dword at 0x214, default 0x100000).
+bzimage_go:
+    movzx eax, byte [ss:BOOT_SECTOR + 0x1F1]
+    test al, al
+    jnz .sects
+    mov al, 4
+.sects:
+    movzx ebx, al               ; setup_sects
+    inc ebx                     ; boot + setup sectors before PM
+    mov eax, [ss:BOOT_SECTOR + 0x1F4]
+    test eax, eax
+    jz .bad
+    add eax, 31
+    shr eax, 5                  ; paragraphs -> sectors
+    cmp eax, BZ_MAX_SECTORS
+    ja .bad
+    test eax, eax
+    jz .bad
+    mov ecx, eax                ; PM sector count
+    push es
+    mov ax, (BZ_BOOT_PARAMS >> 4)
+    mov es, ax
+    mov eax, [ss:BOOT_SECTOR + 0x214]
+    test eax, eax
+    jnz .entry
+    mov eax, BZ_LOAD
+.entry:
+    mov [es:0x214], eax
+    ; Zero boot_params and copy the first 0x250 header bytes into it
+    push di
+    push cx
+    xor di, di
+    xor eax, eax
+    mov cx, 0x1000 / 4
+    rep stosd
+    push ds
+    mov ax, (BOOT_SECTOR >> 4)
+    mov ds, ax
+    xor si, si
+    xor di, di
+    mov cx, 0x250 / 2
+    rep movsw
+    pop ds
+    pop cx
+    pop di
+    pop es
+
+    mov eax, ebx                ; first PM LBA
+    mov ebp, BZ_LOAD
+.load_loop:
+    push eax
+    push ecx
+    push ebp
+    mov cl, 1
+    mov ebp, BZ_BOUNCE
+    call ata_read_retry
+    pop ebp
+    pop ecx
+    pop eax
+    jc .readfail
+    call bz_copy_sector
+    inc eax
+    dec ecx
+    jnz .load_loop
+
+    call prepare_runtime
+    mov si, msg_bzload
+    mov ah, ATTR_NORMAL
+    call con_print
+    call con_newline
+
+    cli
+    xor eax, eax
+    mov ax, cs
+    shl eax, 4
+    add eax, bz_gdt
+    sub sp, 6
+    mov bx, sp
+    mov word [ss:bx], bz_gdt_end - bz_gdt - 1
+    mov dword [ss:bx + 2], eax
+    lgdt [ss:bx]
+    add sp, 6
+    mov eax, cr0
+    or al, 1
+    mov cr0, eax
+    db 0x66, 0xEA
+    dd bz_pm_entry + 0xF0000
+    dw 0x08
+
+.bad:
+    mov si, msg_bzbad
+    jmp boot_fail
+.readfail:
+    cmp si, msg_readerr
+    jne disk_fail
+    mov si, msg_bzread
+    jmp disk_fail
+
+; Copy 512 bytes BZ_BOUNCE -> linear EBP with unreal DS (flat); EBP += 512.
+; Do not reload ES/DS in real mode — that would replace the flat cache
+; with base = selector<<4.
+bz_copy_sector:
+    push eax
+    push ecx
+    push esi
+    push edi
+    push ds
+    call unreal_ds
+    mov esi, BZ_BOUNCE
+    mov edi, ebp
+    mov ecx, 512 / 4
+.copy:
+    a32 mov eax, [esi]
+    a32 mov [edi], eax
+    add esi, 4
+    add edi, 4
+    loop .copy
+    mov ebp, edi
+    pop ds
+    pop edi
+    pop esi
+    pop ecx
+    pop eax
+    ret
+
+BITS 32
+bz_pm_entry:
+    mov ax, 0x10
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
+    mov ss, ax
+    mov esp, BZ_LOAD
+    mov esi, BZ_BOOT_PARAMS
+    mov eax, [BZ_BOOT_PARAMS + 0x214]
+    jmp eax
+BITS 16
 
 handoff:
     call prepare_runtime
@@ -464,6 +622,15 @@ apic_gdt:
     dw 0xFFFF, 0x0000
     db 0x00, 10010010b, 11001111b, 0x00
 apic_gdt_end:
+
+align 8
+bz_gdt:
+    dq 0
+    dw 0xFFFF, 0x0000
+    db 0x00, 10011010b, 11001111b, 0x00
+    dw 0xFFFF, 0x0000
+    db 0x00, 10010010b, 11001111b, 0x00
+bz_gdt_end:
 
 ; PIT channel 0 at ~18.2 Hz; both 8259s in the IBM PC AT layout.
 ; Master mask leaves IRQ0 open; everything else stays masked. IF is still
@@ -2089,6 +2256,9 @@ msg_readerr_extra db 'disk: read of the extra sectors failed', 0
 msg_kernel  db 'disk: read of the kernel image failed', 0
 msg_nosig_os db 'disk: kernel image has no S2OK signature', 0
 msg_kload   db 'kernel loaded at 0x00008000, jumping', 0
+msg_bzload  db 'bzImage loaded at 0x00100000, jumping', 0
+msg_bzbad   db 'disk: bzImage header is invalid', 0
+msg_bzread  db 'disk: read of the bzImage failed', 0
 msg_overlap db 'disk: load overlaps firmware data', 0
 msg_range   db 'disk: load address is out of range', 0
 msg_status  db '  status=', 0
