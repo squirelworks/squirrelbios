@@ -11,6 +11,7 @@
 ;   - Put the VGA in 80x25 text mode with an original font (vga.inc);
 ;     every message goes to VGA text and COM1
 ;   - Build a memory map at 0x0000:0x0500 (memmap.inc)
+;   - Fill BDA equipment, conventional KB, and the teletype cursor
 ;   - Print banner
 ;   - ATA PIO read of LBA 0 (sector 1) into 0x7C00, with timeouts,
 ;     status checks and retries (soft reset between attempts)
@@ -87,9 +88,15 @@ DISK_HEADS      equ 16
 DISK_CYL_LO     equ 0xFF
 DISK_CYL_HI_CL  equ 0xFF
 
-; BIOS data area. The cursor is where INT 10h AH=0E prints. 0x0500 is
-; the memory map, so this stays below it.
-BDA_CURSOR      equ 0x0450      ; column, then row, one byte each
+; BIOS data area (segment 0). 0x0500 is the memory map, so these stay
+; below it. Filled by bda_init after the memory map and VGA are up.
+BDA_EQUIP       equ 0x0410      ; equipment list word
+BDA_MEMSIZE     equ 0x0413      ; conventional memory size, KB
+BDA_CURSOR      equ 0x0450      ; column, then row, one byte each (page 0)
+; Equipment: 80x25 colour (bits 4-5 = 10), one serial port (bits 9-11 = 1).
+; No floppies, no parallel ports. Matches COM1 + VGA text in this firmware.
+BDA_EQUIP_VAL   equ 0x0220
+BDA_MEM_KB      equ 640         ; 0x00000-0x9FFFF, as in the memory map
 
 ; INT 13h status
 ST_OK           equ 0x00
@@ -124,7 +131,7 @@ entry:
     call build_memmap
     call serial_init
     call vga_init
-    mov word [ss:BDA_CURSOR], 0
+    call bda_init
 
     ; Banner
     xor di, di
@@ -293,6 +300,17 @@ boot_halt:
 .halt:
     hlt
     jmp .halt
+
+; ---------------------------------------------------------------------------
+; BIOS data area. Called after build_memmap and vga_init. SS is already 0.
+; INT 10h AH=0E keeps the cursor word at BDA_CURSOR in range for 80x25.
+; ---------------------------------------------------------------------------
+
+bda_init:
+    mov word [ss:BDA_EQUIP], BDA_EQUIP_VAL
+    mov word [ss:BDA_MEMSIZE], BDA_MEM_KB
+    mov word [ss:BDA_CURSOR], 0
+    ret
 
 ; ---------------------------------------------------------------------------
 ; Real-mode IVT, installed before every hand-off. The ROM is mapped at

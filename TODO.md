@@ -225,7 +225,7 @@ so the IVT surface stays the contract.
 
 ## 8. x86 foundations (POST and A20)
 
-- [ ] `x86-bda` — Fill the BIOS data area fields boot code reads.
+- [x] `x86-bda` — Fill the BIOS data area fields boot code reads.
   - Acceptance: after `vga_init` and the memory map, the BDA at `0x400`
     has equipment list, memory size (KB below 640 KB), and the cursor
     fields already used by `INT 10h` consistent with 80x25. A stand-in
