@@ -176,6 +176,11 @@ run x86-vid "SquirrelBIOS x86|OS-ENTRY x86 vid=ok" \
     "$QEMU_X86" -bios x86/squirrel-bios.rom \
     -drive format=raw,file=$TEST_DIR/x86-vid.bin,if=ide
 
+# x86: INT 13h AH=43/03 write sectors that a later read returns
+run x86-write "SquirrelBIOS x86|OS-ENTRY x86 write=ok" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -drive format=raw,file=$TEST_DIR/x86-write.bin,if=ide
+
 # x86: a CD-ROM as primary master is rejected, not read
 run x86-atapi "disk: primary master is ATAPI (CD/DVD), not supported|boot halted" \
     "$QEMU_X86" -bios x86/squirrel-bios.rom \
