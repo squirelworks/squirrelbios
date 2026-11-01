@@ -232,7 +232,7 @@ so the IVT surface stays the contract.
     reads those words and prints `bda=ok`. `x86-boot` and `x86-int13`
     still pass. The contract lists the fields.
 
-- [ ] `x86-a20` — Turn on A20.
+- [x] `x86-a20` — Turn on A20.
   - Acceptance: A20 is enabled before the hand-off jump (keyboard
     controller and/or port `0x92`, whichever this QEMU honours). A
     stand-in writes a pattern at `0x500000` and checks it is not an alias

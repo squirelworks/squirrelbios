@@ -21,7 +21,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/x86-extra.bin $(TEST_DIR)/x86-extra-map.bin \
              $(TEST_DIR)/x86-extra-boot.bin $(TEST_DIR)/x86-extra-range.bin \
              $(TEST_DIR)/x86-osload.bin $(TEST_DIR)/x86-int13.bin \
-             $(TEST_DIR)/x86-bda.bin \
+             $(TEST_DIR)/x86-bda.bin $(TEST_DIR)/x86-a20.bin \
              $(TEST_DIR)/arm-kernel.bin $(TEST_DIR)/arm-too-big.bin \
              $(TEST_DIR)/arm-image-fixed.bin $(TEST_DIR)/arm-image-reloc.bin \
              $(TEST_DIR)/arm-image-short.bin $(TEST_DIR)/arm-initrd.img \
@@ -109,6 +109,10 @@ $(TEST_DIR)/x86-int13.bin: tests/x86-int13.asm | $(TEST_DIR)
 
 # BIOS data area: equipment list, conventional KB, cursor in 80x25
 $(TEST_DIR)/x86-bda.bin: tests/x86-bda.asm | $(TEST_DIR)
+	$(NASM) -f bin $< -o $@
+
+# A20 gate open: high write at 0x500000 and 0x100500 vs 0x000500
+$(TEST_DIR)/x86-a20.bin: tests/x86-a20.asm | $(TEST_DIR)
 	$(NASM) -f bin $< -o $@
 
 $(TEST_DIR)/arm-kernel.o: tests/arm-kernel.S | $(TEST_DIR)

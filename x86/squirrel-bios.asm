@@ -12,6 +12,7 @@
 ;     every message goes to VGA text and COM1
 ;   - Build a memory map at 0x0000:0x0500 (memmap.inc)
 ;   - Fill BDA equipment, conventional KB, and the teletype cursor
+;   - Enable the A20 gate (port 0x92) before the hand-off jump
 ;   - Print banner
 ;   - ATA PIO read of LBA 0 (sector 1) into 0x7C00, with timeouts,
 ;     status checks and retries (soft reset between attempts)
@@ -243,6 +244,7 @@ kernel_fail:
     mov si, msg_kernel
     jmp disk_fail
 kernel_go:
+    call enable_a20
     call install_ivt
     mov si, msg_kload
     mov ah, ATTR_NORMAL
@@ -263,6 +265,7 @@ kernel_entry:
     jmp 0x0000:OS_LOAD
 
 handoff:
+    call enable_a20
     call install_ivt
     xor ax, ax
     mov ds, ax
@@ -310,6 +313,18 @@ bda_init:
     mov word [ss:BDA_EQUIP], BDA_EQUIP_VAL
     mov word [ss:BDA_MEMSIZE], BDA_MEM_KB
     mov word [ss:BDA_CURSOR], 0
+    ret
+
+; Enable the A20 line through the fast gate at port 0x92 (System Control
+; Port A). QEMU honours this. Bit 0 is RESET — leave it clear. Preserves
+; everything except AL and the flags.
+enable_a20:
+    push ax
+    in al, 0x92
+    or al, 0x02
+    and al, 0xFE
+    out 0x92, al
+    pop ax
     ret
 
 ; ---------------------------------------------------------------------------
