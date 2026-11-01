@@ -4,15 +4,19 @@ The laundry list for [ROADMAP.md](ROADMAP.md). One checkbox is one PR,
 branched from `main` and merged to `main` before the next one starts.
 Stacked PRs are not used.
 
-Work from the top. Finish a section before starting the next one. Inside
-a section, do items from the top and honour any `Depends on` line. The
-same PR updates `common/handoff.md` (and the architecture README, when
-the visible behaviour changes) and checks this box.
+Sections **1–7** are the hand-off era (**done in v0.3.0**). Work from
+**section 8** toward **v1.0.0** (comprehensive x86 PC BIOS). Finish a
+section before starting the next one. Inside a section, do items from the
+top and honour any `Depends on` line. The same PR updates
+`common/handoff.md` (and the architecture README, when the visible
+behaviour changes) and checks this box.
 
 Acceptance always includes `make test` passing, plus the check written on
 the item. New images go in `tests/`, get a Makefile rule, and get a
 `run` line in `tests/smoke.sh`. Failure text matches the style already in
 the contract (`disk: ...` / `boot: ...`, then `boot halted`).
+
+## Hand-off era (done in v0.3.0)
 
 ## 1. Pin the contract in `make test`
 
@@ -200,8 +204,6 @@ These items are not part of `make test`'s acceptance unless they say so.
     still print `hart1=still` before the exit. `riscv-ras` expects `@exit=1` as well as the
     line and the park. The contract describes the shutdown. Depends on: `riscv-ras-line`.
 
-UEFI and ACPI hand-off for servers stays out of scope; see the roadmap.
-
 ## 7. Boot Squirrel-OS/2
 
 Squirrel-OS/2's boot sector calls `INT 13h`. A 96 KB image signed
@@ -216,23 +218,116 @@ of `make test`.
 - [x] `x86-int13` — Serve the disk and teletype calls the boot sector makes.
   - Acceptance: `INT 13h` `AH=0x42` reads by LBA, `AH=0x02` reads by the cylinder/head/sector geometry `AH=0x08` reports (16 heads, 63 sectors), and `AH=0x00` resets the primary master. Carry is set on a bad packet, a missing drive, or a failed read, and clear on success, with `AH` the usual status. `INT 10h` `AH=0x0E` writes a character to the VGA text buffer, including CR and LF. `INT 15h` `E820` is unchanged. The `S2OK` fast path is unchanged. A new `x86-int13` case has no SQBL header and no `S2OK` signature, so it is entered at `0x7C00`, issues the same three 64-sector extended reads the boot sector does, and expects `via-boot-sector` and `int13=ok tty=ok`. Depends on: `x86-os-image`.
 
-## Speculative
+## Path to v1.0.0 — x86 PC BIOS
 
-Not scheduled. These are ideas, not the laundry list above. Open a PR for
-one only when the OS needs it and the milestones above are done. It would
-still be a single PR from `main`, with a `make test` check and a contract
-update.
+Work from here. Original code only. Each item grows `common/handoff.md`
+so the IVT surface stays the contract.
 
-- `x86-a20` — Turn on A20 so a later load address can sit above 1 MB. A stand-in would read a byte above 1 MB and print `a20=ok`, and the extra-sector header could then name such an address.
-- `x86-bzimage` — Load a Linux `bzImage` (setup header, protected-mode entry) instead of the `SQBL` sector header. A tiny protected-mode stand-in would print `bz=ok` on COM1.
-- `x86-acpi` — Build ACPI tables the OS can find. A stand-in would check the RSDP checksum and print `acpi=ok`.
-- `x86-slave` — Boot from the primary slave when the master is absent. A case with the image on the slave would print `dl=ok`.
-- `arm-psci` — Implement PSCI in the firmware. QEMU virt already advertises PSCI and handles it. A stand-in `CPU_ON` of a second CPU would print `cpu1=ok` with QEMU's PSCI disabled.
-- `arm-gic` — Initialise the GIC and the generic timer. The OS already drives both from the device tree. A stand-in would receive a timer interrupt and print `irq=ok`.
-- `riscv-dbcn` — Add the SBI debug console extension. The device tree already names the NS16550A, which Linux can use. A stand-in `sbi_debug_console_write` would print `dbcn=ok`.
-- `riscv-dtb-devices` — Take the UART and CLINT addresses from the device tree instead of the QEMU virt constants. `riscv-boot` would still pass, and the addresses would no longer be immediate constants.
-- `riscv-boot-hart` — Now scheduled in section 6.
-- `riscv-sparse-harts` — Index the per-hart tables by a slot the firmware assigns, not by the raw hart ID, so a hart ID above `MAX_HARTS` still runs. Only for a board whose hart IDs have gaps; QEMU `virt` has none. A stand-in on such a machine would start every hart.
-- `riscv-ras-line`, `riscv-ras-shutdown` — Done in section 6.
-- `riscv-sse` — The remaining fault-reporting step planned under `big-node-errors` in section 6.
-- `linux-image-in-tree` — Keep a built Linux image in the repo and boot it from `make test`. The stand-in images are the suite; a distro kernel is large and is not original code.
+## 8. x86 foundations (POST and A20)
+
+- [ ] `x86-bda` — Fill the BIOS data area fields boot code reads.
+  - Acceptance: after `vga_init` and the memory map, the BDA at `0x400`
+    has equipment list, memory size (KB below 640 KB), and the cursor
+    fields already used by `INT 10h` consistent with 80x25. A stand-in
+    reads those words and prints `bda=ok`. `x86-boot` and `x86-int13`
+    still pass. The contract lists the fields.
+
+- [ ] `x86-a20` — Turn on A20.
+  - Acceptance: A20 is enabled before the hand-off jump (keyboard
+    controller and/or port `0x92`, whichever this QEMU honours). A
+    stand-in writes a pattern at `0x500000` and checks it is not an alias
+    of `0x000500`, then prints `a20=ok`. `x86-boot` still passes.
+    Depends on: `x86-bda`.
+
+- [ ] `x86-pit-pic` — Program the PIT and both PICs for a PC-compatible layout.
+  - Acceptance: PIT channel 0 runs at the classic ~18.2 Hz; PIC masks and
+    vector bases match the IBM PC AT layout (IRQ0 at vector 8). A
+    stand-in enables interrupts briefly, sees IRQ0 increment a BDA timer
+    tick location (or a firmware counter documented in the contract),
+    prints `pit=ok`, and leaves `IF` clear again on return to the
+    firmware path used by other tests. Depends on: `x86-bda`.
+
+## 9. x86 human interface and time
+
+- [ ] `x86-int16` — Keyboard via `INT 16h`.
+  - Acceptance: `AH=0x00` / `0x01` (read / check keystroke) work with
+    QEMU's `-nographic` or a scripted device that injects a scan code.
+    A stand-in prints `kbd=ok` after seeing a known key. IRQ1 feeds the
+    buffer. Unknown `INT 16h` functions set carry. Depends on:
+    `x86-pit-pic`.
+
+- [ ] `x86-int1a` — Time of day via `INT 1Ah`.
+  - Acceptance: `AH=0x00` returns ticks since midnight from the IRQ0
+    path; `AH=0x02` or `0x04` reads the RTC CMOS in the usual BCD form
+    (document which). A stand-in prints `time=ok`. Depends on:
+    `x86-pit-pic`.
+
+## 10. x86 richer disk and video
+
+- [ ] `x86-int10-text` — Text-mode `INT 10h` beyond teletype.
+  - Acceptance: at least set/get cursor (`AH=0x02`/`0x03`), scroll
+    (`AH=0x06`/`0x07`), and get mode (`AH=0x0F`) for 80x25. A stand-in
+    prints `vid=ok`. `AH=0x0E` stays working. No VESA. Depends on:
+    `x86-bda`.
+
+- [ ] `x86-int13-write` — Disk writes on the primary master.
+  - Acceptance: `AH=0x03` (CHS) and `AH=0x43` (extended) write sectors
+    that a later read returns. Carry and `AH` status match the read
+    path's style. A stand-in prints `write=ok`. Depends on: `x86-int13`
+    (done).
+
+- [ ] `x86-int15-a20` — `INT 15h` A20 control.
+  - Acceptance: the usual A20 query/enable/disable functions (document
+    the exact `AX` values in the contract) match the gate from
+    `x86-a20`. A stand-in prints `int15a20=ok`. E820 unchanged.
+    Depends on: `x86-a20`.
+
+- [ ] `x86-slave` — Boot from the primary slave when the master is absent.
+  - Acceptance: with the image only on the slave, the firmware loads it
+    and sets `DL` appropriately; a case prints `dl=ok`. Master-present
+    behaviour unchanged. Depends on: `x86-int13` (done).
+
+## 11. x86 system tables and high loaders
+
+- [ ] `x86-acpi` — Build ACPI tables the OS can find.
+  - Acceptance: RSDP (and a minimal RSDT/XSDT + FADT or equivalent
+    QEMU-friendly set) is in a documented place; a stand-in checks the
+    RSDP checksum and prints `acpi=ok`. No UEFI. Depends on: `x86-a20`.
+
+- [ ] `x86-smbios` — SMBIOS entry point and a minimal structure set.
+  - Acceptance: a stand-in finds the anchor and prints `smbios=ok`.
+    Depends on: `x86-a20`.
+
+- [ ] `x86-bzimage` — Load a Linux `bzImage`.
+  - Acceptance: detect the setup header, load the protected-mode kernel
+    above 1 MB, jump the documented entry with the usual register
+    protocol for this loader. A tiny protected-mode stand-in (or a
+    pinned tiny bzImage under `build/`, not committed) prints `bz=ok`
+    on COM1. Depends on: `x86-a20`.
+
+- [ ] `x86-option-roms` — Scan legacy option ROM regions and call
+  initialisation entry points that have a valid signature.
+  - Acceptance: a stand-in ROM mapped by QEMU prints `optrom=ok` from
+    its init. Bad signatures are skipped. Depends on: `x86-a20`.
+
+## 12. v1.0.0 release
+
+- [ ] `release-v1.0.0` — Tag the comprehensive PC BIOS.
+  - Acceptance: `release-notes/v1.0.0.md` lists the IVT surface and
+    known gaps (no VESA, no UEFI). `make test` green. Tag `v1.0.0`.
+    Depends on: every unchecked box in sections 8–11.
+
+## Secondary track (does not block v1.0.0)
+
+Open a PR for one of these when it helps; they are not the laundry list
+above.
+
+- `arm-psci` — Firmware PSCI with QEMU's PSCI disabled; stand-in
+  `CPU_ON` prints `cpu1=ok`.
+- `arm-gic` — GIC + generic timer; stand-in prints `irq=ok`.
+- `riscv-dbcn` — SBI debug console; stand-in prints `dbcn=ok`.
+- `riscv-dtb-devices` — UART and CLINT from the device tree.
+- `riscv-sse` — SBI SSE RAS event once QEMU can inject a corrected error.
+- `riscv-sparse-harts` — Only for a board with gapped hart IDs; QEMU
+  `virt` has none.
+- `linux-image-in-tree` — Not default: distro kernels stay downloaded.

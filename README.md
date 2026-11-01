@@ -1,14 +1,17 @@
 # SquirrelBIOS
 
-Platform-specific firmware for Squirrel-OS/2.  
-Original code. Hands off to the OS after early init.
+Original firmware for Squirrel-OS/2 and QEMU's PC / AArch64 `virt` /
+RISC-V `virt` machines. **v0.3.0** is the hand-off release (load image,
+jump, tested contract). **v1.0.0** is a comprehensive x86 PC BIOS —
+see [ROADMAP.md](ROADMAP.md) and [TODO.md](TODO.md).
 
 ```
-x86/        64 KB ROM — VGA text console + ATA hand-off to 0x7C00 (plus SQBL extra sectors)
+x86/        64 KB ROM — VGA text + ATA boot + INT 13h/10h/15h E820 (growing toward a full PC BIOS)
 arm/        AArch64 QEMU virt — PL011 banner + fw_cfg kernel load, DTB in x0
-riscv/      RISC-V QEMU virt — UART banner + S-mode entry to -kernel, DTB in a1
+riscv/      RISC-V QEMU virt — UART banner + S-mode entry to -kernel, DTB in a1, SBI
 tests/      stand-in OS images and smoke tests (make test)
 common/     hand-off contract
+release-notes/  tagged releases (v0.2.0, v0.3.0, …)
 ROADMAP.md  goals, principles, milestones
 TODO.md     small tasks, one per PR
 ```
