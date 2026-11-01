@@ -193,7 +193,20 @@ with `INT 10h` `AH = 0x0E`.
 | CMOS / RTC (`0x70`/`0x71`) | Index `0x0D` (status register D), NMI enabled (bit 7 of `0x70` clear). The firmware masks NMI only while it reads a register. |
 | 8259 PICs (`0x20`, `0xA0`) | Both masks are `0xFF` (every IRQ masked). The OS programs them itself. |
 | Primary ATA channel | Idle. `nIEN` is set if a retry or an `INT 13h` reset touched the channel. |
-| VGA | 80x25 colour text at `0xB8000` (the standard 720x400 text timings, 9x16 cells), CRTC at `0x3D4`. The font in plane 2 is the firmware's own 8x16 font (printable ASCII; other codes are blank). The DAC holds the 16 usual text colours. The firmware's messages are on screen in light grey on black, red for errors. The teletype cursor starts at the top left (`0x0450` is 0, 0) and the CRTC cursor follows it. |
+| VGA | 80x25 colour text at `0xB8000` (the standard 720x400 text timings, 9x16 cells), CRTC at `0x3D4`. The font in plane 2 is the firmware's own 8x16 font (printable ASCII; other codes are blank). The DAC holds the 16 usual text colours. The firmware's messages are on screen in light grey on black, red for errors. The teletype cursor starts at the top left and the CRTC cursor follows it. |
+
+### BIOS data area
+
+Filled after the memory map and VGA init, before the banner. Absolute
+addresses (segment 0):
+
+| Address | Size | Value |
+|---------|------|-------|
+| `0x0410` | word | Equipment list `0x0220`: 80x25 colour (bits 4–5 = `10`), one serial port (bits 9–11 = 1). No floppies or parallel ports. |
+| `0x0413` | word | Conventional memory size in KB: `640` (`0x00000`–`0x9FFFF`, matching the SQMM usable entry). |
+| `0x0450` | 2 bytes | Page-0 cursor: column then row. Starts at `(0, 0)`; `INT 10h` `AH=0x0E` keeps both inside 80x25. |
+
+Other BDA bytes are not filled by this firmware yet.
 
 Do not assume: BIOS interrupt services other than the three above, A20
 state (enabled on QEMU, but the firmware does not touch it), or VGA
@@ -253,8 +266,8 @@ registers on COM1 (and the VGA text buffer), then halts:
 
 `make test` runs `x86-boot`, `x86-no-drive`, `x86-mem-low`,
 `x86-mem-high`, `x86-atapi`, `x86-bad-sector`, `x86-extra`,
-`x86-extra-map`, `x86-extra-boot`, `x86-extra-range`, `x86-osload`
-and `x86-int13`. In `x86-boot` the boot sector checks
+`x86-extra-map`, `x86-extra-boot`, `x86-extra-range`, `x86-osload`,
+`x86-int13` and `x86-bda`. In `x86-boot` the boot sector checks
 `DL`, that `IF` and `DF` are clear, and that the memory map has the
 magic, 20-byte entries, ends by `0x0600`, contains the conventional and
 both reserved regions above exactly, requires an entry at `0x00100000`
@@ -293,6 +306,9 @@ the firmware enters `0x7C00`. That sector performs the same three
 `AH = 0x08`, one `AH = 0x02` sector, and `AH = 0x00`, and checks that
 `INT 10h` `AH = 0x0E` wrote the cells it asked for. It prints
 `via-boot-sector` and `int13=ok tty=ok`.
+`x86-bda` checks the equipment word, the conventional KB, and that the
+cursor at `0x0450` is still inside 80x25 after the banner, and prints
+`bda=ok`.
 
 A Squirrel-OS/2 hard-disk image is not part of `make test`. Build
 `os.img` in that repo and run `tests/os-boot.sh path/to/os.img` (or

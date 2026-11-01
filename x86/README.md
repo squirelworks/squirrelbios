@@ -11,6 +11,8 @@ qemu-system-i386 -bios squirrel-bios.rom -drive format=raw,file=boot.bin,if=ide 
 - Programs COM1 at 115200 8N1
 - Puts the VGA in 80x25 colour text mode and loads its own 8x16 font
   (`vga.inc`, `font.inc`); every message goes to the screen and COM1
+- Fills the BIOS data area equipment list (`0x0410` = `0x0220`),
+  conventional memory KB (`0x0413` = 640), and page-0 cursor (`0x0450`)
 - Prints banner
 - ATA PIO reads LBA 0 into `0x7C00`, with timeouts on every status wait,
   `ERR`/`DF` checks, and up to 3 attempts with a soft reset in between

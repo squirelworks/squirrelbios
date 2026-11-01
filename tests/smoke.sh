@@ -143,6 +143,12 @@ run x86-int13 "SquirrelBIOS x86|via-boot-sector|int13=ok tty=ok|!kernel loaded|!
     "$QEMU_X86" -bios x86/squirrel-bios.rom \
     -drive format=raw,file=$TEST_DIR/x86-int13.bin,if=ide
 
+# x86: BDA has equipment list, conventional memory KB, and a cursor
+# inside 80x25 after the firmware's banner
+run x86-bda "SquirrelBIOS x86|OS-ENTRY x86 bda=ok" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -drive format=raw,file=$TEST_DIR/x86-bda.bin,if=ide
+
 # x86: a CD-ROM as primary master is rejected, not read
 run x86-atapi "disk: primary master is ATAPI (CD/DVD), not supported|boot halted" \
     "$QEMU_X86" -bios x86/squirrel-bios.rom \
