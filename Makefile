@@ -20,6 +20,7 @@ TEST_DIR  := build/tests
 TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)/x86-bad-sector.bin \
              $(TEST_DIR)/x86-extra.bin $(TEST_DIR)/x86-extra-map.bin \
              $(TEST_DIR)/x86-extra-boot.bin $(TEST_DIR)/x86-extra-range.bin \
+             $(TEST_DIR)/x86-osload.bin \
              $(TEST_DIR)/arm-kernel.bin $(TEST_DIR)/arm-too-big.bin \
              $(TEST_DIR)/arm-image-fixed.bin $(TEST_DIR)/arm-image-reloc.bin \
              $(TEST_DIR)/arm-image-short.bin $(TEST_DIR)/arm-initrd.img \
@@ -37,7 +38,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/riscv-numa.bin $(TEST_DIR)/riscv-aia.bin \
              $(TEST_DIR)/riscv-ras.bin
 
-.PHONY: all x86 arm riscv test linux-shell linux-big linux-stress clean
+.PHONY: all x86 arm riscv test linux-shell linux-big linux-stress os-boot clean
 .DELETE_ON_ERROR:
 
 all: x86 arm riscv
@@ -96,6 +97,10 @@ $(TEST_DIR)/x86-extra-boot.bin: tests/x86-extra.asm | $(TEST_DIR)
 	$(NASM) -f bin -DOVERLAP_BOOT $< -o $@
 $(TEST_DIR)/x86-extra-range.bin: tests/x86-extra.asm | $(TEST_DIR)
 	$(NASM) -f bin -DOUT_OF_RANGE $< -o $@
+
+# Boot sector plus a 96 KB 'S2OK' image, the shape of Squirrel-OS/2's disk
+$(TEST_DIR)/x86-osload.bin: tests/x86-osload.asm | $(TEST_DIR)
+	$(NASM) -f bin $< -o $@
 
 $(TEST_DIR)/arm-kernel.o: tests/arm-kernel.S | $(TEST_DIR)
 	$(AARCH64)as -o $@ $<
@@ -291,6 +296,12 @@ test: all $(TEST_BINS)
 # busybox into build/linux (about 40 MB, once) and checks for a shell prompt
 linux-shell: riscv
 	tests/linux-shell.sh
+
+# Optional, not part of make test. OS_IMG is a Squirrel-OS/2 hard-disk
+# image (that repo's build/os.img). The OS banner is on the VGA, so the
+# script reads the text buffer; serial carries the firmware line.
+os-boot: x86
+	tests/os-boot.sh $(OS_IMG)
 
 # Optional, not part of make test: the first step of the large-node
 # milestone in ROADMAP.md. The linux-shell boot, with Ubuntu's 6.14

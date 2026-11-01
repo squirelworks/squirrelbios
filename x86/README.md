@@ -20,6 +20,11 @@ qemu-system-i386 -bios squirrel-bios.rom -drive format=raw,file=boot.bin,if=ide 
 - When the sector has an SQBL header at `0x1F0`, reads the 1–128 sectors
   after it to the header's `segment:offset` (below `0xA0000`, clear of the
   memory map and the boot sector) before jumping to `0x7C00`
+- When it does not, and LBA 192 ends in `S2OK`, reads LBAs 1–192 to
+  `0x8000` and jumps there. The boot sector is not entered (it would
+  call `INT 13h`). The IVT's only service is `INT 15h` `E820`, which
+  returns the memory map; every other software interrupt returns with
+  carry set
 - Builds a memory map at `0x0000:0x0500` from the RAM sizes in CMOS (`memmap.inc`)
 - On success jumps to `0x0000:0x7C00` with `DL = 0x80`, `ES:DI = 0x0000:0x0500`
 

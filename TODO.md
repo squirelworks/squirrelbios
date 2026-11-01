@@ -192,6 +192,16 @@ These items are not part of `make test`'s acceptance unless they say so.
 
 UEFI and ACPI hand-off for servers stays out of scope; see the roadmap.
 
+## 7. Boot Squirrel-OS/2
+
+Squirrel-OS/2's boot sector calls `INT 13h`. This firmware does not
+provide that service, so the image never used to leave the boot sector.
+The firmware loads the signed kernel itself and enters it.
+`tests/os-boot.sh` boots a real `os.img`; it is not part of `make test`.
+
+- [x] `x86-os-image` — Load a Squirrel-OS/2 hard-disk image and enter its kernel.
+  - Acceptance: a disk with no SQBL header whose LBA 192 ends in `S2OK` is read, LBAs 1–192, to `0x8000`, and entered there with the same registers as the `0x7C00` hand-off. `INT 15h` `E820` returns the SQMM entries. `INT 13h` returns with carry set. `x86-osload` expects `kernel loaded at 0x00008000, jumping` and `osload=ok dl=ok flags=ok memmap=ok sig=ok e820=ok disk=absent`, and not `entered-boot-sector`. A disk without that signature still takes the one-sector path (`x86-one-sector`). `tests/os-boot.sh` on a Squirrel-OS/2 `os.img` passes when the VGA shows `Squirrel-OS/2` and a `>` prompt. `make test` stays green.
+
 ## Speculative
 
 Not scheduled. These are ideas, not the laundry list above. Open a PR for

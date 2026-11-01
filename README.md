@@ -46,6 +46,7 @@ stand-in OS image from `tests/` and checks the serial output:
 | `x86-bad-sector` | A sector without the `0xAA55` signature is reported and not jumped to |
 | `x86-extra` | An SQBL header in the boot sector gets its extra sectors loaded before the jump |
 | `x86-extra-map`, `x86-extra-boot`, `x86-extra-range` | An SQBL load onto the memory map, onto the boot sector, or past `0xA0000` is refused |
+| `x86-osload` | A disk signed `S2OK` (the Squirrel-OS/2 layout, no SQBL header) is loaded at `0x8000` and entered there; `INT 15h` `E820` returns the memory map and `INT 13h` does not |
 | `arm-boot` | The `-kernel` image runs with a valid device tree in `x0`, `x1`–`x3` = 0, MMU and D-cache off, little-endian, `DAIF` masked |
 | `arm-boot-el2` | The same at EL2 (`virtualization=on`) |
 | `arm-too-big` | An image that would run past the end of RAM is refused before it is loaded |
@@ -147,6 +148,11 @@ or the kernel logs a failed SBI call, an oops or an RCU stall. Needs
 ```bash
 # x86 (with a boot sector image); firmware messages appear on COM1
 qemu-system-i386 -bios x86/squirrel-bios.rom -drive format=raw,file=boot.bin,if=ide -serial stdio
+
+# Squirrel-OS/2 hard disk. The shell banner and "> " prompt are on the VGA.
+# tests/os-boot.sh checks them; it is not part of make test.
+qemu-system-i386 -bios x86/squirrel-bios.rom -drive format=raw,file=os.img,if=ide -serial stdio
+tests/os-boot.sh path/to/os.img
 
 # AArch64 (image linked at 0x40200000)
 qemu-system-aarch64 -M virt -cpu cortex-a57 -nographic -bios arm/squirrel-bios.bin -kernel image.bin

@@ -16,9 +16,11 @@ BIOS, UEFI, or a vendored third-party firmware.
    `virt`, and RISC-V `virt`.
 2. Make every guarantee in the hand-off contract something `make test`
    can catch if it breaks.
-3. On x86, load a real image. Today the firmware reads one sector to
-   `0x7C00` and then offers no disk services, so the OS cannot load the
-   rest of itself.
+3. On x86, load a real image. A one-sector image is read to `0x7C00`.
+   An SQBL header asks for more sectors. A Squirrel-OS/2 image, whose
+   last kernel dword is `S2OK`, is read to `0x8000` and entered there.
+   Its boot sector would call `INT 13h`, which this firmware does not
+   provide, so that sector is not entered.
 4. On AArch64, enter a Linux `Image` the way the arm64 boot protocol
    describes. The registers and the device tree are already there; the
    CPU state, the image header, and the RAM limit are not finished.
@@ -53,8 +55,8 @@ behaviour in place unless a task below says to change it.
 
 | | x86 PC | AArch64 `virt` | RISC-V `virt` |
 |---|---|---|---|
-| Image | ATA PIO of LBA 0 into `0x7C00`, 3 tries, soft reset between them | `-kernel` via fw_cfg DMA to `0x40200000` | QEMU loads `-kernel`; firmware jumps to `next_addr` |
-| Entry | `0x0000:0x7C00`, `DL = 0x80` | `0x40200000`, `x0` = DTB, `x1`–`x3` = 0 | `0x80200000`, M-mode, `a0` = hart, `a1` = DTB |
+| Image | ATA PIO of LBA 0 into `0x7C00`, 3 tries, soft reset between them. A `S2OK` image also gets LBAs 1–192 at `0x8000` | `-kernel` via fw_cfg DMA to `0x40200000` | QEMU loads `-kernel`; firmware jumps to `next_addr` |
+| Entry | `0x0000:0x7C00`, or `0x0000:0x8000` for a `S2OK` image. `DL = 0x80` | `0x40200000`, `x0` = DTB, `x1`–`x3` = 0 | `0x80200000`, M-mode, `a0` = hart, `a1` = DTB |
 | Console | COM1 `0x3F8` 115200 8N1, timeouts on the UART | PL011 `0x09000000` | NS16550A `0x10000000` |
 | Memory | E820-style map at `0x0500` from CMOS | DTB `/memory`, checked only for the FDT magic | DTB pointer passed through |
 | On failure | Missing drive, ATAPI, timeout, bad read: reason plus ATA status/error, then halt | No fw_cfg DMA, no kernel, DMA error: message, then halt | No `fw_dynamic_info`: message, then halt |
@@ -255,7 +257,8 @@ Not tasks, until the OS needs one of them. They are listed in
 
 ## Out of scope
 
-- Runtime firmware services after the jump: x86 `INT 10h` / `INT 13h` /
-  `INT 15h`, UEFI, ACPI as a requirement for the hand-off.
+- Runtime firmware services after the jump: x86 `INT 10h` / `INT 13h`,
+  and `INT 15h` other than `E820` on the `S2OK` entry. UEFI, and ACPI
+  as a requirement for the hand-off.
 - Vendoring another project's firmware and calling it SquirrelBIOS.
 - Boards other than QEMU PC, QEMU AArch64 `virt`, and QEMU RISC-V `virt`.

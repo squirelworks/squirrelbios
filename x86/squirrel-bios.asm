@@ -18,7 +18,12 @@
 ;   - Check the 0xAA55 signature in the last word of the sector; halt if absent
 ;   - If the sector carries an SQBL header (offset 0x1F0), read the extra
 ;     sectors it asks for (LBA 1 on) to its load address, below 0xA0000
-;   - On success: jump to 0x0000:0x7C00 with DL = 0x80, DI = 0x0500 (memory map)
+;   - If it does not, but LBA 192 ends in the Squirrel-OS/2 signature
+;     'S2OK', read sectors 1..192 to 0x8000 and jump there. The boot
+;     sector at 0x7C00 is not entered: it would call INT 13h, which this
+;     firmware does not provide
+;   - On the one-sector and SQBL paths: jump to 0x0000:0x7C00 with
+;     DL = 0x80, DI = 0x0500 (memory map)
 
 BITS 16
 
@@ -34,6 +39,15 @@ SQBL_HDR        equ BOOT_SECTOR + 0x1F0
 SQBL_MAGIC      equ 0x4C425153  ; bytes 53 51 42 4C, 'SQBL'
 SQBL_MAX        equ 128         ; extra sectors
 LOAD_LIMIT      equ 0xA0000     ; first byte that is not conventional RAM
+
+; Squirrel-OS/2 hard-disk image: 192 sectors (96 KB) at 0x8000, last
+; dword 'S2OK' (documentation/kernel/boot-sector.md). LBA 0 is the boot
+; sector, so the signature lives in LBA 192.
+OS_LOAD         equ 0x8000
+OS_SECTORS      equ 192
+OS_SIG          equ 0x4B4F3253  ; bytes 53 32 4F 4B, 'S2OK'
+OS_PROBE        equ 0x1000      ; scratch sector for the signature probe
+OS_SIG_LIN      equ OS_LOAD + OS_SECTORS * 512 - 4
 
 ; Primary ATA channel, legacy ports
 ATA_DATA        equ 0x1F0
@@ -105,9 +119,9 @@ entry:
     jmp boot_fail
 .signed:
 
-    ; No SQBL header: the one-sector hand-off
+    ; No SQBL header: either a Squirrel-OS/2 image or one sector
     cmp dword [ss:SQBL_HDR], SQBL_MAGIC
-    jne handoff
+    jne maybe_os
 
     ; Extra sector count, 1-128
     movzx ecx, word [ss:SQBL_HDR + 4]
@@ -154,6 +168,62 @@ entry:
     mov si, msg_overlap
     jmp boot_fail
 
+; A 96 KB image signed 'S2OK' is the kernel the boot sector would have
+; read with INT 13h. Load it here and enter it. A missing signature, or
+; a disk too small to hold one, is the one-sector hand-off: the probe is
+; a single try, so a short image is not reported as a disk error.
+maybe_os:
+    mov cl, OS_SECTORS          ; LBA of the last kernel sector
+    mov ch, 1
+    mov ebp, OS_PROBE
+    call ata_read
+    jc handoff
+    cmp dword [ss:OS_PROBE + 508], OS_SIG
+    jne handoff
+
+    mov cl, 1
+    mov ch, 128                 ; LBAs 1..128 -> 0x8000
+    mov ebp, OS_LOAD
+    call ata_read_retry
+    jc kernel_fail
+    mov cl, 129
+    mov ch, OS_SECTORS - 128    ; LBAs 129..192 -> 0x18000
+    mov ebp, OS_LOAD + 128 * 512
+    call ata_read_retry
+    jc kernel_fail
+    push es
+    mov ax, OS_SIG_LIN >> 4
+    mov es, ax
+    cmp dword [es:OS_SIG_LIN & 0x0F], OS_SIG
+    pop es
+    je kernel_go
+    mov si, msg_nosig_os
+    jmp boot_fail
+kernel_fail:
+    cmp si, msg_readerr
+    jne disk_fail
+    mov si, msg_kernel
+    jmp disk_fail
+kernel_go:
+    call install_ivt
+    mov si, msg_kload
+    mov ah, ATTR_NORMAL
+    call con_print
+    call con_newline
+
+; Registers match the 0x7C00 hand-off. CS:IP is the kernel.
+kernel_entry:
+    cli
+    cld
+    xor ax, ax
+    mov ds, ax
+    mov es, ax
+    mov ss, ax
+    mov sp, BOOT_SECTOR
+    mov dl, 0x80
+    mov di, MEMMAP_ADDR
+    jmp 0x0000:OS_LOAD
+
 handoff:
     xor ax, ax
     mov ds, ax
@@ -191,6 +261,83 @@ boot_halt:
 .halt:
     hlt
     jmp .halt
+
+; ---------------------------------------------------------------------------
+; Real-mode vectors for the kernel entry only.
+; Every vector points here. INT 15h EAX=0xE820 returns the next SQMM
+; entry (the same table as ES:DI at 0x0500). Any other call, including
+; INT 13h and INT 10h, comes back with CF set and no register changed.
+; The ROM is mapped at 0xF0000, which is the segment stored in the IVT.
+; ---------------------------------------------------------------------------
+
+install_ivt:
+    push es
+    push di
+    push ax
+    push cx
+    xor ax, ax
+    mov es, ax
+    xor di, di
+    cld
+    mov cx, 256
+.fill:
+    mov ax, int_handler
+    stosw
+    mov ax, 0xF000
+    stosw
+    loop .fill
+    pop cx
+    pop ax
+    pop di
+    pop es
+    ret
+
+; Stacked real-mode frame: [bp+2] = IP, [bp+4] = CS, [bp+6] = FLAGS.
+int_handler:
+    push bp
+    mov bp, sp
+    cmp eax, 0xE820
+    jne .fail
+    cmp edx, 0x534D4150         ; 'SMAP'
+    jne .fail
+    cmp ecx, 20
+    jb .fail
+    test ebx, 0xFFFF0000
+    jnz .fail
+    push ds
+    push si
+    push di
+    xor si, si
+    mov ds, si
+    cmp bx, [MEMMAP_ADDR + 4]   ; entry count
+    jae .reject
+    mov si, bx
+    imul si, si, MEMMAP_ENTRY
+    add si, MEMMAP_ENTRIES
+    mov cx, MEMMAP_ENTRY / 2
+    cld
+    rep movsw
+    pop di                      ; caller keeps its buffer pointer
+    pop si
+    inc bx
+    cmp bx, [MEMMAP_ADDR + 4]
+    jb .cont
+    xor bx, bx                  ; last entry: continuation 0
+.cont:
+    pop ds
+    mov eax, 0x534D4150
+    mov ecx, 20
+    and word [bp + 6], 0xFFFE   ; CF clear
+    pop bp
+    iret
+.reject:
+    pop di
+    pop si
+    pop ds
+.fail:
+    or word [bp + 6], 1         ; CF set
+    pop bp
+    iret
 
 ; ---------------------------------------------------------------------------
 ; ATA PIO
@@ -521,6 +668,9 @@ msg_timeout db 'disk: timeout waiting for drive', 0
 msg_readerr db 'disk: read of LBA 0 failed', 0
 msg_nosig   db 'disk: boot sector has no 0xAA55 signature', 0
 msg_readerr_extra db 'disk: read of the extra sectors failed', 0
+msg_kernel  db 'disk: read of the kernel image failed', 0
+msg_nosig_os db 'disk: kernel image has no S2OK signature', 0
+msg_kload   db 'kernel loaded at 0x00008000, jumping', 0
 msg_overlap db 'disk: load overlaps firmware data', 0
 msg_range   db 'disk: load address is out of range', 0
 msg_status  db '  status=', 0
