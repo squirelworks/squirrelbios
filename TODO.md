@@ -294,7 +294,7 @@ so the IVT surface stays the contract.
     QEMU-friendly set) is in a documented place; a stand-in checks the
     RSDP checksum and prints `acpi=ok`. No UEFI. Depends on: `x86-a20`.
 
-- [ ] `x86-smbios` — SMBIOS entry point and a minimal structure set.
+- [x] `x86-smbios` — SMBIOS entry point and a minimal structure set.
   - Acceptance: a stand-in finds the anchor and prints `smbios=ok`.
     Depends on: `x86-a20`.
 

@@ -197,6 +197,11 @@ run x86-acpi "SquirrelBIOS x86|OS-ENTRY x86 acpi=ok" \
     "$QEMU_X86" -bios x86/squirrel-bios.rom \
     -drive format=raw,file=$TEST_DIR/x86-acpi.bin,if=ide
 
+# x86: SMBIOS _SM_ in 0xF0000–0xFFFFF with valid checksums
+run x86-smbios "SquirrelBIOS x86|OS-ENTRY x86 smbios=ok" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -drive format=raw,file=$TEST_DIR/x86-smbios.bin,if=ide
+
 # x86: a CD-ROM as primary master is rejected, not read
 run x86-atapi "disk: primary master is ATAPI (CD/DVD), not supported|boot halted" \
     "$QEMU_X86" -bios x86/squirrel-bios.rom \

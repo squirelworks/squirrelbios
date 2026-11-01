@@ -12,7 +12,7 @@
 ;     every message goes to VGA text and COM1
 ;   - Build a memory map at 0x0000:0x0500 (memmap.inc)
 ;   - Fill BDA equipment, conventional KB, and the teletype cursor
-;   - ACPI 1.0 RSDP/RSDT/FADT in the ROM at 0xFE000 (acpi.inc)
+;   - SMBIOS 2.4 entry point at 0xFD000; ACPI 1.0 tables at 0xFE000
 ;   - Enable the A20 gate (port 0x92) before the hand-off jump
 ;   - Program the PIT (~18.2 Hz) and both PICs (IRQ0/IRQ1)
 ;   - Enable the i8042 (set-1 XLAT) and INT 16h keyboard services
@@ -164,6 +164,7 @@ entry:
     call serial_init
     call vga_init
     call bda_init
+    call smbios_init
     call acpi_init
 
     ; Banner
@@ -2094,8 +2095,8 @@ msg_status  db '  status=', 0
 msg_error   db ' error=', 0
 msg_halted  db 'boot halted', 0
 
-; ACPI RSDP/RSDT/FADT at fixed ROM offsets (see acpi.inc), then pad to
-; the reset vector at 0xFFF0.
+; SMBIOS then ACPI at fixed ROM offsets, then pad to the reset vector.
+%include "smbios.inc"
 %include "acpi.inc"
 
 times (65536 - 16) - ($ - $$) db 0

@@ -240,6 +240,18 @@ The RSDP checksum (sum of the 20 bytes is 0) and each SDT checksum are
 valid. Find the RSDP by scanning `0xE0000`–`0xFFFFF` on a 16-byte stride
 (the usual BIOS search). No UEFI. No XSDT.
 
+### SMBIOS
+
+A SMBIOS 2.4 entry point sits in the BIOS ROM:
+
+| Physical | Content |
+|----------|---------|
+| `0xFD000` | Entry point (`_SM_` / `_DMI_`), length `0x1F`. |
+| `0xFD020` | Structure table: Type 0 (BIOS), Type 1 (System), Type 127 (end). |
+
+Both EPS checksums are valid. Find the entry point by scanning
+`0xF0000`–`0xFFFFF` on a 16-byte stride for `_SM_`.
+
 ### BIOS data area
 
 Filled after the memory map and VGA init, before the banner. Absolute
@@ -326,7 +338,8 @@ registers on COM1 (and the VGA text buffer), then halts:
 `x86-mem-high`, `x86-atapi`, `x86-bad-sector`, `x86-extra`,
 `x86-extra-map`, `x86-extra-boot`, `x86-extra-range`, `x86-osload`,
 `x86-int13`, `x86-bda`, `x86-a20`, `x86-pit`, `x86-kbd`, `x86-time`,
-`x86-vid`, `x86-write`, `x86-int15a20`, `x86-slave` and `x86-acpi`. In `x86-boot` the boot sector checks
+`x86-vid`, `x86-write`, `x86-int15a20`, `x86-slave`, `x86-acpi` and
+`x86-smbios`. In `x86-boot` the boot sector checks
 `DL`, that `IF` and `DF` are clear, and that the memory map has the
 magic, 20-byte entries, ends by `0x0600`, contains the conventional and
 both reserved regions above exactly, requires an entry at `0x00100000`
