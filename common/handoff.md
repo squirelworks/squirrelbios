@@ -442,11 +442,21 @@ reaches M-mode.
 `mtvec` points at a firmware handler. An `ecall` from S-mode (cause `9`)
 is an SBI call and returns (below). The M-mode timer interrupt is how
 `sbi_set_timer` fires: the firmware raises the supervisor timer interrupt
-(`mip.STIP`) and returns to where S-mode was. Any other trap that reaches M-mode is
-reported instead of jumping to address 0, and does not return: the
-handler prints `trap mcause=` and the cause as 16 lowercase hex digits
-(no `0x`), then `boot halted`, and halts. With the delegation above, an
-S-mode image only gets there through a firmware bug. An image entered in
+(`mip.STIP`) and returns to where S-mode was. Any other trap that reaches
+M-mode is reported instead of jumping to address 0, and does not return:
+the handler prints one line
+
+```
+ras: hart=<16 hex> mcause=<16 hex> mepc=<16 hex> mtval=<16 hex> fatal
+```
+
+(all hex lowercase, no `0x`), then parks every other started hart with a
+CLINT software interrupt so those harts leave S-mode and sit in `wfi`,
+then prints `boot halted` and halts. With the delegation above, an
+S-mode image only gets there through a firmware bug (or the smoke-only
+`ecall` with `a7 = 0x53515241` (`"SQRA"`), which is not an SBI extension
+and is not reported by `probe_extension`: it loads from address 0 in
+M-mode so `make test` can exercise this path). An image entered in
 M-mode installs its own `mtvec` before it relies on traps (an M-mode
 `ecall` is cause `000000000000000b`).
 
@@ -624,7 +634,12 @@ its own memory and an `ecall` still work), `riscv-srst` (an image probes SRST, g
 and functions refused, prints `reset=ok` and shuts down; QEMU must exit
 with status 0 and the call must not return), `riscv-srst-reboot` (the
 same with a cold reboot under `-no-reboot`, status 0), `riscv-srst-fail`
-(a shutdown for a system failure, status 1) and `riscv-no-kernel`. By hand:
+(a shutdown for a system failure, status 1), `riscv-ras` (with `-smp 2`,
+hart 0 starts hart 1, then `ecall`s `a7 = 0x53515241` so the SBI path
+faults: the log has `hart1=up`, a `ras: hart=... mcause=0000000000000005
+... mtval=0000000000000000 fatal` line, and `boot halted`, and must not
+show `hart1=still`, which hart 1 would print after two seconds if it were
+still running) and `riscv-no-kernel`. By hand:
 
 ```bash
 make riscv

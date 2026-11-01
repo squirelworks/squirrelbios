@@ -2,7 +2,8 @@
  * Prints banner on UART, then enters the -kernel image QEMU loaded in the
  * mode QEMU asked for (S-mode for -kernel, through mret), with the hart ID
  * in a0 and the device tree in a1. An ecall from S-mode is an SBI call
- * (sbi_call below). Any other trap that reaches M-mode prints mcause and
+ * (sbi_call below). Any other trap that reaches M-mode prints a ras: line
+ * (hart, mcause, mepc, mtval, fatal), parks every other started hart, then
  * halts.
  * Original code.
  *
@@ -144,6 +145,7 @@
         .equ PEND_SSIP,         1           /* raise the supervisor software interrupt */
         .equ PEND_FENCE_I,      2
         .equ PEND_SFENCE,       4           /* sfence.vma, all of it */
+        .equ PEND_PARK,         8           /* leave S-mode and park forever (RAS) */
         .equ HSM_STARTED,       0           /* SBI hart states */
         .equ HSM_STOPPED,       1
         .equ HSM_START_PENDING, 2
@@ -165,6 +167,9 @@
         .equ SBI_EXT_RFENCE,    0x52464e43
         .equ SBI_EXT_HSM,       0x48534d
         .equ SBI_EXT_SRST,      0x53525354
+        /* Not an SBI extension: probe_extension never reports it. The
+         * riscv-ras smoke case ecalls it so the SBI path faults in M-mode. */
+        .equ SBI_EXT_TEST_FAULT, 0x53515241 /* "SQRA" */
         .equ SBI_SPEC_VERSION,  0x01000000  /* 1.0 */
         .equ SBI_IMPL_ID,       0x5351      /* "SQ"; not BBL (0) or OpenSBI (1) */
         .equ SBI_IMPL_VERSION,  1
@@ -376,7 +381,7 @@ park_forever:
  * so the OS's sp is swapped out first and every register but a0 and a1
  * comes back unchanged. An ecall from S-mode is an SBI call, and the
  * M-mode timer interrupt is passed on to S-mode. Anything else is not
- * resumed: print the cause and halt. */
+ * resumed: print a ras: line, park the other started harts, and halt. */
         .align 2
 trap:
         csrrw sp, mscratch, sp
@@ -402,6 +407,8 @@ trap:
 /* SBI dispatcher.  t0-t6 and ra are saved. A function sets a1 and goes to
  * sbi_ok, or sets a0 to an error and goes to sbi_ret. */
 sbi_call:
+        li t0, SBI_EXT_TEST_FAULT
+        beq a7, t0, sbi_test_fault
         li t0, SBI_EXT_BASE
         beq a7, t0, sbi_base
         li t0, SBI_EXT_TIME
@@ -637,7 +644,8 @@ hart_selected:
         andi t5, t5, 1
 1:      jr t2
 
-/* Do the work in \bits (PEND_*) on this hart.  Uses \tmp. */
+/* Do the work in \bits (PEND_*) on this hart.  Uses \tmp. PEND_PARK never
+ * returns: the hart leaves S-mode and sits in park_forever. */
 .macro do_work bits, tmp
         andi \tmp, \bits, PEND_SSIP       /* own labels: no 1f/2f/3f clash */
         beqz \tmp, dw_fi\@
@@ -648,8 +656,12 @@ dw_fi\@:
         fence.i
 dw_sf\@:
         andi \tmp, \bits, PEND_SFENCE
-        beqz \tmp, dw_end\@
+        beqz \tmp, dw_park\@
         sfence.vma
+dw_park\@:
+        andi \tmp, \bits, PEND_PARK
+        beqz \tmp, dw_end\@
+        j ras_park
 dw_end\@:
 .endm
 
@@ -851,17 +863,69 @@ skip_insn:
         csrw mepc, t0
         mret
 
+/* Smoke-only: ecall with a7 = SBI_EXT_TEST_FAULT loads from address 0 in
+ * M-mode so trap_fatal runs with a real SBI-path fault (cause 5). The
+ * nested trap needs a trap stack in mscratch; on entry that CSR holds the
+ * OS sp, which is 0, so restore this hart's stack top first. */
+sbi_test_fault:
+        addi t0, sp, TRAP_FRAME
+        csrw mscratch, t0
+        lw t0, 0(zero)
+
+/* A fatal trap that is not an SBI call or an M-mode timer/soft interrupt:
+ * print one ras: line, park every other started hart, then halt. */
 trap_fatal:
         la sp, stack_top
-        la a0, msg_trap
+        csrr s0, mhartid
+        csrr s1, mcause
+        csrr s2, mepc
+        csrr s3, mtval
+        la a0, msg_ras
         call puts
-        csrr a0, mcause
+        mv a0, s0
         call puthex
-        li a0, '\n'
-        call putc
+        la a0, msg_ras_mcause
+        call puts
+        mv a0, s1
+        call puthex
+        la a0, msg_ras_mepc
+        call puts
+        mv a0, s2
+        call puthex
+        la a0, msg_ras_mtval
+        call puts
+        mv a0, s3
+        call puthex
+        la a0, msg_ras_fatal
+        call puts
+        /* Park every other started hart so it does not keep running blind. */
+        li t4, 0
+1:      beq t4, s0, 3f
+        hart_entry
+        ld t5, HART_STATE(t3)
+        bnez t5, 3f                         /* not started */
+        li t0, PEND_PARK
+        addi t6, t3, HART_PENDING
+        amoor.d.aqrl zero, t0, (t6)
+        fence rw, ow
+        ld t6, HART_MSIP(t3)
+        li t5, 1
+        sw t5, 0(t6)
+3:      addi t4, t4, 1
+        li t5, MAX_HARTS
+        bltu t4, t5, 1b
         la a0, msg_halted
         call puts
         j halt
+
+/* PEND_PARK on a started hart: drop the S-mode context and never return. */
+ras_park:
+        addi sp, sp, TRAP_FRAME
+        csrw mscratch, sp
+        csrw mie, zero
+        li t0, MIP_SSIP | MIP_STIP
+        csrc mip, t0
+        j park_forever
 
 /* ------------------------------------------------------------------ */
 /* Device tree                                                         */
@@ -1428,7 +1492,11 @@ msg_jump:       .asciz "jumping to kernel at 0x"
 msg_mode:       .asciz ", next_mode="
 msg_bad_mode:   .asciz "boot: unsupported next_mode "
 msg_no_kernel:  .asciz "boot: no kernel image (pass -kernel to QEMU)\n"
-msg_trap:       .asciz "trap mcause="
+msg_ras:        .asciz "ras: hart="
+msg_ras_mcause: .asciz " mcause="
+msg_ras_mepc:   .asciz " mepc="
+msg_ras_mtval:  .asciz " mtval="
+msg_ras_fatal:  .asciz " fatal\n"
 msg_halted:     .asciz "boot halted\n"
 msg_dt_ok:      .asciz "dt: firmware region 0x80000000-0x801fffff reserved (no-map)\n"
 msg_dt_odd:     .asciz "dt: firmware region not reserved: unexpected device tree layout\n"

@@ -177,7 +177,18 @@ These items are not part of `make test`'s acceptance unless they say so.
       `ras: hart=<id> mcause=<16 hex> mepc=<16 hex> mtval=<16 hex> <what>`
       where `<what>` is `fatal` or `corrected`. A fatal fault is followed by `boot halted` on that hart. Unlike today, the other harts are not left running blind: the faulting hart sends them an IPI that parks them, and if the OS is up, the machine is shut down through the same path as SRST, with QEMU exit status 1 (a "system failure" shutdown), so a job scheduler sees a failed node and not a silent hang.
     - *What the OS is told.* SBI 1.0 has no error-reporting call, so nothing yet. The SBI 2.0 Supervisor Software Events extension (SSE, `0x535345`) defines a RAS event that the firmware can raise into S-mode. Once there is a corrected-error source to report, implement SSE with that one event and advertise it from `probe_extension`. Until then an S-mode OS learns about a fatal fault only from the console and the exit status.
-    - *Items, in order:* `riscv-ras-line` (the console line and the IPI park, with a stand-in that makes the SBI handler fault on purpose), `riscv-ras-shutdown` (shut the machine down with status 1 after a fatal fault while an OS runs, `@exit=1` in `smoke.sh`), then `riscv-sse` once QEMU has an error source to inject. They go in Speculative until the OS needs them.
+    - *Items, in order:* `riscv-ras-line` (below), `riscv-ras-shutdown` (shut the machine down with status 1 after a fatal fault while an OS runs, `@exit=1` in `smoke.sh`), then `riscv-sse` once QEMU has an error source to inject. The later two stay in Speculative until the OS needs them.
+
+- [x] `riscv-ras-line` — Print a `ras:` fault line and park the other started harts.
+  - Acceptance: a fatal trap that is not an SBI call or an M-mode timer/soft interrupt prints
+    `ras: hart=<16 hex> mcause=<16 hex> mepc=<16 hex> mtval=<16 hex> fatal`, then `boot halted`.
+    Before the halt, every other started hart is given a CLINT software interrupt that leaves
+    S-mode and parks it. A `riscv-ras` case with `-smp 2` starts hart 1, then makes the SBI
+    handler fault on purpose (`ecall` with `a7 = 0x53515241`, which loads from address 0 in
+    M-mode and is not probed); the log has the `ras:` line with `mcause=0000000000000005` and
+    `mtval=0000000000000000`, and does not show `hart1=still` (which hart 1 would print after
+    two seconds if it kept running). The contract describes the line and the park. Depends on:
+    `big-node-errors`.
 
 UEFI and ACPI hand-off for servers stays out of scope; see the roadmap.
 
@@ -198,5 +209,6 @@ update.
 - `riscv-dtb-devices` — Take the UART and CLINT addresses from the device tree instead of the QEMU virt constants. `riscv-boot` would still pass, and the addresses would no longer be immediate constants.
 - `riscv-boot-hart` — Now scheduled in section 6.
 - `riscv-sparse-harts` — Index the per-hart tables by a slot the firmware assigns, not by the raw hart ID, so a hart ID above `MAX_HARTS` still runs. Only for a board whose hart IDs have gaps; QEMU `virt` has none. A stand-in on such a machine would start every hart.
-- `riscv-ras-line`, `riscv-ras-shutdown`, `riscv-sse` — The fault-reporting steps planned under `big-node-errors` in section 6.
+- `riscv-ras-line` — Done in section 6.
+- `riscv-ras-shutdown`, `riscv-sse` — The remaining fault-reporting steps planned under `big-node-errors` in section 6.
 - `linux-image-in-tree` — Keep a built Linux image in the repo and boot it from `make test`. The stand-in images are the suite; a distro kernel is large and is not original code.

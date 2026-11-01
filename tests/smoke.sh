@@ -310,6 +310,12 @@ run riscv-srst-fail "OS-ENTRY riscv srst|reset=ok|!reset=bad|!trap mcause=|@exit
     "$QEMU_RISCV" -M virt -bios riscv/squirrel-bios.bin \
     -kernel $TEST_DIR/riscv-srst-fail.bin
 
+# RISC-V: a fault in the SBI path prints a ras: line, parks the other
+# started hart (hart1=still must not appear after a 2 s wait), and halts
+run riscv-ras "OS-ENTRY riscv ras|hart1=up|~^ras: hart=0000000000000000 mcause=0000000000000005 mepc=[0-9a-f]{16} mtval=0000000000000000 fatal|boot halted|!hart1=still|!ras=bad|!trap mcause=" \
+    "$QEMU_RISCV" -M virt -smp 2 -bios riscv/squirrel-bios.bin \
+    -kernel $TEST_DIR/riscv-ras.bin
+
 run riscv-no-kernel "boot: no kernel image|boot halted" \
     "$QEMU_RISCV" -M virt -bios riscv/squirrel-bios.bin
 
