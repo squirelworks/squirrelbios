@@ -22,8 +22,11 @@
         .equ FWCFG_DMA,     0x10
         .equ FWCFG_SIGNATURE,   0x00
         .equ FWCFG_ID,          0x01
+        .equ FWCFG_RAM_SIZE,    0x03        /* u64, bytes of RAM at RAM_BASE */
         .equ FWCFG_KERNEL_SIZE, 0x08
         .equ FWCFG_KERNEL_DATA, 0x11
+        .equ FWCFG_INITRD_SIZE, 0x0b        /* u32 */
+        .equ FWCFG_INITRD_DATA, 0x12
         .equ FWCFG_ID_DMA,      (1 << 1)
         .equ FWCFG_DMA_ERROR,   0x01
         .equ FWCFG_DMA_READ,    0x02
@@ -33,6 +36,25 @@
         .equ FW_STACK_TOP,  0x40200000      /* firmware scratch: 1 MB below the image */
         .equ KERNEL_LOAD,   0x40200000      /* RAM + 2 MB, Linux arm64 friendly */
         .equ FDT_MAGIC,     0xd00dfeed
+
+        /* Linux arm64 Image header (Documentation/arch/arm64/booting.rst) */
+        .equ IMG_TEXT_OFFSET, 8             /* u64 */
+        .equ IMG_IMAGE_SIZE,  16            /* u64, effective size incl. BSS */
+        .equ IMG_FLAGS,       24            /* u64 */
+        .equ IMG_MAGIC,       0x38          /* bytes 41 52 4D 64, "ARM\x64" */
+        .equ IMG_MAGIC_LE,    0x644d5241
+        .equ IMG_HDR_SIZE,    64
+        .equ IMG_FLAG_ANYWHERE, 3           /* bit 3: placement not fixed */
+        .equ RAM_ALIGN_MASK,  0x1fffff      /* 2 MB */
+
+        /* SCTLR_ELx bits cleared before the jump: MMU, D-cache, and both
+         * endianness bits (EE for this EL, E0E for EL0; E0E is RES0 at
+         * EL2 without E2H and at EL3, where clearing it changes nothing) */
+        .equ SCTLR_M,       (1 << 0)
+        .equ SCTLR_C,       (1 << 2)
+        .equ SCTLR_E0E,     (1 << 24)
+        .equ SCTLR_EE,      (1 << 25)
+        .equ SCTLR_CLEAR,   (SCTLR_M | SCTLR_C | SCTLR_E0E | SCTLR_EE)
 
 .global _start
 _start:
@@ -63,28 +85,130 @@ _start:
         ldr w20, [x19, #FWCFG_DATA]
         cbz w20, no_kernel
 
-        ldr x0, =KERNEL_LOAD
-        mov w1, w20
-        mov w2, #FWCFG_KERNEL_DATA
-        bl fwcfg_dma_read
-        cbnz w0, load_failed
-
-        adr x0, msg_loaded
-        bl puts
-
-        /* x0 = DTB if QEMU left one at the start of RAM, otherwise 0 */
+        /* x22 = DTB if QEMU left one at the start of RAM, otherwise 0 */
         ldr x1, =RAM_BASE
         ldr w2, [x1]
         rev w2, w2
         ldr w3, =FDT_MAGIC
-        mov x0, #0
+        mov x22, #0
         cmp w2, w3
-        csel x0, x1, x0, eq
+        csel x22, x1, x22, eq
+
+        /* RAM size: fw_cfg key 0x03 (little-endian u64) when QEMU fills it
+         * in, otherwise the device tree's /memory range at RAM_BASE.
+         * QEMU's virt machine leaves the key at 0 (seen on QEMU 8.2). */
+        mov w0, #FWCFG_RAM_SIZE
+        bl fwcfg_select
+        ldr x21, [x19, #FWCFG_DATA]
+        cbnz x21, 1f
+        cbz x22, no_ram_size
+        mov x0, x22
+        bl fdt_ram_size
+        mov x21, x0
+        cbz x21, no_ram_size
+1:
+
+        /* x23 = load address, x24 = bytes the image needs there.
+         * No Image header: the raw load at KERNEL_LOAD, file size. */
+        ldr x23, =KERNEL_LOAD
+        mov w24, w20
+        cmp w20, #IMG_HDR_SIZE
+        b.lo 3f
+        sub sp, sp, #IMG_HDR_SIZE
+        mov x0, sp
+        mov w1, #IMG_HDR_SIZE
+        mov w2, #FWCFG_KERNEL_DATA
+        bl fwcfg_dma_read
+        cmp w0, #2
+        b.eq load_timeout
+        cbnz w0, load_failed
+        ldr w0, [sp, #IMG_MAGIC]
+        ldr w1, =IMG_MAGIC_LE
+        cmp w0, w1
+        b.ne 2f
+        /* image_size: 0 on kernels before 3.17, otherwise the whole
+         * footprint, BSS included, so never below the file size */
+        ldr x0, [sp, #IMG_IMAGE_SIZE]
+        cbz x0, 1f
+        cmp x0, x24
+        b.lo bad_image_size
+        mov x24, x0
+1:      ldr x0, [sp, #IMG_FLAGS]
+        tbnz x0, #IMG_FLAG_ANYWHERE, 2f
+        ldr x0, [sp, #IMG_TEXT_OFFSET]      /* fixed: 2 MB-aligned base + text_offset */
+        ldr x1, =RAM_BASE
+        and x1, x1, #~RAM_ALIGN_MASK
+        adds x23, x1, x0
+        b.cs too_big
+2:      add sp, sp, #IMG_HDR_SIZE
+3:
+        mov x0, x23
+        mov x1, x24
+        bl check_fit
+        cbnz w0, too_big
+
+        /* Initrd: x25 = size (0 = none), x26 = where it goes, the first
+         * 4 KB boundary after the kernel's footprint */
+        mov w0, #FWCFG_INITRD_SIZE
+        bl fwcfg_select
+        ldr w25, [x19, #FWCFG_DATA]
+        cbz w25, 1f
+        add x26, x23, x24
+        add x26, x26, #0xfff
+        and x26, x26, #~0xfff
+        mov x0, x26
+        mov x1, x25
+        bl check_fit
+        cbnz w0, initrd_too_big
+        cbz x22, no_chosen                  /* nowhere to record it */
+1:
+        mov x0, x23
+        mov w1, w20
+        mov w2, #FWCFG_KERNEL_DATA
+        bl fwcfg_dma_read
+        cmp w0, #2
+        b.eq load_timeout
+        cbnz w0, load_failed
+
+        cbz w25, 2f
+        mov x0, x26
+        mov w1, w25
+        mov w2, #FWCFG_INITRD_DATA
+        bl fwcfg_dma_read
+        cbnz w0, initrd_failed
+        mov x0, x22
+        mov x1, x26
+        add x2, x26, x25
+        bl fdt_set_initrd
+        cmp w0, #1
+        b.eq no_chosen
+        cbnz w0, no_dt_room
+        adr x0, msg_initrd
+        bl puts
+        mov x0, x26
+        bl puthex
+        adr x0, msg_initrd_end
+        bl puts
+        add x0, x26, x25
+        bl puthex
+        adr x0, msg_nl
+        bl puts
+2:
+        adr x0, msg_loaded
+        bl puts
+        mov x0, x23
+        bl puthex
+        adr x0, msg_jumping
+        bl puts
+
+        bl entry_state
+
+        mov x0, x22                         /* DTB or 0 */
 
         mov x1, #0
         mov x2, #0
         mov x3, #0
-        ldr x4, =KERNEL_LOAD
+        mov x4, x23
         dsb sy
         isb
         br x4
@@ -95,8 +219,32 @@ no_fwcfg:
 no_kernel:
         adr x0, msg_no_kernel
         b fail
+too_big:
+        adr x0, msg_too_big
+        b fail
+no_ram_size:
+        adr x0, msg_no_ram_size
+        b fail
+bad_image_size:
+        adr x0, msg_bad_image_size
+        b fail
+initrd_too_big:
+        adr x0, msg_initrd_too_big
+        b fail
+initrd_failed:
+        adr x0, msg_initrd_failed
+        b fail
+no_chosen:
+        adr x0, msg_no_chosen
+        b fail
+no_dt_room:
+        adr x0, msg_no_dt_room
+        b fail
 load_failed:
         adr x0, msg_load_failed
+        b fail
+load_timeout:
+        adr x0, msg_load_timeout
 fail:
         bl puts
         adr x0, msg_halted
@@ -104,6 +252,387 @@ fail:
 halt:
         wfi
         b halt
+
+/* x0 = load address, x1 = image size, x21 = RAM size from fw_cfg.
+ * Returns w0 = 0 when [x0, x0 + x1) lies inside RAM and clear of the
+ * device tree and firmware scratch below KERNEL_LOAD, otherwise 1. */
+check_fit:
+        ldr x2, =KERNEL_LOAD
+        cmp x0, x2
+        b.lo 1f                             /* on the DTB or firmware stack */
+        adds x2, x0, x1                     /* end of the image */
+        b.cs 1f
+        ldr x3, =RAM_BASE
+        adds x3, x3, x21                    /* end of RAM */
+        b.cs 1f
+        cmp x2, x3
+        b.hi 1f
+        mov w0, #0
+        ret
+1:      mov w0, #1
+        ret
+
+/* ------------------------------------------------------------------ */
+/* Device tree                                                         */
+/* ------------------------------------------------------------------ */
+
+        .equ FDT_BEGIN_NODE, 1
+        .equ FDT_END_NODE,   2
+        .equ FDT_PROP,       3
+        .equ FDT_NOP,        4
+
+/* x0 = flattened device tree.  Returns x0 = length of the range in a
+ * /memory node (a child of the root named "memory" or "memory@...")
+ * whose base is RAM_BASE, or 0 if there is none. Cell counts come from
+ * the root's #address-cells and #size-cells (default 2 and 1); only 1 or
+ * 2 cells are understood. Never reads past the blob's totalsize. */
+fdt_ram_size:
+        stp x29, x30, [sp, #-16]!
+        mov x29, sp
+        ldr w1, [x0, #8]                    /* off_dt_struct */
+        rev w1, w1
+        add x1, x0, x1                      /* x1 = cursor */
+        ldr w2, [x0, #12]                   /* off_dt_strings */
+        rev w2, w2
+        add x2, x0, x2                      /* x2 = strings */
+        ldr w3, [x0, #4]                    /* totalsize */
+        rev w3, w3
+        add x3, x0, x3                      /* x3 = end of blob */
+        mov x4, #0                          /* depth */
+        mov x5, #2                          /* #address-cells */
+        mov x6, #1                          /* #size-cells */
+        mov x7, #0                          /* 1 while directly in /memory */
+
+.Ltok:  add x8, x1, #4
+        cmp x8, x3
+        b.hi .Lnone
+        ldr w8, [x1], #4
+        rev w8, w8
+        cmp w8, #FDT_BEGIN_NODE
+        b.eq .Lbegin
+        cmp w8, #FDT_END_NODE
+        b.eq .Lend
+        cmp w8, #FDT_PROP
+        b.eq .Lprop
+        cmp w8, #FDT_NOP
+        b.eq .Ltok
+        b .Lnone                            /* FDT_END or not a token */
+
+.Lbegin:
+        add x4, x4, #1
+        mov x7, #0
+        cmp x4, #2                          /* a child of the root */
+        b.ne .Lname
+        adr x13, str_memory
+        mov x12, x1
+1:      ldrb w14, [x13], #1
+        cbz w14, 2f
+        ldrb w15, [x12], #1
+        cmp w14, w15
+        b.ne .Lname
+        b 1b
+2:      ldrb w15, [x12]
+        cbz w15, 3f
+        cmp w15, #'@'
+        b.ne .Lname
+3:      mov x7, #1
+.Lname: cmp x1, x3                          /* skip the name, then pad */
+        b.hs .Lnone
+        ldrb w14, [x1], #1
+        cbnz w14, .Lname
+        add x1, x1, #3
+        and x1, x1, #~3
+        b .Ltok
+
+.Lend:  cbz x4, .Lnone
+        sub x4, x4, #1
+        mov x7, #0
+        b .Ltok
+
+.Lprop: add x8, x1, #8
+        cmp x8, x3
+        b.hi .Lnone
+        ldr w9, [x1], #4                    /* len */
+        rev w9, w9
+        ldr w10, [x1], #4                   /* nameoff */
+        rev w10, w10
+        mov x11, x1                         /* value */
+        add x1, x1, x9
+        cmp x1, x3
+        b.hi .Lnone
+        add x1, x1, #3
+        and x1, x1, #~3
+        add x12, x2, x10                    /* property name */
+        cmp x12, x3
+        b.hs .Ltok
+        cmp x4, #1
+        b.ne .Lmem
+        cmp x9, #4                          /* root cell counts */
+        b.ne .Ltok
+        adr x13, str_addr_cells
+        bl fdt_streq
+        b.ne 4f
+        ldr w5, [x11]
+        rev w5, w5
+        b .Ltok
+4:      adr x13, str_size_cells
+        bl fdt_streq
+        b.ne .Ltok
+        ldr w6, [x11]
+        rev w6, w6
+        b .Ltok
+
+.Lmem:  cbz x7, .Ltok
+        adr x13, str_reg
+        bl fdt_streq
+        b.ne .Ltok
+        cmp x5, #1
+        b.lo .Lnone
+        cmp x5, #2
+        b.hi .Lnone
+        cmp x6, #1
+        b.lo .Lnone
+        cmp x6, #2
+        b.hi .Lnone
+        add x8, x11, x9                     /* end of reg */
+        add x9, x5, x6
+        lsl x9, x9, #2                      /* bytes per (base, size) */
+5:      add x10, x11, x9
+        cmp x10, x8
+        b.hi .Ltok
+        mov x16, x5
+        bl fdt_cells                        /* x15 = base */
+        mov x17, x15
+        mov x16, x6
+        bl fdt_cells                        /* x15 = size */
+        ldr x10, =RAM_BASE
+        cmp x17, x10
+        b.ne 5b
+        mov x0, x15
+        b 6f
+
+.Lnone: mov x0, #0
+6:      ldp x29, x30, [sp], #16
+        ret
+
+/* x0 = device tree, x1 = initrd start, x2 = initrd end.
+ * Adds linux,initrd-start and linux,initrd-end (u64 each) to /chosen.
+ * The two properties go right after the node's name; the rest of the
+ * structure block and the strings block move up by 40 bytes, and the
+ * two names are appended to the strings. That needs the strings block to
+ * be last and the blob's totalsize to have the room (QEMU's blob is 1 MB
+ * with a few KB used). Byte and aligned word accesses only, since with
+ * the MMU off all memory is Device memory.
+ * Returns w0 = 0 done, 1 no /chosen, 2 no room. */
+fdt_set_initrd:
+        stp x29, x30, [sp, #-32]!
+        mov x29, sp
+        stp x1, x2, [sp, #16]
+        mov x17, x0                         /* blob */
+        bl fdt_chosen
+        ldp x1, x2, [sp, #16]
+        cbz x0, 9f
+        mov x8, x0                          /* P: insertion point */
+        ldr w9, [x17, #12]                  /* off_dt_strings */
+        rev w9, w9
+        ldr w10, [x17, #32]                 /* size_dt_strings */
+        rev w10, w10
+        add x11, x17, x9                    /* strings */
+        add x12, x11, x10                   /* end of strings */
+        ldr w13, [x17, #4]                  /* totalsize */
+        rev w13, w13
+        add x13, x17, x13
+        cmp x11, x8                         /* strings must follow P */
+        b.lo 8f
+        add x14, x12, #(INITRD_PROPS + INITRD_NAMES)
+        cmp x14, x13
+        b.hi 8f
+
+        /* Move [P, end of strings) up by INITRD_PROPS, last byte first */
+        mov x14, x12
+1:      cmp x14, x8
+        b.ls 2f
+        ldrb w15, [x14, #-1]!
+        strb w15, [x14, #INITRD_PROPS]
+        b 1b
+2:
+        /* Append the names to the moved strings block */
+        add x14, x12, #INITRD_PROPS
+        adr x15, str_initrd_start
+        mov x16, #INITRD_NAMES
+3:      ldrb w4, [x15], #1
+        strb w4, [x14], #1
+        subs x16, x16, #1
+        b.ne 3b
+
+        /* Two FDT_PROP entries at P: token, len 8, nameoff, value (BE) */
+        mov w4, #FDT_PROP
+        rev w4, w4
+        mov w5, #8
+        rev w5, w5
+        str w4, [x8, #0]
+        str w5, [x8, #4]
+        rev w6, w10                         /* nameoff: old strings size */
+        str w6, [x8, #8]
+        lsr x6, x1, #32
+        rev w6, w6
+        str w6, [x8, #12]
+        rev w6, w1
+        str w6, [x8, #16]
+        str w4, [x8, #20]
+        str w5, [x8, #24]
+        add w6, w10, #STR_INITRD_START_LEN
+        rev w6, w6
+        str w6, [x8, #28]
+        lsr x6, x2, #32
+        rev w6, w6
+        str w6, [x8, #32]
+        rev w6, w2
+        str w6, [x8, #36]
+
+        /* Header: strings moved and grew, structure block grew */
+        add w9, w9, #INITRD_PROPS
+        rev w9, w9
+        str w9, [x17, #12]
+        add w10, w10, #INITRD_NAMES
+        rev w10, w10
+        str w10, [x17, #32]
+        ldr w9, [x17, #36]                  /* size_dt_struct */
+        rev w9, w9
+        add w9, w9, #INITRD_PROPS
+        rev w9, w9
+        str w9, [x17, #36]
+        mov w0, #0
+        b 10f
+8:      mov w0, #2
+        b 10f
+9:      mov w0, #1
+10:     ldp x29, x30, [sp], #32
+        ret
+
+/* x0 = device tree.  Returns x0 = the address right after the name (and
+ * its padding) of the root's child "chosen", or 0.  Uses x1-x16. */
+fdt_chosen:
+        stp x29, x30, [sp, #-16]!
+        mov x29, sp
+        ldr w1, [x0, #8]
+        rev w1, w1
+        add x1, x0, x1                      /* cursor */
+        ldr w3, [x0, #4]
+        rev w3, w3
+        add x3, x0, x3                      /* end of blob */
+        mov x4, #0                          /* depth */
+.Lc_tok:
+        add x8, x1, #4
+        cmp x8, x3
+        b.hi .Lc_none
+        ldr w8, [x1], #4
+        rev w8, w8
+        cmp w8, #FDT_BEGIN_NODE
+        b.eq .Lc_begin
+        cmp w8, #FDT_END_NODE
+        b.eq .Lc_end
+        cmp w8, #FDT_NOP
+        b.eq .Lc_tok
+        cmp w8, #FDT_PROP
+        b.ne .Lc_none
+        add x8, x1, #8
+        cmp x8, x3
+        b.hi .Lc_none
+        ldr w9, [x1], #8                    /* len; skip nameoff too */
+        rev w9, w9
+        add x1, x1, x9
+        add x1, x1, #3
+        and x1, x1, #~3
+        b .Lc_tok
+.Lc_begin:
+        add x4, x4, #1
+        mov x7, #0                          /* 1: this is /chosen */
+        cmp x4, #2
+        b.ne 3f
+        mov x12, x1
+        adr x13, str_chosen
+        bl fdt_streq
+        cset x7, eq
+3:      cmp x1, x3
+        b.hs .Lc_none
+        ldrb w14, [x1], #1
+        cbnz w14, 3b
+        add x1, x1, #3
+        and x1, x1, #~3
+        cbz x7, .Lc_tok
+        mov x0, x1
+        b 4f
+.Lc_end:
+        cbz x4, .Lc_none
+        sub x4, x4, #1
+        b .Lc_tok
+.Lc_none:
+        mov x0, #0
+4:      ldp x29, x30, [sp], #16
+        ret
+
+/* x11 = big-endian cells, x16 = 1 or 2.  x15 = value, x11 advanced. */
+fdt_cells:
+        ldr w15, [x11], #4
+        rev w15, w15
+        cmp x16, #2
+        b.ne 1f
+        ldr w14, [x11], #4
+        rev w14, w14
+        orr x15, x14, x15, lsl #32
+1:      ret
+
+/* Compare the strings at x12 and x13.  Flags EQ when equal. Uses x13-x16. */
+fdt_streq:
+        mov x14, x12
+1:      ldrb w15, [x14], #1
+        ldrb w16, [x13], #1
+        cmp w15, w16
+        b.ne 2f
+        cbnz w15, 1b
+2:      ret
+
+str_memory:     .asciz "memory"
+str_addr_cells: .asciz "#address-cells"
+str_size_cells: .asciz "#size-cells"
+str_reg:        .asciz "reg"
+str_chosen:     .asciz "chosen"
+str_initrd_start: .asciz "linux,initrd-start"
+str_initrd_end:   .asciz "linux,initrd-end"
+        .equ STR_INITRD_START_LEN, 19
+        .equ INITRD_NAMES, 19 + 17          /* both names with their NULs */
+        .equ INITRD_PROPS, 2 * 20           /* two props with 8-byte values */
+        .balign 4
+
+/* MMU and D-cache off, little-endian, at the EL QEMU started us in
+ * (EL1, EL2 or EL3); interrupts stay masked; the I-cache holds nothing
+ * stale from before the image was loaded. Uses x5-x6 only. */
+entry_state:
+        msr daifset, #0xf
+        mrs x5, CurrentEL
+        ubfx x5, x5, #2, #2
+        ldr x6, =SCTLR_CLEAR
+        cmp x5, #3
+        b.eq 3f
+        cmp x5, #2
+        b.eq 2f
+        mrs x5, sctlr_el1
+        bic x5, x5, x6
+        msr sctlr_el1, x5
+        b 9f
+2:      mrs x5, sctlr_el2
+        bic x5, x5, x6
+        msr sctlr_el2, x5
+        b 9f
+3:      mrs x5, sctlr_el3
+        bic x5, x5, x6
+        msr sctlr_el3, x5
+9:      isb
+        ic iallu
+        dsb ish
+        isb
+        ret
 
 /* ------------------------------------------------------------------ */
 /* fw_cfg                                                              */
@@ -116,7 +645,9 @@ fwcfg_select:
         ret
 
 /* x0 = destination, w1 = length, w2 = selector.
- * Returns w0 = 0 on success, non-zero on error. */
+ * Returns w0 = 0 on success, 1 if the device reported an error, 2 if the
+ * transfer had not completed after 1 s by the generic counter (CNTPCT),
+ * so a device that never finishes cannot hang the firmware. */
 fwcfg_dma_read:
         sub sp, sp, #16
         /* FWCfgDmaAccess { be32 control; be32 length; be64 address; } */
@@ -132,18 +663,27 @@ fwcfg_dma_read:
         dsb sy
         mov x0, sp
         rev x0, x0
+        isb
+        mrs x5, cntpct_el0
+        mrs x6, cntfrq_el0                  /* ticks per second */
+        add x5, x5, x6                      /* deadline */
         str x0, [x19, #FWCFG_DMA]           /* starts the transfer */
 1:      ldr w3, [sp]
         rev w3, w3
         tst w3, #FWCFG_DMA_ERROR
         b.ne 2f
         and w3, w3, #~FWCFG_DMA_ERROR
-        cbnz w3, 1b
-        mov w0, #0
-        add sp, sp, #16
-        ret
+        cbz w3, 4f
+        isb
+        mrs x6, cntpct_el0
+        cmp x6, x5
+        b.lo 1b
+        mov w0, #2
+        b 3f
+4:      mov w0, #0
+        b 3f
 2:      mov w0, #1
-        add sp, sp, #16
+3:      add sp, sp, #16
         ret
 
 /* ------------------------------------------------------------------ */
@@ -154,6 +694,31 @@ uart_init:
         ldr x1, =UART_BASE
         mov w2, #UART_CR_ON
         str w2, [x1, #UART_CR]
+        ret
+
+/* x0 = value.  Prints 8 lowercase hex digits, or 16 when it does not
+ * fit in 32 bits.  Uses x0-x6. */
+puthex:
+        mov x5, x0
+        mov x6, #28
+        lsr x1, x5, #32
+        cbz x1, 1f
+        mov x6, #60
+1:      ldr x1, =UART_BASE
+2:      lsr x2, x5, x6
+        and x2, x2, #0xf
+        cmp x2, #10
+        add x3, x2, #'0'
+        add x4, x2, #('a' - 10)
+        csel x2, x3, x4, lo
+        ldr w4, =UART_TIMEOUT
+3:      ldr w3, [x1, #UART_FR]
+        tbz w3, #5, 4f
+        subs w4, w4, #1
+        b.ne 3b
+4:      str w2, [x1, #UART_DR]
+        subs x6, x6, #4
+        b.pl 2b
         ret
 
 /* x0 = zero-terminated string.  Gives up on a character after
@@ -174,8 +739,20 @@ puts:
         .ltorg
 
 banner:         .asciz "SquirrelBIOS ARM\n"
-msg_loaded:     .asciz "kernel loaded at 0x40200000, jumping\n"
+msg_loaded:     .asciz "kernel loaded at 0x"
+msg_jumping:    .asciz ", jumping\n"
+msg_initrd:     .asciz "initrd at 0x"
+msg_initrd_end: .asciz ", end 0x"
+msg_nl:         .asciz "\n"
+msg_initrd_too_big: .asciz "boot: initrd does not fit in RAM\n"
+msg_initrd_failed: .asciz "boot: fw_cfg DMA read of the initrd failed\n"
+msg_no_chosen:  .asciz "boot: device tree has no /chosen for the initrd\n"
+msg_no_dt_room: .asciz "boot: device tree has no room for the initrd\n"
+msg_bad_image_size: .asciz "boot: Image header image_size is smaller than the image\n"
 msg_no_fwcfg:   .asciz "boot: fw_cfg with DMA not found\n"
 msg_no_kernel:  .asciz "boot: no kernel image (pass -kernel to QEMU)\n"
+msg_too_big:    .asciz "boot: kernel does not fit in RAM\n"
+msg_no_ram_size: .asciz "boot: RAM size not found (fw_cfg or device tree /memory)\n"
 msg_load_failed: .asciz "boot: fw_cfg DMA read of the kernel failed\n"
+msg_load_timeout: .asciz "boot: fw_cfg DMA read of the kernel did not complete\n"
 msg_halted:     .asciz "boot halted\n"

@@ -7,17 +7,49 @@
 ;
 ; Behaviour:
 ;   - Set segments and stack
-;   - Program COM1 (115200 8N1); every message goes to VGA text and COM1
-;   - Put the VGA into 80x25 text mode with the pIqaD font from
-;     klingon-font.inc (joke klingon-font branch); COM1 stays plain ASCII
+;   - Program COM1 (115200 8N1)
+;   - Put the VGA in 80x25 text mode with the pIqaD font (vga.inc loads
+;     klingon-font.inc on this joke branch); every message goes to VGA
+;     text and COM1 (COM1 stays plain ASCII)
 ;   - Build a memory map at 0x0000:0x0500 (memmap.inc)
 ;   - Print banner
 ;   - ATA PIO read of LBA 0 (sector 1) into 0x7C00, with timeouts,
 ;     status checks and retries (soft reset between attempts)
 ;   - On failure: print the reason and the ATA status/error registers, halt
-;   - On success: jump to 0x0000:0x7C00 with DL = 0x80, DI = 0x0500 (memory map)
+;   - Check the 0xAA55 signature in the last word of the sector; halt if absent
+;   - If the sector carries an SQBL header (offset 0x1F0), read the extra
+;     sectors it asks for (LBA 1 on) to its load address, below 0xA0000
+;   - If it does not, but LBA 192 ends in the Squirrel-OS/2 signature
+;     'S2OK', read sectors 1..192 to 0x8000 and jump there. That boot
+;     sector is not entered
+;   - Otherwise jump to 0x0000:0x7C00 with DL = 0x80, DI = 0x0500.
+;     The IVT is installed either way: INT 13h AH=00/02/08/42 read the
+;     primary master, INT 10h AH=0E writes VGA text, INT 15h E820
+;     returns the memory map. The boot sector can load a kernel itself
 
 BITS 16
+
+; Firmware stack while it runs: the top of the memory map page, so a load
+; anywhere outside 0x0500-0x05FF and 0x7C00-0x7DFF cannot overwrite it.
+; The map ends by 0x0570 (5 entries) and the deepest call chain uses well
+; under 64 bytes.
+FW_STACK        equ 0x0600
+
+; SQBL header at the end of sector 0 (x86-extra-sectors)
+BOOT_SECTOR     equ 0x7C00
+SQBL_HDR        equ BOOT_SECTOR + 0x1F0
+SQBL_MAGIC      equ 0x4C425153  ; bytes 53 51 42 4C, 'SQBL'
+SQBL_MAX        equ 128         ; extra sectors
+LOAD_LIMIT      equ 0xA0000     ; first byte that is not conventional RAM
+
+; Squirrel-OS/2 hard-disk image: 192 sectors (96 KB) at 0x8000, last
+; dword 'S2OK' (documentation/kernel/boot-sector.md). LBA 0 is the boot
+; sector, so the signature lives in LBA 192.
+OS_LOAD         equ 0x8000
+OS_SECTORS      equ 192
+OS_SIG          equ 0x4B4F3253  ; bytes 53 32 4F 4B, 'S2OK'
+OS_PROBE        equ 0x1000      ; scratch sector for the signature probe
+OS_SIG_LIN      equ OS_LOAD + OS_SECTORS * 512 - 4
 
 ; Primary ATA channel, legacy ports
 ATA_DATA        equ 0x1F0
@@ -47,29 +79,54 @@ ATA_ATTEMPTS    equ 3
 COM1            equ 0x3F8
 UART_TIMEOUT    equ 0xFFFF      ; THR-empty polls per character
 
+; Fixed geometry for INT 13h. The boot sector asks AH=08, then turns an
+; LBA into CHS with those numbers, and AH=02 turns that CHS back into
+; the same LBA. 16 heads and 63 sectors is the classic translation.
+DISK_SPT        equ 63
+DISK_HEADS      equ 16
+; Max cylinder number 1023: CH=0xFF and CL bits 7-6 = 3, so CL = 0xFF.
+DISK_CYL_LO     equ 0xFF
+DISK_CYL_HI_CL  equ 0xFF
+
+; BIOS data area. The cursor is where INT 10h AH=0E prints. 0x0500 is
+; the memory map, so this stays below it.
+BDA_CURSOR      equ 0x0450      ; column, then row, one byte each
+
+; INT 13h status
+ST_OK           equ 0x00
+ST_BAD          equ 0x01        ; invalid function or parameter
+ST_NOTFOUND     equ 0x04
+ST_RESET        equ 0x05
+ST_TIMEOUT      equ 0x80
+ST_NOTREADY     equ 0xAA
+
 VGA_SEG         equ 0xB800
 VGA_LINE        equ 160         ; bytes per 80-column text row
 ATTR_NORMAL     equ 0x0F
 ATTR_ERROR      equ 0x0C
 ATTR_KLINGON    equ 0x0A
 
-PCI_ADDR        equ 0xCF8
-PCI_DATA        equ 0xCFC
-
 entry:
     cli
     cld
+    ; The boot sector enables interrupts. Mask both PICs so a timer
+    ; tick cannot run between an INT 13h and the jc that checks it.
+    ; The OS programs the PIC itself once it is up.
+    mov al, 0xFF
+    out 0x21, al
+    out 0xA1, al
     mov ax, cs                  ; strings live in the ROM segment
     mov ds, ax
     xor ax, ax
     mov ss, ax
-    mov sp, 0x7C00
+    mov sp, FW_STACK
     mov ax, VGA_SEG
     mov es, ax
 
     call build_memmap
     call serial_init
     call vga_init
+    mov word [ss:BDA_CURSOR], 0
 
     ; Banner
     xor di, di
@@ -82,26 +139,135 @@ entry:
     call con_print
     call con_newline
 
-    ; Disk: up to ATA_ATTEMPTS reads of LBA 0, soft reset between them
-    mov bp, ATA_ATTEMPTS
-.try:
-    call ata_read_lba0
-    jnc handoff
-    cmp si, msg_nodrive         ; nothing to retry against
-    je disk_fail
-    cmp si, msg_atapi
-    je disk_fail
-    dec bp
-    jz disk_fail
-    call ata_reset
-    jmp .try
+    ; Disk: sector 0 (LBA 0) to 0x7C00
+    xor eax, eax
+    mov cl, 1
+    mov ebp, BOOT_SECTOR
+    call ata_read_retry
+    jc disk_fail
 
-handoff:
+; A clean read without the signature is not a boot sector. Reading it
+; again would give the same bytes, so this is not retried.
+    cmp word [ss:BOOT_SECTOR + 0x1FE], 0xAA55    ; SS = 0
+    je .signed
+    mov si, msg_nosig
+    jmp boot_fail
+.signed:
+
+    ; No SQBL header: either a Squirrel-OS/2 image or one sector
+    cmp dword [ss:SQBL_HDR], SQBL_MAGIC
+    jne maybe_os
+
+    ; Extra sector count, 1-128
+    movzx ecx, word [ss:SQBL_HDR + 4]
+    test cx, cx
+    jz .range
+    cmp cx, SQBL_MAX
+    ja .range
+    ; EAX = segment * 16 + offset, EDX = end of the load
+    movzx eax, word [ss:SQBL_HDR + 6]
+    shl eax, 4
+    movzx edx, word [ss:SQBL_HDR + 8]
+    add eax, edx
+    cmp eax, LOAD_LIMIT
+    jae .range
+    mov edx, ecx
+    shl edx, 9
+    add edx, eax
+    cmp edx, LOAD_LIMIT
+    ja .range
+    ; [EAX, EDX) must miss the memory map page and the boot sector
+    cmp eax, MEMMAP_ADDR + 0x100
+    jae .past_map
+    cmp edx, MEMMAP_ADDR
+    ja .overlap
+.past_map:
+    cmp eax, BOOT_SECTOR + 0x200
+    jae .load
+    cmp edx, BOOT_SECTOR
+    ja .overlap
+.load:
+    mov ebp, eax
+    mov eax, 1                  ; from LBA 1; CL is still the sector count
+    call ata_read_retry
+    jnc handoff
+    cmp si, msg_readerr
+    jne disk_fail
+    mov si, msg_readerr_extra
+    jmp disk_fail
+.range:
+    mov si, msg_range
+    jmp boot_fail
+.overlap:
+    mov si, msg_overlap
+    jmp boot_fail
+
+; A 96 KB image signed 'S2OK' is the kernel the boot sector would have
+; read with INT 13h. Load it here and enter it. A missing signature, or
+; a disk too small to hold one, is the one-sector hand-off: the probe is
+; a single try, so a short image is not reported as a disk error.
+maybe_os:
+    mov eax, OS_SECTORS         ; LBA of the last kernel sector
+    mov cl, 1
+    mov ebp, OS_PROBE
+    call ata_read
+    jnc .probed
+    call ata_reset              ; do not leave ERR set for the boot sector
+    jmp handoff
+.probed:
+    cmp dword [ss:OS_PROBE + 508], OS_SIG
+    jne handoff
+
+    mov eax, 1
+    mov cl, 128                 ; LBAs 1..128 -> 0x8000
+    mov ebp, OS_LOAD
+    call ata_read_retry
+    jc kernel_fail
+    mov eax, 129
+    mov cl, OS_SECTORS - 128    ; LBAs 129..192 -> 0x18000
+    mov ebp, OS_LOAD + 128 * 512
+    call ata_read_retry
+    jc kernel_fail
+    push es
+    mov ax, OS_SIG_LIN >> 4
+    mov es, ax
+    cmp dword [es:OS_SIG_LIN & 0x0F], OS_SIG
+    pop es
+    je kernel_go
+    mov si, msg_nosig_os
+    jmp boot_fail
+kernel_fail:
+    cmp si, msg_readerr
+    jne disk_fail
+    mov si, msg_kernel
+    jmp disk_fail
+kernel_go:
+    call install_ivt
+    mov si, msg_kload
+    mov ah, ATTR_NORMAL
+    call con_print
+    call con_newline
+
+; Registers match the 0x7C00 hand-off. CS:IP is the kernel.
+kernel_entry:
+    cli
+    cld
     xor ax, ax
     mov ds, ax
     mov es, ax
     mov ss, ax
-    mov sp, 0x7C00
+    mov sp, BOOT_SECTOR
+    mov dl, 0x80
+    mov di, MEMMAP_ADDR
+    jmp 0x0000:OS_LOAD
+
+handoff:
+    call install_ivt
+    xor ax, ax
+    mov ds, ax
+    mov es, ax
+    mov ss, ax
+    mov sp, BOOT_SECTOR
     mov dl, 0x80                ; boot drive
     mov di, MEMMAP_ADDR         ; memory map header
     jmp 0x0000:0x7C00
@@ -118,6 +284,14 @@ disk_fail:
     call con_print
     mov al, bh
     call con_hex8
+    jmp boot_halt
+
+; In: SI = reason.  A failure that is not the drive's: no ATA registers.
+boot_fail:
+    mov ah, ATTR_ERROR
+    call con_print
+; Ends the line in progress, prints 'boot halted' and halts.
+boot_halt:
     call con_newline
     mov si, msg_halted
     call con_print
@@ -127,13 +301,470 @@ disk_fail:
     jmp .halt
 
 ; ---------------------------------------------------------------------------
+; Real-mode IVT, installed before every hand-off. The ROM is mapped at
+; 0xF0000, which is the segment stored in the IVT.
+;
+;   INT 10h AH=0x0E   teletype to VGA text (the boot sector's failure
+;                     line, and the kernel's old-CPU line)
+;   INT 13h AH=0x00   reset the primary master
+;   INT 13h AH=0x02   CHS read
+;   INT 13h AH=0x08   drive parameters (16 heads, 63 sectors)
+;   INT 13h AH=0x42   extended read (LBA), packet size 0x10
+;   INT 15h EAX=E820  next SQMM entry, same table as 0x0500
+;
+; Any other request on those three vectors returns with CF set.
+; Every other vector just irets: the boot sector enables interrupts,
+; and a timer tick must not flip CF under a jc.
+; ---------------------------------------------------------------------------
+
+install_ivt:
+    push es
+    push di
+    push ax
+    push cx
+    xor ax, ax
+    mov es, ax
+    xor di, di
+    cld
+    mov cx, 256
+.fill:
+    mov ax, int_unhandled
+    stosw
+    mov ax, 0xF000
+    stosw
+    loop .fill
+    mov word [es:0x10 * 4], int10_handler
+    mov word [es:0x13 * 4], int13_handler
+    mov word [es:0x15 * 4], int15_handler
+    pop cx
+    pop ax
+    pop di
+    pop es
+    ret
+
+int_unhandled:
+    iret
+
+; Stacked real-mode frame: [bp+2] = IP, [bp+4] = CS, [bp+6] = FLAGS.
+int10_handler:
+    push bp
+    mov bp, sp
+    cmp ah, 0x0E
+    jne .fail
+    call tty_putc
+    and word [bp + 6], 0xFFFE
+    pop bp
+    iret
+.fail:
+    or word [bp + 6], 1
+    pop bp
+    iret
+
+; Teletype. AL = character. CR, LF, BS and BEL are the usual ones;
+; everything else is written in the firmware's normal attribute and
+; the cursor advances, wrapping and scrolling at the bottom.
+tty_putc:
+    pushad
+    push ds
+    push es
+    xor dx, dx
+    mov ds, dx
+    mov bx, [BDA_CURSOR]        ; BL = column, BH = row
+    cmp al, 0x0D
+    je .cr
+    cmp al, 0x0A
+    je .lf
+    cmp al, 0x08
+    je .bs
+    cmp al, 0x07
+    je .done
+    movzx di, bh
+    imul di, di, VGA_LINE
+    movzx cx, bl
+    shl cx, 1
+    add di, cx
+    mov ah, ATTR_NORMAL
+    mov cx, VGA_SEG
+    mov es, cx
+    mov [es:di], ax
+    inc bl
+    cmp bl, VGA_COLS
+    jb .store
+    xor bl, bl
+    jmp .lf
+.cr:
+    xor bl, bl
+    jmp .store
+.bs:
+    test bl, bl
+    jz .store
+    dec bl
+    jmp .store
+.lf:
+    inc bh
+    cmp bh, VGA_ROWS
+    jb .store
+    call tty_scroll
+    mov bh, VGA_ROWS - 1
+.store:
+    mov [BDA_CURSOR], bx
+    call tty_hwcursor
+.done:
+    pop es
+    pop ds
+    popad
+    ret
+
+tty_scroll:
+    push ds
+    push es
+    push ax
+    push cx
+    push si
+    push di
+    mov ax, VGA_SEG
+    mov ds, ax
+    mov es, ax
+    mov si, VGA_LINE
+    xor di, di
+    mov cx, VGA_COLS * (VGA_ROWS - 1)
+    cld
+    rep movsw
+    mov ax, (ATTR_NORMAL << 8) | ' '
+    mov cx, VGA_COLS
+    rep stosw
+    pop di
+    pop si
+    pop cx
+    pop ax
+    pop es
+    pop ds
+    ret
+
+; BL = column, BH = row. Programs the CRTC cursor.
+tty_hwcursor:
+    push ax
+    push cx
+    push dx
+    movzx ax, bh
+    mov cx, VGA_COLS
+    mul cx
+    movzx cx, bl
+    add ax, cx
+    mov cx, ax
+    mov dx, VGA_CRTC_I
+    mov al, 0x0E
+    out dx, al
+    inc dx
+    mov al, ch
+    out dx, al
+    dec dx
+    mov al, 0x0F
+    out dx, al
+    inc dx
+    mov al, cl
+    out dx, al
+    pop dx
+    pop cx
+    pop ax
+    ret
+
+; INT 13h. pushad frame, SP = BP:
+;   [bp+28] EAX (AL at +28, AH at +29)
+;   [bp+24] ECX (CL at +24, CH at +25)
+;   [bp+20] EDX (DL at +20, DH at +21)
+;   [bp+16] EBX
+;   [bp+36] FLAGS
+; Only the primary master (DL = 0x80) is a drive. CF follows the
+; status in AH: clear on success, set on failure.
+int13_handler:
+    pushad
+    mov bp, sp
+    push ds
+    push es
+    cmp ah, 0x00
+    je .reset
+    cmp ah, 0x02
+    je .read_chs
+    cmp ah, 0x08
+    je .params
+    cmp ah, 0x42
+    je .read_ext
+    jmp .invalid
+
+.reset:
+    cmp dl, 0x80
+    jne .invalid
+    call ata_reset
+    jc .reset_fail
+    mov byte [bp + 29], ST_OK
+    and word [bp + 36], 0xFFFE
+    jmp .out
+.reset_fail:
+    mov byte [bp + 29], ST_RESET
+    or word [bp + 36], 1
+    jmp .out
+
+.params:
+    cmp dl, 0x80
+    jne .invalid
+    mov byte [bp + 29], ST_OK
+    mov byte [bp + 25], DISK_CYL_LO
+    mov byte [bp + 24], DISK_CYL_HI_CL
+    mov byte [bp + 21], DISK_HEADS - 1
+    mov byte [bp + 20], 1           ; one hard disk
+    and word [bp + 36], 0xFFFE
+    jmp .out
+
+.read_ext:
+    cmp byte [bp + 20], 0x80
+    jne .invalid
+    cmp byte [si], 0x10             ; packet size
+    jne .invalid
+    movzx ecx, word [si + 2]        ; sector count
+    test cx, cx
+    jz .invalid
+    cmp cx, 128
+    ja .invalid
+    cmp dword [si + 12], 0          ; LBA high half
+    jne .invalid
+    mov eax, [si + 8]
+    test eax, 0xF0000000
+    jnz .invalid
+    movzx edx, word [si + 6]        ; segment
+    shl edx, 4
+    movzx ebx, word [si + 4]        ; offset
+    add edx, ebx                    ; linear destination
+    mov ebx, ecx
+    shl ebx, 9
+    add ebx, edx                    ; end
+    cmp edx, LOAD_LIMIT
+    jae .invalid
+    cmp ebx, LOAD_LIMIT
+    ja .invalid
+    push bp
+    mov ebp, edx
+    call disk_clear_stale
+    call ata_read                   ; EAX = LBA, CL = count, EBP = dest
+    pop bp
+    jc .ioerr
+    mov byte [bp + 29], ST_OK
+    and word [bp + 36], 0xFFFE
+    jmp .out
+
+.read_chs:
+    cmp byte [bp + 20], 0x80
+    jne .invalid
+    movzx esi, byte [bp + 28]       ; AL = count
+    test si, si
+    jz .invalid
+    cmp si, 128
+    ja .invalid
+    movzx eax, byte [bp + 24]       ; CL
+    and al, 0x3F
+    jz .notfound
+    cmp al, DISK_SPT
+    ja .notfound
+    movzx ebx, al                   ; sector (1-63)
+    movzx eax, byte [bp + 24]
+    shr ax, 6
+    and ax, 3
+    shl ax, 8
+    movzx edx, byte [bp + 25]       ; CH
+    or eax, edx                     ; cylinder
+    movzx edx, byte [bp + 21]       ; DH = head
+    cmp dx, DISK_HEADS
+    jae .notfound
+    push ebx                        ; sector
+    push edx                        ; head
+    mov ebx, DISK_HEADS
+    mul ebx
+    pop edx
+    add eax, edx
+    mov ebx, DISK_SPT
+    mul ebx
+    pop edx                         ; sector
+    dec edx
+    add eax, edx                    ; LBA
+    movzx edx, word [bp + 16]       ; BX = buffer offset
+    mov bx, es
+    movzx ebx, bx
+    shl ebx, 4
+    add edx, ebx                    ; linear destination
+    mov ebx, esi
+    shl ebx, 9
+    add ebx, edx
+    cmp edx, LOAD_LIMIT
+    jae .invalid
+    cmp ebx, LOAD_LIMIT
+    ja .invalid
+    push bp
+    mov ebp, edx
+    mov ecx, esi                    ; CL = count
+    call disk_clear_stale
+    call ata_read
+    pop bp
+    jc .ioerr_chs
+    mov byte [bp + 29], ST_OK       ; AL stays the count we transferred
+    and word [bp + 36], 0xFFFE
+    jmp .out
+
+.ioerr_chs:
+    mov byte [bp + 28], 0           ; no sector transferred
+.ioerr:
+    call disk_status
+    mov [bp + 29], al
+    or word [bp + 36], 1
+    jmp .out
+
+.notfound:
+    mov byte [bp + 28], 0
+    mov byte [bp + 29], ST_NOTFOUND
+    or word [bp + 36], 1
+    jmp .out
+
+.invalid:
+    mov byte [bp + 29], ST_BAD
+    or word [bp + 36], 1
+.out:
+    pop es
+    pop ds
+    popad
+    iret
+
+; IN: SI = ata_read failure reason. OUT: AL = INT 13h status. Preserves SI.
+disk_status:
+    mov al, ST_BAD
+    cmp si, msg_readerr
+    jne .timeout
+    mov al, ST_NOTFOUND
+    ret
+.timeout:
+    cmp si, msg_timeout
+    jne .nodrive
+    mov al, ST_TIMEOUT
+    ret
+.nodrive:
+    cmp si, msg_nodrive
+    jne .done
+    mov al, ST_NOTREADY
+.done:
+    ret
+
+; A failed command leaves ERR set, and ata_read refuses to start another
+; while that bit is set. Drop it before a guest read. Preserves registers.
+disk_clear_stale:
+    push ax
+    push dx
+    mov dx, ATA_STATUS
+    in al, dx
+    test al, ST_ERR | ST_DF
+    jz .ok
+    call ata_reset
+.ok:
+    pop dx
+    pop ax
+    ret
+
+; Stacked real-mode frame: [bp+2] = IP, [bp+4] = CS, [bp+6] = FLAGS.
+int15_handler:
+    push bp
+    mov bp, sp
+    cmp eax, 0xE820
+    jne .fail
+    cmp edx, 0x534D4150         ; 'SMAP'
+    jne .fail
+    cmp ecx, 20
+    jb .fail
+    test ebx, 0xFFFF0000
+    jnz .fail
+    push ds
+    push si
+    push di
+    xor si, si
+    mov ds, si
+    cmp bx, [MEMMAP_ADDR + 4]   ; entry count
+    jae .reject
+    mov si, bx
+    imul si, si, MEMMAP_ENTRY
+    add si, MEMMAP_ENTRIES
+    mov cx, MEMMAP_ENTRY / 2
+    cld
+    rep movsw
+    pop di                      ; caller keeps its buffer pointer
+    pop si
+    inc bx
+    cmp bx, [MEMMAP_ADDR + 4]
+    jb .cont
+    xor bx, bx                  ; last entry: continuation 0
+.cont:
+    pop ds
+    mov eax, 0x534D4150
+    mov ecx, 20
+    and word [bp + 6], 0xFFFE   ; CF clear
+    pop bp
+    iret
+.reject:
+    pop di
+    pop si
+    pop ds
+.fail:
+    or word [bp + 6], 1         ; CF set
+    pop bp
+    iret
+
+; ---------------------------------------------------------------------------
 ; ATA PIO
 ; ---------------------------------------------------------------------------
 
-; Read LBA 0 of the primary master into 0x0000:0x7C00.
-; Out: CF = 0 on success.
+; Read with up to ATA_ATTEMPTS attempts, soft reset between them.
+; In/Out: as ata_read. Does not touch EAX, ECX or EBP, so a retry
+; repeats the same read. The attempt count lives in the BIOS data area
+; because EBP is the caller's buffer address.
+ata_read_retry:
+    mov byte [ss:0x04FE], ATA_ATTEMPTS
+.try:
+    call ata_read
+    jnc .done
+    cmp si, msg_nodrive         ; nothing to retry against
+    je .fail
+    cmp si, msg_atapi
+    je .fail
+    dec byte [ss:0x04FE]
+    jz .fail
+    call ata_reset
+    jmp .try
+.fail:
+    stc
+.done:
+    ret
+
+; Read sectors of the primary master into memory below 1 MB.
+; In:  EAX = LBA (bits 27:0; bits 31:28 must be 0),
+;      CL  = sector count (1-128),
+;      EBP = linear address of the destination.
+; Out: CF = 0 on success. Every register preserved.
 ;      CF = 1 on failure, SI = reason, BL = status, BH = error register.
-ata_read_lba0:
+;      EAX, ECX, EDX, EBP, EDI and ES are preserved either way.
+ata_read:
+    push eax
+    push ecx
+    push edx
+    push ebp
+    push edi
+    push esi
+    push ebx
+    push es
+    movzx esi, cl               ; sectors left
+    mov edi, eax                ; LBA
+
+    test si, si
+    jz .badarg
+    cmp si, 128
+    ja .badarg
+    test edi, 0xF0000000
+    jnz .badarg
+
     ; 0xFF is a floating bus: no controller on the primary channel
     mov dx, ATA_STATUS
     in al, dx
@@ -141,7 +772,10 @@ ata_read_lba0:
     je .nodrive
 
     mov dx, ATA_DRIVE
-    mov al, 0xE0                ; master, LBA, LBA[27:24] = 0
+    mov eax, edi
+    shr eax, 24
+    and al, 0x0F
+    or al, 0xE0                 ; master, LBA
     out dx, al
     call ata_delay400
 
@@ -171,35 +805,43 @@ ata_read_lba0:
     jnz .error
 
     mov dx, ATA_COUNT
-    mov al, 1
+    mov ax, si
     out dx, al
-    xor al, al                  ; LBA 0
+    mov eax, edi
     mov dx, ATA_LBA_LO
     out dx, al
+    shr eax, 8
     mov dx, ATA_LBA_MID
     out dx, al
+    shr eax, 8
     mov dx, ATA_LBA_HI
     out dx, al
 
     mov dx, ATA_STATUS
     mov al, CMD_READ_SECTORS
     out dx, al
-    call ata_delay400
 
+    cld
+    ; One DRQ block per sector
+.sector:
+    call ata_delay400
     mov bl, ST_DRQ | ST_ERR | ST_DF
     call ata_poll
     jc .timeout
     test al, ST_ERR | ST_DF
     jnz .error
 
-    push es
-    xor ax, ax
-    mov es, ax
-    mov di, 0x7C00
+    mov ecx, ebp                ; ES:DI = EBP, normalised so 512 bytes fit
+    shr ecx, 4
+    mov es, cx
+    mov di, bp
+    and di, 0x000F
     mov cx, 256
     mov dx, ATA_DATA
     rep insw
-    pop es
+    add ebp, 512
+    dec si
+    jnz .sector
 
     ; Command must finish cleanly, otherwise the data is suspect
     call ata_delay400
@@ -211,8 +853,12 @@ ata_read_lba0:
     test al, ST_DRQ             ; drive still has data: count mismatch
     jnz .error
     clc
-    ret
+    jmp .ok
 
+.badarg:
+    mov si, msg_readerr
+    xor bx, bx
+    jmp .fail
 .nodrive:
     mov si, msg_nodrive
     jmp .failed
@@ -231,7 +877,26 @@ ata_read_lba0:
     mov dx, ATA_ERROR
     in al, dx
     mov bh, al
-    stc
+.fail:
+    pop es
+    add sp, 8                   ; drop saved EBX and ESI; BL/BH/SI stay
+    pop edi
+    pop ebp
+    pop edx
+    pop ecx
+    pop eax
+    stc                         ; ADD above clears CF, so set it last
+    ret
+.ok:
+    pop es
+    pop ebx
+    pop esi
+    pop edi
+    pop ebp
+    pop edx
+    pop ecx
+    pop eax
+    clc
     ret
 
 ; Poll status until BSY is clear and any bit in BL is set.
@@ -255,7 +920,12 @@ ata_poll:
     ret
 
 ; Software reset of the primary channel, then wait for BSY to clear.
+; Preserves every register but the flags.
 ata_reset:
+    push eax
+    push ebx
+    push ecx
+    push edx
     mov dx, ATA_CTRL
     mov al, CTRL_SRST | CTRL_NIEN
     out dx, al
@@ -266,6 +936,10 @@ ata_reset:
     out dx, al
     mov bl, 0xFF & ~ST_BSY      ; any status once BSY drops
     call ata_poll
+    pop edx
+    pop ecx
+    pop ebx
+    pop eax
     ret
 
 ; ~400 ns: four reads of the alternate status register.
@@ -395,154 +1069,6 @@ con_putc:
     pop bx
     ret
 
-; ---------------------------------------------------------------------------
-; VGA: 80x25 text mode from scratch (no VGA BIOS runs), Klingon font
-; ---------------------------------------------------------------------------
-
-vga_init:
-    pushad
-    push es
-    call vga_pci_enable
-
-    mov dx, 0x3C4               ; sequencer: hold in reset while
-    mov ax, 0x0100              ; the clock changes
-    out dx, ax
-    mov dx, 0x3C2               ; misc output: colour, 28 MHz, 400 lines
-    mov al, 0x67
-    out dx, al
-    mov si, vga_seq
-    mov dx, 0x3C4
-    mov cx, 5
-    call vga_write_indexed
-
-    mov dx, 0x3D4               ; CRTC: unprotect registers 0-7 first
-    mov ax, 0x0E11
-    out dx, ax
-    mov si, vga_crtc
-    mov cx, 25
-    call vga_write_indexed
-
-    mov si, vga_gc
-    mov dx, 0x3CE
-    mov cx, 9
-    call vga_write_indexed
-
-    mov dx, 0x3DA               ; attribute controller: reset flip-flop
-    in al, dx
-    mov dx, 0x3C0
-    mov si, vga_ac
-    xor bl, bl
-.ac:
-    mov al, bl
-    out dx, al
-    lodsb
-    out dx, al
-    inc bl
-    cmp bl, 21
-    jb .ac
-    mov al, 0x20                ; palette done, video on
-    out dx, al
-
-    mov dx, 0x3C8               ; DAC: the 16 text colours
-    xor al, al
-    out dx, al
-    inc dx
-    mov si, vga_dac
-    mov cx, 16 * 3
-.dac:
-    lodsb
-    out dx, al
-    loop .dac
-
-    ; Font: plane 2, 32 bytes per glyph, 16 used
-    mov dx, 0x3C4
-    mov ax, 0x0402              ; write plane 2 only
-    out dx, ax
-    mov ax, 0x0604              ; sequential addressing
-    out dx, ax
-    mov dx, 0x3CE
-    mov ax, 0x0204              ; read plane 2
-    out dx, ax
-    mov ax, 0x0005              ; no odd/even
-    out dx, ax
-    mov ax, 0x0006              ; A000, 64 KB
-    out dx, ax
-    mov ax, 0xA000
-    mov es, ax
-    mov si, klingon_font
-    xor di, di
-    mov bx, 256
-.glyph:
-    mov cx, 8
-    rep movsw
-    add di, 16
-    dec bx
-    jnz .glyph
-    mov dx, 0x3C4               ; back to text: planes 0 and 1, odd/even
-    mov ax, 0x0302
-    out dx, ax
-    mov ax, 0x0204
-    out dx, ax
-    mov dx, 0x3CE
-    mov ax, 0x0004
-    out dx, ax
-    mov ax, 0x1005
-    out dx, ax
-    mov ax, 0x0E06
-    out dx, ax
-
-    mov ax, VGA_SEG             ; clear the screen
-    mov es, ax
-    xor di, di
-    mov ax, 0x0720
-    mov cx, 80 * 25
-    rep stosw
-    pop es
-    popad
-    ret
-
-; In: DX = index port, DS:SI = values for indices 0.., CX = count.
-vga_write_indexed:
-    xor bl, bl
-.next:
-    mov al, bl
-    mov ah, [si]
-    out dx, ax
-    inc si
-    inc bl
-    loop .next
-    ret
-
-; The VGA's legacy ports and memory only decode once its PCI command
-; register allows it. Find the display controller on bus 0 and turn
-; on I/O and memory space.
-vga_pci_enable:
-    mov ebx, 0x80000000         ; bus 0, device 0, function 0
-.dev:
-    mov eax, ebx
-    or al, 0x08                 ; class code
-    mov dx, PCI_ADDR
-    out dx, eax
-    mov dx, PCI_DATA
-    in eax, dx
-    shr eax, 16
-    cmp ax, 0x0300              ; VGA-compatible display
-    je .found
-    add ebx, 0x800              ; next device
-    cmp ebx, 0x80010000
-    jb .dev
-    ret
-.found:
-    mov eax, ebx
-    or al, 0x04                 ; command
-    mov dx, PCI_ADDR
-    out dx, eax
-    mov dx, PCI_DATA
-    in ax, dx
-    or ax, 0x0003
-    out dx, ax
-    ret
-
 ; COM1: 115200 baud, 8N1, FIFOs on, interrupts off.
 serial_init:
     mov dx, COM1 + 1            ; IER
@@ -592,21 +1118,7 @@ serial_putc:
     ret
 
 %include "memmap.inc"
-%include "klingon-font.inc"
-
-; Standard 80x25 text mode register values
-vga_seq     db 0x03, 0x00, 0x03, 0x00, 0x02
-vga_crtc    db 0x5F, 0x4F, 0x50, 0x82, 0x55, 0x81, 0xBF, 0x1F
-            db 0x00, 0x4F, 0x2D, 0x0E, 0x00, 0x00, 0x00, 0x00   ; cursor off
-            db 0x9C, 0x8E, 0x8F, 0x28, 0x1F, 0x96, 0xB9, 0xA3, 0xFF
-vga_gc      db 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x0E, 0x00, 0xFF
-vga_ac      db 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07
-            db 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F
-            db 0x0C, 0x00, 0x0F, 0x08, 0x00
-vga_dac     db 0x00,0x00,0x00, 0x00,0x00,0x2A, 0x00,0x2A,0x00, 0x00,0x2A,0x2A
-            db 0x2A,0x00,0x00, 0x2A,0x00,0x2A, 0x2A,0x15,0x00, 0x2A,0x2A,0x2A
-            db 0x15,0x15,0x15, 0x15,0x15,0x3F, 0x15,0x3F,0x15, 0x15,0x3F,0x3F
-            db 0x3F,0x15,0x15, 0x3F,0x15,0x3F, 0x3F,0x3F,0x15, 0x3F,0x3F,0x3F
+%include "vga.inc"
 
 banner      db 'SquirrelBIOS x86', 0
 banner_tlh  db "tlhIngan Hol yIjatlh! Qapla'", 0
@@ -614,6 +1126,13 @@ msg_nodrive db 'disk: no drive on primary master', 0
 msg_atapi   db 'disk: primary master is ATAPI (CD/DVD), not supported', 0
 msg_timeout db 'disk: timeout waiting for drive', 0
 msg_readerr db 'disk: read of LBA 0 failed', 0
+msg_nosig   db 'disk: boot sector has no 0xAA55 signature', 0
+msg_readerr_extra db 'disk: read of the extra sectors failed', 0
+msg_kernel  db 'disk: read of the kernel image failed', 0
+msg_nosig_os db 'disk: kernel image has no S2OK signature', 0
+msg_kload   db 'kernel loaded at 0x00008000, jumping', 0
+msg_overlap db 'disk: load overlaps firmware data', 0
+msg_range   db 'disk: load address is out of range', 0
 msg_status  db '  status=', 0
 msg_error   db ' error=', 0
 msg_halted  db 'boot halted', 0

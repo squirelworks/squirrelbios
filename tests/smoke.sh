@@ -77,10 +77,17 @@ run() {
 mkdir -p "$TEST_DIR"
 
 # x86: boot sector reached with DL = 0x80, IF = DF = 0, and a memory map in
-# ES:DI that has the required regions, sorted and not overlapping
-run x86-boot "SquirrelBIOS x86|OS-ENTRY x86 dl=ok memmap=ok flags=ok" \
+# ES:DI that has the required regions (an entry at 1 MB, if present, is
+# usable; its length is not fixed), sorted and not overlapping
+run x86-boot "SquirrelBIOS x86|OS-ENTRY x86 dl=ok memmap=ok flags=ok vga=ok" \
     "$QEMU_X86" -bios x86/squirrel-bios.rom \
     -drive format=raw,file=$TEST_DIR/x86-boot.bin,if=ide
+
+# x86: a boot sector without an SQBL header gets today's one-sector
+# hand-off: the same checks, and nothing after sector 1 was run
+run x86-one-sector "OS-ENTRY x86 dl=ok memmap=ok flags=ok|!vga=" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -drive format=raw,file=$TEST_DIR/x86-one-sector.bin,if=ide
 
 # x86: no disk is reported, not hung on
 run x86-no-drive "disk: no drive on primary master|boot halted" \
@@ -98,15 +105,83 @@ run x86-mem-high "OS-ENTRY x86 dl=ok memmap=ok flags=ok|~^mm 0000000100000000 [0
     "$QEMU_X86" -bios x86/squirrel-bios.rom -m 5120 \
     -drive format=raw,file=$TEST_DIR/x86-boot.bin,if=ide
 
+# x86: a clean read of a sector without 0xAA55 is refused once, not
+# retried and not jumped to
+run x86-bad-sector "disk: boot sector has no 0xAA55 signature|boot halted|!OS-ENTRY|!disk: timeout|!disk: read of LBA 0" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -drive format=raw,file=$TEST_DIR/x86-bad-sector.bin,if=ide
+
+# x86: an SQBL header in sector 0 loads 3 more sectors to 0x1000:0x0010
+# before the usual jump to 0x7C00, which then jumps to them
+run x86-extra "OS-ENTRY x86 extra dl=ok memmap=ok payload=ok" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -drive format=raw,file=$TEST_DIR/x86-extra.bin,if=ide
+
+# x86: SQBL loads that would land on the memory map or the boot sector,
+# or run past 0xA0000, are refused before anything is read or jumped to
+run x86-extra-map "disk: load overlaps firmware data|boot halted|!OS-ENTRY" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -drive format=raw,file=$TEST_DIR/x86-extra-map.bin,if=ide
+run x86-extra-boot "disk: load overlaps firmware data|boot halted|!OS-ENTRY" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -drive format=raw,file=$TEST_DIR/x86-extra-boot.bin,if=ide
+run x86-extra-range "disk: load address is out of range|boot halted|!OS-ENTRY" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -drive format=raw,file=$TEST_DIR/x86-extra-range.bin,if=ide
+
+# x86: a disk shaped like Squirrel-OS/2 (no SQBL header, 192 sectors
+# signed S2OK) is loaded to 0x8000 and entered there. INT 15h E820
+# returns the SQMM entries. A short INT 13h packet is rejected.
+run x86-osload "SquirrelBIOS x86|kernel loaded at 0x00008000, jumping|osload=ok dl=ok flags=ok memmap=ok sig=ok e820=ok disk=absent|!entered-boot-sector|!boot halted" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -drive format=raw,file=$TEST_DIR/x86-osload.bin,if=ide
+
+# x86: a disk without the S2OK signature is entered at 0x7C00, and that
+# boot sector reads with the same INT 13h calls Squirrel-OS/2 uses.
+# INT 10h AH=0E writes the VGA cell the sector checks.
+run x86-int13 "SquirrelBIOS x86|via-boot-sector|int13=ok tty=ok|!kernel loaded|!boot halted|!disk:" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -drive format=raw,file=$TEST_DIR/x86-int13.bin,if=ide
+
 # x86: a CD-ROM as primary master is rejected, not read
 run x86-atapi "disk: primary master is ATAPI (CD/DVD), not supported|boot halted" \
     "$QEMU_X86" -bios x86/squirrel-bios.rom \
     -drive format=raw,file=$TEST_DIR/x86-boot.bin,if=ide,media=cdrom
 
 # AArch64: -kernel image entered with the DTB in x0
-run arm-boot "SquirrelBIOS ARM|OS-ENTRY arm dtb=ok regs=ok" \
+run arm-boot "SquirrelBIOS ARM|OS-ENTRY arm dtb=ok regs=ok sctlr=ok" \
     "$QEMU_ARM" -M virt -cpu cortex-a57 -bios arm/squirrel-bios.bin \
     -kernel $TEST_DIR/arm-kernel.bin
+
+# AArch64: the same at EL2 (virtualization=on), so SCTLR_EL2 is the one set
+run arm-boot-el2 "SquirrelBIOS ARM|OS-ENTRY arm dtb=ok regs=ok sctlr=ok" \
+    "$QEMU_ARM" -M virt,virtualization=on -cpu cortex-a57 -bios arm/squirrel-bios.bin \
+    -kernel $TEST_DIR/arm-kernel.bin
+
+# AArch64: an image that would run past the end of RAM is refused before
+# the load. RAM size from fw_cfg 0x03, or the device tree on QEMU virt.
+run arm-too-big "boot: kernel does not fit in RAM|boot halted|!kernel loaded" \
+    "$QEMU_ARM" -M virt -cpu cortex-a57 -m 32 -bios arm/squirrel-bios.bin \
+    -kernel $TEST_DIR/arm-too-big.bin
+
+# AArch64: an Image header with placement fixed loads at RAM base +
+# text_offset; with bit 3 set it stays at 0x40200000 whatever text_offset
+# says; an image_size below the file size is refused
+run arm-image-fixed "kernel loaded at 0x40400000|OS-ENTRY arm image at=ok" \
+    "$QEMU_ARM" -M virt -cpu cortex-a57 -bios arm/squirrel-bios.bin \
+    -kernel $TEST_DIR/arm-image-fixed.bin
+run arm-image-reloc "kernel loaded at 0x40200000|OS-ENTRY arm image at=ok" \
+    "$QEMU_ARM" -M virt -cpu cortex-a57 -bios arm/squirrel-bios.bin \
+    -kernel $TEST_DIR/arm-image-reloc.bin
+run arm-image-short "boot: Image header image_size is smaller than the image|boot halted|!OS-ENTRY" \
+    "$QEMU_ARM" -M virt -cpu cortex-a57 -bios arm/squirrel-bios.bin \
+    -kernel $TEST_DIR/arm-image-short.bin
+
+# AArch64: -initrd is loaded after the kernel and recorded in /chosen; the
+# image still finds a valid device tree
+run arm-initrd "~^initrd at 0x[0-9a-f]+, end 0x[0-9a-f]+|OS-ENTRY arm dtb=ok regs=ok sctlr=ok" \
+    "$QEMU_ARM" -M virt -cpu cortex-a57 -bios arm/squirrel-bios.bin \
+    -kernel $TEST_DIR/arm-kernel.bin -initrd $TEST_DIR/arm-initrd.img
 
 run arm-no-kernel "boot: no kernel image|boot halted" \
     "$QEMU_ARM" -M virt -cpu cortex-a57 -bios arm/squirrel-bios.bin
@@ -141,13 +216,15 @@ run riscv-timer "OS-ENTRY riscv timer|timer=ok|!timer=again|!timer=bad|!trap mca
     -kernel $TEST_DIR/riscv-timer.bin
 
 # RISC-V: sbi_send_ipi to itself raises a supervisor software interrupt;
-# to hart 1, which is parked and not started, it fails (-smp 2)
+# to hart 1, which is parked (stopped), it succeeds and raises nothing
+# here; to hart 2, which the machine does not have, it fails (-smp 2)
 run riscv-ipi "OS-ENTRY riscv ipi|ipi=ok|!ipi=bad|!trap mcause=" \
     "$QEMU_RISCV" -M virt -smp 2 -bios riscv/squirrel-bios.bin \
     -kernel $TEST_DIR/riscv-ipi.bin
 
-# RISC-V: remote fences for the calling hart succeed; a mask that also
-# names hart 1, which is not started, fails (-smp 2)
+# RISC-V: remote fences for the calling hart succeed, also with the
+# stopped hart 1 in the mask; a mask that names hart 2, which the machine
+# does not have, fails (-smp 2)
 run riscv-rfence "OS-ENTRY riscv rfence|rfence=ok|!rfence=bad|!trap mcause=" \
     "$QEMU_RISCV" -M virt -smp 2 -bios riscv/squirrel-bios.bin \
     -kernel $TEST_DIR/riscv-rfence.bin
@@ -163,6 +240,54 @@ run riscv-hsm "OS-ENTRY riscv hsm|hart1=ok a1=5157000012345678|hsm=ok|!hsm=bad|!
 run riscv-hsm-stop "OS-ENTRY riscv hsm-stop|hart1 up a1=1|hart1 up a1=2|stop=ok|!stop=bad|!trap mcause=" \
     "$QEMU_RISCV" -M virt -smp 2 -bios riscv/squirrel-bios.bin \
     -kernel $TEST_DIR/riscv-hsm-stop.bin
+
+# RISC-V: with hart 1 started, IPIs reach it by mask bit, by mask base and
+# with base -1 (which also reaches the caller), and remote fences on both
+# harts return (-smp 2)
+run riscv-ipi-smp "OS-ENTRY riscv ipi-smp|ipi-smp=ok|!ipi-smp=bad|!trap mcause=" \
+    "$QEMU_RISCV" -M virt -smp 2 -bios riscv/squirrel-bios.bin \
+    -kernel $TEST_DIR/riscv-ipi-smp.bin
+
+# RISC-V: harts 0 and 1 both fence hart 2 many times at once, then IPI it
+# (-smp 3)
+run riscv-fence-smp3 "OS-ENTRY riscv fence-smp3|fence3=ok|!fence3=bad|!trap mcause=" \
+    "$QEMU_RISCV" -M virt -smp 3 -bios riscv/squirrel-bios.bin \
+    -kernel $TEST_DIR/riscv-fence-smp3.bin
+
+# RISC-V: on 64 harts, hart 0 starts the other 63 one at a time and fences
+# all 64 with one mask
+run riscv-harts "OS-ENTRY riscv harts|harts=64|!harts=bad|!trap mcause=" \
+    "$QEMU_RISCV" -M virt -smp 64 -bios riscv/squirrel-bios.bin \
+    -kernel $TEST_DIR/riscv-harts.bin
+
+# RISC-V: with AIA, the UART's interrupt reaches an image that drives the
+# S-level APLIC, because the firmware delegated the sources to it
+run riscv-aia "aia: APLIC sources delegated|OS-ENTRY riscv aia|aia=ok|!aia=bad|!trap mcause=" \
+    "$QEMU_RISCV" -M virt,aia=aplic -bios riscv/squirrel-bios.bin \
+    -kernel $TEST_DIR/riscv-aia.bin
+
+# RISC-V: IPIs and fences still work on the AIA machine (still the CLINT)
+run riscv-aia-ipi "OS-ENTRY riscv ipi-smp|ipi-smp=ok|!ipi-smp=bad|!trap mcause=" \
+    "$QEMU_RISCV" -M virt,aia=aplic-imsic -smp 2 -bios riscv/squirrel-bios.bin \
+    -kernel $TEST_DIR/riscv-ipi-smp.bin
+
+# RISC-V: two NUMA nodes are two sockets, each with its own CLINT; the
+# harts of the second are started, and fenced, through theirs
+run riscv-numa "OS-ENTRY riscv harts|harts=ok|!harts=bad|!trap mcause=" \
+    "$QEMU_RISCV" -M virt -smp 4 -m 256M \
+    -object memory-backend-ram,id=m0,size=128M -object memory-backend-ram,id=m1,size=128M \
+    -numa node,cpus=0-1,memdev=m0 -numa node,cpus=2-3,memdev=m1 \
+    -bios riscv/squirrel-bios.bin -kernel $TEST_DIR/riscv-numa.bin
+
+# RISC-V: fw_dynamic_info names hart 2 as the boot hart (a shim stands in
+# for QEMU's reset code, which always says 0); hart 2 enters the image
+# and then starts hart 0
+run riscv-boot-hart "OS-ENTRY riscv hart=ok dtb=ok a2=ok|hart0 started from the boot hart|!boot-hart=bad|!trap mcause=" \
+    "$QEMU_RISCV" -M virt -smp 4 -bios riscv/squirrel-bios.bin \
+    -kernel $TEST_DIR/riscv-kernel-hart2.bin \
+    -device loader,file=$TEST_DIR/riscv-boot-hart.bin,addr=0x81000000,force-raw=on \
+    -device loader,addr=0x81000000,cpu-num=0 -device loader,addr=0x81000000,cpu-num=1 \
+    -device loader,addr=0x81000000,cpu-num=2 -device loader,addr=0x81000000,cpu-num=3
 
 # RISC-V: a store, a load and a fetch in the firmware region fault to the
 # image's stvec; its own memory and the SBI still work
@@ -198,6 +323,12 @@ run riscv-srst-reboot "OS-ENTRY riscv srst|reset=ok|!reset=bad|!trap mcause=|@ex
 run riscv-srst-fail "OS-ENTRY riscv srst|reset=ok|!reset=bad|!trap mcause=|@exit=1" \
     "$QEMU_RISCV" -M virt -bios riscv/squirrel-bios.bin \
     -kernel $TEST_DIR/riscv-srst-fail.bin
+
+# RISC-V: a fault in the SBI path prints a ras: line, parks the other
+# started hart (hart1=still must not appear after a 2 s wait), and halts
+run riscv-ras "OS-ENTRY riscv ras|hart1=up|~^ras: hart=0000000000000000 mcause=0000000000000005 mepc=[0-9a-f]{16} mtval=0000000000000000 fatal|boot halted|!hart1=still|!ras=bad|!trap mcause=" \
+    "$QEMU_RISCV" -M virt -smp 2 -bios riscv/squirrel-bios.bin \
+    -kernel $TEST_DIR/riscv-ras.bin
 
 run riscv-no-kernel "boot: no kernel image|boot halted" \
     "$QEMU_RISCV" -M virt -bios riscv/squirrel-bios.bin

@@ -80,18 +80,21 @@ until that extension's box is checked.
 - [x] `riscv-menvcfg` — Turn on what Linux uses from S-mode on QEMU's default hart.
   - Acceptance: the firmware sets `menvcfg` `CBIE`/`CBCFE`/`CBZE` and `STCE` where the hart has them, and `set_timer` writes `stimecmp` when Sstc is on. A stand-in runs `cbo.zero` and the other `cbo` instructions and gets a timer interrupt from a direct `stimecmp` write, and prints `envcfg=ok`; `riscv-timer` still passes. Without this, Linux 6.8 stops with an illegal instruction in `clear_page`. Depends on: `riscv-sbi-time`.
 
-- [ ] `riscv-linux-doc` — Document the QEMU command that tries a Linux `Image` on this SBI.
-  - Acceptance: `riscv/README.md` gives the command line, lists the extensions `probe_extension` now reports, and says a Linux image is not part of `make test`. No kernel binary is added to the repo. Depends on: `riscv-sbi-time`, `riscv-sbi-ipi`, `riscv-sbi-rfence`, `riscv-sbi-hsm`, `riscv-sbi-srst`, `riscv-dt-reserve`, `riscv-menvcfg`.
+- [x] `riscv-ipi-smp` — Make IPIs and remote fences reach other started harts.
+  - Acceptance: `send_ipi` raises `SSIP` on every started hart the mask names, and the RFENCE functions run the fence on each and return when all have. A `-smp 2` stand-in gets IPIs on hart 1 by mask bit, base and base `-1`, fences both harts, and has both harts fence each other many times at once without a deadlock, then prints `ipi-smp=ok`. A fence returns only after a pass that began after the request finished on each target; a `-smp 3` stand-in has two harts fence a third at once. Without this, Linux with `-smp 2` stalls after bringing up its CPUs. Depends on: `riscv-sbi-ipi`, `riscv-sbi-rfence`, `riscv-sbi-hsm`.
+
+- [x] `riscv-linux-doc` — Document the QEMU command that tries a Linux `Image` on this SBI.
+  - Acceptance: `riscv/README.md` gives the command line, lists the extensions `probe_extension` now reports, and says a Linux image is not part of `make test`. No kernel binary is added to the repo. Depends on: `riscv-sbi-time`, `riscv-sbi-ipi`, `riscv-sbi-rfence`, `riscv-sbi-hsm`, `riscv-sbi-srst`, `riscv-dt-reserve`, `riscv-menvcfg`, `riscv-ipi-smp`.
 
 - [x] `riscv-linux-shell` — Check that a Linux kernel boots on this SBI all the way to a shell.
   - Acceptance: `make linux-shell` (not part of `make test`) downloads pinned Ubuntu 24.04 riscv64 `linux-image` and `busybox-static` packages, checks their SHA-256, builds a busybox initramfs in `build/linux/`, and boots it. It prints `PASS linux-shell` when the prompt appears, `echo linux-shell=$((40+2))` prints `linux-shell=42`, and `poweroff` makes QEMU exit with status 0. No kernel, busybox or initramfs is added to the repo.
 
 ## 3. x86: load more than one sector
 
-- [ ] `x86-boot-sig` — Refuse to jump when the boot sector has no `0xAA55` signature.
+- [x] `x86-boot-sig` — Refuse to jump when the boot sector has no `0xAA55` signature.
   - Acceptance: after a clean read, a last word other than `0xAA55` prints `disk: boot sector has no 0xAA55 signature` and `boot halted`, and is not retried. A new `x86-bad-sector` case uses a 512-byte image without the signature and expects that text. `x86-boot` (which has the signature) still passes. Depends on: `x86-handoff-check`.
 
-- [ ] `x86-extra-sectors` — Load the sectors a header in sector 0 asks for.
+- [x] `x86-extra-sectors` — Load the sectors a header in sector 0 asks for.
   - Acceptance: entry stays `0x0000:0x7C00` with `DL` and the memory map unchanged. When sector 0 contains the header below, read that many following sectors to the given real-mode address and only then jump. With the magic absent, behaviour is today's one-sector hand-off (`x86-boot` still passes). A new `x86-extra` case whose second sector prints `payload=ok` passes. A header that lands on the memory map or on the boot sector prints `disk: load overlaps firmware data` and `boot halted`.
   - Header, little-endian, immediately before the signature:
 
@@ -108,31 +111,100 @@ until that extension's box is checked.
 
 ## 4. AArch64: finish the Linux entry
 
-- [ ] `arm-sctlr` — Enter the image with the MMU and D-cache off, on purpose.
+- [x] `arm-sctlr` — Enter the image with the MMU and D-cache off, on purpose.
   - Acceptance: before the jump, at the EL QEMU started the firmware in, clear `SCTLR.M` and `SCTLR.C`, clear the endianness bits so the CPU is little-endian, keep `DAIF` masked, and invalidate the instruction cache (`ic iallu`, then a barrier). The stand-in reads the `SCTLR` of its current exception level and prints `sctlr=ok` only when `M` and `C` are clear and `DAIF` is fully masked. `arm-boot` expects `OS-ENTRY arm dtb=ok regs=ok sctlr=ok`. The contract describes this as firmware state.
 
-- [ ] `arm-dma-timeout` — Give up if an fw_cfg DMA never completes.
+- [x] `arm-dma-timeout` — Give up if an fw_cfg DMA never completes.
   - Acceptance: the poll in `fwcfg_dma_read` stops after a finite number of iterations, prints `boot: fw_cfg DMA read of the kernel failed` (the existing line) or a new line documented next to it, then `boot halted`. `arm-boot` and `arm-no-kernel` still pass, so a completed transfer is unchanged. Depends on: `arm-sctlr`.
 
-- [ ] `arm-ram-size` — Refuse a kernel that does not fit in RAM.
+- [x] `arm-ram-size` — Refuse a kernel that does not fit in RAM.
   - Acceptance: read fw_cfg key `0x03` (RAM size, 8 little-endian bytes). If `0x40200000 + kernel_size` extends past `0x40000000 + ram_size`, or the image would overlap the device tree below `0x40200000`, print `boot: kernel does not fit in RAM` and `boot halted`. `arm-boot` still passes. A new `arm-too-big` case builds a large image under `build/tests/` (do not commit it) and expects that message. Depends on: `arm-dma-timeout`.
 
-- [ ] `arm-image-header` — Honour the ARM64 `Image` header when its magic is present.
-  - Acceptance: the header is the Linux arm64 one. Magic is the bytes `41 52 4D 64` at file offset `0x38`. `text_offset` is the u64 at offset 8, `image_size` the u64 at offset 16, `flags` the u64 at offset 24. No magic means today's raw load at `0x40200000` (`arm-boot` unchanged). Magic with bit 3 of `flags` clear (kernel physical placement fixed) loads at the 2 MB-aligned RAM base plus `text_offset` and jumps there. Magic with bit 3 set keeps `0x40200000`. Apply the `arm-ram-size` fit check at the address actually used. A header whose `image_size` is larger than the bytes fw_cfg delivered prints a documented message and halts. New cases: `arm-image-fixed` (linked at RAM base + `text_offset`, expects `OS-ENTRY arm`) and `arm-image-reloc` (bit 3 set, linked at `0x40200000`, expects `OS-ENTRY arm`). Depends on: `arm-ram-size`.
+- [x] `arm-image-header` — Honour the ARM64 `Image` header when its magic is present.
+  - Acceptance: the header is the Linux arm64 one. Magic is the bytes `41 52 4D 64` at file offset `0x38`. `text_offset` is the u64 at offset 8, `image_size` the u64 at offset 16, `flags` the u64 at offset 24. No magic means today's raw load at `0x40200000` (`arm-boot` unchanged). Magic with bit 3 of `flags` clear (kernel physical placement fixed) loads at the 2 MB-aligned RAM base plus `text_offset` and jumps there. Magic with bit 3 set keeps `0x40200000`. Apply the `arm-ram-size` fit check at the address actually used. A header whose `image_size` is larger than the bytes fw_cfg delivered prints a documented message and halts. *(As built: the reverse. Linux's `image_size` includes BSS, so it is always larger than the file; the firmware uses it for the fit check and refuses a non-zero `image_size` that is smaller than the file.)* New cases: `arm-image-fixed` (linked at RAM base + `text_offset`, expects `OS-ENTRY arm`) and `arm-image-reloc` (bit 3 set, linked at `0x40200000`, expects `OS-ENTRY arm`). Depends on: `arm-ram-size`.
 
-- [ ] `arm-initrd` — Load QEMU's initrd and record it in the device tree.
+- [x] `arm-initrd` — Load QEMU's initrd and record it in the device tree.
   - Acceptance: fw_cfg key `0x0b` is the initrd size and key `0x12` is the bytes. When the size is non-zero, DMA the bytes to a place that does not overlap the device tree or the kernel, and set `/chosen` `linux,initrd-start` and `linux,initrd-end`. If the device tree has no spare room, print a documented message and halt instead of writing past it. A new `arm-initrd` case passes a small `-initrd` and expects `initrd at ` in the log. With no initrd, `arm-boot` still passes and the device tree is left as QEMU provided it. Depends on: `arm-image-header`.
 
 ## 5. Consoles and small hardening
 
-- [ ] `riscv-uart-baud` — Program the RISC-V UART to 115200 8N1 and say so in the contract.
+- [x] `riscv-uart-baud` — Program the RISC-V UART to 115200 8N1 and say so in the contract.
   - Acceptance: the NS16550A divisor is set, `common/handoff.md` lists 115200 the way it does for COM1, and `riscv-boot` still sees the banner.
 
-- [ ] `x86-cmos-nmi` — Disable NMI for the duration of each CMOS read.
+- [x] `x86-cmos-nmi` — Disable NMI for the duration of each CMOS read.
   - Acceptance: `cmos_read` sets bit 7 of port `0x70` while it indexes the register. `x86-boot`, `x86-mem-low`, and `x86-mem-high` still pass. Depends on: `x86-mem-low`, `x86-mem-high`.
 
-- [ ] `x86-vga` — Put the VGA into 80x25 text mode and load an original font.
+- [x] `x86-vga` — Put the VGA into 80x25 text mode and load an original font.
   - Acceptance: the font is written in this repo (not taken from a VGA BIOS). The stand-in reads the mode registers, prints `vga=ok` only when they show 80x25 text, and `x86-boot` expects that string. The contract stops saying the VGA was left uninitialised. COM1 output is unchanged. Depends on: `x86-handoff-check`.
+
+## 6. A large server node (future)
+
+Not scheduled; see [ROADMAP.md](ROADMAP.md) milestone 6 for why and for
+what `make linux-big` showed on its first run. Start after sections 1–5.
+These items are not part of `make test`'s acceptance unless they say so.
+
+- [x] `big-node-scaffold` — Add `make linux-big`: the `linux-shell` boot on `-smp 64 -m 64G`.
+  - Acceptance: `tests/linux-shell.sh` takes `LINUX_MEM` and `LINUX_EXPECT_HARTS`, maps guest RAM with `reserve=off` so a 64 GB guest starts on a smaller host, and shows QEMU's own error when it fails to start. `make linux-big` passes only when the shell banner reports every hart online. `make linux-big BIG_SMP=8` passes today; the default (64) fails with `8 of 64 harts online`, which is recorded in the roadmap. `make linux-shell` and `make test` are unchanged.
+
+- [x] `riscv-many-harts` — Start every hart QEMU `virt` can give the firmware, not just 8.
+  - Acceptance: `MAX_HARTS` covers `-smp 64` at least (QEMU 8.2 allows up to 512 on `virt`). The trap stacks, `hart_table` and `.bss` still fit under `0x80200000` (the Makefile check). A `-smp 64` stand-in starts every secondary with `sbi_hart_start` and prints `harts=64`. `make linux-big BIG_SMP=32` passes. `riscv-ipi-smp` and `riscv-fence-smp3` still pass. *(As built: `MAX_HARTS` is 512, QEMU 8.2's `virt` limit in one socket; the image ends below `0x8002d000`. A mask with base 0 now covers all 64 bits; the old check shifted by 64, which wraps to 0 and refused every such mask once `MAX_HARTS` reached 64.)*
+
+- [x] `linux-big-kernel` — Let `make linux-big` check more than 32 harts.
+  - Acceptance: the script takes a pinned kernel built with `NR_CPUS` of at least 64 (downloaded and checked by SHA-256 like today's, or a documented `LINUX_IMAGE=` override), and `make linux-big` with the default 64 harts prints `PASS linux-shell`. No kernel is added to the repo. Depends on: `riscv-many-harts`. *(As built: `LINUX_KERNEL=6.14` selects Ubuntu 25.04's `linux-image-6.14.0-13-generic`, an EFI zboot image the script unpacks with `zstd`; downloads fall back to old-releases once 25.04 moves there. `make linux-big` uses it and brings up 64 harts. `make linux-shell` keeps 6.8.)*
+
+- [x] `riscv-boot-hart` — Boot the hart `fw_dynamic_info.boot_hart` names. *(Moved up from Speculative.)*
+  - Acceptance: as in the Speculative entry: `riscv-boot` still passes, and a case whose boot hart is not 0 prints `hart=ok` from that hart. Depends on: `riscv-many-harts`. *(As built: QEMU's `-kernel` path always writes `boot_hart = 0`, so `riscv-boot-hart` loads a shim with QEMU's generic loader, points every hart's PC at it, and it hands the firmware a copy of QEMU's `fw_dynamic_info` with `boot_hart = 2`. A `boot_hart` at or above `MAX_HARTS`, or a struct older than version 2, means hart 0. A `boot_hart` below that which names no present hart leaves the machine with no boot hart; QEMU never passes one.)*
+
+- `riscv-sparse-harts` — *Moved to Speculative.* QEMU `virt` numbers its harts 0 to N-1 with no gaps, in one socket or many (`riscv-numa`), up to 512, which is `MAX_HARTS`. So no machine this repo targets has a hart ID the firmware's tables cannot index, and no `make test` case could show a slot table working: QEMU cannot make the non-contiguous IDs it would need. Boards that number harts sparsely are out of scope (see ROADMAP.md).
+
+- [x] `riscv-numa` — Keep NUMA information intact through the firmware's device-tree edits.
+  - Acceptance: with `-numa node,...` for two nodes, the tree handed to the OS still has every `/memory` node with its `numa-node-id`, each `cpu` keeps its `numa-node-id`, and `/distance-map` is unchanged. The `/reserved-memory` entry from `riscv-dt-reserve` is added only once. A Linux run under `make linux-big` with two nodes reports `2 nodes` in its log. Depends on: `riscv-many-harts`. *(As built: the device-tree edit already kept the NUMA properties, but QEMU makes each NUMA node a socket with its own CLINT, and the firmware only knew socket 0's: harts in socket 1 were never woken, so Linux ran on 32 of 64. The boot hart now reads each `cpu` node's `reg` and `numa-node-id` and keeps every hart's `msip` and `mtimecmp` address in `hart_table`. New case `riscv-numa`; `make linux-big` now uses two nodes by default (`BIG_NUMA`) and prints `smp: Brought up 2 nodes, 64 CPUs`. QEMU writes `/distance-map` only for `-numa dist`, which the firmware does not touch either.)*
+
+- [x] `riscv-aia` — Keep IPIs and the timer working on `virt,aia=aplic-imsic`.
+  - Acceptance: a `riscv-ipi-smp` run with `-M virt,aia=aplic-imsic` passes, and `make linux-big` on that machine reaches the shell. Depends on: `riscv-many-harts`. *(As built: IPIs and fences already worked, since the CLINT is still there (`riscv-aia-ipi`). Interrupts did not: Linux never reached the shell on either AIA mode, because the sources stayed with the M-level APLIC, and Linux probing that APLIC reset its `sourcecfg`. The firmware now delegates every source the root APLIC's `riscv,delegate` names and hides the M-level controllers from the tree (`FDT_NOP`). `LINUX_AIA=aplic make linux-big` passes: 64 harts, 2 nodes, `96 interrupts directly connected to 32 CPUs` per socket. New case `riscv-aia`. **MSI mode (`aia=aplic-imsic`) still does not reach a shell** on QEMU 8.2 with Ubuntu's 6.14 kernel: Linux takes a supervisor external interrupt storm on one hart. QEMU's own OpenSBI 1.3 does the same, so it is not this firmware's alone; it would also need `smsiaddrcfg` programmed. Left for a newer QEMU.)*
+
+- [x] `big-node-pcie` — Check that PCIe devices enumerate on a large node.
+  - Acceptance: `make linux-big` with a `virtio-net-pci` and an `nvme` device sees both under `/sys/bus/pci/devices`. No firmware change unless the run shows one is needed. *(As built: no firmware change was needed. `make linux-big` now adds both devices (the NVMe drive is backed by QEMU's `null-co` driver, so there is no disk image), lists every device's `vendor:device` at the prompt, and requires `0x1af4:0x1000` and `0x1b36:0x0010`. Linux assigns their 64-bit BARs above 4 GB (`0x1400000000`) itself. `tests/linux-shell.sh` gained `LINUX_DEVICES` (extra QEMU options) and `LINUX_EXPECT` (strings the log must hold). The NVMe driver is a module the initramfs does not carry, so the check is enumeration, not I/O.)*
+
+- [x] `big-node-netboot` — Decide and document how a diskless node gets its kernel.
+  - Acceptance: a note in `common/handoff.md` saying whether the firmware loads a kernel over virtio-net or leaves network boot to the OS, with the reason. If the firmware does it, that is a separate item with its own stand-in. *(Decided: the firmware leaves network boot to the OS. A diskless node boots a small kernel and initramfs that fetches the rest. See "Network boot" in `common/handoff.md`.)*
+
+- [x] `big-node-errors` — Report hardware faults instead of only halting.
+  - Acceptance: a written plan in this file for where machine faults go (the console line format, and what the OS is told), before any code.
+  - **Plan** (RISC-V first; nothing below is built yet):
+    - *What a fault is.* Today the only faults the firmware sees are traps that reach M-mode and are not an SBI call or the M-mode timer: an access fault in the SBI handler, an illegal instruction, or a trap on a hart that is not running an OS. Real servers also report corrected and uncorrected memory errors and bus errors through RAS error records (RISC-V RERI). QEMU 8.2 models none of those, so the first step works with traps only.
+    - *The console line.* One line per fault, written before anything else happens, in the style of the existing messages:
+      `ras: hart=<id> mcause=<16 hex> mepc=<16 hex> mtval=<16 hex> <what>`
+      where `<what>` is `fatal` or `corrected`. A fatal fault is followed by `boot halted` on that hart. Unlike today, the other harts are not left running blind: the faulting hart sends them an IPI that parks them, and if the OS is up, the machine is shut down through the same path as SRST, with QEMU exit status 1 (a "system failure" shutdown), so a job scheduler sees a failed node and not a silent hang.
+    - *What the OS is told.* SBI 1.0 has no error-reporting call, so nothing yet. The SBI 2.0 Supervisor Software Events extension (SSE, `0x535345`) defines a RAS event that the firmware can raise into S-mode. Once there is a corrected-error source to report, implement SSE with that one event and advertise it from `probe_extension`. Until then an S-mode OS learns about a fatal fault only from the console and the exit status.
+    - *Items, in order:* `riscv-ras-line` (below), `riscv-ras-shutdown` (shut the machine down with status 1 after a fatal fault while an OS runs, `@exit=1` in `smoke.sh`), then `riscv-sse` once QEMU has an error source to inject. The later two stay in Speculative until the OS needs them.
+
+- [x] `riscv-ras-line` — Print a `ras:` fault line and park the other started harts.
+  - Acceptance: a fatal trap that is not an SBI call or an M-mode timer/soft interrupt prints
+    `ras: hart=<16 hex> mcause=<16 hex> mepc=<16 hex> mtval=<16 hex> fatal`, then `boot halted`.
+    Before the halt, every other started hart is given a CLINT software interrupt that leaves
+    S-mode and parks it. A `riscv-ras` case with `-smp 2` starts hart 1, then makes the SBI
+    handler fault on purpose (`ecall` with `a7 = 0x53515241`, which loads from address 0 in
+    M-mode and is not probed); the log has the `ras:` line with `mcause=0000000000000005` and
+    `mtval=0000000000000000`, and does not show `hart1=still` (which hart 1 would print after
+    two seconds if it kept running). The contract describes the line and the park. Depends on:
+    `big-node-errors`.
+
+UEFI and ACPI hand-off for servers stays out of scope; see the roadmap.
+
+## 7. Boot Squirrel-OS/2
+
+Squirrel-OS/2's boot sector calls `INT 13h`. A 96 KB image signed
+`S2OK` is still loaded by the firmware and entered at `0x8000`. Any
+other disk is entered at `0x7C00`, and the boot sector loads the kernel
+with `INT 13h`. `tests/os-boot.sh` boots a real `os.img`; it is not part
+of `make test`.
+
+- [x] `x86-os-image` — Load a Squirrel-OS/2 hard-disk image and enter its kernel.
+  - Acceptance: a disk with no SQBL header whose LBA 192 ends in `S2OK` is read, LBAs 1–192, to `0x8000`, and entered there with the same registers as the `0x7C00` hand-off. `INT 15h` `E820` returns the SQMM entries. An `INT 13h` packet that is not 16 bytes long returns with carry set. `x86-osload` expects `kernel loaded at 0x00008000, jumping` and `osload=ok dl=ok flags=ok memmap=ok sig=ok e820=ok disk=absent`, and not `entered-boot-sector`. A disk without that signature still takes the one-sector path (`x86-one-sector`). `tests/os-boot.sh` on a Squirrel-OS/2 `os.img` passes when the VGA shows `Squirrel-OS/2` and a `>` prompt. `make test` stays green.
+
+- [x] `x86-int13` — Serve the disk and teletype calls the boot sector makes.
+  - Acceptance: `INT 13h` `AH=0x42` reads by LBA, `AH=0x02` reads by the cylinder/head/sector geometry `AH=0x08` reports (16 heads, 63 sectors), and `AH=0x00` resets the primary master. Carry is set on a bad packet, a missing drive, or a failed read, and clear on success, with `AH` the usual status. `INT 10h` `AH=0x0E` writes a character to the VGA text buffer, including CR and LF. `INT 15h` `E820` is unchanged. The `S2OK` fast path is unchanged. A new `x86-int13` case has no SQBL header and no `S2OK` signature, so it is entered at `0x7C00`, issues the same three 64-sector extended reads the boot sector does, and expects `via-boot-sector` and `int13=ok tty=ok`. Depends on: `x86-os-image`.
 
 ## Speculative
 
@@ -149,5 +221,8 @@ update.
 - `arm-gic` — Initialise the GIC and the generic timer. The OS already drives both from the device tree. A stand-in would receive a timer interrupt and print `irq=ok`.
 - `riscv-dbcn` — Add the SBI debug console extension. The device tree already names the NS16550A, which Linux can use. A stand-in `sbi_debug_console_write` would print `dbcn=ok`.
 - `riscv-dtb-devices` — Take the UART and CLINT addresses from the device tree instead of the QEMU virt constants. `riscv-boot` would still pass, and the addresses would no longer be immediate constants.
-- `riscv-boot-hart` — Boot the hart named by `fw_dynamic_info.boot_hart` when it is not 0. `riscv-boot` (hart 0) would still pass, and a case whose boot hart is non-zero would print `hart=ok` from that hart.
+- `riscv-boot-hart` — Now scheduled in section 6.
+- `riscv-sparse-harts` — Index the per-hart tables by a slot the firmware assigns, not by the raw hart ID, so a hart ID above `MAX_HARTS` still runs. Only for a board whose hart IDs have gaps; QEMU `virt` has none. A stand-in on such a machine would start every hart.
+- `riscv-ras-line` — Done in section 6.
+- `riscv-ras-shutdown`, `riscv-sse` — The remaining fault-reporting steps planned under `big-node-errors` in section 6.
 - `linux-image-in-tree` — Keep a built Linux image in the repo and boot it from `make test`. The stand-in images are the suite; a distro kernel is large and is not original code.

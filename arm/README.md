@@ -8,8 +8,16 @@ qemu-system-aarch64 -M virt -cpu cortex-a57 -nographic -bios arm/squirrel-bios.b
 ```
 
 - Masks interrupts, enables the PL011 UART (`0x09000000`) and prints `SquirrelBIOS ARM`
+- Checks that the image fits in RAM (size from fw_cfg key `0x03`, or the
+  device tree `/memory` node, which is what QEMU `virt` provides)
+- Honours a Linux arm64 `Image` header: fixed placement loads at RAM base
+  + `text_offset`, otherwise (and without a header) at `0x40200000`
+- With `-initrd`, loads it after the kernel and sets `/chosen`
+  `linux,initrd-start` / `linux,initrd-end` in the device tree
 - Reads the `-kernel` image through QEMU's fw_cfg DMA interface to `0x40200000`
-- Jumps to it with `x0` = device tree (`0x40000000`), `x1`–`x3` = 0, MMU and caches off
+- Before the jump, at the EL it was started in, clears `SCTLR_ELx` `M`, `C`
+  and the endianness bits, keeps `DAIF` masked and invalidates the I-cache
+- Jumps to it with `x0` = device tree (`0x40000000`), `x1`–`x3` = 0
 - Without `-kernel`, or if the load fails, prints the reason and halts
 
 The image is copied as raw bytes, so build it linked at `0x40200000`.

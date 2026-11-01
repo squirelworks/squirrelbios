@@ -2,7 +2,8 @@
  * Prints banner on UART, then enters the -kernel image QEMU loaded in the
  * mode QEMU asked for (S-mode for -kernel, through mret), with the hart ID
  * in a0 and the device tree in a1. An ecall from S-mode is an SBI call
- * (sbi_call below). Any other trap that reaches M-mode prints mcause and
+ * (sbi_call below). Any other trap that reaches M-mode prints a ras: line
+ * (hart, mcause, mepc, mtval, fatal), parks every other started hart, then
  * halts.
  * Original code.
  *
@@ -19,6 +20,12 @@
         .equ UART_LCR,      3
         .equ UART_LSR,      5
         .equ UART_LSR_THRE, 0x20
+        .equ UART_DLL,      0               /* with LCR.DLAB set */
+        .equ UART_DLM,      1
+        .equ UART_LCR_DLAB, 0x80
+        .equ UART_CLOCK,    3686400         /* virt's clock-frequency for the UART */
+        .equ UART_BAUD,     115200
+        .equ UART_DIVISOR,  UART_CLOCK / (16 * UART_BAUD)   /* 2 */
         .equ UART_TIMEOUT,  0x100000        /* LSR polls per character */
 
         /* QEMU's reset code passes a2 = struct fw_dynamic_info:
@@ -28,6 +35,7 @@
         .equ FWDYN_OFF_VERSION, 8
         .equ FWDYN_OFF_NEXT,    16
         .equ FWDYN_OFF_MODE,    24          /* version 2 and later */
+        .equ FWDYN_OFF_BOOT,    40          /* boot_hart, version 2 and later */
         .equ MODE_S,            1
         .equ MODE_M,            3
 
@@ -80,7 +88,8 @@
 
         .equ CAUSE_ECALL_S,     9
         .equ MIE_MSIE,          (1 << 3)
-        .equ TRAP_FRAME,        32          /* t0-t3, below trap_stack_top */
+        .equ TRAP_FRAME,        80          /* t0-t6, ra, a2, a3, below trap_stack_top */
+        .equ CAUSE_M_SOFT,      (1 << 63) | 3
         .equ CAUSE_M_TIMER,     (1 << 63) | 7
 
         .equ MIP_SSIP,          (1 << 1)
@@ -102,16 +111,41 @@
         .equ CLINT_MSIP,        0x02000000
         .equ CLINT_MTIMECMP,    0x02004000
         .equ CLINT_MTIME,       0x0200bff8
+        /* With -numa, QEMU virt makes each NUMA node a socket with its own
+         * CLINT, CLINT_SOCKET bytes after the previous one, whose msip and
+         * mtimecmp slots count from the lowest hart ID in that socket. */
+        .equ CLINT_SOCKET,      0x10000
+        .equ CLINT_OFF_MTIMECMP, 0x4000
+        .equ MAX_SOCKETS,       8           /* QEMU virt's VIRT_SOCKETS_MAX */
 
-        /* Harts the firmware can start. Higher hart IDs stay parked. */
-        .equ MAX_HARTS,         8
+        /* AIA (aia=aplic, aia=aplic-imsic): APLIC sourcecfg[n] is at 4 * n */
+        .equ APLIC_SOURCECFG_D, 0x400       /* delegated to child (bits 9:0) */
+        .equ APLIC_MAX_SOURCE,  1023
+        .equ IRQ_M_EXT,         11          /* interrupts-extended: machine external */
+
+        /* Harts the firmware can start: QEMU virt's limit (VIRT_CPUS_MAX,
+         * 512 in QEMU 8.2), counted across all sockets. Without -numa they
+         * share one socket and one CLINT; with -numa, clint_layout points
+         * each hart at its own socket's CLINT. Higher hart IDs stay parked. The trap stacks and hart_table
+         * grow with it and must stay inside the PMP-protected 2 MB (the
+         * Makefile checks). */
+        .equ MAX_HARTS,         512
         .equ TRAP_STACK,        256         /* per hart */
 
         /* hart_table entry: state, start address, opaque (8 bytes each) */
-        .equ HART_ENTRY_SHIFT,  5           /* 32 bytes */
+        .equ HART_ENTRY_SHIFT,  6           /* 64 bytes */
         .equ HART_STATE,        0
         .equ HART_ADDR,         8
         .equ HART_OPAQUE,       16
+        .equ HART_PENDING,      24          /* work other harts asked of it */
+        .equ HART_START,        32          /* passes over HART_PENDING begun */
+        .equ HART_DONE,         40          /* number of the last pass finished */
+        .equ HART_MSIP,         48          /* its CLINT msip and mtimecmp */
+        .equ HART_MTIMECMP,     56
+        .equ PEND_SSIP,         1           /* raise the supervisor software interrupt */
+        .equ PEND_FENCE_I,      2
+        .equ PEND_SFENCE,       4           /* sfence.vma, all of it */
+        .equ PEND_PARK,         8           /* leave S-mode and park forever (RAS) */
         .equ HSM_STARTED,       0           /* SBI hart states */
         .equ HSM_STOPPED,       1
         .equ HSM_START_PENDING, 2
@@ -133,6 +167,9 @@
         .equ SBI_EXT_RFENCE,    0x52464e43
         .equ SBI_EXT_HSM,       0x48534d
         .equ SBI_EXT_SRST,      0x53525354
+        /* Not an SBI extension: probe_extension never reports it. The
+         * riscv-ras smoke case ecalls it so the SBI path faults in M-mode. */
+        .equ SBI_EXT_TEST_FAULT, 0x53515241 /* "SQRA" */
         .equ SBI_SPEC_VERSION,  0x01000000  /* 1.0 */
         .equ SBI_IMPL_ID,       0x5351      /* "SQ"; not BBL (0) or OpenSBI (1) */
         .equ SBI_IMPL_VERSION,  1
@@ -155,17 +192,37 @@ _start:
         la t1, trap_stacks
         add t0, t0, t1
         csrw mscratch, t0
-        bnez a0, park                       /* only hart 0 boots */
+
+        /* One hart boots: fw_dynamic_info.boot_hart when the struct is
+         * there (version 2 or later) and names a hart below MAX_HARTS,
+         * otherwise hart 0. QEMU's own -kernel path always says 0. */
+        li t1, 0                            /* t1 = the boot hart */
+        beqz a2, 1f
+        ld t0, FWDYN_OFF_MAGIC(a2)
+        li t2, FWDYN_MAGIC
+        bne t0, t2, 1f
+        ld t0, FWDYN_OFF_VERSION(a2)
+        li t2, 2
+        bltu t0, t2, 1f
+        ld t0, FWDYN_OFF_BOOT(a2)
+        li t2, MAX_HARTS
+        bgeu t0, t2, 1f
+        mv t1, t0
+1:      bne a0, t1, park
 
         mv s0, a0                           /* hart ID */
         mv s1, a1                           /* device tree */
         mv s2, a2                           /* fw_dynamic_info */
         la sp, stack_top
 
-        la t0, hart_table                   /* hart 0 is running */
+        slli t0, s0, HART_ENTRY_SHIFT       /* the boot hart is running */
+        la t1, hart_table
+        add t0, t0, t1
         sd zero, HART_STATE(t0)
 
         call uart_init
+        mv a0, s1                           /* per-socket CLINTs (-numa) */
+        call clint_layout
         la a0, banner
         call puts
 
@@ -201,6 +258,11 @@ _start:
         li t0, MODE_S                       /* tell an S-mode OS to keep out */
         bne s4, t0, 3f
         mv a0, s1
+        call aia_setup
+        beqz a0, 4f
+        la a0, msg_aia
+        call puts
+4:      mv a0, s1
         call dt_reserve
 3:
         mv a0, s0
@@ -222,7 +284,8 @@ _start:
  * uses sp before setting it faults instead of writing firmware memory.
  * Used by every hart. */
 enter_s:
-        csrw mie, zero
+        li t0, MIE_MSIE                     /* other harts' IPIs and fences (m_soft) */
+        csrw mie, t0
         csrw satp, zero
         la t0, skip_insn                    /* a hart without menvcfg skips this */
         csrrw t2, mtvec, t0
@@ -286,17 +349,18 @@ park:
         slli t0, a0, HART_ENTRY_SHIFT
         la s5, hart_table
         add s5, s5, t0                      /* s5 = this hart's entry */
-        li t0, CLINT_MSIP
-        slli t1, a0, 2
-        add s6, t0, t1                      /* s6 = this hart's msip */
         mv s0, a0
         li t0, HSM_STOPPED
         sd t0, HART_STATE(s5)
+        fence rw, rw
+        sd zero, HART_PENDING(s5)
         li t0, MIE_MSIE
         csrw mie, t0
 1:      wfi
-        sw zero, 0(s6)                      /* consume the wake-up */
+        ld t0, HART_MSIP(s5)                /* read each time: clint_layout may move it */
+        sw zero, 0(t0)                      /* consume the wake-up */
         fence
+        sd zero, HART_PENDING(s5)           /* a stopped hart has nothing to fence */
         ld t0, HART_STATE(s5)
         li t1, HSM_START_PENDING
         bne t0, t1, 1b
@@ -317,7 +381,7 @@ park_forever:
  * so the OS's sp is swapped out first and every register but a0 and a1
  * comes back unchanged. An ecall from S-mode is an SBI call, and the
  * M-mode timer interrupt is passed on to S-mode. Anything else is not
- * resumed: print the cause and halt. */
+ * resumed: print a ras: line, park the other started harts, and halt. */
         .align 2
 trap:
         csrrw sp, mscratch, sp
@@ -326,15 +390,25 @@ trap:
         sd t1, 8(sp)
         sd t2, 16(sp)
         sd t3, 24(sp)
+        sd t4, 32(sp)
+        sd t5, 40(sp)
+        sd t6, 48(sp)
+        sd ra, 56(sp)
+        sd a2, 64(sp)
+        sd a3, 72(sp)
         csrr t0, mcause
         li t1, CAUSE_M_TIMER
         beq t0, t1, m_timer
+        li t1, CAUSE_M_SOFT
+        beq t0, t1, m_soft
         li t1, CAUSE_ECALL_S
         bne t0, t1, trap_fatal
 
-/* SBI dispatcher.  t0-t3 are saved. A function sets a1 and goes to
+/* SBI dispatcher.  t0-t6 and ra are saved. A function sets a1 and goes to
  * sbi_ok, or sets a0 to an error and goes to sbi_ret. */
 sbi_call:
+        li t0, SBI_EXT_TEST_FAULT
+        beq a7, t0, sbi_test_fault
         li t0, SBI_EXT_BASE
         beq a7, t0, sbi_base
         li t0, SBI_EXT_TIME
@@ -367,6 +441,12 @@ trap_ret:
         ld t1, 8(sp)
         ld t2, 16(sp)
         ld t3, 24(sp)
+        ld t4, 32(sp)
+        ld t5, 40(sp)
+        ld t6, 48(sp)
+        ld ra, 56(sp)
+        ld a2, 64(sp)
+        ld a3, 72(sp)
         addi sp, sp, TRAP_FRAME
         csrrw sp, mscratch, sp
         mret
@@ -380,9 +460,10 @@ m_timer:
         li t0, MIE_MTIE
         csrc mie, t0
         csrr t0, mhartid
-        slli t0, t0, 3
-        li t1, CLINT_MTIMECMP
+        slli t0, t0, HART_ENTRY_SHIFT
+        la t1, hart_table
         add t0, t0, t1
+        ld t0, HART_MTIMECMP(t0)
         li t1, -1
         sd t1, 0(t0)
         j trap_ret
@@ -397,9 +478,10 @@ sbi_time:
         j sbi_ok
 1:
         csrr t0, mhartid
-        slli t0, t0, 3
-        li t1, CLINT_MTIMECMP
+        slli t0, t0, HART_ENTRY_SHIFT
+        la t1, hart_table
         add t0, t0, t1
+        ld t0, HART_MTIMECMP(t0)
         sd a0, 0(t0)
         li t0, MIP_STIP
         csrc mip, t0
@@ -444,31 +526,31 @@ sbi_get_mimpid:
         j sbi_ok
 
 /* IPI extension: send_ipi (0), a0 = hart mask, a1 = hart mask base.
- * Only the calling hart is running, so that is the only one it can
- * reach: it gets a supervisor software interrupt. */
+ * Each hart named gets a supervisor software interrupt: the caller at
+ * once, the others through their M-mode software interrupt (m_soft). */
 sbi_ipi:
         bnez a6, sbi_not_supported
-        jal t2, hart_mask
-        beqz t0, sbi_ok
-        li t0, MIP_SSIP
-        csrs mip, t0
+        li t0, PEND_SSIP
+        call check_mask
+        call send_mask
         j sbi_ok
 
 /* RFENCE extension, a0 = hart mask, a1 = hart mask base:
  *   remote_fence_i (0), remote_sfence_vma (1, a2 = start, a3 = size),
  *   remote_sfence_vma_asid (2, a4 = ASID).
- * Only the calling hart runs, so the fence is done here, on it. The
- * sfence.vma flushes everything, which covers any start, size and ASID.
- * The hypervisor fences (3-6) are not supported. */
+ * Each hart named runs the fence: the caller here, the others in m_soft,
+ * and the call returns once they all have. The sfence.vma flushes
+ * everything, which covers any start, size and ASID. The hypervisor
+ * fences (3-6) are not supported. */
 sbi_rfence:
         li t0, 2
         bgtu a6, t0, sbi_not_supported
-        jal t2, hart_mask
-        beqz t0, sbi_ok
-        bnez a6, 1f
-        fence.i
-        j sbi_ok
-1:      sfence.vma
+        li t0, PEND_FENCE_I
+        beqz a6, 1f
+        li t0, PEND_SFENCE
+1:      call check_mask
+        call send_mask
+        call wait_mask
         j sbi_ok
 
 /* HSM extension: hart_start (0, a0 = hart, a1 = start address,
@@ -516,9 +598,7 @@ sbi_hsm:
         li t1, HSM_START_PENDING
         sd t1, HART_STATE(t0)
         fence
-        li t1, CLINT_MSIP
-        slli t2, a0, 2
-        add t1, t1, t2
+        ld t1, HART_MSIP(t0)
         li t2, 1
         sw t2, 0(t1)
         j sbi_ok
@@ -546,28 +626,187 @@ sbi_hart_stop:
         csrr a0, mhartid
         j park
 
-/* Check an SBI hart mask: bit N of a0 selects hart a1 + N, and a1 = -1
- * selects the calling hart. IPIs and fences reach only the calling hart,
- * even when hart_start has started others, so a mask that names any other
- * hart is an invalid parameter (jumps to sbi_invalid_param). Otherwise t0 = 1 if the calling hart is selected,
- * 0 if the mask is empty. Uses t1 and t3, returns through t2. */
-hart_mask:
-        li t0, 1
-        li t1, -1
-        beq a1, t1, 2f
-        csrr t1, mhartid
-        sub t1, t1, a1                      /* bit of the calling hart */
-        li t0, 0
+/* SBI hart masks: bit N of a0 selects hart a1 + N, and a1 = -1 selects
+ * every started hart.  The helpers below take the work in t0 (PEND_*),
+ * keep t0 and t1, and use t2-t6. */
+
+/* t4 = hart ID.  t5 = 1 if the mask in a0 and a1 selects it.  Uses t3
+ * and t6, returns through t2. */
+hart_selected:
+        li t5, 1
+        li t6, -1
+        beq a1, t6, 1f
+        sub t6, t4, a1                      /* its bit */
+        li t5, 0
         li t3, 64
-        bgeu t1, t3, 1f                     /* below the base or past bit 63 */
-        li t0, 1
-        sll t0, t0, t1
-1:      not t3, t0
+        bgeu t6, t3, 1f                     /* below the base or past bit 63 */
+        srl t5, a0, t6
+        andi t5, t5, 1
+1:      jr t2
+
+/* Do the work in \bits (PEND_*) on this hart.  Uses \tmp. PEND_PARK never
+ * returns: the hart leaves S-mode and sits in park_forever. */
+.macro do_work bits, tmp
+        andi \tmp, \bits, PEND_SSIP       /* own labels: no 1f/2f/3f clash */
+        beqz \tmp, dw_fi\@
+        csrsi mip, MIP_SSIP
+dw_fi\@:
+        andi \tmp, \bits, PEND_FENCE_I
+        beqz \tmp, dw_sf\@
+        fence.i
+dw_sf\@:
+        andi \tmp, \bits, PEND_SFENCE
+        beqz \tmp, dw_park\@
+        sfence.vma
+dw_park\@:
+        andi \tmp, \bits, PEND_PARK
+        beqz \tmp, dw_end\@
+        j ras_park
+dw_end\@:
+.endm
+
+/* t4 = hart ID.  t3 = its hart_table entry.  Uses t6. */
+.macro hart_entry
+        slli t3, t4, HART_ENTRY_SHIFT
+        la t6, hart_table
+        add t3, t3, t6
+.endm
+
+/* Every hart a mask names must exist: otherwise go to sbi_invalid_param,
+ * before any work is sent.  A stopped hart is valid (the SBI spec only
+ * refuses harts the platform does not have), and send_mask and wait_mask
+ * skip it: it has no IPI to take, and enter_s fences before it runs S-mode
+ * again.  Linux names stopped harts after CPU hotplug, because a CPU
+ * stays in an address space's mask after it goes offline.  A hart that
+ * has not reached park yet gets HSM_CHECKIN_WAIT to do so, as in sbi_hsm:
+ * on QEMU a secondary hart can still be on its way when the OS starts.
+ * Uses a2 as well. */
+check_mask:
+        li t2, -1
+        beq a1, t2, 3f                      /* every started hart */
+        li t2, MAX_HARTS
+        bgeu a1, t2, 2f
+        sub t2, t2, a1                      /* bits for harts that can exist */
+        li t3, 64
+        bgeu t2, t3, 5f                     /* all 64 can: sll would wrap */
+        li t3, -1
+        sll t3, t3, t2
         and t3, t3, a0
-        bnez t3, sbi_invalid_param          /* a hart that is not running */
-        and t0, t0, a0
-        snez t0, t0
-2:      jr t2
+        bnez t3, sbi_invalid_param
+5:      li t4, 0
+        li a2, 0                            /* a2 = check-in deadline, once set */
+1:      jal t2, hart_selected
+        beqz t5, 4f
+        hart_entry
+6:      ld t5, HART_STATE(t3)
+        li t6, HSM_ABSENT
+        bne t5, t6, 4f
+        li t6, CLINT_MTIME                  /* not at park yet: wait, as sbi_hsm does */
+        ld t5, 0(t6)
+        bnez a2, 7f
+        li t6, HSM_CHECKIN_WAIT
+        add a2, t5, t6
+7:      bltu t5, a2, 6b
+        j sbi_invalid_param                 /* never reached park */
+4:      addi t4, t4, 1
+        li t5, MAX_HARTS
+        bltu t4, t5, 1b
+        ret
+2:      bnez a0, sbi_invalid_param          /* only harts past the table */
+3:      ret
+
+/* Hand the work in t0 to every started hart the mask names: the caller
+ * does it at once, the others get it in their HART_PENDING and an M-mode
+ * software interrupt. */
+send_mask:
+        csrr t1, mhartid
+        li t4, 0
+1:      jal t2, hart_selected
+        beqz t5, 3f
+        hart_entry
+        ld t5, HART_STATE(t3)
+        bnez t5, 3f                         /* not started: a1 = -1 skips it */
+        bne t4, t1, 2f
+        do_work t0, t5
+        j 3f
+2:      addi t6, t3, HART_PENDING
+        amoor.d.aqrl zero, t0, (t6)
+        fence rw, ow                        /* the work before the interrupt */
+        ld t6, HART_MSIP(t3)
+        li t5, 1
+        sw t5, 0(t6)
+3:      addi t4, t4, 1
+        li t5, MAX_HARTS
+        bltu t4, t5, 1b
+        ret
+
+/* Wait until every other hart send_mask reached has done the work in t0.
+ * A request counts as done only after a pass over HART_PENDING that began
+ * after it was posted has finished: first the bits must leave PENDING
+ * (some pass took them, and that pass had begun by then), then HART_DONE
+ * must reach the HART_START read after that.  While waiting, do work sent
+ * to this hart, so two harts fencing each other do not wait for ever.
+ * Uses a2 as well. */
+wait_mask:
+        csrr t1, mhartid
+        li t4, 0
+1:      beq t4, t1, 3f
+        jal t2, hart_selected
+        beqz t5, 3f
+        hart_entry
+        ld t5, HART_STATE(t3)
+        bnez t5, 3f
+2:      ld t5, HART_PENDING(t3)
+        and t5, t5, t0
+        beqz t5, 4f
+        mv t5, t1                           /* meanwhile, this hart's own work */
+        jal t2, take_work
+        hart_entry
+        j 2b
+4:      fence r, r
+        ld a2, HART_START(t3)               /* the pass that took our bits has begun */
+5:      ld t5, HART_DONE(t3)
+        bgeu t5, a2, 3f
+        mv t5, t1
+        jal t2, take_work
+        hart_entry
+        j 5b
+3:      addi t4, t4, 1
+        li t5, MAX_HARTS
+        bltu t4, t5, 1b
+        ret
+
+/* t5 = hart ID (this hart): one pass over its HART_PENDING.  Number the
+ * pass (HART_START), take all the bits at once, do the work, then record
+ * the pass as done (HART_DONE).  A request posted after the take waits
+ * for a later pass.  Uses t3, t5, t6 and a3; keeps t0, t1, t4, a2;
+ * returns through t2. */
+take_work:
+        slli t5, t5, HART_ENTRY_SHIFT
+        la t6, hart_table
+        add t3, t5, t6                      /* t3 = this hart's entry */
+        li t6, 1
+        addi t5, t3, HART_START
+        amoadd.d.aqrl a3, t6, (t5)
+        addi a3, a3, 1                      /* a3 = this pass's number */
+        addi t5, t3, HART_PENDING
+        amoswap.d.aqrl t5, zero, (t5)       /* t5 = the work */
+        do_work t5, t6
+        fence rw, rw
+        sd a3, HART_DONE(t3)
+        jr t2
+
+/* M-mode software interrupt on a started hart: another hart sent work. */
+m_soft:
+        csrr t5, mhartid
+        slli t0, t5, HART_ENTRY_SHIFT
+        la t1, hart_table
+        add t0, t0, t1
+        ld t0, HART_MSIP(t0)
+        sw zero, 0(t0)                      /* before reading the work */
+        fence rw, rw
+        jal t2, take_work
+        j trap_ret
 
 /* SRST extension: system_reset (0, a0 = type, a1 = reason).  Types:
  * shutdown (0), cold reboot (1), warm reboot (2), all through the QEMU
@@ -624,17 +863,69 @@ skip_insn:
         csrw mepc, t0
         mret
 
+/* Smoke-only: ecall with a7 = SBI_EXT_TEST_FAULT loads from address 0 in
+ * M-mode so trap_fatal runs with a real SBI-path fault (cause 5). The
+ * nested trap needs a trap stack in mscratch; on entry that CSR holds the
+ * OS sp, which is 0, so restore this hart's stack top first. */
+sbi_test_fault:
+        addi t0, sp, TRAP_FRAME
+        csrw mscratch, t0
+        lw t0, 0(zero)
+
+/* A fatal trap that is not an SBI call or an M-mode timer/soft interrupt:
+ * print one ras: line, park every other started hart, then halt. */
 trap_fatal:
         la sp, stack_top
-        la a0, msg_trap
+        csrr s0, mhartid
+        csrr s1, mcause
+        csrr s2, mepc
+        csrr s3, mtval
+        la a0, msg_ras
         call puts
-        csrr a0, mcause
+        mv a0, s0
         call puthex
-        li a0, '\n'
-        call putc
+        la a0, msg_ras_mcause
+        call puts
+        mv a0, s1
+        call puthex
+        la a0, msg_ras_mepc
+        call puts
+        mv a0, s2
+        call puthex
+        la a0, msg_ras_mtval
+        call puts
+        mv a0, s3
+        call puthex
+        la a0, msg_ras_fatal
+        call puts
+        /* Park every other started hart so it does not keep running blind. */
+        li t4, 0
+1:      beq t4, s0, 3f
+        hart_entry
+        ld t5, HART_STATE(t3)
+        bnez t5, 3f                         /* not started */
+        li t0, PEND_PARK
+        addi t6, t3, HART_PENDING
+        amoor.d.aqrl zero, t0, (t6)
+        fence rw, ow
+        ld t6, HART_MSIP(t3)
+        li t5, 1
+        sw t5, 0(t6)
+3:      addi t4, t4, 1
+        li t5, MAX_HARTS
+        bltu t4, t5, 1b
         la a0, msg_halted
         call puts
         j halt
+
+/* PEND_PARK on a started hart: drop the S-mode context and never return. */
+ras_park:
+        addi sp, sp, TRAP_FRAME
+        csrw mscratch, sp
+        csrw mie, zero
+        li t0, MIP_SSIP | MIP_STIP
+        csrc mip, t0
+        j park_forever
 
 /* ------------------------------------------------------------------ */
 /* Device tree                                                         */
@@ -809,14 +1100,336 @@ dt_reserve:
         addi sp, sp, 16
         ret
 
-/* ------------------------------------------------------------------ */
-/* NS16550A                                                            */
+/* a0 = device tree.  With -numa, QEMU virt puts each NUMA node in its own
+ * socket, with its own CLINT: socket n's is CLINT_SOCKET * n bytes above
+ * socket 0's, and its msip and mtimecmp slots count from the socket's
+ * lowest hart ID.  The tree gives each /cpus/cpu@* node a reg (hart ID)
+ * and a numa-node-id.  Two walks: the first finds each socket's lowest
+ * hart ID, the second points HART_MSIP and HART_MTIMECMP of each such hart
+ * at its socket's CLINT.  A hart with no numa-node-id, a node ID of
+ * MAX_SOCKETS or more, or a tree that does not parse keeps the one-socket
+ * slots.  Runs on the boot hart before any other hart is started. */
+clint_layout:
+        beqz a0, 9f
+        andi t0, a0, 3
+        bnez t0, 9f
+        ldbe t0, 0, a0, t1
+        li t1, FDT_MAGIC
+        bne t0, t1, 9f
+        ldbe t0, FDT_OFF_STRUCT, a0, t1
+        add a4, a0, t0                      /* a4 = structure block */
+        ldbe t1, FDT_SIZE_STRUCT, a0, t2
+        add a5, a4, t1                      /* a5 = its end */
+        ldbe t0, FDT_OFF_STRINGS, a0, t1
+        add a6, a0, t0                      /* a6 = strings block */
+        li a7, 0                            /* pass: 0 finds, 1 assigns */
+
+0:      mv t0, a4                           /* t0 = token */
+        li t5, 0                            /* t5 = depth: 1 in the root node */
+        li t6, 0                            /* t6 = 1 inside /cpus */
+1:      bgeu t0, a5, 8f
+        ldbe t1, 0, t0, t2
+        addi t0, t0, 4
+        li t2, FDT_BEGIN_NODE
+        beq t1, t2, 2f
+        li t2, FDT_END_NODE
+        beq t1, t2, 5f
+        li t2, FDT_PROP
+        beq t1, t2, 6f
+        li t2, FDT_NOP
+        beq t1, t2, 1b
+        j 8f                                /* FDT_END or anything else */
+
+2:      addi t5, t5, 1                      /* a node */
+        li t2, 2
+        bne t5, t2, 3f
+        la t1, str_cpus                     /* a child of the root: /cpus? */
+        mv a0, t0
+        jal t4, name_is
+        mv t6, t3
+        j 4f
+3:      li t2, 3
+        bne t5, t2, 4f
+        beqz t6, 4f
+        li a1, -1                           /* a child of /cpus: hart ID */
+        li a2, -1                           /* and node ID, until read */
+4:      lbu t1, 0(t0)                       /* skip the name */
+        addi t0, t0, 1
+        bnez t1, 4b
+        addi t0, t0, 3
+        andi t0, t0, -4
+        j 1b
+
+5:      li t2, 3                            /* end of a node */
+        bne t5, t2, 51f
+        beqz t6, 51f
+        li t1, MAX_HARTS                    /* a cpu node: record it */
+        bgeu a1, t1, 51f
+        li t1, MAX_SOCKETS
+        bgeu a2, t1, 51f
+        la t1, socket_first
+        slli t2, a2, 3
+        add t1, t1, t2                      /* t1 = &socket_first[node] */
+        ld t2, 0(t1)
+        bnez a7, 52f
+        bgeu a1, t2, 51f                    /* pass 0: keep the lowest */
+        sd a1, 0(t1)
+        j 51f
+52:     sub t2, a1, t2                      /* pass 1: slot in the socket */
+        li t1, CLINT_SOCKET
+        mul t1, t1, a2
+        li t3, CLINT_MSIP
+        add t1, t1, t3                      /* t1 = the socket's CLINT */
+        slli t3, a1, HART_ENTRY_SHIFT
+        la a0, hart_table
+        add t3, t3, a0                      /* t3 = the hart's entry */
+        slli a0, t2, 2
+        add a0, a0, t1
+        sd a0, HART_MSIP(t3)
+        slli a0, t2, 3
+        add a0, a0, t1
+        li t2, CLINT_OFF_MTIMECMP
+        add a0, a0, t2
+        sd a0, HART_MTIMECMP(t3)
+51:     li t2, 2
+        bne t5, t2, 53f
+        li t6, 0                            /* leaving /cpus */
+53:     addi t5, t5, -1
+        j 1b
+
+6:      ldbe a3, 0, t0, t2                  /* a property: a3 = length */
+        li t2, 3
+        bne t5, t2, 7f
+        beqz t6, 7f
+        li t2, 4
+        bltu a3, t2, 7f
+        ldbe t1, 4, t0, t2                  /* name offset */
+        add a0, a6, t1
+        la t1, str_reg
+        jal t4, name_is
+        beqz t3, 61f
+        ldbe a1, 8, t0, t2                  /* reg: one cell in /cpus */
+        j 7f
+61:     ldbe t1, 4, t0, t2
+        add a0, a6, t1
+        la t1, str_numa_node_id
+        jal t4, name_is
+        beqz t3, 7f
+        ldbe a2, 8, t0, t2
+7:      addi a3, a3, 8 + 3                  /* skip length, name and value */
+        andi a3, a3, -4
+        add t0, t0, a3
+        j 1b
+
+8:      bnez a7, 9f
+        li a7, 1
+        j 0b
+9:      ret
+
+/* a0 = device tree.  QEMU virt with aia=aplic or aia=aplic-imsic wires
+ * every device to an M-level APLIC (the root domain) whose S-level child
+ * an S-mode OS drives.  The root's riscv,delegate lists (child phandle,
+ * first source, last source); each such source gets sourcecfg = D plus
+ * the child's index in riscv,children, so its interrupts reach the
+ * child.  Then the M-level interrupt controllers are hidden from the OS
+ * by overwriting their nodes with FDT_NOP, in place: the root APLIC, and
+ * any interrupt controller whose interrupts-extended names only machine
+ * external interrupts (an M-level APLIC in direct mode, the M-level
+ * IMSIC).  Left in the tree, Linux probes the root APLIC, fails, and on
+ * the way resets its sourcecfg, which takes the delegation back.
+ * Returns a0 = the number of root APLICs set up (0 without AIA). */
+aia_setup:
+        addi sp, sp, -80
+        sd s1, 0(sp)
+        sd s2, 8(sp)
+        sd s3, 16(sp)
+        sd s4, 24(sp)
+        sd s5, 32(sp)
+        sd s6, 40(sp)
+        sd s7, 48(sp)
+        sd s8, 56(sp)
+        li a6, 0                            /* a6 = roots set up */
+        beqz a0, 9f
+        andi t0, a0, 3
+        bnez t0, 9f
+        ldbe t0, 0, a0, t1
+        li t1, FDT_MAGIC
+        bne t0, t1, 9f
+        ldbe t1, FDT_SIZE_STRUCT, a0, t2
+        ldbe t0, FDT_OFF_STRUCT, a0, t2
+        add t0, a0, t0                      /* t0 = token */
+        add s2, t0, t1                      /* s2 = end of the structure block */
+        ldbe t1, FDT_OFF_STRINGS, a0, t2
+        add s1, a0, t1                      /* s1 = strings block */
+        li s3, 0                            /* s3 = the open node's BEGIN_NODE */
+
+1:      bgeu t0, s2, 9f
+        ldbe t1, 0, t0, t2
+        addi t0, t0, 4
+        li t2, FDT_BEGIN_NODE
+        beq t1, t2, 2f
+        li t2, FDT_END_NODE
+        beq t1, t2, 4f
+        li t2, FDT_PROP
+        beq t1, t2, 6f
+        li t2, FDT_NOP
+        beq t1, t2, 1b
+        j 9f
+
+2:      addi s3, t0, -4                     /* a node: forget the last one */
+        li s4, 0                            /* s4, s5 = riscv,delegate value, length */
+        li s6, 0                            /* s6, s7 = riscv,children value, length */
+        li s8, 0                            /* s8 = reg value */
+        li a7, 0                            /* bit 0: M-external-only interrupts-extended,
+                                             * bit 1: anything else there, bit 2: interrupt-controller */
+3:      lbu t1, 0(t0)                       /* skip the name */
+        addi t0, t0, 1
+        bnez t1, 3b
+        addi t0, t0, 3
+        andi t0, t0, -4
+        j 1b
+
+4:      beqz s3, 1b                         /* end of a node (with no child open since) */
+        beqz s4, 5f
+        beqz s8, 5f
+        ldbe a0, 0, s8, t2                  /* a root APLIC: base from reg, two cells */
+        slli a0, a0, 32
+        ldbe t1, 4, s8, t2
+        or a0, a0, t1                       /* a0 = base */
+        addi a6, a6, 1
+        mv a1, s4                           /* a1 = triple */
+        add a2, s4, s5                      /* a2 = end of the triples */
+41:     addi t1, a1, 12
+        bgtu t1, a2, 5f
+        ldbe a3, 0, a1, t2                  /* child phandle */
+        li a4, 0                            /* a4 = its index in riscv,children */
+42:     slli t1, a4, 2
+        bgeu t1, s7, 44f                    /* not a child: skip the triple */
+        add t1, t1, s6
+        ldbe t3, 0, t1, t2
+        beq t3, a3, 43f
+        addi a4, a4, 1
+        j 42b
+43:     ldbe a3, 4, a1, t2                  /* first source */
+        ldbe a5, 8, a1, t2                  /* last source */
+        ori a4, a4, APLIC_SOURCECFG_D
+        li t1, APLIC_MAX_SOURCE
+        bleu a5, t1, 45f
+        mv a5, t1
+45:     beqz a3, 46f                        /* source 0 does not exist */
+        bgtu a3, a5, 44f
+        slli t1, a3, 2
+        add t1, t1, a0
+        sw a4, 0(t1)                        /* sourcecfg[source] */
+46:     addi a3, a3, 1
+        bleu a3, a5, 45b
+44:     addi a1, a1, 12
+        j 41b
+5:      bnez s4, 51f                        /* hide it? */
+        andi t1, a7, 7
+        li t2, 5                            /* interrupt controller, M external only */
+        bne t1, t2, 52f
+51:     li t1, 0x04000000                   /* FDT_NOP, big-endian */
+        mv t2, s3
+53:     sw t1, 0(t2)
+        addi t2, t2, 4
+        bltu t2, t0, 53b
+52:     li s3, 0
+        j 1b
+
+6:      ldbe a3, 0, t0, t2                  /* a property: a3 = length */
+        ldbe t1, 4, t0, t2
+        add a4, s1, t1                      /* a4 = its name */
+        addi a5, t0, 8                      /* a5 = its value */
+        beqz s3, 7f
+        mv a0, a4
+        la t1, str_riscv_delegate
+        jal t4, name_is
+        beqz t3, 61f
+        mv s4, a5
+        mv s5, a3
+        j 7f
+61:     mv a0, a4
+        la t1, str_riscv_children
+        jal t4, name_is
+        beqz t3, 62f
+        mv s6, a5
+        mv s7, a3
+        j 7f
+62:     mv a0, a4
+        la t1, str_reg
+        jal t4, name_is
+        beqz t3, 63f
+        li t1, 8
+        bltu a3, t1, 7f
+        mv s8, a5
+        j 7f
+63:     mv a0, a4
+        la t1, str_interrupt_controller
+        jal t4, name_is
+        beqz t3, 64f
+        ori a7, a7, 4
+        j 7f
+64:     mv a0, a4
+        la t1, str_interrupts_extended
+        jal t4, name_is
+        beqz t3, 7f
+        andi t1, a3, 7                      /* (phandle, irq) pairs */
+        bnez t1, 66f
+        beqz a3, 66f
+        mv t1, a5
+        add a0, a5, a3
+65:     ldbe t3, 4, t1, t2
+        li t2, IRQ_M_EXT
+        bne t3, t2, 66f
+        addi t1, t1, 8
+        bltu t1, a0, 65b
+        ori a7, a7, 1
+        j 7f
+66:     ori a7, a7, 2
+7:      addi a3, a3, 8 + 3                  /* skip length, name and value */
+        andi a3, a3, -4
+        add t0, t0, a3
+        j 1b
+
+9:      mv a0, a6
+        ld s1, 0(sp)
+        ld s2, 8(sp)
+        ld s3, 16(sp)
+        ld s4, 24(sp)
+        ld s5, 32(sp)
+        ld s6, 40(sp)
+        ld s7, 48(sp)
+        ld s8, 56(sp)
+        addi sp, sp, 80
+        ret
+
+/* t3 = 1 if the NUL-terminated string at a0 equals the one at t1, else 0.
+ * Uses a0, t1 and t2; returns through t4. */
+name_is:
+1:      lbu t2, 0(a0)
+        lbu t3, 0(t1)
+        bne t2, t3, 2f
+        addi a0, a0, 1
+        addi t1, t1, 1
+        bnez t2, 1b
+        li t3, 1
+        jr t4
+2:      li t3, 0
+        jr t4
+
 /* ------------------------------------------------------------------ */
 
 uart_init:
         li t0, UART_BASE
         sb zero, UART_IER(t0)
-        li t1, 0x03                         /* 8N1 */
+        li t1, UART_LCR_DLAB                /* 115200: divisor latch */
+        sb t1, UART_LCR(t0)
+        li t1, UART_DIVISOR & 0xff
+        sb t1, UART_DLL(t0)
+        li t1, UART_DIVISOR >> 8
+        sb t1, UART_DLM(t0)
+        li t1, 0x03                         /* 8N1, DLAB off */
         sb t1, UART_LCR(t0)
         li t1, 0x07                         /* enable and clear FIFOs */
         sb t1, UART_FCR(t0)
@@ -879,13 +1492,25 @@ msg_jump:       .asciz "jumping to kernel at 0x"
 msg_mode:       .asciz ", next_mode="
 msg_bad_mode:   .asciz "boot: unsupported next_mode "
 msg_no_kernel:  .asciz "boot: no kernel image (pass -kernel to QEMU)\n"
-msg_trap:       .asciz "trap mcause="
+msg_ras:        .asciz "ras: hart="
+msg_ras_mcause: .asciz " mcause="
+msg_ras_mepc:   .asciz " mepc="
+msg_ras_mtval:  .asciz " mtval="
+msg_ras_fatal:  .asciz " fatal\n"
 msg_halted:     .asciz "boot halted\n"
 msg_dt_ok:      .asciz "dt: firmware region 0x80000000-0x801fffff reserved (no-map)\n"
 msg_dt_odd:     .asciz "dt: firmware region not reserved: unexpected device tree layout\n"
 msg_dt_exists:  .asciz "dt: firmware region not reserved: /reserved-memory already present\n"
 msg_dt_room:    .asciz "dt: firmware region not reserved: no room to grow the device tree\n"
 str_reserved_memory: .asciz "reserved-memory"
+str_cpus:       .asciz "cpus"
+str_reg:        .asciz "reg"
+str_numa_node_id: .asciz "numa-node-id"
+str_riscv_delegate: .asciz "riscv,delegate"
+str_riscv_children: .asciz "riscv,children"
+str_interrupt_controller: .asciz "interrupt-controller"
+str_interrupts_extended: .asciz "interrupts-extended"
+msg_aia:        .asciz "aia: APLIC sources delegated to S-mode, M-level interrupt controllers hidden\n"
 
 .align 12
     .skip 4096
@@ -899,9 +1524,18 @@ trap_stacks:
     .align 3
 sstc_on:                                    /* 1 once enter_s found Sstc */
     .dword 0
+    /* Each entry starts with the one-socket CLINT slots; clint_layout
+     * moves them for harts in other sockets. */
 hart_table:
+    .set hart_n, 0
     .rept MAX_HARTS
-    .dword HSM_ABSENT, 0, 0, 0
+    .dword HSM_ABSENT, 0, 0, 0, 0, 0
+    .dword CLINT_MSIP + 4 * hart_n, CLINT_MTIMECMP + 8 * hart_n
+    .set hart_n, hart_n + 1
+    .endr
+socket_first:                               /* lowest hart ID per socket, for clint_layout */
+    .rept MAX_SOCKETS
+    .dword -1
     .endr
 
 /* The node dt_reserve adds to the device tree, big-endian. Name offsets

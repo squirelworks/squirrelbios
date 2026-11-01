@@ -16,9 +16,12 @@ BIOS, UEFI, or a vendored third-party firmware.
    `virt`, and RISC-V `virt`.
 2. Make every guarantee in the hand-off contract something `make test`
    can catch if it breaks.
-3. On x86, load a real image. Today the firmware reads one sector to
-   `0x7C00` and then offers no disk services, so the OS cannot load the
-   rest of itself.
+3. On x86, load a real image. A one-sector image is read to `0x7C00`.
+   An SQBL header asks for more sectors. A Squirrel-OS/2 image, whose
+   last kernel dword is `S2OK`, is read to `0x8000` and entered there.
+   Any other disk is entered at `0x7C00`. `INT 13h` `AH=0x00`, `0x02`,
+   `0x08` and `0x42` read the primary master, so that boot sector can
+   load a kernel itself, and `INT 10h` `AH=0x0E` is a VGA teletype.
 4. On AArch64, enter a Linux `Image` the way the arm64 boot protocol
    describes. The registers and the device tree are already there; the
    CPU state, the image header, and the RAM limit are not finished.
@@ -53,8 +56,8 @@ behaviour in place unless a task below says to change it.
 
 | | x86 PC | AArch64 `virt` | RISC-V `virt` |
 |---|---|---|---|
-| Image | ATA PIO of LBA 0 into `0x7C00`, 3 tries, soft reset between them | `-kernel` via fw_cfg DMA to `0x40200000` | QEMU loads `-kernel`; firmware jumps to `next_addr` |
-| Entry | `0x0000:0x7C00`, `DL = 0x80` | `0x40200000`, `x0` = DTB, `x1`–`x3` = 0 | `0x80200000`, M-mode, `a0` = hart, `a1` = DTB |
+| Image | ATA PIO of LBA 0 into `0x7C00`, 3 tries, soft reset between them. A `S2OK` image also gets LBAs 1–192 at `0x8000` | `-kernel` via fw_cfg DMA to `0x40200000` | QEMU loads `-kernel`; firmware jumps to `next_addr` |
+| Entry | `0x0000:0x7C00`, or `0x0000:0x8000` for a `S2OK` image. `DL = 0x80` | `0x40200000`, `x0` = DTB, `x1`–`x3` = 0 | `0x80200000`, M-mode, `a0` = hart, `a1` = DTB |
 | Console | COM1 `0x3F8` 115200 8N1, timeouts on the UART | PL011 `0x09000000` | NS16550A `0x10000000` |
 | Memory | E820-style map at `0x0500` from CMOS | DTB `/memory`, checked only for the FDT magic | DTB pointer passed through |
 | On failure | Missing drive, ATAPI, timeout, bad read: reason plus ATA status/error, then halt | No fw_cfg DMA, no kernel, DMA error: message, then halt | No `fw_dynamic_info`: message, then halt |
@@ -153,6 +156,87 @@ CMOS reads that disable NMI while they run, and a VGA text mode so the
 x86 banner is actually visible. Serial remains the console `make test`
 watches.
 
+### 6. A large server node (future)
+
+Not scheduled. Start it after milestones 1 to 5, when the OS wants more
+than a small virtual machine.
+
+A supercomputer is thousands of separate server boards on a fast
+network, and each board runs its own firmware. So for SquirrelBIOS the
+goal is one big node booting Linux well: tens to hundreds of harts,
+tens of GB of RAM or more, and the devices that join it to the rest of
+the machine. The firmware stays original code and keeps its
+load-then-jump shape; the items below only add what a large node needs.
+RISC-V `virt` goes first, because it is the target with an SBI and a
+Linux shell already.
+
+`make linux-big` is the yardstick. It boots the `linux-shell` kernel and
+busybox on `-smp 64 -m 64G` and passes only when all 64 harts are online.
+What it showed on the first run (QEMU 8.2, Ubuntu 6.8 riscv64 kernel):
+
+- **RAM is fine.** Linux sees the full 64 GB from the device tree and
+  reaches the shell. QEMU needs `reserve=off` on its RAM backend to start
+  a 64 GB guest on a smaller host; the script sets it.
+- **Harts 8 and up never started.** `MAX_HARTS` was 8, so Linux printed
+  `CPU8: failed to start` and ran on 8. Fixed by `riscv-many-harts`: the
+  firmware now tracks 512 harts.
+- **The test kernel stopped at 32.** Ubuntu 24.04's riscv64 kernel is
+  built with `NR_CPUS=32` and ignores harts 32 to 63 (`Invalid cpuid`).
+  Fixed by `linux-big-kernel`: `make linux-big` uses Ubuntu 25.04's 6.14
+  kernel, and all 64 harts come up. Ubuntu's 7.0 kernel does not boot on
+  QEMU 8.2's default hart: it no longer reads `riscv,isa` and stops
+  with a kernel BUG before SMP.
+
+The work, roughly in order:
+
+1. **Many harts.** Raise `MAX_HARTS` to what QEMU `virt` allows, and size
+   the per-hart trap stacks and `hart_table` from it without leaving the
+   2 MB the firmware PMP region covers. The IPI and fence paths walk
+   every hart today; make them cheap when most harts are idle. HSM should
+   still bring harts up one at a time on request. Honour
+   `fw_dynamic_info.boot_hart` (from Speculative) because large machines
+   do not always boot hart 0.
+2. **Large memory and NUMA.** Read `/memory` from the device tree instead
+   of assuming the QEMU layout, keep the firmware reservation right with
+   many memory nodes, and pass through `numa-node-id` and the
+   `distance-map` QEMU writes for `-numa`, so Linux knows which RAM is
+   near which hart. *(Done: on QEMU each NUMA node is a socket with its
+   own CLINT, which the firmware now follows.)*
+3. **A sockets-and-clusters topology.** Check that `cpu-map` survives the
+   device-tree edits, and that the firmware does not depend on hart IDs
+   being dense. *(Checked: the edits add `/reserved-memory` and, on AIA
+   machines, blank the M-level interrupt controller nodes, so `cpu-map`
+   passes through as QEMU wrote it. QEMU `virt` numbers
+   harts densely in every socket, so sparse IDs moved to Speculative.)*
+4. **Interrupt controllers that scale.** QEMU `virt` with `aia=aplic-imsic`
+   replaces the PLIC and CLINT-only IPIs with IMSIC message interrupts.
+   Program the M-mode side so IPIs and the timer still work there.
+   *(Done for `aia=aplic`: sources delegated, M-level controllers hidden.
+   `aia=aplic-imsic` hangs Linux on QEMU 8.2 even with QEMU's own
+   OpenSBI; see `riscv-aia` in TODO.md.)*
+5. **PCIe.** The device tree already describes the `virt` host bridge.
+   The firmware leaves it to Linux; the work is to check that a network
+   card and an NVMe drive enumerate with many harts and lots of RAM.
+   *(Done: `make linux-big` adds both and requires their IDs under
+   `/sys/bus/pci/devices`. No firmware change was needed.)*
+6. **Network boot.** Thousands of diskless nodes start from the network.
+   Load a kernel and initrd over virtio-net (a small original TFTP-style
+   loader), or document the hand-off to a kernel that does it itself.
+   *(Decided: the OS does it; the firmware starts the small first
+   kernel that is already there. See "Network boot" in
+   `common/handoff.md`.)*
+7. **Remote management and error reporting.** A way to power-cycle and
+   watch a node from outside (QEMU's monitor and the SBI SRST path are
+   the stand-ins), and a place to report machine-check style hardware
+   faults instead of a silent halt. *(Planned: see `big-node-errors`
+   in TODO.md for the console line and what the OS is told.)*
+8. **UEFI and ACPI, as an option.** Big ARM and x86 servers expect UEFI
+   and ACPI rather than a device tree. That is a separate, large project
+   and stays out of scope for the hand-off; if it is ever done it is an
+   optional second entry path, not a replacement for this contract.
+
+[TODO.md](TODO.md) breaks the first part into PR-sized items.
+
 ## Speculative
 
 Not tasks, until the OS needs one of them. They are listed in
@@ -167,13 +251,15 @@ Not tasks, until the OS needs one of them. They are listed in
 - RISC-V SBI debug console (`DBCN`), PMU, or vendor extensions.
 - Parsing the device tree for the UART and CLINT instead of the QEMU virt
   constants.
-- Honouring `fw_dynamic_info.boot_hart` when it is not hart 0.
+- Honouring `fw_dynamic_info.boot_hart` when it is not hart 0 (done
+  in milestone 6).
 - Checking a Linux or Squirrel-OS image into the repo. `make test` stays
   on the small stand-in images.
 
 ## Out of scope
 
-- Runtime firmware services after the jump: x86 `INT 10h` / `INT 13h` /
-  `INT 15h`, UEFI, ACPI as a requirement for the hand-off.
+- A full video BIOS, or `INT 13h` beyond `AH=0x00`, `0x02`, `0x08` and
+  `0x42` on the primary master. `INT 15h` other than `E820`. UEFI, and
+  ACPI as a requirement for the hand-off.
 - Vendoring another project's firmware and calling it SquirrelBIOS.
 - Boards other than QEMU PC, QEMU AArch64 `virt`, and QEMU RISC-V `virt`.

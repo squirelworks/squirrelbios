@@ -120,9 +120,18 @@ memmap_add:
     ret
 
 ; In: AL = CMOS register.  Out: AL = value.
+; Bit 7 of port 0x70 masks NMI, so the index is written with it set and
+; NMI stays off while the register is selected and read. Afterwards the
+; index goes back to status register D (read-only) with NMI enabled, which
+; is how the OS finds it.
 cmos_read:
+    or al, 0x80
     out 0x70, al
     in al, 0x71
+    push ax
+    mov al, 0x0D
+    out 0x70, al
+    pop ax
     ret
 
 ; In: AH = high register, AL = low register.  Out: EAX = 16-bit value.

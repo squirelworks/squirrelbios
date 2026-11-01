@@ -29,6 +29,28 @@ _start:
         adr x0, msg_regs_bad
 2:      bl puts
 
+        /* SCTLR of the current EL: M (0), C (2) and EE (25) clear;
+         * DAIF fully masked */
+        adr x0, msg_sctlr_bad
+        mrs x1, CurrentEL
+        ubfx x1, x1, #2, #2
+        cmp x1, #2
+        b.eq 4f
+        b.hi 5f
+        mrs x2, sctlr_el1
+        b 6f
+4:      mrs x2, sctlr_el2
+        b 6f
+5:      mrs x2, sctlr_el3
+6:      ldr x3, =((1 << 0) | (1 << 2) | (1 << 25))
+        tst x2, x3
+        b.ne 7f
+        mrs x2, daif
+        cmp x2, #0x3c0
+        b.ne 7f
+        adr x0, msg_sctlr_ok
+7:      bl puts
+
 3:      wfi
         b 3b
 
@@ -45,5 +67,7 @@ puts:
 msg_entry:      .asciz "OS-ENTRY arm"
 msg_dtb_ok:     .asciz " dtb=ok"
 msg_dtb_bad:    .asciz " dtb=bad"
-msg_regs_ok:    .asciz " regs=ok\n"
-msg_regs_bad:   .asciz " regs=bad\n"
+msg_regs_ok:    .asciz " regs=ok"
+msg_regs_bad:   .asciz " regs=bad"
+msg_sctlr_ok:   .asciz " sctlr=ok\n"
+msg_sctlr_bad:  .asciz " sctlr=bad\n"

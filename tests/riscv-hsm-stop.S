@@ -17,7 +17,7 @@
         .equ SBI_EXT_TIME,      0x54494d45
         .equ SIP_STIP,          (1 << 5)
         .equ HSM_STOPPED,       1
-        .equ WAIT,              0x1000000   /* polls before giving up */
+        .equ WAIT,              50000000    /* ticks of time before giving up: 5 s at virt's 10 MHz */
         .equ PTE_LEAF_RWX,      0xcf        /* D A X W R V */
         .equ SATP_SV39,         (8 << 60)
 
@@ -48,7 +48,9 @@ start_and_wait:
         mv t0, a0
         la a0, msg_start_bad
         bnez t0, fail
-        li s3, WAIT
+        rdtime s3
+        li t4, WAIT
+        add s3, s3, t4                      /* deadline */
 1:      li a0, 1
         li a7, SBI_EXT_HSM
         li a6, 2                            /* hart_get_status */
@@ -58,8 +60,8 @@ start_and_wait:
         bnez t0, fail
         li t0, HSM_STOPPED
         beq a1, t0, 2f
-        addi s3, s3, -1
-        bnez s3, 1b
+        rdtime t4
+        bltu t4, s3, 1b
         la a0, msg_timeout
         j fail
 2:      mv ra, s2
