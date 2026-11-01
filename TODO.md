@@ -239,7 +239,7 @@ so the IVT surface stays the contract.
     of `0x000500`, then prints `a20=ok`. `x86-boot` still passes.
     Depends on: `x86-bda`.
 
-- [ ] `x86-pit-pic` — Program the PIT and both PICs for a PC-compatible layout.
+- [x] `x86-pit-pic` — Program the PIT and both PICs for a PC-compatible layout.
   - Acceptance: PIT channel 0 runs at the classic ~18.2 Hz; PIC masks and
     vector bases match the IBM PC AT layout (IRQ0 at vector 8). A
     stand-in enables interrupts briefly, sees IRQ0 increment a BDA timer

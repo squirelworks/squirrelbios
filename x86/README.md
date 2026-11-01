@@ -14,6 +14,9 @@ qemu-system-i386 -bios squirrel-bios.rom -drive format=raw,file=boot.bin,if=ide 
 - Fills the BIOS data area equipment list (`0x0410` = `0x0220`),
   conventional memory KB (`0x0413` = 640), and page-0 cursor (`0x0450`)
 - Enables A20 through port `0x92` before the hand-off jump
+- Puts the local APIC in virtual-wire mode (ExtINT) when present, then
+  programs the PIT (~18.2 Hz) and both PICs (IRQ0 at `INT 08h`); IRQ0
+  increments the BDA tick dword at `0x046C`
 - Prints banner
 - ATA PIO reads LBA 0 into `0x7C00`, with timeouts on every status wait,
   `ERR`/`DF` checks, and up to 3 attempts with a soft reset in between

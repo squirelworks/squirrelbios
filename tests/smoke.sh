@@ -154,6 +154,11 @@ run x86-a20 "SquirrelBIOS x86|OS-ENTRY x86 a20=ok" \
     "$QEMU_X86" -bios x86/squirrel-bios.rom \
     -drive format=raw,file=$TEST_DIR/x86-a20.bin,if=ide
 
+# x86: PIT ~18.2 Hz, PIC IRQ0 at INT 08h; BDA ticks advance with STI
+run x86-pit "SquirrelBIOS x86|OS-ENTRY x86 pit=ok" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -drive format=raw,file=$TEST_DIR/x86-pit.bin,if=ide
+
 # x86: a CD-ROM as primary master is rejected, not read
 run x86-atapi "disk: primary master is ATAPI (CD/DVD), not supported|boot halted" \
     "$QEMU_X86" -bios x86/squirrel-bios.rom \
