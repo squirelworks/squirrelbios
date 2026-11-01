@@ -1380,11 +1380,58 @@ disk_clear_stale:
     ret
 
 ; Stacked real-mode frame: [bp+2] = IP, [bp+4] = CS, [bp+6] = FLAGS.
+; EAX=E820 memory map; AX=2400/2401/2402 A20 disable/enable/query via
+; port 0x92 (same gate as enable_a20). AX=2403 reports port-0x92 support.
 int15_handler:
     push bp
     mov bp, sp
     cmp eax, 0xE820
-    jne .fail
+    je .e820
+    cmp ax, 0x2400
+    je .a20_off
+    cmp ax, 0x2401
+    je .a20_on
+    cmp ax, 0x2402
+    je .a20_query
+    cmp ax, 0x2403
+    je .a20_support
+    jmp .fail
+
+.a20_off:
+    push ax
+    in al, 0x92
+    and al, 0xFC                ; clear A20 and RESET
+    out 0x92, al
+    pop ax
+    xor ah, ah                  ; AH=0 success
+    and word [bp + 6], 0xFFFE
+    pop bp
+    iret
+
+.a20_on:
+    call enable_a20
+    xor ah, ah
+    and word [bp + 6], 0xFFFE
+    pop bp
+    iret
+
+.a20_query:
+    in al, 0x92
+    and al, 0x02
+    shr al, 1                   ; AL = 0 disabled, 1 enabled
+    xor ah, ah
+    and word [bp + 6], 0xFFFE
+    pop bp
+    iret
+
+.a20_support:
+    mov bx, 0x0002              ; bit 1: port 0x92 supported
+    xor ah, ah
+    and word [bp + 6], 0xFFFE
+    pop bp
+    iret
+
+.e820:
     cmp edx, 0x534D4150         ; 'SMAP'
     jne .fail
     cmp ecx, 20

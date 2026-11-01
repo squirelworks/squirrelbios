@@ -276,7 +276,7 @@ so the IVT surface stays the contract.
     path's style. A stand-in prints `write=ok`. Depends on: `x86-int13`
     (done).
 
-- [ ] `x86-int15-a20` — `INT 15h` A20 control.
+- [x] `x86-int15-a20` — `INT 15h` A20 control.
   - Acceptance: the usual A20 query/enable/disable functions (document
     the exact `AX` values in the contract) match the gate from
     `x86-a20`. A stand-in prints `int15a20=ok`. E820 unchanged.
