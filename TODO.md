@@ -256,11 +256,11 @@ so the IVT surface stays the contract.
     buffer. Unknown `INT 16h` functions set carry. Depends on:
     `x86-pit-pic`.
 
-- [ ] `x86-int1a` — Time of day via `INT 1Ah`.
+- [x] `x86-int1a` — Time of day via `INT 1Ah`.
   - Acceptance: `AH=0x00` returns ticks since midnight from the IRQ0
     path; `AH=0x02` or `0x04` reads the RTC CMOS in the usual BCD form
     (document which). A stand-in prints `time=ok`. Depends on:
-    `x86-pit-pic`.
+    `x86-pit-pic`. *(As built: `AH=0x02` reads RTC time in BCD.)*
 
 ## 10. x86 richer disk and video
 

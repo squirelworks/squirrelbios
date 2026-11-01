@@ -23,6 +23,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/x86-osload.bin $(TEST_DIR)/x86-int13.bin \
              $(TEST_DIR)/x86-bda.bin $(TEST_DIR)/x86-a20.bin \
              $(TEST_DIR)/x86-pit.bin $(TEST_DIR)/x86-kbd.bin \
+             $(TEST_DIR)/x86-time.bin \
              $(TEST_DIR)/arm-kernel.bin $(TEST_DIR)/arm-too-big.bin \
              $(TEST_DIR)/arm-image-fixed.bin $(TEST_DIR)/arm-image-reloc.bin \
              $(TEST_DIR)/arm-image-short.bin $(TEST_DIR)/arm-initrd.img \
@@ -122,6 +123,10 @@ $(TEST_DIR)/x86-pit.bin: tests/x86-pit.asm | $(TEST_DIR)
 
 # INT 16h keyboard; tests/x86-kbd-run.sh injects a key via the monitor
 $(TEST_DIR)/x86-kbd.bin: tests/x86-kbd.asm | $(TEST_DIR)
+	$(NASM) -f bin $< -o $@
+
+# INT 1Ah: tick count and RTC time (BCD)
+$(TEST_DIR)/x86-time.bin: tests/x86-time.asm | $(TEST_DIR)
 	$(NASM) -f bin $< -o $@
 
 $(TEST_DIR)/arm-kernel.o: tests/arm-kernel.S | $(TEST_DIR)
