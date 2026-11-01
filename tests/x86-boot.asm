@@ -9,12 +9,17 @@
 ; Variants (Makefile):
 ;   ONE_SECTOR  sector 1 only, no SQBL header: the one-sector hand-off
 ;   NO_SIG      one sector with its last word zeroed instead of 0xAA55
+;   EXPECT_DL   boot drive byte to require (default 0x80; slave uses 0x81)
 
 BITS 16
 ORG 0x7C00
 
 %ifdef NO_SIG
 %define ONE_SECTOR
+%endif
+
+%ifndef EXPECT_DL
+%define EXPECT_DL 0x80
 %endif
 
 COM1        equ 0x3F8
@@ -39,7 +44,7 @@ start:
     call puts
 
     mov si, msg_dl_ok
-    cmp byte [saved_dx], 0x80
+    cmp byte [saved_dx], EXPECT_DL
     je .dl
     mov si, msg_dl_bad
 .dl:

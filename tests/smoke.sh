@@ -89,8 +89,8 @@ run x86-one-sector "OS-ENTRY x86 dl=ok memmap=ok flags=ok|!vga=" \
     "$QEMU_X86" -bios x86/squirrel-bios.rom \
     -drive format=raw,file=$TEST_DIR/x86-one-sector.bin,if=ide
 
-# x86: no disk is reported, not hung on
-run x86-no-drive "disk: no drive on primary master|boot halted" \
+# x86: no disk is reported, not hung on (master is tried, then slave)
+run x86-no-drive "disk: no drive on primary slave|boot halted" \
     "$QEMU_X86" -bios x86/squirrel-bios.rom
 
 # x86: with 8 MB, CMOS 0x34/0x35 are zero and extended RAM comes from
@@ -185,6 +185,33 @@ run x86-write "SquirrelBIOS x86|OS-ENTRY x86 write=ok" \
 run x86-int15a20 "SquirrelBIOS x86|OS-ENTRY x86 int15a20=ok" \
     "$QEMU_X86" -bios x86/squirrel-bios.rom \
     -drive format=raw,file=$TEST_DIR/x86-int15a20.bin,if=ide
+
+# x86: with the image only on the primary slave, boot and DL=0x81
+run x86-slave "SquirrelBIOS x86|OS-ENTRY x86 dl=ok memmap=ok flags=ok|!dl=bad" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -drive if=none,id=slave,format=raw,file=$TEST_DIR/x86-slave.bin \
+    -device ide-hd,drive=slave,bus=ide.0,unit=1
+
+# x86: ACPI RSDP in 0xE0000–0xFFFFF, checksum and RSDT→FACP
+run x86-acpi "SquirrelBIOS x86|OS-ENTRY x86 acpi=ok" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -drive format=raw,file=$TEST_DIR/x86-acpi.bin,if=ide
+
+# x86: SMBIOS _SM_ in 0xF0000–0xFFFFF with valid checksums
+run x86-smbios "SquirrelBIOS x86|OS-ENTRY x86 smbios=ok" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -drive format=raw,file=$TEST_DIR/x86-smbios.bin,if=ide
+
+# x86: Linux bzImage (HdrS) loaded at 1 MB; PM payload prints bz=ok
+run x86-bzimage "SquirrelBIOS x86|bzImage loaded at 0x00100000, jumping|bz=ok|!entered-boot-sector|!boot halted" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -drive format=raw,file=$TEST_DIR/x86-bzimage.bin,if=ide
+
+# x86: option ROM at 0xD0000 is scanned and its init prints optrom=ok
+run x86-optrom "SquirrelBIOS x86|optrom=ok|OS-ENTRY x86 dl=ok" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -device loader,file=$TEST_DIR/x86-optrom.bin,addr=0xD0000,force-raw=on \
+    -drive format=raw,file=$TEST_DIR/x86-one-sector.bin,if=ide
 
 # x86: a CD-ROM as primary master is rejected, not read
 run x86-atapi "disk: primary master is ATAPI (CD/DVD), not supported|boot halted" \

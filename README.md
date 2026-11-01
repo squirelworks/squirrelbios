@@ -1,17 +1,18 @@
 # SquirrelBIOS
 
 Original firmware for Squirrel-OS/2 and QEMU's PC / AArch64 `virt` /
-RISC-V `virt` machines. **v0.3.0** is the hand-off release (load image,
-jump, tested contract). **v1.0.0** is a comprehensive x86 PC BIOS —
-see [ROADMAP.md](ROADMAP.md) and [TODO.md](TODO.md).
+RISC-V `virt` machines. **v1.0.0** is a comprehensive x86 PC BIOS
+(POST-shaped init, IVT services, ACPI/SMBIOS, bzImage, option ROMs) on
+the v0.3.0 hand-off contract. See [ROADMAP.md](ROADMAP.md),
+[TODO.md](TODO.md), and [release-notes/v1.0.0.md](release-notes/v1.0.0.md).
 
 ```
-x86/        64 KB ROM — VGA text + ATA boot + INT 13h/10h/15h E820 (growing toward a full PC BIOS)
+x86/        64 KB ROM — PC BIOS: ATA boot, INT 10h/13h/15h/16h/1Ah, ACPI, SMBIOS
 arm/        AArch64 QEMU virt — PL011 banner + fw_cfg kernel load, DTB in x0
 riscv/      RISC-V QEMU virt — UART banner + S-mode entry to -kernel, DTB in a1, SBI
 tests/      stand-in OS images and smoke tests (make test)
 common/     hand-off contract
-release-notes/  tagged releases (v0.2.0, v0.3.0, …)
+release-notes/  tagged releases (v0.2.0, v0.3.0, v1.0.0, …)
 ROADMAP.md  goals, principles, milestones
 TODO.md     small tasks, one per PR
 ```
@@ -42,7 +43,12 @@ stand-in OS image from `tests/` and checks the serial output:
 |------|-------------|
 | `x86-boot` | The boot sector runs with `DL = 0x80` and `IF = DF = 0`, the memory map at `ES:DI` has the required regions, sorted and not overlapping, and the VGA is in 80x25 text mode |
 | `x86-one-sector` | The same checks for a boot sector without an SQBL header |
-| `x86-no-drive` | With no disk, the firmware reports it and halts |
+| `x86-no-drive` | With no disk, the firmware reports it (after trying master then slave) and halts |
+| `x86-slave` | With the image only on the primary slave, the firmware boots it with `DL = 0x81` |
+| `x86-acpi` | Finds the RSDP in `0xE0000`–`0xFFFFF`, checks its checksum and that the RSDT names a `FACP` |
+| `x86-smbios` | Finds the `_SM_` entry point in `0xF0000`–`0xFFFFF` and checks both checksums |
+| `x86-bzimage` | A minimal `HdrS` bzImage is loaded at 1 MB; the PM payload prints `bz=ok` |
+| `x86-optrom` | An option ROM at `0xD0000` is checksum-checked and its init prints `optrom=ok` |
 | `x86-mem-low` | With `-m 8`, the map has 7 MB usable at 1 MB (the CMOS `0x30`/`0x31` path) |
 | `x86-mem-high` | With `-m 5120`, the map has a non-empty usable entry at 4 GB (CMOS `0x5B`–`0x5D`) |
 | `x86-atapi` | With a CD-ROM as primary master, the firmware reports ATAPI and halts |

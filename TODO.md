@@ -282,37 +282,37 @@ so the IVT surface stays the contract.
     `x86-a20`. A stand-in prints `int15a20=ok`. E820 unchanged.
     Depends on: `x86-a20`.
 
-- [ ] `x86-slave` — Boot from the primary slave when the master is absent.
+- [x] `x86-slave` — Boot from the primary slave when the master is absent.
   - Acceptance: with the image only on the slave, the firmware loads it
     and sets `DL` appropriately; a case prints `dl=ok`. Master-present
     behaviour unchanged. Depends on: `x86-int13` (done).
 
 ## 11. x86 system tables and high loaders
 
-- [ ] `x86-acpi` — Build ACPI tables the OS can find.
+- [x] `x86-acpi` — Build ACPI tables the OS can find.
   - Acceptance: RSDP (and a minimal RSDT/XSDT + FADT or equivalent
     QEMU-friendly set) is in a documented place; a stand-in checks the
     RSDP checksum and prints `acpi=ok`. No UEFI. Depends on: `x86-a20`.
 
-- [ ] `x86-smbios` — SMBIOS entry point and a minimal structure set.
+- [x] `x86-smbios` — SMBIOS entry point and a minimal structure set.
   - Acceptance: a stand-in finds the anchor and prints `smbios=ok`.
     Depends on: `x86-a20`.
 
-- [ ] `x86-bzimage` — Load a Linux `bzImage`.
+- [x] `x86-bzimage` — Load a Linux `bzImage`.
   - Acceptance: detect the setup header, load the protected-mode kernel
     above 1 MB, jump the documented entry with the usual register
     protocol for this loader. A tiny protected-mode stand-in (or a
     pinned tiny bzImage under `build/`, not committed) prints `bz=ok`
     on COM1. Depends on: `x86-a20`.
 
-- [ ] `x86-option-roms` — Scan legacy option ROM regions and call
+- [x] `x86-option-roms` — Scan legacy option ROM regions and call
   initialisation entry points that have a valid signature.
   - Acceptance: a stand-in ROM mapped by QEMU prints `optrom=ok` from
     its init. Bad signatures are skipped. Depends on: `x86-a20`.
 
 ## 12. v1.0.0 release
 
-- [ ] `release-v1.0.0` — Tag the comprehensive PC BIOS.
+- [x] `release-v1.0.0` — Tag the comprehensive PC BIOS.
   - Acceptance: `release-notes/v1.0.0.md` lists the IVT surface and
     known gaps (no VESA, no UEFI). `make test` green. Tag `v1.0.0`.
     Depends on: every unchecked box in sections 8–11.
