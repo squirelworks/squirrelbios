@@ -25,6 +25,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/x86-pit.bin $(TEST_DIR)/x86-kbd.bin \
              $(TEST_DIR)/x86-time.bin $(TEST_DIR)/x86-vid.bin \
              $(TEST_DIR)/x86-write.bin $(TEST_DIR)/x86-int15a20.bin \
+             $(TEST_DIR)/x86-slave.bin \
              $(TEST_DIR)/arm-kernel.bin $(TEST_DIR)/arm-too-big.bin \
              $(TEST_DIR)/arm-image-fixed.bin $(TEST_DIR)/arm-image-reloc.bin \
              $(TEST_DIR)/arm-image-short.bin $(TEST_DIR)/arm-initrd.img \
@@ -141,6 +142,10 @@ $(TEST_DIR)/x86-write.bin: tests/x86-write.asm | $(TEST_DIR)
 # INT 15h AX=2400/2401/2402 A20 control
 $(TEST_DIR)/x86-int15a20.bin: tests/x86-int15a20.asm | $(TEST_DIR)
 	$(NASM) -f bin $< -o $@
+
+# One-sector hand-off expecting DL=0x81 (image on primary slave only)
+$(TEST_DIR)/x86-slave.bin: tests/x86-boot.asm | $(TEST_DIR)
+	$(NASM) -f bin -DONE_SECTOR -DEXPECT_DL=0x81 $< -o $@
 
 $(TEST_DIR)/arm-kernel.o: tests/arm-kernel.S | $(TEST_DIR)
 	$(AARCH64)as -o $@ $<

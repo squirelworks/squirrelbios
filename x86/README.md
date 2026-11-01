@@ -22,11 +22,13 @@ qemu-system-i386 -bios squirrel-bios.rom -drive format=raw,file=boot.bin,if=ide 
 - `INT 1Ah` `AH=0x00` returns the tick count; `AH=0x02` reads RTC time
   in BCD from CMOS
 - `INT 10h` also sets/gets the cursor, scrolls, and reports mode 3
-- `INT 13h` `AH=0x03` / `0x43` write the primary master (CHS / LBA)
+- `INT 13h` `AH=0x03` / `0x43` write the primary master or slave
+  (`DL=0x80` / `0x81`, CHS / LBA)
 - `INT 15h` `AX=0x2400`–`0x2403` control and query the A20 gate
 - Prints banner
 - ATA PIO reads LBA 0 into `0x7C00`, with timeouts on every status wait,
-  `ERR`/`DF` checks, and up to 3 attempts with a soft reset in between
+  `ERR`/`DF` checks, and up to 3 attempts with a soft reset in between;
+  if the primary master is absent, retries the same read on the slave
 - Detects a missing drive or an ATAPI device and says so instead of hanging
 - On failure prints the reason and the ATA status/error registers, then halts
 - Refuses a sector whose last word is not `0xAA55` (not retried), then halts
@@ -36,12 +38,13 @@ qemu-system-i386 -bios squirrel-bios.rom -drive format=raw,file=boot.bin,if=ide 
 - When it does not, and LBA 192 ends in `S2OK`, reads LBAs 1–192 to
   `0x8000` and jumps there. The boot sector is not entered
 - Otherwise jumps to `0x7C00`. The IVT is installed either way:
-  `INT 13h` `AH=0x00` / `0x02` / `0x08` / `0x42` read the primary
-  master (so a boot sector can load a kernel itself), `INT 10h`
+  `INT 13h` `AH=0x00` / `0x02` / `0x08` / `0x42` read `DL` `0x80` or
+  `0x81` (so a boot sector can load a kernel itself), `INT 10h`
   `AH=0x0E` is a VGA teletype, and `INT 15h` `E820` returns the memory
   map. Any other function on those vectors returns with carry set
 - Builds a memory map at `0x0000:0x0500` from the RAM sizes in CMOS (`memmap.inc`)
-- On success jumps to `0x0000:0x7C00` with `DL = 0x80`, `ES:DI = 0x0000:0x0500`
+- On success jumps to `0x0000:0x7C00` with `DL = 0x80` or `0x81`,
+  `ES:DI = 0x0000:0x0500`
 
 The font is an original design. Its glyphs are drawn in `mkfont.py`,
 which writes `font.inc`; after editing a glyph, run

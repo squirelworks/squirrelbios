@@ -8,10 +8,10 @@ If the firmware and this file disagree, the firmware has a bug.
 
 | | x86 PC | AArch64 (QEMU virt) | RISC-V (QEMU virt) |
 |---|---|---|---|
-| Image source | LBA 0 of the primary master ATA disk; sectors 1–192 as well when they are a `S2OK` image | `-kernel`, read through fw_cfg DMA | `-kernel`, loaded by QEMU |
+| Image source | LBA 0 of the primary master ATA disk, or the primary slave when the master is absent; sectors 1–192 as well when they are a `S2OK` image | `-kernel`, read through fw_cfg DMA | `-kernel`, loaded by QEMU |
 | Entry | `0x0000:0x7C00`, or `0x0000:0x8000` for a `S2OK` image | `0x40200000` | `0x80200000` (rv64) |
 | CPU mode | 16-bit real mode | EL1 (EL2 with `virtualization=on`), MMU off | S-mode (QEMU's `next_mode`), `satp = 0` |
-| Boot argument | `DL = 0x80` | `x0` = device tree | `a0` = hart ID, `a1` = device tree |
+| Boot argument | `DL = 0x80` (master) or `0x81` (slave) | `x0` = device tree | `a0` = hart ID, `a1` = device tree |
 | Memory description | Memory map at `ES:DI = 0x0000:0x0500` | Device tree `/memory` | Device tree `/memory` |
 | Console | COM1 `0x3F8`, 115200 8N1 | PL011 `0x09000000` | NS16550A `0x10000000`, 115200 8N1 |
 | Interrupts | `IF = 0`; PIT/PIC programmed, IRQ0 unmasked | `DAIF` masked | `mstatus.MIE`/`SIE` = 0, `mie = 0` |
@@ -35,8 +35,9 @@ The OS must not assume:
 1. **Firmware services.** There are none after hand-off, apart from the
    RISC-V SBI listed below and the x86 calls below. `INT 15h` with
    `EAX = 0xE820` returns the memory map. `INT 13h` `AH = 0x00`, `0x02`,
-   `0x08` and `0x42` read the primary master; `AH = 0x03` and `0x43`
-   write it. `INT 10h` `AH = 0x0E`
+   `0x08` and `0x42` read the primary master (`DL = 0x80`) or primary
+   slave (`DL = 0x81`); `AH = 0x03` and `0x43` write the same drives.
+   `INT 10h` `AH = 0x0E`
    writes one character to the VGA text screen; `AH = 0x02`/`0x03` set
    or get the cursor, `AH = 0x06`/`0x07` scroll, and `AH = 0x0F` reports
    the 80x25 mode. `INT 16h` `AH = 0x00` and `0x01` read or check the
@@ -94,7 +95,7 @@ kernel. That would be a separate TODO item with its own stand-in, a
 | Mode | 16-bit real mode |
 | `DS`, `ES`, `SS` | `0` |
 | `SP` | `0x7C00` |
-| `DL` | `0x80` (boot drive) |
+| `DL` | `0x80` (primary master) or `0x81` (primary slave, when that is the boot drive) |
 | `DI` | `0x0500` (memory map header, so `ES:DI` points at it) |
 | `EFLAGS` | `IF = 0`, `DF = 0` |
 
@@ -160,7 +161,7 @@ The boot sector's calls, which the firmware serves on every path:
 |------|-----------|
 | `INT 13h` `AH = 0x42` | Extended read. `DS:SI` points at a 16-byte disk address packet (size byte `0x10`, reserved, word count 1–128, word offset, word segment, qword LBA). The buffer must lie entirely below `0xA0000`. The LBA must fit in 28 bits. CF clear and `AH = 0` on success. |
 | `INT 13h` `AH = 0x43` | Extended write. Same packet rules as `AH = 0x42`. CF clear and `AH = 0` on success. |
-| `INT 13h` `AH = 0x08` | Drive parameters for `DL = 0x80`. CF clear, `AH = 0`, `DH = 15` (16 heads), `CL` bits 5–0 `= 63` (sectors per track), `CH = 0xFF` and `CL` bits 7–6 `= 3` (1023 cylinders), `DL = 1`. `ES:DI` and `BL` are left alone. |
+| `INT 13h` `AH = 0x08` | Drive parameters for `DL = 0x80` or `0x81`. CF clear, `AH = 0`, `DH = 15` (16 heads), `CL` bits 5–0 `= 63` (sectors per track), `CH = 0xFF` and `CL` bits 7–6 `= 3` (1023 cylinders), `DL = 1`. `ES:DI` and `BL` are left alone. |
 | `INT 13h` `AH = 0x02` | CHS read of `AL` sectors (1–128) to `ES:BX`, using that same geometry. Cylinder is `CH` plus `CL` bits 7–6, sector is `CL` bits 5–0, head is `DH`. CF clear, `AH = 0`, `AL` unchanged on success. |
 | `INT 13h` `AH = 0x03` | CHS write of `AL` sectors from `ES:BX`, same geometry and status rules as `AH = 0x02`. |
 | `INT 13h` `AH = 0x00` | Reset the primary channel. CF clear and `AH = 0` when the drive comes ready. |
@@ -176,13 +177,15 @@ The boot sector's calls, which the firmware serves on every path:
 | `INT 1Ah` `AH = 0x02` | RTC time from CMOS in BCD: `CH` = hours, `CL` = minutes, `DH` = seconds, `DL` = 0 (no daylight flag). Waits for Update-In-Progress to clear. CF clear. (`AH = 0x04` date is not implemented.) |
 | `INT 1Ah` other `AH` | CF set. |
 
-`DL` must be `0x80` for the disk calls. Anything else, a packet that is
-not 16 bytes, a zero count, a count above 128, or a buffer that is not
-entirely below `0xA0000`, returns with CF set and `AH = 0x01`. A sector
-that is not on the disk returns with CF set and `AH = 0x04` (read) or
-`AH = 0x05` (reset failed) or `AH = 0x80` (timeout). `AH = 0x02` reports
-`AL = 0` when nothing was transferred. Only the primary master is a
-drive; there is no floppy and no second disk.
+`DL` must be `0x80` (primary master) or `0x81` (primary slave) for the
+disk calls. Anything else, a packet that is not 16 bytes, a zero count,
+a count above 128, or a buffer that is not entirely below `0xA0000`,
+returns with CF set and `AH = 0x01`. A sector that is not on the disk
+returns with CF set and `AH = 0x04` (read) or `AH = 0x05` (reset failed)
+or `AH = 0x80` (timeout). `AH = 0x02` reports `AL = 0` when nothing was
+transferred. There is no floppy. The firmware boots from the master when
+it answers; if the master is absent it tries the slave and hands off with
+`DL = 0x81`.
 
 Before the jump the firmware fills the real-mode IVT. The vectors for
 `INT 08h` (IRQ0), `INT 09h` (IRQ1), `INT 10h`, `INT 13h`, `INT 15h`,
@@ -290,8 +293,10 @@ registers on COM1 (and the VGA text buffer), then halts:
 
 | Message | Meaning |
 |---------|---------|
-| `no drive on primary master` | Floating bus or nothing answered as master. Not retried. |
-| `primary master is ATAPI (CD/DVD), not supported` | ATAPI signature found. Not retried. |
+| `no drive on primary master` | Floating bus, or nothing answered as master (before a slave retry). Not retried on that unit. |
+| `no drive on primary slave` | Nothing answered as slave after the master was absent (also the final line when both units are empty). Not retried. |
+| `primary master is ATAPI (CD/DVD), not supported` | ATAPI signature found on the master. Not retried; the slave is not tried. |
+| `primary slave is ATAPI (CD/DVD), not supported` | ATAPI signature found on the slave. Not retried. |
 | `timeout waiting for drive` | `BSY` never cleared or the expected bit never came up |
 | `read of LBA 0 failed` | Drive set `ERR`/`DF`, or the transfer ended in a bad state |
 | `boot sector has no 0xAA55 signature` | The read was clean but the last word of the sector is not `0xAA55`. Not retried, and no status or error registers are printed. |
@@ -306,7 +311,8 @@ registers on COM1 (and the VGA text buffer), then halts:
 `make test` runs `x86-boot`, `x86-no-drive`, `x86-mem-low`,
 `x86-mem-high`, `x86-atapi`, `x86-bad-sector`, `x86-extra`,
 `x86-extra-map`, `x86-extra-boot`, `x86-extra-range`, `x86-osload`,
-`x86-int13`, `x86-bda`, `x86-a20`, `x86-pit`, `x86-kbd`, `x86-time`, `x86-vid`, `x86-write` and `x86-int15a20`. In `x86-boot` the boot sector checks
+`x86-int13`, `x86-bda`, `x86-a20`, `x86-pit`, `x86-kbd`, `x86-time`,
+`x86-vid`, `x86-write`, `x86-int15a20` and `x86-slave`. In `x86-boot` the boot sector checks
 `DL`, that `IF` and `DF` are clear, and that the memory map has the
 magic, 20-byte entries, ends by `0x0600`, contains the conventional and
 both reserved regions above exactly, requires an entry at `0x00100000`

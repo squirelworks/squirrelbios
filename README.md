@@ -42,7 +42,8 @@ stand-in OS image from `tests/` and checks the serial output:
 |------|-------------|
 | `x86-boot` | The boot sector runs with `DL = 0x80` and `IF = DF = 0`, the memory map at `ES:DI` has the required regions, sorted and not overlapping, and the VGA is in 80x25 text mode |
 | `x86-one-sector` | The same checks for a boot sector without an SQBL header |
-| `x86-no-drive` | With no disk, the firmware reports it and halts |
+| `x86-no-drive` | With no disk, the firmware reports it (after trying master then slave) and halts |
+| `x86-slave` | With the image only on the primary slave, the firmware boots it with `DL = 0x81` |
 | `x86-mem-low` | With `-m 8`, the map has 7 MB usable at 1 MB (the CMOS `0x30`/`0x31` path) |
 | `x86-mem-high` | With `-m 5120`, the map has a non-empty usable entry at 4 GB (CMOS `0x5B`–`0x5D`) |
 | `x86-atapi` | With a CD-ROM as primary master, the firmware reports ATAPI and halts |

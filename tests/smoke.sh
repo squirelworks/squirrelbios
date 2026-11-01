@@ -89,8 +89,8 @@ run x86-one-sector "OS-ENTRY x86 dl=ok memmap=ok flags=ok|!vga=" \
     "$QEMU_X86" -bios x86/squirrel-bios.rom \
     -drive format=raw,file=$TEST_DIR/x86-one-sector.bin,if=ide
 
-# x86: no disk is reported, not hung on
-run x86-no-drive "disk: no drive on primary master|boot halted" \
+# x86: no disk is reported, not hung on (master is tried, then slave)
+run x86-no-drive "disk: no drive on primary slave|boot halted" \
     "$QEMU_X86" -bios x86/squirrel-bios.rom
 
 # x86: with 8 MB, CMOS 0x34/0x35 are zero and extended RAM comes from
@@ -185,6 +185,12 @@ run x86-write "SquirrelBIOS x86|OS-ENTRY x86 write=ok" \
 run x86-int15a20 "SquirrelBIOS x86|OS-ENTRY x86 int15a20=ok" \
     "$QEMU_X86" -bios x86/squirrel-bios.rom \
     -drive format=raw,file=$TEST_DIR/x86-int15a20.bin,if=ide
+
+# x86: with the image only on the primary slave, boot and DL=0x81
+run x86-slave "SquirrelBIOS x86|OS-ENTRY x86 dl=ok memmap=ok flags=ok|!dl=bad" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -drive if=none,id=slave,format=raw,file=$TEST_DIR/x86-slave.bin \
+    -device ide-hd,drive=slave,bus=ide.0,unit=1
 
 # x86: a CD-ROM as primary master is rejected, not read
 run x86-atapi "disk: primary master is ATAPI (CD/DVD), not supported|boot halted" \

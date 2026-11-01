@@ -7,7 +7,7 @@
 ;   - reads LBAs 1..192 with three INT 13h AH=42 calls of 64 sectors
 ;   - checks INT 13h AH=08 (63 sectors, 16 heads)
 ;   - reads LBA 1 again with AH=02 (CHS) and AH=00 (reset)
-;   - rejects a read of a drive that is not the primary master
+;   - rejects a read of a drive that is not 0x80 or 0x81
 ;   - writes 'T', CR, LF, 'U' with INT 10h AH=0E and reads the cells back
 ;
 ; The bytes those reads must find live in the sectors after this one.
@@ -112,7 +112,7 @@ start:
 
     mov ax, 0x0201
     mov cx, 0x0001
-    mov dx, 0x0081                  ; not the primary master
+    mov dx, 0x0082                  ; neither master nor slave
     xor bx, bx
     int 0x13
     mov al, 'D'

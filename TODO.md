@@ -282,7 +282,7 @@ so the IVT surface stays the contract.
     `x86-a20`. A stand-in prints `int15a20=ok`. E820 unchanged.
     Depends on: `x86-a20`.
 
-- [ ] `x86-slave` — Boot from the primary slave when the master is absent.
+- [x] `x86-slave` — Boot from the primary slave when the master is absent.
   - Acceptance: with the image only on the slave, the firmware loads it
     and sets `DL` appropriately; a case prints `dl=ok`. Master-present
     behaviour unchanged. Depends on: `x86-int13` (done).

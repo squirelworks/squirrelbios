@@ -26,10 +26,12 @@
 ;   - If it does not, but LBA 192 ends in the Squirrel-OS/2 signature
 ;     'S2OK', read sectors 1..192 to 0x8000 and jump there. That boot
 ;     sector is not entered
-;   - Otherwise jump to 0x0000:0x7C00 with DL = 0x80, DI = 0x0500.
-;     The IVT is installed either way: INT 13h AH=00/02/08/42 read the
-;     primary master, INT 10h AH=0E writes VGA text, INT 15h E820
-;     returns the memory map. The boot sector can load a kernel itself
+;   - Otherwise jump to 0x0000:0x7C00 with DL = boot drive (0x80 master
+;     or 0x81 slave), DI = 0x0500. When the primary master is absent the
+;     firmware tries the primary slave. The IVT is installed either way:
+;     INT 13h AH=00/02/03/08/42/43 read or write DL 0x80/0x81, INT 10h
+;     AH=0E writes VGA text, INT 15h E820 returns the memory map. The
+;     boot sector can load a kernel itself
 
 BITS 16
 
@@ -80,6 +82,14 @@ CMD_WRITE_SECTORS equ 0x30
 
 ATA_TIMEOUT     equ 0x00400000  ; status polls before giving up
 ATA_ATTEMPTS    equ 3
+; Drive select base (LBA bit set): master 0xE0, slave 0xF0. Boot DL is
+; 0x80 or 0x81. Both live in the page below the memory map; 0x04FE is
+; the ATA retry counter.
+ATA_DEVSEL      equ 0x04FC
+BOOT_DL         equ 0x04FD
+ATA_RETRY_CNT   equ 0x04FE
+ATA_SEL_MASTER  equ 0xE0
+ATA_SEL_SLAVE   equ 0xF0
 
 COM1            equ 0x3F8
 UART_TIMEOUT    equ 0xFFFF      ; THR-empty polls per character
@@ -161,12 +171,25 @@ entry:
     call con_print
     call con_newline
 
-    ; Disk: sector 0 (LBA 0) to 0x7C00
+    ; Disk: sector 0 (LBA 0) to 0x7C00. Prefer the primary master; if
+    ; nothing answered as master, try the primary slave and keep DL.
+    mov byte [ss:ATA_DEVSEL], ATA_SEL_MASTER
+    mov byte [ss:BOOT_DL], 0x80
+    xor eax, eax
+    mov cl, 1
+    mov ebp, BOOT_SECTOR
+    call ata_read_retry
+    jnc .got_boot
+    cmp si, msg_nodrive
+    jne disk_fail
+    mov byte [ss:ATA_DEVSEL], ATA_SEL_SLAVE
+    mov byte [ss:BOOT_DL], 0x81
     xor eax, eax
     mov cl, 1
     mov ebp, BOOT_SECTOR
     call ata_read_retry
     jc disk_fail
+.got_boot:
 
 ; A clean read without the signature is not a boot sector. Reading it
 ; again would give the same bytes, so this is not retried.
@@ -279,7 +302,7 @@ kernel_entry:
     mov es, ax
     mov ss, ax
     mov sp, BOOT_SECTOR
-    mov dl, 0x80
+    mov dl, [ss:BOOT_DL]
     mov di, MEMMAP_ADDR
     jmp 0x0000:OS_LOAD
 
@@ -290,7 +313,7 @@ handoff:
     mov es, ax
     mov ss, ax
     mov sp, BOOT_SECTOR
-    mov dl, 0x80                ; boot drive
+    mov dl, [ss:BOOT_DL]        ; 0x80 master or 0x81 slave
     mov di, MEMMAP_ADDR         ; memory map header
     jmp 0x0000:0x7C00
 
@@ -1103,8 +1126,8 @@ tty_hwcursor:
 ;   [bp+20] EDX (DL at +20, DH at +21)
 ;   [bp+16] EBX
 ;   [bp+36] FLAGS
-; Only the primary master (DL = 0x80) is a drive. CF follows the
-; status in AH: clear on success, set on failure.
+; Primary master (DL = 0x80) and primary slave (DL = 0x81) are drives.
+; CF follows the status in AH: clear on success, set on failure.
 int13_handler:
     pushad
     mov bp, sp
@@ -1125,8 +1148,8 @@ int13_handler:
     jmp .invalid
 
 .reset:
-    cmp dl, 0x80
-    jne .invalid
+    call disk_set_dev
+    jc .invalid
     call ata_reset
     jc .reset_fail
     mov byte [bp + 29], ST_OK
@@ -1138,13 +1161,13 @@ int13_handler:
     jmp .out
 
 .params:
-    cmp dl, 0x80
-    jne .invalid
+    call disk_set_dev
+    jc .invalid
     mov byte [bp + 29], ST_OK
     mov byte [bp + 25], DISK_CYL_LO
     mov byte [bp + 24], DISK_CYL_HI_CL
     mov byte [bp + 21], DISK_HEADS - 1
-    mov byte [bp + 20], 1           ; one hard disk
+    mov byte [bp + 20], 1           ; one hard disk reported
     and word [bp + 36], 0xFFFE
     jmp .out
 
@@ -1175,8 +1198,8 @@ int13_handler:
     jmp .out
 
 .read_chs:
-    cmp byte [bp + 20], 0x80
-    jne .invalid
+    call disk_set_dev
+    jc .invalid
     movzx esi, byte [bp + 28]       ; AL = count
     test si, si
     jz .invalid
@@ -1232,8 +1255,8 @@ int13_handler:
     jmp .out
 
 .write_chs:
-    cmp byte [bp + 20], 0x80
-    jne .invalid
+    call disk_set_dev
+    jc .invalid
     movzx esi, byte [bp + 28]
     test si, si
     jz .invalid
@@ -1325,16 +1348,37 @@ disk_status:
     ret
 .nodrive:
     cmp si, msg_nodrive
+    je .notready
+    cmp si, msg_nodrive_slave
     jne .done
+.notready:
     mov al, ST_NOTREADY
 .done:
+    ret
+
+; Map DL (at [bp+20]) to ATA_DEVSEL. CF set if not 0x80 or 0x81.
+disk_set_dev:
+    mov al, [bp + 20]
+    cmp al, 0x80
+    je .master
+    cmp al, 0x81
+    je .slave
+    stc
+    ret
+.master:
+    mov byte [ss:ATA_DEVSEL], ATA_SEL_MASTER
+    clc
+    ret
+.slave:
+    mov byte [ss:ATA_DEVSEL], ATA_SEL_SLAVE
+    clc
     ret
 
 ; Parse a 16-byte disk address packet at DS:SI.
 ; Out: CF clear, EAX = LBA, CL = count, EDX = linear buffer; CF set if bad.
 disk_parse_packet:
-    cmp byte [bp + 20], 0x80
-    jne .bad
+    call disk_set_dev
+    jc .bad
     cmp byte [si], 0x10
     jne .bad
     movzx ecx, word [si + 2]
@@ -1482,15 +1526,19 @@ int15_handler:
 ; repeats the same read. The attempt count lives in the BIOS data area
 ; because EBP is the caller's buffer address.
 ata_read_retry:
-    mov byte [ss:0x04FE], ATA_ATTEMPTS
+    mov byte [ss:ATA_RETRY_CNT], ATA_ATTEMPTS
 .try:
     call ata_read
     jnc .done
     cmp si, msg_nodrive         ; nothing to retry against
     je .fail
+    cmp si, msg_nodrive_slave
+    je .fail
     cmp si, msg_atapi
     je .fail
-    dec byte [ss:0x04FE]
+    cmp si, msg_atapi_slave
+    je .fail
+    dec byte [ss:ATA_RETRY_CNT]
     jz .fail
     call ata_reset
     jmp .try
@@ -1499,7 +1547,8 @@ ata_read_retry:
 .done:
     ret
 
-; Read sectors of the primary master into memory below 1 MB.
+; Read sectors of the selected primary drive into memory below 1 MB.
+; ATA_DEVSEL is master (0xE0) or slave (0xF0). In/Out as before.
 ; In:  EAX = LBA (bits 27:0; bits 31:28 must be 0),
 ;      CL  = sector count (1-128),
 ;      EBP = linear address of the destination.
@@ -1529,24 +1578,37 @@ ata_read:
     mov dx, ATA_STATUS
     in al, dx
     cmp al, 0xFF
-    je .nodrive
+    je .nodrive_bus
 
     mov dx, ATA_DRIVE
     mov eax, edi
     shr eax, 24
     and al, 0x0F
-    or al, 0xE0                 ; master, LBA
+    mov ah, [ss:ATA_DEVSEL]
+    or al, ah                   ; master or slave, LBA
     out dx, al
     call ata_delay400
 
-    ; 0x00 or 0xFF after selecting: nothing answered as master,
-    ; unless an ATAPI device left its signature in the LBA registers
+    ; 0x00 or 0xFF after selecting: nothing answered on that unit,
+    ; unless an ATAPI device left its signature in the LBA registers.
+    ; mid/hi both 0xFF with a ready status is QEMU's empty-unit quirk
+    ; when the other device on the cable is the only one present.
     mov dx, ATA_STATUS
     in al, dx
     cmp al, 0xFF
     je .nodrive
     test al, al
-    jnz .present
+    jz .check_sig
+    mov dx, ATA_LBA_MID
+    in al, dx
+    cmp al, 0xFF
+    jne .present
+    mov dx, ATA_LBA_HI
+    in al, dx
+    cmp al, 0xFF
+    je .nodrive
+    jmp .present
+.check_sig:
     mov dx, ATA_LBA_MID
     in al, dx
     cmp al, 0x14
@@ -1619,11 +1681,20 @@ ata_read:
     mov si, msg_readerr
     xor bx, bx
     jmp .fail
+.nodrive_bus:
+    mov si, msg_nodrive         ; floating bus: always the master wording
+    jmp .failed
 .nodrive:
     mov si, msg_nodrive
+    cmp byte [ss:ATA_DEVSEL], ATA_SEL_SLAVE
+    jne .failed
+    mov si, msg_nodrive_slave
     jmp .failed
 .atapi:
     mov si, msg_atapi
+    cmp byte [ss:ATA_DEVSEL], ATA_SEL_SLAVE
+    jne .failed
+    mov si, msg_atapi_slave
     jmp .failed
 .timeout:
     mov si, msg_timeout
@@ -1659,7 +1730,7 @@ ata_read:
     clc
     ret
 
-; Write sectors of the primary master from memory below 1 MB.
+; Write sectors of the selected primary drive from memory below 1 MB.
 ; Same register convention as ata_read.
 ata_write:
     push eax
@@ -1683,13 +1754,14 @@ ata_write:
     mov dx, ATA_STATUS
     in al, dx
     cmp al, 0xFF
-    je .nodrive
+    je .nodrive_bus
 
     mov dx, ATA_DRIVE
     mov eax, edi
     shr eax, 24
     and al, 0x0F
-    or al, 0xE0
+    mov ah, [ss:ATA_DEVSEL]
+    or al, ah
     out dx, al
     call ata_delay400
 
@@ -1698,7 +1770,17 @@ ata_write:
     cmp al, 0xFF
     je .nodrive
     test al, al
-    jnz .present
+    jz .check_sig
+    mov dx, ATA_LBA_MID
+    in al, dx
+    cmp al, 0xFF
+    jne .present
+    mov dx, ATA_LBA_HI
+    in al, dx
+    cmp al, 0xFF
+    je .nodrive
+    jmp .present
+.check_sig:
     mov dx, ATA_LBA_MID
     in al, dx
     cmp al, 0x14
@@ -1776,11 +1858,20 @@ ata_write:
     mov si, msg_readerr
     xor bx, bx
     jmp .fail
+.nodrive_bus:
+    mov si, msg_nodrive
+    jmp .failed
 .nodrive:
     mov si, msg_nodrive
+    cmp byte [ss:ATA_DEVSEL], ATA_SEL_SLAVE
+    jne .failed
+    mov si, msg_nodrive_slave
     jmp .failed
 .atapi:
     mov si, msg_atapi
+    cmp byte [ss:ATA_DEVSEL], ATA_SEL_SLAVE
+    jne .failed
+    mov si, msg_atapi_slave
     jmp .failed
 .timeout:
     mov si, msg_timeout
@@ -1985,7 +2076,9 @@ serial_putc:
 
 banner      db 'SquirrelBIOS x86', 0
 msg_nodrive db 'disk: no drive on primary master', 0
+msg_nodrive_slave db 'disk: no drive on primary slave', 0
 msg_atapi   db 'disk: primary master is ATAPI (CD/DVD), not supported', 0
+msg_atapi_slave db 'disk: primary slave is ATAPI (CD/DVD), not supported', 0
 msg_timeout db 'disk: timeout waiting for drive', 0
 msg_readerr db 'disk: read of LBA 0 failed', 0
 msg_nosig   db 'disk: boot sector has no 0xAA55 signature', 0
