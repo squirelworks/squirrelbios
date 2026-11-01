@@ -192,6 +192,11 @@ run x86-slave "SquirrelBIOS x86|OS-ENTRY x86 dl=ok memmap=ok flags=ok|!dl=bad" \
     -drive if=none,id=slave,format=raw,file=$TEST_DIR/x86-slave.bin \
     -device ide-hd,drive=slave,bus=ide.0,unit=1
 
+# x86: ACPI RSDP in 0xE0000–0xFFFFF, checksum and RSDT→FACP
+run x86-acpi "SquirrelBIOS x86|OS-ENTRY x86 acpi=ok" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -drive format=raw,file=$TEST_DIR/x86-acpi.bin,if=ide
+
 # x86: a CD-ROM as primary master is rejected, not read
 run x86-atapi "disk: primary master is ATAPI (CD/DVD), not supported|boot halted" \
     "$QEMU_X86" -bios x86/squirrel-bios.rom \

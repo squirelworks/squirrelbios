@@ -25,6 +25,8 @@ qemu-system-i386 -bios squirrel-bios.rom -drive format=raw,file=boot.bin,if=ide 
 - `INT 13h` `AH=0x03` / `0x43` write the primary master or slave
   (`DL=0x80` / `0x81`, CHS / LBA)
 - `INT 15h` `AX=0x2400`–`0x2403` control and query the A20 gate
+- Places a minimal ACPI 1.0 RSDP/RSDT/FADT in the ROM at `0xFE000`
+  (`acpi.inc`); scan `0xE0000`–`0xFFFFF` for `"RSD PTR "`
 - Prints banner
 - ATA PIO reads LBA 0 into `0x7C00`, with timeouts on every status wait,
   `ERR`/`DF` checks, and up to 3 attempts with a soft reset in between;

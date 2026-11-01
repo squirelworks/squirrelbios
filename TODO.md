@@ -289,7 +289,7 @@ so the IVT surface stays the contract.
 
 ## 11. x86 system tables and high loaders
 
-- [ ] `x86-acpi` — Build ACPI tables the OS can find.
+- [x] `x86-acpi` — Build ACPI tables the OS can find.
   - Acceptance: RSDP (and a minimal RSDT/XSDT + FADT or equivalent
     QEMU-friendly set) is in a documented place; a stand-in checks the
     RSDP checksum and prints `acpi=ok`. No UEFI. Depends on: `x86-a20`.

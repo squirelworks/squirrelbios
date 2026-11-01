@@ -226,6 +226,20 @@ with `INT 10h` `AH = 0x0E`.
 | Primary ATA channel | Idle. `nIEN` is set if a retry or an `INT 13h` reset touched the channel. |
 | VGA | 80x25 colour text at `0xB8000` (the standard 720x400 text timings, 9x16 cells), CRTC at `0x3D4`. The font in plane 2 is the firmware's own 8x16 font (printable ASCII; other codes are blank). The DAC holds the 16 usual text colours. The firmware's messages are on screen in light grey on black, red for errors. The teletype cursor starts at the top left and the CRTC cursor follows it. |
 
+### ACPI
+
+Minimal ACPI 1.0 tables live in the BIOS ROM (mapped at `0xF0000`):
+
+| Physical | Table |
+|----------|-------|
+| `0xFE000` | RSDP (`"RSD PTR "`, revision 0, 20 bytes). OEMID `SQRRL `. |
+| `0xFE020` | RSDT (one entry). |
+| `0xFE050` | FADT (`FACP`, length 116). No FACS or DSDT; PM blocks are zero. |
+
+The RSDP checksum (sum of the 20 bytes is 0) and each SDT checksum are
+valid. Find the RSDP by scanning `0xE0000`–`0xFFFFF` on a 16-byte stride
+(the usual BIOS search). No UEFI. No XSDT.
+
 ### BIOS data area
 
 Filled after the memory map and VGA init, before the banner. Absolute
@@ -312,7 +326,7 @@ registers on COM1 (and the VGA text buffer), then halts:
 `x86-mem-high`, `x86-atapi`, `x86-bad-sector`, `x86-extra`,
 `x86-extra-map`, `x86-extra-boot`, `x86-extra-range`, `x86-osload`,
 `x86-int13`, `x86-bda`, `x86-a20`, `x86-pit`, `x86-kbd`, `x86-time`,
-`x86-vid`, `x86-write`, `x86-int15a20` and `x86-slave`. In `x86-boot` the boot sector checks
+`x86-vid`, `x86-write`, `x86-int15a20`, `x86-slave` and `x86-acpi`. In `x86-boot` the boot sector checks
 `DL`, that `IF` and `DF` are clear, and that the memory map has the
 magic, 20-byte entries, ends by `0x0600`, contains the conventional and
 both reserved regions above exactly, requires an entry at `0x00100000`
