@@ -34,7 +34,8 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/riscv-ipi-smp.bin $(TEST_DIR)/riscv-fence-smp3.bin \
              $(TEST_DIR)/riscv-harts.bin \
              $(TEST_DIR)/riscv-boot-hart.bin $(TEST_DIR)/riscv-kernel-hart2.bin \
-             $(TEST_DIR)/riscv-numa.bin $(TEST_DIR)/riscv-aia.bin
+             $(TEST_DIR)/riscv-numa.bin $(TEST_DIR)/riscv-aia.bin \
+             $(TEST_DIR)/riscv-ras.bin
 
 .PHONY: all x86 arm riscv test linux-shell linux-big linux-stress clean
 .DELETE_ON_ERROR:
@@ -261,6 +262,13 @@ $(TEST_DIR)/riscv-kernel-hart2.o: tests/riscv-kernel.S | $(TEST_DIR)
 $(TEST_DIR)/riscv-kernel-hart2.elf: $(TEST_DIR)/riscv-kernel-hart2.o
 	$(RISCV64)ld -Ttext=0x80200000 -o $@ $<
 $(TEST_DIR)/riscv-kernel-hart2.bin: $(TEST_DIR)/riscv-kernel-hart2.elf
+	$(RISCV64)objcopy -O binary $< $@
+
+$(TEST_DIR)/riscv-ras.o: tests/riscv-ras.S | $(TEST_DIR)
+	$(RISCV64)as -o $@ $<
+$(TEST_DIR)/riscv-ras.elf: $(TEST_DIR)/riscv-ras.o
+	$(RISCV64)ld -Ttext=0x80200000 -o $@ $<
+$(TEST_DIR)/riscv-ras.bin: $(TEST_DIR)/riscv-ras.elf
 	$(RISCV64)objcopy -O binary $< $@
 
 # One SRST image per reset: shutdown, cold reboot, shutdown for a failure

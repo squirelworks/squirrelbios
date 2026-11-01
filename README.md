@@ -75,6 +75,7 @@ stand-in OS image from `tests/` and checks the serial output:
 | `riscv-srst` | `sbi_system_reset` refuses a bad type, reason or function, then a shutdown makes QEMU exit with status 0 (`reset=ok`, never `reset=bad`) |
 | `riscv-srst-reboot` | A cold reboot resets the machine, which `-no-reboot` turns into a QEMU exit with status 0 |
 | `riscv-srst-fail` | A shutdown for a system failure makes QEMU exit with status 1 |
+| `riscv-ras` | A fault in the SBI path prints `ras: hart=... mcause=... mepc=... mtval=... fatal`, parks the other started hart, and halts |
 | `riscv-no-kernel` | Without `-kernel`, the firmware reports it and halts |
 
 Needs `qemu-system-i386`, `qemu-system-aarch64` and `qemu-system-riscv64`.
