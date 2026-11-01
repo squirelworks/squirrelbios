@@ -535,13 +535,16 @@ ras: hart=<16 hex> mcause=<16 hex> mepc=<16 hex> mtval=<16 hex> fatal
 
 (all hex lowercase, no `0x`), then parks every other started hart with a
 CLINT software interrupt so those harts leave S-mode and sit in `wfi`,
-then prints `boot halted` and halts. With the delegation above, an
-S-mode image only gets there through a firmware bug (or the smoke-only
-`ecall` with `a7 = 0x53515241` (`"SQRA"`), which is not an SBI extension
-and is not reported by `probe_extension`: it loads from address 0 in
-M-mode so `make test` can exercise this path). An image entered in
-M-mode installs its own `mtvec` before it relies on traps (an M-mode
-`ecall` is cause `000000000000000b`).
+then prints `boot halted` and shuts the machine down through the same
+path as `sbi_system_reset` with type shutdown and reason system failure
+(QEMU's test finisher, exit status 1). A short wait after the park lets
+those harts leave S-mode before the finisher stops the machine. With the
+delegation above, an S-mode image only gets there through a firmware bug
+(or the smoke-only `ecall` with `a7 = 0x53515241` (`"SQRA"`), which is
+not an SBI extension and is not reported by `probe_extension`: it loads
+from address 0 in M-mode so `make test` can exercise this path). An image
+entered in M-mode installs its own `mtvec` before it relies on traps (an
+M-mode `ecall` is cause `000000000000000b`).
 
 ### SBI
 
@@ -720,9 +723,10 @@ same with a cold reboot under `-no-reboot`, status 0), `riscv-srst-fail`
 (a shutdown for a system failure, status 1), `riscv-ras` (with `-smp 2`,
 hart 0 starts hart 1, then `ecall`s `a7 = 0x53515241` so the SBI path
 faults: the log has `hart1=up`, a `ras: hart=... mcause=0000000000000005
-... mtval=0000000000000000 fatal` line, and `boot halted`, and must not
-show `hart1=still`, which hart 1 would print after two seconds if it were
-still running) and `riscv-no-kernel`. By hand:
+... mtval=0000000000000000 fatal` line, and `boot halted`, must not show
+`hart1=still`, which hart 1 would print after 100 ms if it were still
+running, and QEMU must exit with status 1 from the system-failure
+shutdown) and `riscv-no-kernel`. By hand:
 
 ```bash
 make riscv
