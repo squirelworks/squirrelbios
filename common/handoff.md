@@ -16,7 +16,7 @@ If the firmware and this file disagree, the firmware has a bug.
 | Console | COM1 `0x3F8`, 115200 8N1 | PL011 `0x09000000` | NS16550A `0x10000000`, 115200 8N1 |
 | Interrupts | `IF = 0`; PIT/PIC programmed, IRQ0 unmasked | `DAIF` masked | `mstatus.MIE`/`SIE` = 0, `mie = 0` |
 | CPUs running | Boot CPU only | Boot CPU only | The boot hart (`fw_dynamic_info.boot_hart`, else hart 0); others through `sbi_hart_start` |
-| Firmware services | `INT 13h` `AH=00/02/03/08/42/43`, `INT 10h` `AH=02/03/06/07/0E/0F`, `INT 15h` `E820`, `INT 16h` `AH=00/01`, `INT 1Ah` `AH=00/02` | None | SBI from S-mode: base, TIME, IPI, RFENCE, HSM, SRST |
+| Firmware services | `INT 13h` `AH=00/02/03/08/42/43`, `INT 10h` `AH=02/03/06/07/0E/0F`, `INT 15h` `E820`/`AX=2400..2403`, `INT 16h` `AH=00/01`, `INT 1Ah` `AH=00/02` | None | SBI from S-mode: base, TIME, IPI, RFENCE, HSM, SRST |
 
 ## Rules for every architecture
 
@@ -193,11 +193,15 @@ IRQ0 and IRQ1 are unmasked on the PIC so a later `STI` receives timer
 and keyboard IRQs. The i8042 command byte has XLAT set so the guest sees
 set-1 scancodes.
 
-`INT 15h` `E820` is the same on every path:
+`INT 15h` on every path:
 
 | Call | Result |
 |------|--------|
 | `INT 15h`, `EAX = 0xE820`, `EDX = 'SMAP'`, `ECX >= 20`, `EBX` an entry index | CF clear, `EAX = 'SMAP'`, `ECX = 20`, that SQMM entry copied to `ES:DI`. `EBX` is the next index, or 0 after the last entry |
+| `INT 15h`, `AX = 0x2400` | Disable A20 (port `0x92` bit 1 clear). CF clear, `AH = 0`. |
+| `INT 15h`, `AX = 0x2401` | Enable A20 (same path as hand-off). CF clear, `AH = 0`. |
+| `INT 15h`, `AX = 0x2402` | Query A20: `AL = 1` if port `0x92` bit 1 set, else `0`. CF clear, `AH = 0`. |
+| `INT 15h`, `AX = 0x2403` | A20 support: `BX` bit 1 set (port `0x92`). CF clear, `AH = 0`. |
 | Any other `INT 15h` | CF set. No register changes |
 
 That `E820` data is the memory map already built at `0x0500`, one entry
@@ -241,7 +245,8 @@ Other BDA bytes are not filled by this firmware yet.
 
 Before the hand-off jump the firmware enables the A20 gate through the
 fast gate at port `0x92` (set bit 1, leave the reset bit clear). QEMU
-honours that port. The line stays enabled across the jump.
+honours that port. The line stays enabled across the jump. `INT 15h`
+`AX = 0x2400`/`0x2401`/`0x2402`/`0x2403` control and query that same gate.
 
 Do not assume: BIOS interrupt services other than the three above, or
 VGA graphics modes and a VGA BIOS (no option ROM is run).
@@ -301,7 +306,7 @@ registers on COM1 (and the VGA text buffer), then halts:
 `make test` runs `x86-boot`, `x86-no-drive`, `x86-mem-low`,
 `x86-mem-high`, `x86-atapi`, `x86-bad-sector`, `x86-extra`,
 `x86-extra-map`, `x86-extra-boot`, `x86-extra-range`, `x86-osload`,
-`x86-int13`, `x86-bda`, `x86-a20`, `x86-pit`, `x86-kbd`, `x86-time`, `x86-vid` and `x86-write`. In `x86-boot` the boot sector checks
+`x86-int13`, `x86-bda`, `x86-a20`, `x86-pit`, `x86-kbd`, `x86-time`, `x86-vid`, `x86-write` and `x86-int15a20`. In `x86-boot` the boot sector checks
 `DL`, that `IF` and `DF` are clear, and that the memory map has the
 magic, 20-byte entries, ends by `0x0600`, contains the conventional and
 both reserved regions above exactly, requires an entry at `0x00100000`
@@ -356,6 +361,8 @@ prints `pit=ok` only when `IF` is clear again.
 scroll, and prints `vid=ok`.
 `x86-write` writes LBA 1 with `AH=0x43` and LBA 2 with `AH=0x03`, reads
 them back, and prints `write=ok`.
+`x86-int15a20` toggles A20 with `AX=2400`/`2401`/`2402`, checks
+`AX=2403`, confirms E820, and prints `int15a20=ok`.
 
 A Squirrel-OS/2 hard-disk image is not part of `make test`. Build
 `os.img` in that repo and run `tests/os-boot.sh path/to/os.img` (or

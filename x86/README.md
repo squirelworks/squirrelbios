@@ -23,6 +23,7 @@ qemu-system-i386 -bios squirrel-bios.rom -drive format=raw,file=boot.bin,if=ide 
   in BCD from CMOS
 - `INT 10h` also sets/gets the cursor, scrolls, and reports mode 3
 - `INT 13h` `AH=0x03` / `0x43` write the primary master (CHS / LBA)
+- `INT 15h` `AX=0x2400`–`0x2403` control and query the A20 gate
 - Prints banner
 - ATA PIO reads LBA 0 into `0x7C00`, with timeouts on every status wait,
   `ERR`/`DF` checks, and up to 3 attempts with a soft reset in between

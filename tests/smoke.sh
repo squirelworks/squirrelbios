@@ -181,6 +181,11 @@ run x86-write "SquirrelBIOS x86|OS-ENTRY x86 write=ok" \
     "$QEMU_X86" -bios x86/squirrel-bios.rom \
     -drive format=raw,file=$TEST_DIR/x86-write.bin,if=ide
 
+# x86: INT 15h AX=2400/2401/2402 A20 gate; E820 still works
+run x86-int15a20 "SquirrelBIOS x86|OS-ENTRY x86 int15a20=ok" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -drive format=raw,file=$TEST_DIR/x86-int15a20.bin,if=ide
+
 # x86: a CD-ROM as primary master is rejected, not read
 run x86-atapi "disk: primary master is ATAPI (CD/DVD), not supported|boot halted" \
     "$QEMU_X86" -bios x86/squirrel-bios.rom \
