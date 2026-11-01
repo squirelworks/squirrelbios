@@ -131,10 +131,17 @@ run x86-extra-range "disk: load address is out of range|boot halted|!OS-ENTRY" \
 
 # x86: a disk shaped like Squirrel-OS/2 (no SQBL header, 192 sectors
 # signed S2OK) is loaded to 0x8000 and entered there. INT 15h E820
-# returns the SQMM entries. INT 13h is not a disk service.
+# returns the SQMM entries. A short INT 13h packet is rejected.
 run x86-osload "SquirrelBIOS x86|kernel loaded at 0x00008000, jumping|osload=ok dl=ok flags=ok memmap=ok sig=ok e820=ok disk=absent|!entered-boot-sector|!boot halted" \
     "$QEMU_X86" -bios x86/squirrel-bios.rom \
     -drive format=raw,file=$TEST_DIR/x86-osload.bin,if=ide
+
+# x86: a disk without the S2OK signature is entered at 0x7C00, and that
+# boot sector reads with the same INT 13h calls Squirrel-OS/2 uses.
+# INT 10h AH=0E writes the VGA cell the sector checks.
+run x86-int13 "SquirrelBIOS x86|via-boot-sector|int13=ok tty=ok|!kernel loaded|!boot halted|!disk:" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -drive format=raw,file=$TEST_DIR/x86-int13.bin,if=ide
 
 # x86: a CD-ROM as primary master is rejected, not read
 run x86-atapi "disk: primary master is ATAPI (CD/DVD), not supported|boot halted" \

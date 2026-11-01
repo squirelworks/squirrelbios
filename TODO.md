@@ -194,13 +194,17 @@ UEFI and ACPI hand-off for servers stays out of scope; see the roadmap.
 
 ## 7. Boot Squirrel-OS/2
 
-Squirrel-OS/2's boot sector calls `INT 13h`. This firmware does not
-provide that service, so the image never used to leave the boot sector.
-The firmware loads the signed kernel itself and enters it.
-`tests/os-boot.sh` boots a real `os.img`; it is not part of `make test`.
+Squirrel-OS/2's boot sector calls `INT 13h`. A 96 KB image signed
+`S2OK` is still loaded by the firmware and entered at `0x8000`. Any
+other disk is entered at `0x7C00`, and the boot sector loads the kernel
+with `INT 13h`. `tests/os-boot.sh` boots a real `os.img`; it is not part
+of `make test`.
 
 - [x] `x86-os-image` — Load a Squirrel-OS/2 hard-disk image and enter its kernel.
-  - Acceptance: a disk with no SQBL header whose LBA 192 ends in `S2OK` is read, LBAs 1–192, to `0x8000`, and entered there with the same registers as the `0x7C00` hand-off. `INT 15h` `E820` returns the SQMM entries. `INT 13h` returns with carry set. `x86-osload` expects `kernel loaded at 0x00008000, jumping` and `osload=ok dl=ok flags=ok memmap=ok sig=ok e820=ok disk=absent`, and not `entered-boot-sector`. A disk without that signature still takes the one-sector path (`x86-one-sector`). `tests/os-boot.sh` on a Squirrel-OS/2 `os.img` passes when the VGA shows `Squirrel-OS/2` and a `>` prompt. `make test` stays green.
+  - Acceptance: a disk with no SQBL header whose LBA 192 ends in `S2OK` is read, LBAs 1–192, to `0x8000`, and entered there with the same registers as the `0x7C00` hand-off. `INT 15h` `E820` returns the SQMM entries. An `INT 13h` packet that is not 16 bytes long returns with carry set. `x86-osload` expects `kernel loaded at 0x00008000, jumping` and `osload=ok dl=ok flags=ok memmap=ok sig=ok e820=ok disk=absent`, and not `entered-boot-sector`. A disk without that signature still takes the one-sector path (`x86-one-sector`). `tests/os-boot.sh` on a Squirrel-OS/2 `os.img` passes when the VGA shows `Squirrel-OS/2` and a `>` prompt. `make test` stays green.
+
+- [x] `x86-int13` — Serve the disk and teletype calls the boot sector makes.
+  - Acceptance: `INT 13h` `AH=0x42` reads by LBA, `AH=0x02` reads by the cylinder/head/sector geometry `AH=0x08` reports (16 heads, 63 sectors), and `AH=0x00` resets the primary master. Carry is set on a bad packet, a missing drive, or a failed read, and clear on success, with `AH` the usual status. `INT 10h` `AH=0x0E` writes a character to the VGA text buffer, including CR and LF. `INT 15h` `E820` is unchanged. The `S2OK` fast path is unchanged. A new `x86-int13` case has no SQBL header and no `S2OK` signature, so it is entered at `0x7C00`, issues the same three 64-sector extended reads the boot sector does, and expects `via-boot-sector` and `int13=ok tty=ok`. Depends on: `x86-os-image`.
 
 ## Speculative
 

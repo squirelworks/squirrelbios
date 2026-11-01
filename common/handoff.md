@@ -16,7 +16,7 @@ If the firmware and this file disagree, the firmware has a bug.
 | Console | COM1 `0x3F8`, 115200 8N1 | PL011 `0x09000000` | NS16550A `0x10000000`, 115200 8N1 |
 | Interrupts | `IF = 0` | `DAIF` masked | `mstatus.MIE`/`SIE` = 0, `mie = 0` |
 | CPUs running | Boot CPU only | Boot CPU only | The boot hart (`fw_dynamic_info.boot_hart`, else hart 0); others through `sbi_hart_start` |
-| Firmware services | None. On the `S2OK` entry only, `INT 15h` `E820` returns the memory map | None | SBI from S-mode: base, TIME, IPI, RFENCE, HSM, SRST |
+| Firmware services | `INT 13h` `AH=00/02/08/42`, `INT 10h` `AH=0E`, `INT 15h` `E820`. Nothing else | None | SBI from S-mode: base, TIME, IPI, RFENCE, HSM, SRST |
 
 ## Rules for every architecture
 
@@ -33,10 +33,12 @@ The firmware guarantees:
 The OS must not assume:
 
 1. **Firmware services.** There are none after hand-off, apart from the
-   RISC-V SBI listed below and one x86 exception: on the `S2OK` kernel
-   entry, `INT 15h` with `EAX = 0xE820` returns the memory map. `INT 10h`
-   and `INT 13h` do not exist, and neither does any other `INT 15h`
-   function. No UEFI. Anything else the OS needs, it drives itself.
+   RISC-V SBI listed below and three x86 calls. `INT 15h` with
+   `EAX = 0xE820` returns the memory map. `INT 13h` `AH = 0x00`, `0x02`,
+   `0x08` and `0x42` read the primary master. `INT 10h` `AH = 0x0E`
+   writes one character to the VGA text screen. Any other function on
+   those vectors returns with CF set. No other software interrupt is
+   serviced. No UEFI. Anything else the OS needs, it drives itself.
 2. **A usable stack.** Set your own stack before using it heavily.
 3. **Trap or interrupt vectors.** Install your own before unmasking
    interrupts.
@@ -128,45 +130,60 @@ sector, so a load may cross 64 KB boundaries.
 The load must start below `0xA0000` and end at or before it, and must not
 touch `0x0500`–`0x05FF` or `0x7C00`–`0x7DFF`. Anything else, including a
 count of 0 or above 128, is refused before the read (see Failures).
-Memory below `0x0500` is allowed. The one-sector and SQBL paths leave no
-IVT there. The `S2OK` path fills the IVT before it jumps; see below.
+Memory below `0x0500` is allowed. Every path fills the IVT before it
+jumps; see below.
 
 ### Squirrel-OS/2 image (`S2OK`)
 
-Squirrel-OS/2's own boot sector does not use the SQBL header. It expects
-SeaBIOS disk services this firmware does not provide, and it is not
-entered. The calls it would make, which are not implemented:
-
-| Call | What the boot sector uses it for |
-|------|----------------------------------|
-| `INT 13h` `AH = 0x42` | Three reads of 64 sectors (LBAs 1, 65 and 129) to `0x8000`, `0x10000` and `0x18000` |
-| `INT 13h` `AH = 0x08`, then `AH = 0x02` and `AH = 0x00` | Cylinder/head/sector fallback, one sector at a time, with a reset between tries |
-| `INT 10h` `AH = 0x0E` | The failure text, if those reads fail |
-
-Instead, when sector 0 has no SQBL magic and LBA 192's last dword is
-`S2OK` (bytes `53 32 4F 4B`), the firmware reads LBAs 1–192 (96 KB) to
-`0x8000` and jumps to `0x0000:0x8000`. The registers are the same as the
-`0x7C00` hand-off (`DL = 0x80`, `DS = ES = SS = 0`, `SP = 0x7C00`,
+Squirrel-OS/2's own boot sector does not use the SQBL header. When
+sector 0 has no SQBL magic and LBA 192's last dword is `S2OK` (bytes
+`53 32 4F 4B`), the firmware reads LBAs 1–192 (96 KB) to `0x8000` and
+jumps to `0x0000:0x8000`. The registers are the same as the `0x7C00`
+hand-off (`DL = 0x80`, `DS = ES = SS = 0`, `SP = 0x7C00`,
 `DI = 0x0500`, `IF = 0`, `DF = 0`). It prints `kernel loaded at
 0x00008000, jumping` first. A disk that is too small, or whose LBA 192
-does not end in `S2OK`, takes the one-sector path. That probe is a
-single read and is not reported as a disk error.
+does not end in `S2OK`, takes the one-sector path: the firmware jumps
+to `0x0000:0x7C00` and the boot sector loads the kernel itself. That
+probe is a single read and is not reported as a disk error. A failed
+probe resets the drive so the boot sector's first read does not see a
+stale error bit.
 
-Before the jump the firmware fills the real-mode IVT. Every vector
-points at a stub in the ROM (`0xF000`, where this 64 KB image is
-mapped). The stub handles one call:
+The boot sector's calls, which the firmware serves on every path:
+
+| Call | Behaviour |
+|------|-----------|
+| `INT 13h` `AH = 0x42` | Extended read. `DS:SI` points at a 16-byte disk address packet (size byte `0x10`, reserved, word count 1–128, word offset, word segment, qword LBA). The buffer must lie entirely below `0xA0000`. The LBA must fit in 28 bits. CF clear and `AH = 0` on success. |
+| `INT 13h` `AH = 0x08` | Drive parameters for `DL = 0x80`. CF clear, `AH = 0`, `DH = 15` (16 heads), `CL` bits 5–0 `= 63` (sectors per track), `CH = 0xFF` and `CL` bits 7–6 `= 3` (1023 cylinders), `DL = 1`. `ES:DI` and `BL` are left alone. |
+| `INT 13h` `AH = 0x02` | CHS read of `AL` sectors (1–128) to `ES:BX`, using that same geometry. Cylinder is `CH` plus `CL` bits 7–6, sector is `CL` bits 5–0, head is `DH`. CF clear, `AH = 0`, `AL` unchanged on success. |
+| `INT 13h` `AH = 0x00` | Reset the primary channel. CF clear and `AH = 0` when the drive comes ready. |
+| `INT 10h` `AH = 0x0E` | Teletype `AL` onto the VGA text screen in the normal attribute, from the cursor at `0x0450` (column, then row). CR, LF, BS and BEL behave as a teletype; the screen scrolls at row 25. Other registers are kept. CF clear. |
+
+`DL` must be `0x80` for the disk calls. Anything else, a packet that is
+not 16 bytes, a zero count, a count above 128, or a buffer that is not
+entirely below `0xA0000`, returns with CF set and `AH = 0x01`. A sector
+that is not on the disk returns with CF set and `AH = 0x04` (read) or
+`AH = 0x05` (reset failed) or `AH = 0x80` (timeout). `AH = 0x02` reports
+`AL = 0` when nothing was transferred. Only the primary master is a
+drive; there is no write, no floppy, and no second disk.
+
+Before the jump the firmware fills the real-mode IVT. The vectors for
+`INT 10h`, `INT 13h` and `INT 15h` point at those services in the ROM
+(`0xF000`, where this 64 KB image is mapped). Every other vector is an
+`iret` that does not change flags, so a stray timer tick cannot flip CF.
+Both PICs are masked.
+
+`INT 15h` `E820` is the same on every path:
 
 | Call | Result |
 |------|--------|
 | `INT 15h`, `EAX = 0xE820`, `EDX = 'SMAP'`, `ECX >= 20`, `EBX` an entry index | CF clear, `EAX = 'SMAP'`, `ECX = 20`, that SQMM entry copied to `ES:DI`. `EBX` is the next index, or 0 after the last entry |
-| Anything else, including `INT 13h` and `INT 10h` | CF set. No register changes |
+| Any other `INT 15h` | CF set. No register changes |
 
 That `E820` data is the memory map already built at `0x0500`, one entry
-per call, in the same order. The kernel this image enters asks for the
-map that way (24 bytes; the firmware writes the 20-byte entry and leaves
-the caller's extra dword). There is still no disk service and no
-teletype. A CPU that fails the kernel's own check and calls `INT 10h`
-gets CF set and no text.
+per call, in the same order. The kernel asks for the map that way (24
+bytes; the firmware writes the 20-byte entry and leaves the caller's
+extra dword). A CPU that fails the kernel's own check prints its reason
+with `INT 10h` `AH = 0x0E`.
 
 ### Devices
 
@@ -174,20 +191,19 @@ gets CF set and no text.
 |--------|-------|
 | COM1 (`0x3F8`) | 115200 8N1, FIFOs on, UART interrupts off |
 | CMOS / RTC (`0x70`/`0x71`) | Index `0x0D` (status register D), NMI enabled (bit 7 of `0x70` clear). The firmware masks NMI only while it reads a register. |
-| Primary ATA channel | Idle. `nIEN` is set if a retry reset the channel. |
-| VGA | 80x25 colour text at `0xB8000` (the standard 720x400 text timings, 9x16 cells), CRTC at `0x3D4`. The font in plane 2 is the firmware's own 8x16 font (printable ASCII; other codes are blank). The DAC holds the 16 usual text colours. The firmware's messages are on screen in light grey on black, red for errors; the cursor is at the top left. |
+| 8259 PICs (`0x20`, `0xA0`) | Both masks are `0xFF` (every IRQ masked). The OS programs them itself. |
+| Primary ATA channel | Idle. `nIEN` is set if a retry or an `INT 13h` reset touched the channel. |
+| VGA | 80x25 colour text at `0xB8000` (the standard 720x400 text timings, 9x16 cells), CRTC at `0x3D4`. The font in plane 2 is the firmware's own 8x16 font (printable ASCII; other codes are blank). The DAC holds the 16 usual text colours. The firmware's messages are on screen in light grey on black, red for errors. The teletype cursor starts at the top left (`0x0450` is 0, 0) and the CRTC cursor follows it. |
 
-Do not assume: BIOS interrupt services other than the `S2OK` path's
-`INT 15h` `E820`, an IVT on the one-sector and SQBL paths, A20 state
-(enabled on QEMU, but the firmware does not touch it), or VGA graphics
-modes and a VGA BIOS (no option ROM is run).
+Do not assume: BIOS interrupt services other than the three above, A20
+state (enabled on QEMU, but the firmware does not touch it), or VGA
+graphics modes and a VGA BIOS (no option ROM is run).
 
 ### Memory map
 
 The firmware builds the table below before jumping, from the RAM sizes
-QEMU stores in CMOS (`0x30/0x31`, `0x34/0x35`, `0x5B`–`0x5D`). On the
-one-sector and SQBL paths nothing serves it through `INT 15h`. On the
-`S2OK` path, `INT 15h` `E820` returns these same entries.
+QEMU stores in CMOS (`0x30/0x31`, `0x34/0x35`, `0x5B`–`0x5D`).
+`INT 15h` `E820` returns these same entries.
 
 | Offset | Size | Field |
 |--------|------|-------|
@@ -237,7 +253,8 @@ registers on COM1 (and the VGA text buffer), then halts:
 
 `make test` runs `x86-boot`, `x86-no-drive`, `x86-mem-low`,
 `x86-mem-high`, `x86-atapi`, `x86-bad-sector`, `x86-extra`,
-`x86-extra-map`, `x86-extra-boot`, `x86-extra-range` and `x86-osload`. In `x86-boot` the boot sector checks
+`x86-extra-map`, `x86-extra-boot`, `x86-extra-range`, `x86-osload`
+and `x86-int13`. In `x86-boot` the boot sector checks
 `DL`, that `IF` and `DF` are clear, and that the memory map has the
 magic, 20-byte entries, ends by `0x0600`, contains the conventional and
 both reserved regions above exactly, requires an entry at `0x00100000`
@@ -267,9 +284,15 @@ when the last of them arrived too. Built with `-DOVERLAP_MAP`,
 firmware must refuse. `x86-osload` is a disk with no SQBL header and
 192 sectors signed `S2OK`. The firmware enters `0x8000`, the image
 checks `DL`, the flags, the map pointer and the signature, walks
-`INT 15h` `E820` against the SQMM entries, and checks that `INT 13h`
-returns with CF set (`disk=absent`). It must not print
-`entered-boot-sector`.
+`INT 15h` `E820` against the SQMM entries, and checks that an
+`INT 13h` `AH = 0x42` whose packet is not 16 bytes long returns with
+CF set (`disk=absent`). It must not print `entered-boot-sector`.
+`x86-int13` is a disk with no SQBL header and no `S2OK` signature, so
+the firmware enters `0x7C00`. That sector performs the same three
+64-sector `AH = 0x42` reads the Squirrel-OS/2 boot sector does, then
+`AH = 0x08`, one `AH = 0x02` sector, and `AH = 0x00`, and checks that
+`INT 10h` `AH = 0x0E` wrote the cells it asked for. It prints
+`via-boot-sector` and `int13=ok tty=ok`.
 
 A Squirrel-OS/2 hard-disk image is not part of `make test`. Build
 `os.img` in that repo and run `tests/os-boot.sh path/to/os.img` (or
