@@ -264,7 +264,7 @@ so the IVT surface stays the contract.
 
 ## 10. x86 richer disk and video
 
-- [ ] `x86-int10-text` — Text-mode `INT 10h` beyond teletype.
+- [x] `x86-int10-text` — Text-mode `INT 10h` beyond teletype.
   - Acceptance: at least set/get cursor (`AH=0x02`/`0x03`), scroll
     (`AH=0x06`/`0x07`), and get mode (`AH=0x0F`) for 80x25. A stand-in
     prints `vid=ok`. `AH=0x0E` stays working. No VESA. Depends on:

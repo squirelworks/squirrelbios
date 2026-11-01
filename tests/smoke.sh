@@ -171,6 +171,11 @@ run x86-time "SquirrelBIOS x86|OS-ENTRY x86 time=ok" \
     "$QEMU_X86" -bios x86/squirrel-bios.rom \
     -drive format=raw,file=$TEST_DIR/x86-time.bin,if=ide
 
+# x86: INT 10h set/get cursor, scroll, get mode; AH=0E still works
+run x86-vid "SquirrelBIOS x86|OS-ENTRY x86 vid=ok" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -drive format=raw,file=$TEST_DIR/x86-vid.bin,if=ide
+
 # x86: a CD-ROM as primary master is rejected, not read
 run x86-atapi "disk: primary master is ATAPI (CD/DVD), not supported|boot halted" \
     "$QEMU_X86" -bios x86/squirrel-bios.rom \

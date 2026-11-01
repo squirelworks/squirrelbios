@@ -21,6 +21,7 @@ qemu-system-i386 -bios squirrel-bios.rom -drive format=raw,file=boot.bin,if=ide 
   read the BDA keyboard buffer filled by IRQ1
 - `INT 1Ah` `AH=0x00` returns the tick count; `AH=0x02` reads RTC time
   in BCD from CMOS
+- `INT 10h` also sets/gets the cursor, scrolls, and reports mode 3
 - Prints banner
 - ATA PIO reads LBA 0 into `0x7C00`, with timeouts on every status wait,
   `ERR`/`DF` checks, and up to 3 attempts with a soft reset in between
