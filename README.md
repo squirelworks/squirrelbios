@@ -1,17 +1,18 @@
 # SquirrelBIOS
 
 Original firmware for Squirrel-OS/2 and QEMU's PC / AArch64 `virt` /
-RISC-V `virt` machines. **v0.3.0** is the hand-off release (load image,
-jump, tested contract). **v1.0.0** is a comprehensive x86 PC BIOS —
-see [ROADMAP.md](ROADMAP.md) and [TODO.md](TODO.md).
+RISC-V `virt` machines. **v1.0.0** is a comprehensive x86 PC BIOS
+(POST-shaped init, IVT services, ACPI/SMBIOS, bzImage, option ROMs) on
+the v0.3.0 hand-off contract. See [ROADMAP.md](ROADMAP.md),
+[TODO.md](TODO.md), and [release-notes/v1.0.0.md](release-notes/v1.0.0.md).
 
 ```
-x86/        64 KB ROM — VGA text + ATA boot + INT 13h/10h/15h E820 (growing toward a full PC BIOS)
+x86/        64 KB ROM — PC BIOS: ATA boot, INT 10h/13h/15h/16h/1Ah, ACPI, SMBIOS
 arm/        AArch64 QEMU virt — PL011 banner + fw_cfg kernel load, DTB in x0
 riscv/      RISC-V QEMU virt — UART banner + S-mode entry to -kernel, DTB in a1, SBI
 tests/      stand-in OS images and smoke tests (make test)
 common/     hand-off contract
-release-notes/  tagged releases (v0.2.0, v0.3.0, …)
+release-notes/  tagged releases (v0.2.0, v0.3.0, v1.0.0, …)
 ROADMAP.md  goals, principles, milestones
 TODO.md     small tasks, one per PR
 ```

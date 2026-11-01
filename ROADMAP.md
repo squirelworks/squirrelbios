@@ -76,25 +76,24 @@ x86 v1.0.0.
   the SBI; AArch64 remains load-then-jump unless a later milestone says
   otherwise.
 
-## What works today (v0.3.0)
+## What works today (v1.0.0)
 
 | | x86 PC | AArch64 `virt` | RISC-V `virt` |
 |---|---|---|---|
-| Image | ATA PIO: LBA 0 to `0x7C00`; `SQBL` extra sectors; `S2OK` LBAs 1–192 to `0x8000` | `-kernel` via fw_cfg DMA; `Image` header; optional `-initrd` in `/chosen` | QEMU loads `-kernel`; S-mode entry when `next_mode` says so |
-| Entry | `0x0000:0x7C00` or `0x0000:0x8000` (`S2OK`). `DL = 0x80` | Image entry (often `0x40200000`), `x0` = DTB, `x1`–`x3` = 0 | `next_addr`, S-mode, `a0` = hart, `a1` = DTB |
+| Image | ATA PIO: master or slave; `SQBL` / `S2OK` / `bzImage` (`HdrS`) | `-kernel` via fw_cfg DMA; `Image` header; optional `-initrd` in `/chosen` | QEMU loads `-kernel`; S-mode entry when `next_mode` says so |
+| Entry | `0x7C00`, `0x8000` (`S2OK`), or PM `code32_start` (`bzImage`). `DL = 0x80`/`0x81` | Image entry (often `0x40200000`), `x0` = DTB, `x1`–`x3` = 0 | `next_addr`, S-mode, `a0` = hart, `a1` = DTB |
 | Console | COM1 `0x3F8` 115200 8N1; VGA 80x25 text | PL011 `0x09000000` | NS16550A `0x10000000` 115200 8N1 |
 | Memory | SQMM map at `0x0500` from CMOS; `INT 15h` E820 | DTB `/memory` | DTB `/memory`; firmware `no-map` reserved |
-| Firmware services | `INT 13h` `AH=00/02/08/42`, `INT 10h` `AH=0E`, `INT 15h` E820 | None after jump | SBI: base, TIME, IPI, RFENCE, HSM, SRST |
+| Firmware services | `INT 08h`/`09h`/`10h`/`13h`/`15h`/`16h`/`1Ah`; ACPI; SMBIOS; option ROMs | None after jump | SBI: base, TIME, IPI, RFENCE, HSM, SRST |
 | Other CPUs | Boot CPU only | Boot CPU only | Boot hart (+ `sbi_hart_start`); up to 512 harts tracked |
 
-`make test` is the CI gate (45 cases at v0.3.0). `make linux-shell` /
+`make test` is the CI gate (58 cases at v1.0.0). `make linux-shell` /
 `make linux-big` are optional RISC-V Linux checks.
 
-## Milestones toward v1.0.0
+## Milestones (done through v1.0.0)
 
-Do them in order. Each is done when its boxes in [TODO.md](TODO.md) are
-checked. Hand-off milestones 1–7 are finished and stay checked there as
-history.
+Hand-off milestones 1–7 and x86 PC BIOS milestones 8–12 are finished
+and stay checked in [TODO.md](TODO.md) as history.
 
 ### 8. x86 foundations (POST and A20)
 

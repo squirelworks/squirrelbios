@@ -312,7 +312,7 @@ so the IVT surface stays the contract.
 
 ## 12. v1.0.0 release
 
-- [ ] `release-v1.0.0` — Tag the comprehensive PC BIOS.
+- [x] `release-v1.0.0` — Tag the comprehensive PC BIOS.
   - Acceptance: `release-notes/v1.0.0.md` lists the IVT surface and
     known gaps (no VESA, no UEFI). `make test` green. Tag `v1.0.0`.
     Depends on: every unchecked box in sections 8–11.
