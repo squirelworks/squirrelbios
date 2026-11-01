@@ -207,6 +207,12 @@ run x86-bzimage "SquirrelBIOS x86|bzImage loaded at 0x00100000, jumping|bz=ok|!e
     "$QEMU_X86" -bios x86/squirrel-bios.rom \
     -drive format=raw,file=$TEST_DIR/x86-bzimage.bin,if=ide
 
+# x86: option ROM at 0xD0000 is scanned and its init prints optrom=ok
+run x86-optrom "SquirrelBIOS x86|optrom=ok|OS-ENTRY x86 dl=ok" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -device loader,file=$TEST_DIR/x86-optrom.bin,addr=0xD0000,force-raw=on \
+    -drive format=raw,file=$TEST_DIR/x86-one-sector.bin,if=ide
+
 # x86: a CD-ROM as primary master is rejected, not read
 run x86-atapi "disk: primary master is ATAPI (CD/DVD), not supported|boot halted" \
     "$QEMU_X86" -bios x86/squirrel-bios.rom \

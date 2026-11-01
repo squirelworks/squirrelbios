@@ -14,6 +14,7 @@
 ;   - Fill BDA equipment, conventional KB, and the teletype cursor
 ;   - SMBIOS 2.4 entry point at 0xFD000; ACPI 1.0 tables at 0xFE000
 ;   - Linux bzImage (HdrS): load PM kernel at 1 MB and enter it
+;   - Scan option ROMs at 0xD0000–0xEFFFF (55 AA + checksum) and call init
 ;   - Enable the A20 gate (port 0x92) before the hand-off jump
 ;   - Program the PIT (~18.2 Hz) and both PICs (IRQ0/IRQ1)
 ;   - Enable the i8042 (set-1 XLAT) and INT 16h keyboard services
@@ -485,6 +486,86 @@ prepare_runtime:
     call apic_virtual_wire
     call pit_pic_init
     call install_ivt
+    call optrom_scan
+    ret
+
+; Scan legacy option ROM space 0xD0000–0xEFFFF (skip VGA at 0xC0000).
+; Each 2 KB: 0x55 0xAA, size byte (512-byte units), checksum 0 over the
+; ROM, then far-call offset 3. Bad signatures or checksums are skipped.
+OPTROM_SEG_FIRST equ 0xD000
+OPTROM_SEG_LAST  equ 0xF000          ; stop before the system BIOS
+
+optrom_scan:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    push ds
+    mov ax, OPTROM_SEG_FIRST
+.next:
+    cmp ax, OPTROM_SEG_LAST
+    jae .done
+    mov es, ax
+    cmp word [es:0], 0xAA55
+    jne .advance
+    movzx cx, byte [es:2]       ; size in 512-byte units
+    test cx, cx
+    jz .advance
+    cmp cx, 128                 ; at most 64 KB
+    ja .advance
+    ; Checksum over cx*512 bytes
+    push ax
+    xor dl, dl
+    xor bx, bx
+    mov ax, cx
+    shl ax, 9                   ; byte count
+    mov si, ax
+.sum:
+    add dl, [es:bx]
+    inc bx
+    cmp bx, si
+    jb .sum
+    pop ax
+    test dl, dl
+    jnz .advance
+    ; Far call ES:0003. Preserve our DS; the ROM may clobber AX..DX.
+    push ax
+    pushf
+    mov bx, 3
+    push es
+    push bx
+    mov bx, sp
+    call far [ss:bx]
+    add sp, 4
+    popf
+    pop ax
+.advance:
+    ; Next 2 KB boundary: size may be larger; skip by max(2KB, size*512)
+    movzx bx, byte [es:2]
+    test bx, bx
+    jz .step2k
+    cmp word [es:0], 0xAA55
+    jne .step2k
+    shl bx, 5                   ; size*512 / 16 = size*32 paragraphs
+    cmp bx, 0x80                ; at least 2 KB = 0x80 paras
+    jae .skip
+.step2k:
+    mov bx, 0x80
+.skip:
+    add ax, bx
+    jmp .next
+.done:
+    pop ds
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
     ret
 
 ; In: SI = reason, BL = ATA status, BH = ATA error register

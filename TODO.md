@@ -305,7 +305,7 @@ so the IVT surface stays the contract.
     pinned tiny bzImage under `build/`, not committed) prints `bz=ok`
     on COM1. Depends on: `x86-a20`.
 
-- [ ] `x86-option-roms` — Scan legacy option ROM regions and call
+- [x] `x86-option-roms` — Scan legacy option ROM regions and call
   initialisation entry points that have a valid signature.
   - Acceptance: a stand-in ROM mapped by QEMU prints `optrom=ok` from
     its init. Bad signatures are skipped. Depends on: `x86-a20`.

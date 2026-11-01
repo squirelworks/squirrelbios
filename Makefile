@@ -27,6 +27,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/x86-write.bin $(TEST_DIR)/x86-int15a20.bin \
              $(TEST_DIR)/x86-slave.bin $(TEST_DIR)/x86-acpi.bin \
              $(TEST_DIR)/x86-smbios.bin $(TEST_DIR)/x86-bzimage.bin \
+             $(TEST_DIR)/x86-optrom.bin \
              $(TEST_DIR)/arm-kernel.bin $(TEST_DIR)/arm-too-big.bin \
              $(TEST_DIR)/arm-image-fixed.bin $(TEST_DIR)/arm-image-reloc.bin \
              $(TEST_DIR)/arm-image-short.bin $(TEST_DIR)/arm-initrd.img \
@@ -159,6 +160,11 @@ $(TEST_DIR)/x86-smbios.bin: tests/x86-smbios.asm | $(TEST_DIR)
 # Minimal bzImage (HdrS) with a 32-bit payload at 1 MB
 $(TEST_DIR)/x86-bzimage.bin: tests/x86-bzimage.asm | $(TEST_DIR)
 	$(NASM) -f bin $< -o $@
+
+# Legacy option ROM (55 AA); last byte patched so the 512-byte sum is 0
+$(TEST_DIR)/x86-optrom.bin: tests/x86-optrom.asm | $(TEST_DIR)
+	$(NASM) -f bin $< -o $@
+	@python3 -c "p='$@'; d=bytearray(open(p,'rb').read()); assert len(d)==512; d[511]=0; d[511]=(-sum(d))&0xff; open(p,'wb').write(d)"
 
 $(TEST_DIR)/arm-kernel.o: tests/arm-kernel.S | $(TEST_DIR)
 	$(AARCH64)as -o $@ $<

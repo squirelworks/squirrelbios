@@ -269,6 +269,14 @@ When sector 0 has `0xAA55`, no `SQBL` header, and offset `0x202` is
 
 `SQBL` and `S2OK` are checked before `HdrS`. No initrd, no command line.
 
+### Option ROMs
+
+Before the hand-off the firmware scans `0xD0000`–`0xEFFFF` on 2 KB
+strides (VGA at `0xC0000` is left alone). A ROM with bytes `55 AA`, a
+non-zero size byte (512-byte units, at most 64 KB), and a checksum of 0
+over that span is initialised with a far call to offset 3. Bad
+signatures or checksums are skipped. The size byte advances the scan.
+
 ### BIOS data area
 
 Filled after the memory map and VGA init, before the banner. Absolute
@@ -294,8 +302,9 @@ fast gate at port `0x92` (set bit 1, leave the reset bit clear). QEMU
 honours that port. The line stays enabled across the jump. `INT 15h`
 `AX = 0x2400`/`0x2401`/`0x2402`/`0x2403` control and query that same gate.
 
-Do not assume: BIOS interrupt services other than the three above, or
-VGA graphics modes and a VGA BIOS (no option ROM is run).
+Do not assume: BIOS interrupt services other than those listed above, or
+VGA graphics modes. Legacy option ROMs in `0xD0000`–`0xEFFFF` are scanned
+and initialised; the VGA ROM at `0xC0000` is not.
 
 ### Memory map
 
@@ -356,7 +365,7 @@ registers on COM1 (and the VGA text buffer), then halts:
 `x86-extra-map`, `x86-extra-boot`, `x86-extra-range`, `x86-osload`,
 `x86-int13`, `x86-bda`, `x86-a20`, `x86-pit`, `x86-kbd`, `x86-time`,
 `x86-vid`, `x86-write`, `x86-int15a20`, `x86-slave`, `x86-acpi`,
-`x86-smbios` and `x86-bzimage`. In `x86-boot` the boot sector checks
+`x86-smbios`, `x86-bzimage` and `x86-optrom`. In `x86-boot` the boot sector checks
 `DL`, that `IF` and `DF` are clear, and that the memory map has the
 magic, 20-byte entries, ends by `0x0600`, contains the conventional and
 both reserved regions above exactly, requires an entry at `0x00100000`

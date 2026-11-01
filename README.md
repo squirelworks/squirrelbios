@@ -47,6 +47,7 @@ stand-in OS image from `tests/` and checks the serial output:
 | `x86-acpi` | Finds the RSDP in `0xE0000`–`0xFFFFF`, checks its checksum and that the RSDT names a `FACP` |
 | `x86-smbios` | Finds the `_SM_` entry point in `0xF0000`–`0xFFFFF` and checks both checksums |
 | `x86-bzimage` | A minimal `HdrS` bzImage is loaded at 1 MB; the PM payload prints `bz=ok` |
+| `x86-optrom` | An option ROM at `0xD0000` is checksum-checked and its init prints `optrom=ok` |
 | `x86-mem-low` | With `-m 8`, the map has 7 MB usable at 1 MB (the CMOS `0x30`/`0x31` path) |
 | `x86-mem-high` | With `-m 5120`, the map has a non-empty usable entry at 4 GB (CMOS `0x5B`–`0x5D`) |
 | `x86-atapi` | With a CD-ROM as primary master, the firmware reports ATAPI and halts |

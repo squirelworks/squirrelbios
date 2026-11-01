@@ -29,6 +29,8 @@ qemu-system-i386 -bios squirrel-bios.rom -drive format=raw,file=boot.bin,if=ide 
   minimal ACPI 1.0 RSDP/RSDT/FADT at `0xFE000` (`acpi.inc`)
 - Detects a Linux `bzImage` (`HdrS`), loads the PM kernel at 1 MB, and
   enters it in 32-bit protected mode with `ESI` = boot_params
+- Scans option ROMs at `0xD0000`–`0xEFFFF` (`55 AA` + checksum) and
+  far-calls each init
 - Prints banner
 - ATA PIO reads LBA 0 into `0x7C00`, with timeouts on every status wait,
   `ERR`/`DF` checks, and up to 3 attempts with a soft reset in between;
