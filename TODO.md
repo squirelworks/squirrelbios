@@ -249,7 +249,7 @@ so the IVT surface stays the contract.
 
 ## 9. x86 human interface and time
 
-- [ ] `x86-int16` — Keyboard via `INT 16h`.
+- [x] `x86-int16` — Keyboard via `INT 16h`.
   - Acceptance: `AH=0x00` / `0x01` (read / check keystroke) work with
     QEMU's `-nographic` or a scripted device that injects a scan code.
     A stand-in prints `kbd=ok` after seeing a known key. IRQ1 feeds the

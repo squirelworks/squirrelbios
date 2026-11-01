@@ -13,7 +13,8 @@
 ;   - Build a memory map at 0x0000:0x0500 (memmap.inc)
 ;   - Fill BDA equipment, conventional KB, and the teletype cursor
 ;   - Enable the A20 gate (port 0x92) before the hand-off jump
-;   - Program the PIT (~18.2 Hz) and both PICs (IRQ0 at INT 08h)
+;   - Program the PIT (~18.2 Hz) and both PICs (IRQ0/IRQ1)
+;   - Enable the i8042 (set-1 XLAT) and INT 16h keyboard services
 ;   - Print banner
 ;   - ATA PIO read of LBA 0 (sector 1) into 0x7C00, with timeouts,
 ;     status checks and retries (soft reset between attempts)
@@ -97,6 +98,10 @@ BDA_MEMSIZE     equ 0x0413      ; conventional memory size, KB
 BDA_CURSOR      equ 0x0450      ; column, then row, one byte each (page 0)
 BDA_TICKS       equ 0x046C      ; dword: PIT ticks since midnight (IRQ0)
 BDA_TICK_OVR    equ 0x0470      ; byte: 24-hour overflow flag
+BDA_KBD_HEAD    equ 0x041A      ; keyboard buffer head (offset into segment 0)
+BDA_KBD_TAIL    equ 0x041C      ; keyboard buffer tail
+BDA_KBD_BUF     equ 0x041E      ; 16 words: ASCII, then scancode
+BDA_KBD_END     equ 0x043E      ; first byte past the buffer
 ; Equipment: 80x25 colour (bits 4-5 = 10), one serial port (bits 9-11 = 1).
 ; No floppies, no parallel ports. Matches COM1 + VGA text in this firmware.
 BDA_EQUIP_VAL   equ 0x0220
@@ -111,6 +116,8 @@ PIC1_DATA       equ 0x21
 PIC2_CMD        equ 0xA0
 PIC2_DATA       equ 0xA1
 PIC_TICKS_DAY   equ 0x1800B0    ; ticks in 24 hours at ~18.2 Hz
+KBD_DATA        equ 0x60
+KBD_STATUS      equ 0x64
 
 ; INT 13h status
 ST_OK           equ 0x00
@@ -333,6 +340,8 @@ bda_init:
     mov word [ss:BDA_CURSOR], 0
     mov dword [ss:BDA_TICKS], 0
     mov byte [ss:BDA_TICK_OVR], 0
+    mov word [ss:BDA_KBD_HEAD], BDA_KBD_BUF
+    mov word [ss:BDA_KBD_TAIL], BDA_KBD_BUF
     ret
 
 ; Enable the A20 line through the fast gate at port 0x92 (System Control
@@ -453,10 +462,67 @@ pit_pic_init:
     mov al, 0x01                ; ICW4: 8086 mode
     out PIC1_DATA, al
     out PIC2_DATA, al
-    mov al, 0xFE                ; OCW1: unmask IRQ0 only
+    ; Keyboard: enable scan-code translation (set 2 -> set 1) and IRQ1,
+    ; drain stale bytes, then unmask IRQ0 and IRQ1 on the PIC.
+    call kbd_init
+    mov al, 0xFC                ; OCW1: unmask IRQ0 (timer) and IRQ1 (kbd)
     out PIC1_DATA, al
     mov al, 0xFF
     out PIC2_DATA, al
+    pop ax
+    ret
+
+; Program the i8042 so the OS sees XT (set-1) make/break codes: write
+; the controller command byte with XLAT and keyboard IRQ enabled, enable
+; scanning, and discard anything already in the output buffer.
+kbd_init:
+    push ax
+    push cx
+    mov al, 0x60                ; write command byte
+    call kbd_cmd
+    mov al, 0x65                ; IRQ1 + SYS + XLAT
+    call kbd_data
+    mov al, 0xAE                ; enable keyboard interface
+    call kbd_cmd
+    call kbd_drain
+    pop cx
+    pop ax
+    ret
+
+kbd_drain:
+    mov cx, 32
+.poll:
+    in al, KBD_STATUS
+    test al, 1
+    jz .done
+    in al, KBD_DATA
+    loop .poll
+.done:
+    ret
+
+; Wait for the input buffer to empty, then write AL to the command port.
+kbd_cmd:
+    call kbd_wait_in
+    out KBD_STATUS, al
+    ret
+
+; Wait for the input buffer to empty, then write AL to the data port.
+kbd_data:
+    call kbd_wait_in
+    out KBD_DATA, al
+    ret
+
+kbd_wait_in:
+    push ax
+    push cx
+    mov cx, 0xFFFF
+.wait:
+    in al, KBD_STATUS
+    test al, 2                  ; input buffer full
+    jz .ok
+    loop .wait
+.ok:
+    pop cx
     pop ax
     ret
 
@@ -471,10 +537,12 @@ pit_pic_init:
 ;   INT 13h AH=0x08   drive parameters (16 heads, 63 sectors)
 ;   INT 13h AH=0x42   extended read (LBA), packet size 0x10
 ;   INT 15h EAX=E820  next SQMM entry, same table as 0x0500
+;   INT 16h AH=0x00   read keystroke (wait)
+;   INT 16h AH=0x01   check keystroke (ZF clear if ready)
 ;
-; Any other request on those three vectors returns with CF set.
-; IRQ0 (INT 08h) increments the BDA tick count. Every other vector just
-; irets: a stray IRQ must not flip CF under a jc after INT 13h.
+; Any other request on those vectors returns with CF set (INT 16h check
+; clears CF and uses ZF). IRQ0 increments the BDA tick count; IRQ1 feeds
+; the keyboard buffer. Every other vector just irets.
 ; ---------------------------------------------------------------------------
 
 install_ivt:
@@ -494,9 +562,11 @@ install_ivt:
     stosw
     loop .fill
     mov word [es:0x08 * 4], irq0_handler
+    mov word [es:0x09 * 4], irq1_handler
     mov word [es:0x10 * 4], int10_handler
     mov word [es:0x13 * 4], int13_handler
     mov word [es:0x15 * 4], int15_handler
+    mov word [es:0x16 * 4], int16_handler
     pop cx
     pop ax
     pop di
@@ -525,6 +595,142 @@ irq0_handler:
     pop ds
     pop ax
     iret
+
+; IRQ1: keyboard. Read the scancode, ignore break codes, enqueue a
+; make-code pair (ASCII, scancode) in the BDA ring buffer when there is
+; room. EOI to the master PIC.
+irq1_handler:
+    push ax
+    push bx
+    push ds
+    xor ax, ax
+    mov ds, ax
+    in al, KBD_DATA
+    test al, 0x80
+    jnz .eoi                     ; break code
+    call kbd_lookup
+    jc .eoi                      ; unknown make code: drop
+    ; AL = ASCII, AH = scancode. Enqueue at tail if not full.
+    mov bx, [BDA_KBD_TAIL]
+    mov [bx], ax
+    add bx, 2
+    cmp bx, BDA_KBD_END
+    jb .wrap
+    mov bx, BDA_KBD_BUF
+.wrap:
+    cmp bx, [BDA_KBD_HEAD]
+    je .eoi                      ; full: drop the key
+    mov [BDA_KBD_TAIL], bx
+.eoi:
+    mov al, 0x20
+    out PIC1_CMD, al
+    pop ds
+    pop bx
+    pop ax
+    iret
+
+; In: AL = make scancode. Out: CF clear, AL = ASCII, AH = scancode;
+; CF set if this firmware has no ASCII for it. Uses CS-relative table.
+kbd_lookup:
+    push bx
+    push ds
+    mov ah, al                  ; keep scancode
+    cmp al, kbd_map_len
+    jae .bad
+    mov bx, cs
+    mov ds, bx
+    mov bx, kbd_map
+    xlat                        ; AL = map[scancode]
+    test al, al
+    jz .bad
+    ; AL = ASCII, AH = scancode
+    pop ds
+    pop bx
+    clc
+    ret
+.bad:
+    pop ds
+    pop bx
+    stc
+    ret
+
+; Set-1 make codes -> ASCII. Index is the scancode; 0 means "no glyph".
+; Only the keys the stand-in injects need to work; a few letters and
+; digits are enough for a PC-compatible INT 16h surface.
+kbd_map:
+    db 0, 0, '1', '2', '3', '4', '5', '6'      ; 00-07
+    db '7', '8', '9', '0', '-', '=', 8, 9      ; 08-0F  BS TAB
+    db 'q', 'w', 'e', 'r', 't', 'y', 'u', 'i'  ; 10-17
+    db 'o', 'p', '[', ']', 13, 0, 'a', 's'     ; 18-1F  Enter
+    db 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';'  ; 20-27
+    db "'", '`', 0, '\', 'z', 'x', 'c', 'v'    ; 28-2F
+    db 'b', 'n', 'm', ',', '.', '/', 0, '*'    ; 30-37
+    db 0, ' '                                   ; 38-39
+kbd_map_len equ $ - kbd_map
+
+; INT 16h: AH=0x00 read (wait), AH=0x01 check (ZF). Other AH -> CF set.
+; Stacked frame: [bp+2]=IP, [bp+4]=CS, [bp+6]=FLAGS.
+int16_handler:
+    push bp
+    mov bp, sp
+    cmp ah, 0x00
+    je .read
+    cmp ah, 0x01
+    je .check
+    or word [bp + 6], 1         ; CF
+    pop bp
+    iret
+.read:
+    push ds
+    push bx
+    xor bx, bx
+    mov ds, bx
+.wait:
+    mov bx, [BDA_KBD_HEAD]
+    cmp bx, [BDA_KBD_TAIL]
+    jne .got
+    sti
+    hlt
+    cli
+    jmp .wait
+.got:
+    mov ax, [bx]
+    add bx, 2
+    cmp bx, BDA_KBD_END
+    jb .rh
+    mov bx, BDA_KBD_BUF
+.rh:
+    mov [BDA_KBD_HEAD], bx
+    pop bx
+    pop ds
+    and word [bp + 6], 0xFFFE   ; clear CF
+    ; ZF not meaningful for AH=00
+    pop bp
+    iret
+.check:
+    push ds
+    push bx
+    xor bx, bx
+    mov ds, bx
+    mov bx, [BDA_KBD_HEAD]
+    cmp bx, [BDA_KBD_TAIL]
+    je .empty
+    mov ax, [bx]                ; peek; do not advance head
+    pop bx
+    pop ds
+    and word [bp + 6], 0xFFBE   ; clear CF and ZF
+    pop bp
+    iret
+.empty:
+    pop bx
+    pop ds
+    and word [bp + 6], 0xFFFE   ; clear CF
+    or word [bp + 6], 0x0040    ; set ZF
+    pop bp
+    iret
+
+; --- end keyboard --------------------------------------------------------
+
 
 ; Stacked real-mode frame: [bp+2] = IP, [bp+4] = CS, [bp+6] = FLAGS.
 int10_handler:

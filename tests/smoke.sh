@@ -159,6 +159,13 @@ run x86-pit "SquirrelBIOS x86|OS-ENTRY x86 pit=ok" \
     "$QEMU_X86" -bios x86/squirrel-bios.rom \
     -drive format=raw,file=$TEST_DIR/x86-pit.bin,if=ide
 
+# x86: INT 16h with IRQ1; harness injects 'a' through the QEMU monitor
+if tests/x86-kbd-run.sh; then
+    pass=$((pass + 1))
+else
+    fail=$((fail + 1))
+fi
+
 # x86: a CD-ROM as primary master is rejected, not read
 run x86-atapi "disk: primary master is ATAPI (CD/DVD), not supported|boot halted" \
     "$QEMU_X86" -bios x86/squirrel-bios.rom \
