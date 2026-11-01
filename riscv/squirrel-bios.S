@@ -3,8 +3,9 @@
  * mode QEMU asked for (S-mode for -kernel, through mret), with the hart ID
  * in a0 and the device tree in a1. An ecall from S-mode is an SBI call
  * (sbi_call below). Any other trap that reaches M-mode prints a ras: line
- * (hart, mcause, mepc, mtval, fatal), parks every other started hart, then
- * halts.
+ * (hart, mcause, mepc, mtval, fatal), parks every other started hart, prints
+ * boot halted, then shuts the machine down through the test finisher the
+ * same way SRST does for a system failure (QEMU exit status 1).
  * Original code.
  *
  * Build (from repo root):
@@ -158,6 +159,10 @@
         .equ FINISHER_PASS,     0x5555      /* power off */
         .equ FINISHER_RESET,    0x7777
         .equ SRST_WAIT,         10000000    /* mtime ticks: 1 s at 10 MHz */
+        /* After a fatal RAS line: give parked harts a moment to leave
+         * S-mode before the system-failure shutdown (smoke checks that
+         * an unparked hart would have printed by then). */
+        .equ RAS_SHUTDOWN_WAIT, 5000000     /* mtime ticks: 500 ms at 10 MHz */
 
         /* SBI: a7 = extension, a6 = function, a0-a5 = arguments.
          * Returns a0 = error, a1 = value. */
@@ -873,7 +878,10 @@ sbi_test_fault:
         lw t0, 0(zero)
 
 /* A fatal trap that is not an SBI call or an M-mode timer/soft interrupt:
- * print one ras: line, park every other started hart, then halt. */
+ * print one ras: line, park every other started hart, print boot halted,
+ * then shut the machine down as SRST system-failure (QEMU exit status 1).
+ * trap_fatal only runs after hand-off (an SBI path or a delegated miss),
+ * so "the OS is up" here means we already entered the image. */
 trap_fatal:
         la sp, stack_top
         csrr s0, mhartid
@@ -916,6 +924,17 @@ trap_fatal:
         bltu t4, t5, 1b
         la a0, msg_halted
         call puts
+        /* Let parked harts leave S-mode before the finisher kills QEMU. */
+        li t1, CLINT_MTIME
+        ld t2, 0(t1)
+        li t0, RAS_SHUTDOWN_WAIT
+        add t2, t2, t0
+4:      ld t0, 0(t1)
+        bltu t0, t2, 4b
+        /* Same encoding as sbi_srst shutdown + system failure. */
+        li t0, (1 << 16) | FINISHER_FAIL
+        li t1, TEST_FINISHER
+        sw t0, 0(t1)
         j halt
 
 /* PEND_PARK on a started hart: drop the S-mode context and never return. */

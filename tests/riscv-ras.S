@@ -1,9 +1,12 @@
-/* Smoke-test image for SquirrelBIOS RISC-V ras: fault line.
+/* Smoke-test image for SquirrelBIOS RISC-V ras: fault line and shutdown.
  * Run with -smp 2. Hart 0 starts hart 1, which prints hart1=up and then
- * waits two seconds before printing hart1=still. Hart 0 then ecalls the
+ * waits STILL_DELAY before printing hart1=still. Hart 0 then ecalls the
  * firmware's smoke-only SBI_EXT_TEST_FAULT so the SBI path faults in
  * M-mode. The firmware must print a ras: line, park hart 1 (so
- * hart1=still never appears), and halt.
+ * hart1=still never appears), print boot halted, and shut the machine
+ * down with a system-failure finisher (QEMU exit status 1). STILL_DELAY
+ * is shorter than the firmware's wait before that shutdown, so a missed
+ * park still shows up in the log.
  * Original code.
  */
 
@@ -13,7 +16,7 @@
         .equ SBI_EXT_HSM,       0x48534d
         .equ SBI_EXT_TEST_FAULT, 0x53515241  /* "SQRA"; firmware smoke only */
         .equ WAIT,              50000000    /* 5 s at virt's 10 MHz */
-        .equ STILL_DELAY,       20000000    /* 2 s: long enough that a park must beat it */
+        .equ STILL_DELAY,       1000000     /* 100 ms: park must beat this before shutdown */
 
 .global _start
 _start:
@@ -41,7 +44,7 @@ _start:
         bltu t4, t2, 1b
         j bad
 2:
-        /* Fault in the SBI handler: parks hart 1, prints ras:, halts. */
+        /* Fault in the SBI handler: parks hart 1, prints ras:, shuts down. */
         li a7, SBI_EXT_TEST_FAULT
         li a6, 0
         ecall
