@@ -208,9 +208,14 @@ addresses (segment 0):
 
 Other BDA bytes are not filled by this firmware yet.
 
-Do not assume: BIOS interrupt services other than the three above, A20
-state (enabled on QEMU, but the firmware does not touch it), or VGA
-graphics modes and a VGA BIOS (no option ROM is run).
+### A20
+
+Before the hand-off jump the firmware enables the A20 gate through the
+fast gate at port `0x92` (set bit 1, leave the reset bit clear). QEMU
+honours that port. The line stays enabled across the jump.
+
+Do not assume: BIOS interrupt services other than the three above, or
+VGA graphics modes and a VGA BIOS (no option ROM is run).
 
 ### Memory map
 
@@ -267,7 +272,7 @@ registers on COM1 (and the VGA text buffer), then halts:
 `make test` runs `x86-boot`, `x86-no-drive`, `x86-mem-low`,
 `x86-mem-high`, `x86-atapi`, `x86-bad-sector`, `x86-extra`,
 `x86-extra-map`, `x86-extra-boot`, `x86-extra-range`, `x86-osload`,
-`x86-int13` and `x86-bda`. In `x86-boot` the boot sector checks
+`x86-int13`, `x86-bda` and `x86-a20`. In `x86-boot` the boot sector checks
 `DL`, that `IF` and `DF` are clear, and that the memory map has the
 magic, 20-byte entries, ends by `0x0600`, contains the conventional and
 both reserved regions above exactly, requires an entry at `0x00100000`
@@ -309,6 +314,8 @@ the firmware enters `0x7C00`. That sector performs the same three
 `x86-bda` checks the equipment word, the conventional KB, and that the
 cursor at `0x0450` is still inside 80x25 after the banner, and prints
 `bda=ok`.
+`x86-a20` writes at `0x500000`, checks that `0x100500` and `0x000500`
+are independent (A20 open), and prints `a20=ok`.
 
 A Squirrel-OS/2 hard-disk image is not part of `make test`. Build
 `os.img` in that repo and run `tests/os-boot.sh path/to/os.img` (or
