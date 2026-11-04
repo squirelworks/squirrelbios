@@ -81,7 +81,9 @@ boots each firmware under QEMU with a small stand-in OS image from
 | `x86-usb-ehci-alone` | A lone EHCI controller on i440fx with a high-speed disk and tablet |
 | `x86-usb-xhci` | A QEMU xHCI controller: a super-speed disk on USB 3 port 2, a hub chain (mouse, second hub, keyboard) on USB 2 port 5, a tablet on port 7 |
 | `x86-usb-xhci-q35` | xHCI on q35 with a USB Attached SCSI disk at super speed |
+| `x86-usb-xhci-slots` | Ten devices on an xHCI with eight slots: each one that is not a hub gives its slot back once listed |
 | `x86-usb-kbd`, `x86-usb-kbd-hub` | A USB keyboard on UHCI (on a root port, then behind a hub) is kept running after POST; a key typed on it reaches `INT 16h` |
+| `x86-usb-kbd-xhci` | The same keyboard with an xHCI listed after it: the xHCI works from POST-only memory and the keyboard still types |
 | `x86-usb-q35` | Two ICH9 UHCI functions on q35, a hub behind a hub on the first and a tablet on the second; addresses run on across controllers |
 | `x86-pci` | On i440fx with a virtio-rng: `INT 1Ah` `B101` returns `'PCI '`, `B102`/`B103` find devices by ID and class, POST placed I/O, 32-bit and 64-bit memory BARs and enabled decoding, INTA's Interrupt Line matches the PIIX3 route, config writes read back, and `$PIR` checks out |
 | `x86-pci-q35` | The same on q35, booting from a PIIX3 IDE card; Interrupt Line is `0xFF` there |
@@ -90,7 +92,7 @@ boots each firmware under QEMU with a small stand-in OS image from
 | `x86-atapi` | With a disc too small for a boot record as primary master, the CD boot reports the failed read, then the firmware reports the ATAPI master and halts |
 | `x86-bad-sector` | A sector without the `0xAA55` signature is reported and not jumped to |
 | `x86-extra` | An SQBL header in the boot sector gets its extra sectors loaded before the jump |
-| `x86-extra-map`, `x86-extra-boot`, `x86-extra-range` | An SQBL load onto the memory map, onto the boot sector, or past the EBDA (`0x96000`) is refused |
+| `x86-extra-map`, `x86-extra-boot`, `x86-extra-range` | An SQBL load onto the memory map, onto the boot sector, or past the EBDA (`0x92000`) is refused |
 | `x86-osload` | A disk signed `S2OK` (the Squirrel-OS/2 layout, no SQBL header) is loaded at `0x8000` and entered there; `INT 15h` `E820` returns the memory map, and a malformed `INT 13h` packet returns with carry set |
 | `x86-int13` | A disk without that signature is entered at `0x7C00`. The boot sector reads with `INT 13h` `AH=0x42` / `0x02` / `0x08` / `0x00`, and `INT 10h` `AH=0x0E` writes the VGA cell it checks |
 | `arm-boot` | The `-kernel` image runs with a valid device tree in `x0`, `x1`–`x3` = 0, MMU and D-cache off, little-endian, `DAIF` masked |

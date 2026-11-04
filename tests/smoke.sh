@@ -118,7 +118,7 @@ run x86-extra "OS-ENTRY x86 extra dl=ok memmap=ok payload=ok" \
     -drive format=raw,file=$TEST_DIR/x86-extra.bin,if=ide
 
 # x86: SQBL loads that would land on the memory map or the boot sector,
-# or run past the EBDA (0x96000), are refused before anything is read or jumped to
+# or run past the EBDA (0x92000), are refused before anything is read or jumped to
 run x86-extra-map "disk: load overlaps firmware data|boot halted|!OS-ENTRY" \
     "$QEMU_X86" -bios x86/squirrel-bios.rom \
     -drive format=raw,file=$TEST_DIR/x86-extra-map.bin,if=ide
@@ -179,6 +179,15 @@ fi
 if KBD_NAME=x86-usb-kbd-hub \
    KBD_ARGS="-device piix3-usb-uhci,id=uhci,addr=5 -device usb-mouse,bus=uhci.0,port=1 -device usb-hub,bus=uhci.0,port=2 -device usb-kbd,bus=uhci.0,port=2.3" \
    KBD_EXPECT="usb: device 3 on hub 2 port 3: 0627:0001, HID|usb: keyboard is device 3" tests/x86-kbd-run.sh; then
+    pass=$((pass + 1))
+else
+    fail=$((fail + 1))
+fi
+# The keyboard on UHCI keeps the EBDA's USB pages, so an xHCI listed
+# after it works from memory that is free only during POST
+if KBD_NAME=x86-usb-kbd-xhci \
+   KBD_ARGS="-device qemu-xhci,id=xhci,addr=8 -device usb-tablet,bus=xhci.0,port=3 -device piix3-usb-uhci,id=uhci,addr=5 -device usb-kbd,bus=uhci.0,port=1" \
+   KBD_EXPECT="usb: keyboard is device 1|usb: xHCI at 00:08.0|usb: device 2 on root port 7: 0627:0001, HID" tests/x86-kbd-run.sh; then
     pass=$((pass + 1))
 else
     fail=$((fail + 1))
@@ -321,6 +330,18 @@ run x86-usb-xhci "usb: xHCI at 00:08.0|usb: device 1 on root port 2: 46F4:0001, 
     -device usb-hub,bus=xhci.0,port=1.4 -device usb-kbd,bus=xhci.0,port=1.4.8 \
     -drive if=none,id=usbdisk,format=raw,file=$TEST_DIR/x86-one-sector.bin,snapshot=on \
     -device usb-storage,bus=xhci.0,port=2,drive=usbdisk \
+    -device usb-tablet,bus=xhci.0,port=3
+
+# x86: ten devices on an xHCI that has eight slots for them: each device
+# that is not a hub gives its slot back once it has been listed
+run x86-usb-xhci-slots "usb: device 1 on root port 5: 0409:55AA, hub, 8 ports|usb: device 2 on hub 1 port 1: 0627:0001, HID|usb: device 9 on hub 1 port 8: 0627:0001, HID|usb: device 10 on root port 7: 0627:0001, HID|!usb: no answer|OS-ENTRY x86 dl=ok memmap=ok" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -drive format=raw,file=$TEST_DIR/x86-boot.bin,if=ide,snapshot=on \
+    -device qemu-xhci,id=xhci,addr=8 -device usb-hub,bus=xhci.0,port=1 \
+    -device usb-mouse,bus=xhci.0,port=1.1 -device usb-tablet,bus=xhci.0,port=1.2 \
+    -device usb-mouse,bus=xhci.0,port=1.3 -device usb-tablet,bus=xhci.0,port=1.4 \
+    -device usb-mouse,bus=xhci.0,port=1.5 -device usb-tablet,bus=xhci.0,port=1.6 \
+    -device usb-mouse,bus=xhci.0,port=1.7 -device usb-tablet,bus=xhci.0,port=1.8 \
     -device usb-tablet,bus=xhci.0,port=3
 
 # x86: xHCI on q35 with a USB Attached SCSI disk at super speed

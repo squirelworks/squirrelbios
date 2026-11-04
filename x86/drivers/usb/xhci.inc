@@ -16,18 +16,29 @@
 ; Address Device. A table maps usb_enum's address numbers to slots and
 ; keeps each device's route string for the devices behind it.
 ;
-; Structures in USB_SEG (usb.inc):
-;   0000h  device context base address array (slots 0-16)
+; Slots are few (8): a device that is not a hub gives its slot back
+; (Disable Slot) once it has been listed, so a bus of any size fits.
+;
+; What the controller reads and writes lives in one block, reached through
+; the flat GS at XHCI_BASE. The block is in the EBDA (+5000h, nine pages)
+; so that the controller can keep running after POST, unless a keyboard
+; already runs from there or the controller wants more scratchpad pages
+; than fit; then it is at XHCI_ALT, which is free only during POST.
+; Offsets in the block:
+;   0000h  device context base address array (slots 0-8)
 ;   0100h  event ring segment table (one entry)
+;   0140h  scratchpad buffer array
 ;   0200h  command ring, 16 TRBs
-;   0400h  event ring, 64 TRBs
-;   0800h  input context (up to 3 contexts of 64 bytes)
-;   2000h  output device contexts, 2 KB per slot (slots 1-16)
-;   A000h  endpoint 0 transfer rings, 16 TRBs per slot
+;   0300h  event ring, 64 TRBs
+;   0700h  (kept for the keyboard's interrupt transfers)
+;   0800h  endpoint 0 transfer rings, 16 TRBs per slot
+;   1000h  input context (up to 3 contexts of 64 bytes)
+;   2000h  output device contexts, 2 KB per slot (slots 1-8)
+;   6000h  scratchpad pages: 3 in the EBDA, up to 10 at XHCI_ALT
+; Software's own tables stay in USB_SEG (usb.inc):
 ;   B000h  ring state per slot: enqueue index, cycle bit
 ;   B100h  devices by address, 8 bytes each: slot, root port, speed ID,
 ;          hub depth, route string
-;   B800h  scratchpad buffer array; C000h-FFFFh: up to 4 scratchpad pages
 
 XHCI_BAR        equ 0x10
 ; Capability registers
@@ -73,6 +84,7 @@ TRB_DATA        equ 3
 TRB_STATUS      equ 4
 TRB_LINK        equ 6
 TRB_ENABLE_SLOT equ 9
+TRB_DISABLE_SLOT equ 10
 TRB_ADDRESS     equ 11
 TRB_RESET_EP    equ 14
 TRB_STOP_EP     equ 15
@@ -83,21 +95,30 @@ TRB_LINK_CTRL   equ (TRB_LINK << 10) | 0x12     ; toggle cycle, chain
 CC_SUCCESS      equ 1
 CC_SHORT        equ 13
 
+; The block (offsets from XHCI_BASE)
 XHCI_DCBAA      equ 0x0000
 XHCI_ERST       equ 0x0100
+XHCI_SPARRAY    equ 0x0140
 XHCI_CMDRING    equ 0x0200
-XHCI_EVRING     equ 0x0400
+XHCI_EVRING     equ 0x0300
 XHCI_EV_TRBS    equ 64
-XHCI_INCTX      equ 0x0800
-XHCI_DEVCTX     equ 0x2000
-XHCI_RINGS      equ 0xA000
+XHCI_RINGS      equ 0x0800
 XHCI_RING_TRBS  equ 16
+XHCI_INCTX      equ 0x1000
+XHCI_DEVCTX     equ 0x2000
+XHCI_SPPAGES    equ 0x6000
+XHCI_SLOTS      equ 8
+XHCI_EBDA       equ EBDA_BASE + 0x5000  ; the block, kept after POST
+XHCI_EBDA_SP    equ 3                   ; scratchpad pages that fit there
+XHCI_ALT        equ 0x40000             ; the block, POST only
+XHCI_ALT_SP     equ 10
+; In USB_SEG
 XHCI_RSTATE     equ 0xB000
 XHCI_ADDR       equ 0xB100
-XHCI_SPARRAY    equ 0xB800
-XHCI_SPPAGES    equ 0xC000
-XHCI_SP_MAX     equ 4
-XHCI_SLOTS      equ 16
+
+%if EBDA_SIZE < 0x5000 + XHCI_SPPAGES + XHCI_EBDA_SP * 0x1000
+%error "the xHCI block needs a 56 KB or larger EBDA"
+%endif
 
 ; Variables (USB_SEG, after usb.inc's)
 XHCI_RT         equ 0x1F18          ; dword: runtime registers
@@ -113,6 +134,7 @@ XHCI_EV2        equ 0x1F28          ; dword: last event's status
 XHCI_EV3        equ 0x1F2C          ; dword: last event's control
 XHCI_PEND       equ 0x1F30          ; the device being set up: as an
                                     ; XHCI_ADDR entry, then its TT dword
+XHCI_BASE       equ 0x1F48          ; dword: the block's linear address
 
 ; The xHCI function at USB_BDF (BX): take it over, reset it, run it, then
 ; enumerate each root port with a device. The controller is halted and
@@ -233,58 +255,78 @@ xhci_bus:
     pop ax
     jmp .out
 .reset_done:
-    ; Fresh structures
+    ; Where its block goes: the EBDA, unless a keyboard already runs from
+    ; there or the scratchpad pages do not fit
+    pop cx                      ; scratchpad buffers wanted
+    mov ebx, XHCI_EBDA
+    cmp byte [gs:dword EBDA_BASE + USBK_KIND], 0
+    jne .alt
+    cmp cx, XHCI_EBDA_SP
+    jbe .block
+.alt:
+    mov ebx, XHCI_ALT
+    cmp cx, XHCI_ALT_SP
+    ja .stop
+.block:
+    mov [fs:XHCI_BASE], ebx
+    ; Fresh structures: the block up to the scratchpad pages, and the
+    ; tables in USB_SEG
+    mov edi, ebx
+    push cx
+    mov cx, XHCI_SPPAGES / 4
+    call xhci_zero
     xor di, di
-    mov cx, XHCI_INCTX / 4
-    call xhci_zero
-    mov di, XHCI_DEVCTX
-    mov cx, (XHCI_SPARRAY - XHCI_DEVCTX) / 4
-    call xhci_zero
+.tables:
+    mov dword [fs:XHCI_RSTATE + di], 0
+    add di, 4
+    cmp di, 0x800
+    jb .tables
+    pop cx
     movzx eax, byte [fs:XHCI_MAXSLOT]
     mov [gs:esi + XHCI_CONFIG], eax
-    mov dword [gs:esi + XHCI_DCBAAP], USB_PHYS + XHCI_DCBAA
+    lea eax, [ebx + XHCI_DCBAA]
+    mov [gs:esi + XHCI_DCBAAP], eax
     mov dword [gs:esi + XHCI_DCBAAP + 4], 0
 
     ; Scratchpad buffers, if it wants a few
-    pop cx
     jcxz .no_scratch
-    cmp cx, XHCI_SP_MAX
-    ja .stop
-    mov di, XHCI_SPPAGES
-    xor bx, bx
+    lea edi, [ebx + XHCI_SPPAGES]
+    lea edx, [ebx + XHCI_SPARRAY]
+    mov [gs:ebx + XHCI_DCBAA], edx
 .scratch:
     push cx
     mov cx, 1024
     call xhci_zero
     pop cx
-    movzx eax, di
-    add eax, USB_PHYS
-    mov [fs:XHCI_SPARRAY + bx], eax
-    mov dword [fs:XHCI_SPARRAY + bx + 4], 0
-    add di, 0x1000
-    add bx, 8
+    mov [gs:edx], edi
+    mov dword [gs:edx + 4], 0
+    add edi, 0x1000
+    add edx, 8
     loop .scratch
-    mov dword [fs:XHCI_DCBAA], USB_PHYS + XHCI_SPARRAY
 .no_scratch:
 
     ; The command ring, then the event ring on interrupter 0
-    mov si, XHCI_CMDRING
+    lea esi, [ebx + XHCI_CMDRING]
     mov di, XHCI_CMDIDX
     call xhci_ring_init
-    mov esi, [fs:USB_MMIO]
-    mov dword [gs:esi + XHCI_CRCR], (USB_PHYS + XHCI_CMDRING) | 1
-    mov dword [gs:esi + XHCI_CRCR + 4], 0
-    mov dword [fs:XHCI_ERST], USB_PHYS + XHCI_EVRING
-    mov dword [fs:XHCI_ERST + 4], 0
-    mov dword [fs:XHCI_ERST + 8], XHCI_EV_TRBS
+    or esi, 1                   ; RCS
+    mov edi, [fs:USB_MMIO]
+    mov [gs:edi + XHCI_CRCR], esi
+    mov dword [gs:edi + XHCI_CRCR + 4], 0
+    mov esi, edi
+    lea eax, [ebx + XHCI_EVRING]
+    mov [gs:ebx + XHCI_ERST], eax
+    mov dword [gs:ebx + XHCI_ERST + 4], 0
+    mov dword [gs:ebx + XHCI_ERST + 8], XHCI_EV_TRBS
     mov byte [fs:XHCI_EVIDX], 0
     mov byte [fs:XHCI_EVCYC], 1
     mov edi, [fs:XHCI_RT]
     mov dword [gs:edi + XHCI_IMAN], 1          ; no interrupts; clear IP
     mov dword [gs:edi + XHCI_ERSTSZ], 1
-    mov dword [gs:edi + XHCI_ERDP], USB_PHYS + XHCI_EVRING
+    mov [gs:edi + XHCI_ERDP], eax
     mov dword [gs:edi + XHCI_ERDP + 4], 0
-    mov dword [gs:edi + XHCI_ERSTBA], USB_PHYS + XHCI_ERST
+    lea eax, [ebx + XHCI_ERST]
+    mov [gs:edi + XHCI_ERSTBA], eax
     mov dword [gs:edi + XHCI_ERSTBA + 4], 0
     mov dword [gs:esi + XHCI_USBCMD], XCMD_RS
     mov cx, 20
@@ -414,69 +456,77 @@ xhci_halt:
     pop cx
     ret
 
-; Zero CX dwords at FS:DI. Keeps every register.
+; Zero CX dwords at linear EDI (GS flat). Keeps every register.
 xhci_zero:
     push cx
-    push di
+    push edi
 .z:
-    mov dword [fs:di], 0
-    add di, 4
+    mov dword [gs:edi], 0
+    add edi, 4
     loop .z
-    pop di
+    pop edi
     pop cx
     ret
 
-; Empty the ring at FS:SI with its state (index, cycle) at FS:DI: its last
-; TRB links back to the start, not yet handed to the controller. Keeps
-; every register.
+; Empty the ring at linear ESI with its state (index, cycle) at FS:DI: its
+; last TRB links back to the start, not yet handed to the controller. GS
+; flat. Keeps every register.
 xhci_ring_init:
-    push eax
     push cx
-    push di
-    mov di, si
+    push edi
+    mov edi, esi
     mov cx, XHCI_RING_TRBS * 4
     call xhci_zero
-    pop di
-    movzx eax, si
-    add eax, USB_PHYS
-    mov [fs:si + (XHCI_RING_TRBS - 1) * 16], eax
-    mov dword [fs:si + (XHCI_RING_TRBS - 1) * 16 + 12], TRB_LINK_CTRL
+    pop edi
+    mov [gs:esi + (XHCI_RING_TRBS - 1) * 16], esi
+    mov dword [gs:esi + (XHCI_RING_TRBS - 1) * 16 + 12], TRB_LINK_CTRL
     mov byte [fs:di], 0
     mov byte [fs:di + 1], 1
     pop cx
-    pop eax
     ret
 
-; Slot SI: SI = its endpoint 0 ring, DI = that ring's state. Keeps every
-; other register.
+; Slot SI: ESI = its endpoint 0 ring (linear), DI = that ring's state.
+; Keeps every other register.
 xhci_ring_of:
     mov di, si
     shl di, 1
     add di, XHCI_RSTATE
-    dec si
-    shl si, 8
-    add si, XHCI_RINGS
+    and esi, 0xFFFF
+    dec esi
+    shl esi, 8
+    add esi, [fs:XHCI_BASE]
+    add esi, XHCI_RINGS
     ret
 
-; Put a TRB on the ring at FS:SI, state at FS:DI: EAX, EBX, ECX its first
-; three dwords, EDX its control dword without the cycle bit. At the link
-; TRB, hand it over and wrap. Keeps every register.
+; Linear address of the next TRB on the ring at linear ESI, state at FS:DI,
+; with its cycle bit in bit 0 (a dequeue pointer): EAX. Keeps every other
+; register.
+xhci_ring_ptr:
+    movzx eax, byte [fs:di]
+    shl eax, 4
+    add eax, esi
+    or al, [fs:di + 1]
+    ret
+
+; Put a TRB on the ring at linear ESI, state at FS:DI: EAX, EBX, ECX its
+; first three dwords, EDX its control dword without the cycle bit. At the
+; link TRB, hand it over and wrap. GS flat. Keeps every register.
 xhci_put:
     pushad
-    movzx bp, byte [fs:di]
-    shl bp, 4
-    add bp, si
-    mov [fs:bp], eax
-    mov [fs:bp + 4], ebx
-    mov [fs:bp + 8], ecx
+    movzx ebp, byte [fs:di]
+    shl ebp, 4
+    add ebp, esi
+    mov [gs:ebp], eax
+    mov [gs:ebp + 4], ebx
+    mov [gs:ebp + 8], ecx
     or dl, [fs:di + 1]
-    mov [fs:bp + 12], edx       ; the cycle bit last: now it is the HC's
+    mov [gs:ebp + 12], edx      ; the cycle bit last: now it is the HC's
     inc byte [fs:di]
     cmp byte [fs:di], XHCI_RING_TRBS - 1
     jb .out
     mov eax, TRB_LINK_CTRL
     or al, [fs:di + 1]
-    mov [fs:si + (XHCI_RING_TRBS - 1) * 16 + 12], eax
+    mov [gs:esi + (XHCI_RING_TRBS - 1) * 16 + 12], eax
     mov byte [fs:di], 0
     xor byte [fs:di + 1], 1
 .out:
@@ -491,15 +541,15 @@ xhci_event:
     movzx bp, al
     mov cx, 1000
 .look:
-    movzx di, byte [fs:XHCI_EVIDX]
-    shl di, 4
-    add di, XHCI_EVRING
-    mov edx, [fs:di + 12]
+    movzx edi, byte [fs:XHCI_EVIDX]
+    shl edi, 4
+    add edi, [fs:XHCI_BASE]
+    mov edx, [gs:edi + XHCI_EVRING + 12]
     mov al, dl
     and al, 1
     cmp al, [fs:XHCI_EVCYC]
     jne .wait
-    mov ebx, [fs:di + 8]
+    mov ebx, [gs:edi + XHCI_EVRING + 8]
     ; Take it off the ring and tell the controller
     inc byte [fs:XHCI_EVIDX]
     cmp byte [fs:XHCI_EVIDX], XHCI_EV_TRBS
@@ -509,7 +559,8 @@ xhci_event:
 .erdp:
     movzx eax, byte [fs:XHCI_EVIDX]
     shl eax, 4
-    add eax, USB_PHYS + XHCI_EVRING
+    add eax, [fs:XHCI_BASE]
+    add eax, XHCI_EVRING
     or al, 8                    ; EHB: write 1 to clear
     mov esi, [fs:XHCI_RT]
     mov [gs:esi + XHCI_ERDP], eax
@@ -541,7 +592,8 @@ xhci_event:
 xhci_cmd:
     pushad
     xor ecx, ecx
-    mov si, XHCI_CMDRING
+    mov esi, [fs:XHCI_BASE]
+    add esi, XHCI_CMDRING
     mov di, XHCI_CMDIDX
     call xhci_put
     mov esi, [fs:XHCI_DB]
@@ -567,40 +619,37 @@ xhci_address:
     movzx cx, byte [fs:XHCI_CTXSZ]
     imul cx, cx, 3
     shr cx, 2
-    mov di, XHCI_INCTX
+    mov edi, [fs:XHCI_BASE]
+    add edi, XHCI_INCTX
     call xhci_zero
-    mov dword [fs:XHCI_INCTX + 4], 3            ; add: slot and EP0
+    mov dword [gs:edi + 4], 3   ; add: slot and EP0
     ; Slot context: route string, speed, one entry, root port, TT
-    movzx bx, byte [fs:XHCI_CTXSZ]
-    add di, bx
+    movzx ebx, byte [fs:XHCI_CTXSZ]
+    add edi, ebx
     movzx eax, byte [fs:XHCI_PEND + 2]
     shl eax, 20
     or eax, [fs:XHCI_PEND + 4]
     or eax, 1 << 27
-    mov [fs:di], eax
+    mov [gs:edi], eax
     movzx eax, byte [fs:XHCI_PEND + 1]
     shl eax, 16
-    mov [fs:di + 4], eax
+    mov [gs:edi + 4], eax
     mov eax, [fs:XHCI_PEND + 8]
-    mov [fs:di + 8], eax
+    mov [gs:edi + 8], eax
     ; Endpoint 0 context: control, 3 retries, max packet, dequeue
-    add di, bx
+    add edi, ebx
     mov eax, ebp
     shl eax, 16
     or eax, (3 << 1) | (4 << 3)
-    mov [fs:di + 4], eax
-    mov dword [fs:di + 16], 8   ; average TRB length
-    push di
+    mov [gs:edi + 4], eax
+    mov dword [gs:edi + 16], 8  ; average TRB length
+    push edi
     movzx si, byte [fs:XHCI_PEND]
     call xhci_ring_of
-    movzx eax, byte [fs:di]
-    shl ax, 4
-    add ax, si
-    add eax, USB_PHYS
-    or al, [fs:di + 1]
-    pop di
-    mov [fs:di + 8], eax
-    mov dword [fs:di + 12], 0
+    call xhci_ring_ptr
+    pop edi
+    mov [gs:edi + 8], eax
+    mov dword [gs:edi + 12], 0
     ; The command
     movzx edx, byte [fs:XHCI_PEND]
     shl edx, 24
@@ -610,7 +659,8 @@ xhci_address:
     jz .bsr
     or edx, 1 << 9
 .bsr:
-    mov eax, USB_PHYS + XHCI_INCTX
+    mov eax, [fs:XHCI_BASE]
+    add eax, XHCI_INCTX
     xor ebx, ebx
     call xhci_cmd
     popad
@@ -668,6 +718,7 @@ xhci_attach:
     mov al, [fs:bx]
     mov [fs:XHCI_PEND + 8], eax
 .slot:
+    mov byte [fs:XHCI_PEND], 0
     xor eax, eax
     xor ebx, ebx
     mov edx, TRB_ENABLE_SLOT << 10
@@ -682,18 +733,17 @@ xhci_attach:
     mov [fs:XHCI_PEND], al
     mov [fs:XHCI_DEFSLOT], al
     ; Its output device context
-    mov di, si
-    dec di
-    shl di, 11
-    add di, XHCI_DEVCTX
+    movzx edi, si
+    dec edi
+    shl edi, 11
+    mov ebx, [fs:XHCI_BASE]
+    lea edi, [ebx + edi + XHCI_DEVCTX]
     mov cx, 0x800 / 4
     call xhci_zero
-    movzx eax, di
-    add eax, USB_PHYS
-    mov bx, si
-    shl bx, 3
-    mov [fs:XHCI_DCBAA + bx], eax
-    mov dword [fs:XHCI_DCBAA + bx + 4], 0
+    movzx eax, si
+    lea ebx, [ebx + eax * 8 + XHCI_DCBAA]
+    mov [gs:ebx], edi
+    mov dword [gs:ebx + 4], 0
     ; Its endpoint 0 ring
     call xhci_ring_of
     call xhci_ring_init
@@ -715,9 +765,58 @@ xhci_attach:
     ret
 .fail:
     mov byte [fs:XHCI_DEFSLOT], 0
+    movzx edx, byte [fs:XHCI_PEND]
+    test dl, dl
+    jz .failed
+    call xhci_disable           ; a slot it got but could not set up
+.failed:
     pop gs
     popad
     stc
+    ret
+
+; usb_detach for xHCI: give back the slot of the device at address AL, or
+; of the one at address 0 if it never got AL, unless it is the keyboard
+; kept for after POST. Keeps every register.
+xhci_detach:
+    pushad
+    push gs
+    call flat_gs
+    cmp al, [fs:USB_KBD_ADDR]
+    jne .not_kbd
+    mov dx, [fs:USB_BDF]
+    cmp dx, [fs:USB_KBD_BDF]
+    je .out
+.not_kbd:
+    movzx bx, al
+    shl bx, 3
+    movzx edx, byte [fs:XHCI_ADDR + bx]
+    mov byte [fs:XHCI_ADDR + bx], 0
+    test dl, dl
+    jnz .slot
+    movzx edx, byte [fs:XHCI_DEFSLOT]
+    test dl, dl
+    jz .out
+.slot:
+    cmp dl, [fs:XHCI_DEFSLOT]
+    jne .disable
+    mov byte [fs:XHCI_DEFSLOT], 0
+.disable:
+    call xhci_disable
+.out:
+    pop gs
+    popad
+    ret
+
+; Disable Slot EDX (GS flat). Keeps every register.
+xhci_disable:
+    pushad
+    shl edx, 24
+    or edx, TRB_DISABLE_SLOT << 10
+    xor eax, eax
+    xor ebx, ebx
+    call xhci_cmd
+    popad
     ret
 
 ; usb_control for xHCI: AL = address (0: the slot xhci_attach set up),
@@ -841,11 +940,7 @@ xhci_control:
     call xhci_cmd
     pop edx
     or edx, TRB_SET_DEQ << 10
-    movzx eax, byte [fs:di]
-    shl ax, 4
-    add ax, si
-    add eax, USB_PHYS
-    or al, [fs:di + 1]
+    call xhci_ring_ptr
     call xhci_cmd
     jmp .fail
 .done:
