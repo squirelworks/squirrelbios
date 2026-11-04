@@ -29,11 +29,13 @@ USB_BUF         equ 0x1900
 USB_BUFLEN      equ 256
 USB_HC          equ 0x1F00          ; byte: controller type of this bus
 USB_HC_UHCI     equ 1
+USB_HC_OHCI     equ 2
 USB_IOBASE      equ 0x1F02          ; word: controller I/O base
 USB_NEXTADDR    equ 0x1F04          ; byte: next device address (1-127)
 USB_BDF         equ 0x1F06          ; word: controller's PCI address
 USB_TOGGLE      equ 0x1F08          ; dword: next data toggle (UHCI token bit)
 USB_SAVESP      equ 0x1F0C          ; word: POST's stack pointer
+USB_MMIO        equ 0x1F10          ; dword: controller registers (OHCI)
 USB_STACK       equ 0x7C00          ; segment 0: enumeration nests deeper than
                                     ; the POST stack below 0x600 allows
 
@@ -41,6 +43,7 @@ USB_MAX_DEPTH   equ 5               ; hub tiers below the root hub
 
 ; Class, subclass, programming interface (PCI class 0C:03)
 USB_CLASS_UHCI  equ 0x0C0300
+USB_CLASS_OHCI  equ 0x0C0310
 
 ; Standard requests
 USB_REQ_GET_STATUS     equ 0
@@ -87,10 +90,15 @@ usb_init:
     call pci_read32
     pop di
     shr eax, 8
-    cmp eax, USB_CLASS_UHCI
-    jne .next
     mov [fs:USB_BDF], bx
+    cmp eax, USB_CLASS_UHCI
+    jne .not_uhci
     call uhci_bus
+    jmp .next
+.not_uhci:
+    cmp eax, USB_CLASS_OHCI
+    jne .next
+    call ohci_bus
 .next:
     inc bl
     jnz .fn
@@ -198,6 +206,8 @@ usb_setup:
 usb_control:
     cmp byte [fs:USB_HC], USB_HC_UHCI
     je uhci_control
+    cmp byte [fs:USB_HC], USB_HC_OHCI
+    je ohci_control
     stc
     ret
 

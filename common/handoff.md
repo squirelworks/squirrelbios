@@ -235,8 +235,10 @@ controller is left enabled with interrupts unused. As for SATA, the
 `INT 13h` calls are served from real mode only.
 
 **USB.** Before it looks for a boot disk, POST lists the USB devices on
-every UHCI controller (class `0C:03:00`) on PCI bus 0. It resets the
-controller and each root port that has a device. It then gives every
+every UHCI controller (class `0C:03:00`) and every OHCI controller
+(class `0C:03:10`) on PCI bus 0. It takes an OHCI controller back from
+SMM if SMM owns it. It then resets the controller and each root port
+that has a device. It then gives every
 device an address, starting at 1 and counting on across controllers,
 and reads its device and configuration descriptors. A hub is
 configured, its ports are powered and reset, and the devices behind it
@@ -255,7 +257,8 @@ when the device leaves it to the interfaces. It is printed as `HID`,
 Nothing USB runs after POST. Each controller is halted and reset once
 its devices are listed, so no device is configured at hand-off and no
 controller does DMA. The work memory is `0x30000`–`0x3FFFF`, and the
-listing runs on a stack just below `0x7C00`. Both are free, since
+listing runs on a stack just below `0x7C00`. OHCI registers are reached
+through unreal mode, as for AHCI. Both are free, since
 nothing has been loaded yet. The reset timings come from PIT
 channel 2, which is left gated off.
 
