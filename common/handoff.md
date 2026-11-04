@@ -235,8 +235,8 @@ controller is left enabled with interrupts unused. As for SATA, the
 `INT 13h` calls are served from real mode only.
 
 **USB.** Before it looks for a boot disk, POST lists the USB devices on
-every EHCI (class `0C:03:20`), UHCI (`0C:03:00`) and OHCI (`0C:03:10`)
-controller on PCI bus 0. EHCI controllers go first. Each one keeps its
+every EHCI (class `0C:03:20`), UHCI (`0C:03:00`), OHCI (`0C:03:10`)
+and xHCI (`0C:03:30`) controller on PCI bus 0. EHCI controllers go first. Each one keeps its
 high-speed devices and hands every low- or full-speed device to its
 companion UHCI or OHCI function, which is listed after it. It takes an
 OHCI or EHCI controller back from SMM if SMM owns it. It then resets
@@ -261,9 +261,17 @@ its devices are listed, so no device is configured at hand-off and no
 controller does DMA. An EHCI controller is halted but not reset, so
 `CONFIGFLAG` stays set and the ports it handed over stay with the
 companions. Low- and full-speed devices behind a high-speed hub would
-need split transactions, which are not supported. The work memory is `0x30000`–`0x3FFFF`, and the
-listing runs on a stack just below `0x7C00`. OHCI and EHCI registers are
-reached through unreal mode, as for AHCI. Both are free, since
+need split transactions, which are not supported.
+
+On xHCI the controller assigns the bus addresses, so the address
+numbers in the listing are the BIOS's own. Each device takes one of up
+to 16 slots, and a controller that wants more than four scratchpad pages
+is skipped. Hubs are enumerated through their route strings, but their
+slot contexts are not marked as hubs. Low- and full-speed devices behind
+a high-speed hub on xHCI get the hub's transaction translator, but this
+is untested, as QEMU has no high-speed hub. The work memory is `0x30000`–`0x3FFFF`, and the
+listing runs on a stack just below `0x7C00`. OHCI, EHCI and xHCI registers
+are reached through unreal mode, as for AHCI. Both are free, since
 nothing has been loaded yet. The reset timings come from PIT
 channel 2, which is left gated off.
 

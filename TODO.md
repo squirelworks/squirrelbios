@@ -371,14 +371,16 @@ roadmap item, run under QEMU in `make test`.
 - [x] `x86-nvme` — NVMe with `INT 13h` on top. Depends on: `x86-pci`.
   Squirrel-OS/2 1.0.0 boots from `-device nvme`. Namespace 1 only, with
   512-byte blocks; one controller; BAR0 must be below 4 GB.
-- [ ] `x86-uhci`, `x86-ohci`, `x86-ehci`, `x86-xhci` — USB host
+- [x] `x86-uhci`, `x86-ohci`, `x86-ehci`, `x86-xhci` — USB host
   controllers, one PR each. Depends on: `x86-pci`.
   - [x] `x86-uhci`, with the USB core (enumeration, hubs). Devices are
     listed at POST; nothing runs after it until B7/B8 need it.
   - [x] `x86-ohci`
   - [x] `x86-ehci`. High-speed devices on the root ports; the rest go to
     the companion controllers. No split transactions yet.
-  - [ ] `x86-xhci`
+  - [x] `x86-xhci`. Up to 16 devices per controller and 4 scratchpad
+    pages; hubs are not marked as hubs in their slot context (see the
+    handoff notes).
 - [ ] `x86-usb-hid` — USB keyboard/mouse feeding `INT 16h` / `INT 15h
   C2xx`.
 - [ ] `x86-usb-storage` — Boot from USB mass storage (BOT, then UAS).

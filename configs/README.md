@@ -36,7 +36,7 @@ platform's `default.cfg` writes the defaults out, and `make test`
 | `CONFIG_CDBOOT` | `y` | El Torito no-emulation boot from an ATAPI CD and `INT 13h` `DL = E0h` (`x86/drivers/atapi/`, `x86/boot/eltorito.inc`) |
 | `CONFIG_AHCI` | `y` | A SATA disk on an AHCI controller as `DL = 80h` when no IDE disk answered: boot and `INT 13h` (`x86/drivers/ahci/`). Needs `CONFIG_PCI` |
 | `CONFIG_NVME` | `y` | Namespace 1 of an NVMe controller as `DL = 80h` when no IDE or SATA disk answered: boot and `INT 13h` (`x86/drivers/nvme/`). Needs `CONFIG_PCI` |
-| `CONFIG_USB` | `y` | List the USB devices at POST: EHCI, UHCI and OHCI controllers, enumeration and hubs (`x86/drivers/usb/`). Needs `CONFIG_PCI` |
+| `CONFIG_USB` | `y` | List the USB devices at POST: EHCI, UHCI, OHCI and xHCI controllers, enumeration and hubs (`x86/drivers/usb/`). Needs `CONFIG_PCI` |
 | `CONFIG_PCI` | `y` | PCI bus 0 enumeration, BAR placement, PIIX3 IRQ routing, PCI BIOS `INT 1Ah` `AX=B1xx` and `$PIR` (`x86/drivers/pci/`) |
 | `CONFIG_FLOPPY` | `y` | 1.44 MB diskettes: FDC driver, `INT 13h` `DL = 0x00`/`0x01`, `INT 1Eh`, boot from A: (`x86/drivers/fdc/`, `x86/boot/floppy.inc`) |
 
