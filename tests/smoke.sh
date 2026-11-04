@@ -270,6 +270,22 @@ else
     fail=$((fail + 1))
 fi
 
+# x86: B10, VBE 3.0 on QEMU's standard VGA. 4F00h-4F03h, then a
+# 640x480x32 linear frame buffer filled through unreal mode with a red
+# square: QEMU's screen must show it. Then the same, back to 80x25 text
+# with 4F02h BX=3 (720x400 on screen)
+if VBE_NAME=x86-vbe VBE_SCREEN="640 480 0,0=336699 50,50=ff0000 109,109=ff0000 110,110=336699 639,479=336699" \
+   tests/x86-vbe-run.sh; then
+    pass=$((pass + 1))
+else
+    fail=$((fail + 1))
+fi
+if VBE_NAME=x86-vbe-text VBE_SCREEN="720 400" tests/x86-vbe-run.sh; then
+    pass=$((pass + 1))
+else
+    fail=$((fail + 1))
+fi
+
 # x86: a USB keyboard behind a hub on OHCI; then a full-speed one on an
 # ICH9 EHCI port, handed to its UHCI companion, which keeps it
 if KBD_NAME=x86-usb-kbd-ohci \

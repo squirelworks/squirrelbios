@@ -16,7 +16,7 @@ If the firmware and this file disagree, the firmware has a bug.
 | Console | COM1 `0x3F8`, 115200 8N1 | PL011 `0x09000000` | NS16550A `0x10000000`, 115200 8N1 |
 | Interrupts | `IF = 0`; PIT/PIC programmed, IRQ0 unmasked | `DAIF` masked | `mstatus.MIE`/`SIE` = 0, `mie = 0` |
 | CPUs running | Boot CPU only | Boot CPU only | The boot hart (`fw_dynamic_info.boot_hart`, else hart 0); others through `sbi_hart_start` |
-| Firmware services | `INT 13h` `AH=00/02/03/08/41/42/43/44/47/48` (on an IDE, SATA, NVMe, USB or virtio disk; diskettes `00/02/03/08/15`; boot CD `00/41/42/48/4B`), `INT 10h` `AH=02/03/06/07/0E/0F`, `INT 15h` `E820`/`AX=2400..2403`/`AH=C2` (USB mouse), `INT 16h` `AH=00/01`, `INT 1Ah` `AH=00/02`, PCI BIOS `AX=B101/B102/B103/B108..B10D` | None | SBI from S-mode: base, TIME, IPI, RFENCE, HSM, SRST |
+| Firmware services | `INT 13h` `AH=00/02/03/08/41/42/43/44/47/48` (on an IDE, SATA, NVMe, USB or virtio disk; diskettes `00/02/03/08/15`; boot CD `00/41/42/48/4B`), `INT 10h` `AH=02/03/06/07/0E/0F/4F` (VBE `4F00..4F03/06/07`), `INT 15h` `E820`/`AX=2400..2403`/`AH=C2` (USB mouse), `INT 16h` `AH=00/01`, `INT 1Ah` `AH=00/02`, PCI BIOS `AX=B101/B102/B103/B108..B10D` | None | SBI from S-mode: base, TIME, IPI, RFENCE, HSM, SRST |
 
 ## Rules for every architecture
 
@@ -178,6 +178,7 @@ The boot sector's calls, which the firmware serves on every path:
 | `INT 10h` `AH = 0x06` / `0x07` | Scroll up / down. `AL` = lines (`0` blanks the window), `BH` = blank attribute, `CH`/`CL`–`DH`/`DL` = window. Full-screen one-line scrolls move rows; other windows are blanked. CF clear. |
 | `INT 10h` `AH = 0x0E` | Teletype `AL` onto the VGA text screen in the normal attribute, from the cursor at `0x0450` (column, then row). CR, LF, BS and BEL behave as a teletype; the screen scrolls at row 25. Other registers are kept. CF clear. |
 | `INT 10h` `AH = 0x0F` | Get mode: `AL` = 3 (80x25 colour), `AH` = 80 columns, `BH` = 0. CF clear. |
+| `INT 10h` `AH = 0x4F` | VBE 3.0 on QEMU's standard VGA (PCI `1234:1111`, through its `1CEh`/`1CFh` display registers). `AL = 0x00` controller information at `ES:DI` (512 bytes if it starts `VBE2`): `VESA`, version 3.0, the video memory, and the mode list and strings inside the block. `0x01` mode information for `CX` at `ES:DI`. `0x02` set mode `BX`: bit 14 (linear frame buffer) is required, bit 15 keeps the video memory; `BX = 3` returns to 80x25 text with a blank screen and the cursor at (0, 0). `0x03` current mode in `BX` (`3` in text mode). `0x06` with `BL = 1`: bytes per line in `BX`, pixels in `CX`, lines the memory holds in `DX`. `0x07` display start: `BL = 0x00`/`0x80` set from `CX`, `DX`; `BL = 1` get. Modes `111h`/`112h` 640x480, `114h`/`115h` 800x600, `117h`/`118h` 1024x768, `11Ah`/`11Bh` 1280x1024, each at 16 bits (5:6:5) then 32 bits (8:8:8 with 8 reserved); the frame buffer is the VGA function's BAR0. `AX = 0x004F` on success, `0x014F` on failure (an unknown mode, no bit 14), `0x0100` for other functions or without that VGA. There are no banked windows, palette or protected-mode interface. |
 | `INT 16h` `AH = 0x00` | Wait for a keystroke. Returns `AL` = ASCII, `AH` = set-1 make scancode. CF clear. |
 | `INT 16h` `AH = 0x01` | Check the buffer. ZF clear and `AX` as above when a key is ready (not removed); ZF set when empty. CF clear. |
 | `INT 16h` other `AH` | CF set. |

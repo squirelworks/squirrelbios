@@ -19,6 +19,10 @@ int10_handler:
     je .scroll
     cmp ah, 0x0F
     je .getmode
+%if CONFIG_VBE
+    cmp ah, 0x4F
+    je vbe_handler
+%endif
     or word [bp + 6], 1
     pop bp
     iret

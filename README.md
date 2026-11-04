@@ -77,6 +77,7 @@ boots each firmware under QEMU with a small stand-in OS image from
 | `x86-virtio`, `x86-virtio-osload`, `x86-virtio-int13` | The `x86-edd` disk as a virtio-blk device in PCI slot 5 (the same checks, `AH=48h` naming PCI `00:05.0`), then the S2OK kernel load on q35 and the `INT 13h` boot sector from a virtio disk |
 | `x86-netboot`, `x86-netboot-q35`, `x86-netboot-big` | No disk: a virtio-net device gets an address from QEMU's DHCP server and loads the boot file over TFTP to `0x7C00` (5000 bytes; 2048 on q35, with an empty last block; 200000, past block 255), entered with `DL = FFh` |
 | `x86-netboot-missing`, `x86-netboot-huge` | A boot file the server does not have, and one too large for the memory below `0x40000`: each says why and the boot halts |
+| `x86-vbe`, `x86-vbe-text` | VBE 3.0: controller and mode information, mode 112h (640x480x32) set with a linear frame buffer that the test fills through unreal mode, checked on QEMU's screen; then back to 80x25 text with `4F02h` `BX=3` |
 | `x86-nvme-osload` | The 192-sector S2OK kernel load from NVMe on q35, past its empty AHCI controller |
 | `x86-usb` | A PIIX3 UHCI controller with a hub on root port 1 (a keyboard and a USB disk behind it) and a mouse on root port 2: each device is listed with its address, place, IDs and class, and the IDE disk then boots with the memory map intact |
 | `x86-usb-ohci` | An OHCI controller: a keyboard and a second hub behind a hub on root port 1, a tablet behind the second hub, a mouse on root port 3 |

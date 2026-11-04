@@ -103,6 +103,12 @@ BITS 16
 %if CONFIG_NETBOOT && !CONFIG_VIRTIO
 %error "CONFIG_NETBOOT needs CONFIG_VIRTIO"
 %endif
+%ifndef CONFIG_VBE
+%define CONFIG_VBE CONFIG_PCI
+%endif
+%if CONFIG_VBE && !CONFIG_PCI
+%error "CONFIG_VBE needs CONFIG_PCI"
+%endif
 %if CONFIG_AHCI && !CONFIG_PCI
 %error "CONFIG_AHCI needs CONFIG_PCI"
 %endif
@@ -270,6 +276,9 @@ ATTR_ERROR      equ 0x0C
 %include "drivers/rtc/int1a.inc"
 
 %include "drivers/vga/int10.inc"
+%if CONFIG_VBE
+%include "drivers/vga/vbe.inc"
+%endif
 
 %include "drivers/ata/int13.inc"
 
