@@ -292,6 +292,16 @@ run config-riscv-small "SquirrelBIOS RISC-V|next_mode=1|OS-ENTRY riscv hart=ok d
     "$QEMU_RISCV" -M virt -smp 2 -bios build/riscv64-virt/small/squirrel-bios.bin \
     -kernel $TEST_DIR/riscv-kernel.bin
 
+# Build configs: x86-pc/minimal (no ACPI, SMBIOS, bzImage loader or
+# option ROM scan) still boots the x86-boot image with every hand-off
+# check, and really leaves ACPI out (the x86-acpi image finds no RSDP)
+run config-x86-minimal "SquirrelBIOS x86|OS-ENTRY x86 dl=ok memmap=ok flags=ok vga=ok" \
+    "$QEMU_X86" -bios build/x86-pc/minimal/squirrel-bios.rom \
+    -drive format=raw,file=$TEST_DIR/x86-boot.bin,if=ide
+run config-x86-minimal-noacpi "OS-ENTRY x86 acpi=bad|!acpi=ok" \
+    "$QEMU_X86" -bios build/x86-pc/minimal/squirrel-bios.rom \
+    -drive format=raw,file=$TEST_DIR/x86-acpi.bin,if=ide
+
 # RISC-V: an ecall from S-mode reaches the SBI in M-mode and returns
 # SBI_ERR_NOT_SUPPORTED for an extension that does not exist
 run riscv-ecall "OS-ENTRY riscv ecall|ecall=ok|!trap mcause=" \

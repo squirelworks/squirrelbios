@@ -16,6 +16,8 @@ AARCH64 ?= aarch64-linux-gnu-
 RISCV64 ?= riscv64-linux-gnu-
 
 X86_ROM   := x86/squirrel-bios.rom
+# The x86 modules squirrel-bios.asm includes (core/, boot/, drivers/, tables/)
+X86_SRCS  := $(wildcard x86/*/*.inc x86/*/*/*.inc)
 ARM_BIN   := arm/squirrel-bios.bin
 RISCV_BIN := riscv/squirrel-bios.bin
 
@@ -78,7 +80,7 @@ riscv: $(RISCV_BIN)
 
 # --- firmware ---------------------------------------------------------
 
-$(X86_ROM): x86/squirrel-bios.asm x86/memmap.inc x86/vga.inc x86/font.inc x86/acpi.inc x86/smbios.inc
+$(X86_ROM): x86/squirrel-bios.asm $(X86_SRCS)
 	$(NASM) -f bin -i x86/ $< -o $@
 
 arm/squirrel-bios.o: arm/squirrel-bios.S
@@ -121,8 +123,8 @@ build/%/config.h: configs/%.cfg tools/mkconfig.sh
 	@mkdir -p $(@D)
 	tools/mkconfig.sh c $< > $@
 
-build/x86-pc/%/squirrel-bios.rom: x86/squirrel-bios.asm x86/memmap.inc x86/vga.inc x86/font.inc \
-		x86/acpi.inc x86/smbios.inc build/x86-pc/%/config.inc build/x86-pc/%/config.h
+build/x86-pc/%/squirrel-bios.rom: x86/squirrel-bios.asm $(X86_SRCS) \
+		build/x86-pc/%/config.inc build/x86-pc/%/config.h
 	$(NASM) -f bin -DSQ_CONFIG -i $(@D)/ -i x86/ $< -o $@
 
 build/aarch64-virt/%/squirrel-bios.o: arm/squirrel-bios.S build/aarch64-virt/%/config.inc build/aarch64-virt/%/config.h
@@ -147,7 +149,7 @@ build/riscv64-virt/%/squirrel-bios.bin: build/riscv64-virt/%/squirrel-bios.elf
 .PHONY: config-default
 config-default: x86 arm riscv build/x86-pc/default/squirrel-bios.rom \
 		build/aarch64-virt/default/squirrel-bios.bin build/riscv64-virt/default/squirrel-bios.bin \
-		build/riscv64-virt/small/squirrel-bios.bin
+		build/riscv64-virt/small/squirrel-bios.bin build/x86-pc/minimal/squirrel-bios.rom
 	cmp $(X86_ROM) build/x86-pc/default/squirrel-bios.rom
 	cmp $(ARM_BIN) build/aarch64-virt/default/squirrel-bios.bin
 	cmp $(RISCV_BIN) build/riscv64-virt/default/squirrel-bios.bin

@@ -8,6 +8,7 @@ the v0.3.0 hand-off contract. See [ROADMAP.md](ROADMAP.md),
 
 ```
 x86/        64 KB ROM — PC BIOS: ATA boot, INT 10h/13h/15h/16h/1Ah, ACPI, SMBIOS
+            (core/, boot/, drivers/, tables/ modules)
 arm/        AArch64 QEMU virt — PL011 banner + fw_cfg kernel load, DTB in x0
 riscv/      RISC-V QEMU virt — UART banner + S-mode entry to -kernel, DTB in a1, SBI
 tests/      stand-in OS images and smoke tests (make test)
@@ -104,6 +105,8 @@ boots each firmware under QEMU with a small stand-in OS image from
 | `riscv-srst-fail` | A shutdown for a system failure makes QEMU exit with status 1 |
 | `riscv-ras` | A fault in the SBI path prints `ras: hart=... mcause=... mepc=... mtval=... fatal`, parks the other started hart, prints `boot halted`, and shuts the machine down with QEMU exit status 1 |
 | `riscv-no-kernel` | Without `-kernel`, the firmware reports it and halts |
+| `config-x86-minimal` | The `x86-pc/minimal` build boots the `x86-boot` image with every hand-off check |
+| `config-x86-minimal-noacpi` | The same build has no RSDP (the `x86-acpi` image prints `acpi=bad`) |
 | `config-riscv-small` | The `riscv64-virt/small` build (8 harts tracked) boots the `riscv-boot` image |
 
 Needs `qemu-system-i386`, `qemu-system-aarch64` and `qemu-system-riscv64`.

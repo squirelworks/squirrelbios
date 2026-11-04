@@ -29,6 +29,14 @@ platform's `default.cfg` writes the defaults out, and `make test`
 |---|---|---|
 | `CONFIG_COM1_BASE` | `0x3F8` | I/O port of the serial console |
 | `CONFIG_ATA_ATTEMPTS` | `3` | Tries per ATA read before reporting the failure |
+| `CONFIG_ACPI` | `y` | ACPI RSDP/RSDT/FADT/DSDT in the ROM (`x86/tables/acpi/`) |
+| `CONFIG_SMBIOS` | `y` | SMBIOS 2.4 entry point and tables (`x86/tables/smbios/`) |
+| `CONFIG_BZIMAGE` | `y` | Linux bzImage loader (`x86/boot/bzimage.inc`); without it a `HdrS` disk boots as a plain boot sector |
+| `CONFIG_OPTROM` | `y` | Option ROM scan at `0xD0000`–`0xEFFFF` (`x86/boot/optrom.inc`) |
+
+`x86-pc/minimal.cfg` turns the four modules off. `make test` boots it
+(`config-x86-minimal`) and checks that it really has no ACPI tables
+(`config-x86-minimal-noacpi`). The ROM stays 64 KB; the space is padding.
 
 ### aarch64-virt
 
