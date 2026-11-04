@@ -97,7 +97,8 @@ x86 v1.0.0.
 | Firmware services | `INT 08h`/`09h`/`10h`/`13h`/`15h`/`16h`/`1Ah`; ACPI; SMBIOS; option ROMs | None after jump | SBI: base, TIME, IPI, RFENCE, HSM, SRST |
 | Other CPUs | Boot CPU only | Boot CPU only | Boot hart (+ `sbi_hart_start`); up to 512 harts tracked |
 
-`make test` is the CI gate (58 cases at v1.0.0). `make linux-shell` /
+`make test` is the CI gate (58 cases at v1.0.0). `make linux-x86`,
+`make linux-shell` /
 `make linux-big` are optional RISC-V Linux checks.
 
 ## Milestones (done through v1.0.0)

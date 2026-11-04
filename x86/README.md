@@ -27,14 +27,18 @@ qemu-system-i386 -bios squirrel-bios.rom -drive format=raw,file=boot.bin,if=ide 
 - `INT 15h` `AX=0x2400`–`0x2403` control and query the A20 gate
 - Places a SMBIOS 2.4 entry point at `0xFD000` (`smbios.inc`) and a
   minimal ACPI 1.0 RSDP/RSDT/FADT at `0xFE000` (`acpi.inc`)
-- Detects a Linux `bzImage` (`HdrS`), loads the PM kernel at 1 MB, and
-  enters it in 32-bit protected mode with `ESI` = boot_params
+- Detects a Linux `bzImage` (`HdrS`), loads the whole PM kernel at 1 MB
+  (any size that fits in RAM), fills boot_params (setup header, E820
+  table, command line, `type_of_loader`) and enters it through the 32-bit
+  boot protocol (`CS = 0x10`, `DS = 0x18`, `ESI` = boot_params). Ubuntu
+  24.04's amd64 kernel starts on it (`make linux-x86`)
 - Scans option ROMs at `0xD0000`–`0xEFFFF` (`55 AA` + checksum) and
   far-calls each init
 - Prints banner
 - ATA PIO reads LBA 0 into `0x7C00`, with timeouts on every status wait,
   `ERR`/`DF` checks, and up to 3 attempts with a soft reset in between;
-  if the primary master is absent, retries the same read on the slave
+  the master and slave are first probed with `IDENTIFY DEVICE`, and the
+  boot read goes to the first one that answered
 - Detects a missing drive or an ATAPI device and says so instead of hanging
 - On failure prints the reason and the ATA status/error registers, then halts
 - Refuses a sector whose last word is not `0xAA55` (not retried), then halts
