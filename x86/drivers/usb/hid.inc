@@ -7,7 +7,10 @@
 ; can keep running is configured, switched to the boot protocol and told
 ; to report only on changes. When that controller's bus has been listed,
 ; it is not halted: its schedule moves into the EBDA (pages at +5000h)
-; and runs just one transfer, an interrupt IN from the keyboard. IRQ0
+; and runs just one transfer, an interrupt IN from the keyboard (UHCI:
+; a frame list whose every frame holds one queue head with one TD; OHCI:
+; an HCCA whose 32 interrupt lists all hold one endpoint descriptor with
+; one TD and an empty tail). IRQ0
 ; looks at that transfer 18.2 times a second; a finished one is an
 ; 8-byte report, whose newly pressed keys go into the BDA keyboard buffer
 ; as the 8042 path would put them, and the transfer is armed again. The
@@ -15,8 +18,10 @@
 ; between ticks.
 ;
 ; EBDA layout from +5000h (USBK_*, offsets in the EBDA segment):
-;   5000h  UHCI frame list, 4 KB, every entry the queue head
-;   6000h  queue head; 6020h transfer descriptor
+;   5000h  UHCI frame list, 4 KB, every entry the queue head;
+;          OHCI: the HCCA (256 bytes)
+;   6000h  queue head (UHCI) or endpoint descriptor (OHCI)
+;   6020h  transfer descriptor; 6030h OHCI's empty tail TD
 ;   6040h  report buffer (8 bytes); 6048h previous report
 ;   6050h  runtime variables
 
@@ -24,12 +29,14 @@ USBK_SEG        equ EBDA_BASE >> 4
 USBK_FL         equ 0x5000
 USBK_QH         equ 0x6000
 USBK_TD         equ 0x6020
+USBK_TAIL       equ 0x6030
 USBK_BUF        equ 0x6040
 USBK_PREV       equ 0x6048
-USBK_KIND       equ 0x6050          ; byte: 0 none, 1 UHCI
+USBK_KIND       equ 0x6050          ; byte: 0 none, 1 UHCI, 2 OHCI
 USBK_TOKEN      equ 0x6054          ; dword: next TD token (UHCI)
 USBK_STATUS     equ 0x6058          ; dword: TD status to arm with (UHCI)
 USBK_KIND_UHCI  equ 1
+USBK_KIND_OHCI  equ 2
 
 %if EBDA_SIZE < 0x7000
 %error "USB keyboard needs a 28 KB or larger EBDA"
@@ -56,7 +63,10 @@ usb_hid_claim:
     cmp byte [fs:USB_KBD_ADDR], 0
     jne .out
     cmp byte [fs:USB_HC], USB_HC_UHCI
+    je .can
+    cmp byte [fs:USB_HC], USB_HC_OHCI
     jne .out
+.can:
     ; SET_CONFIGURATION
     mov ax, USB_REQ_SET_CONFIG << 8
     movzx cx, byte [bp - 12]
@@ -210,8 +220,65 @@ uhci_hid_start:
     popad
     ret
 
+; OHCI at GS:ESI (flat GS), its bus listed: point its HCCA at the EBDA,
+; with the keyboard's endpoint on every interrupt list, and run only the
+; periodic list. Keeps every register.
+ohci_hid_start:
+    pushad
+    push es
+    push word USBK_SEG
+    pop es
+    ; Stop the lists, then the new HCCA
+    mov dword [gs:esi + OHCI_CONTROL], OCTL_HCFS_OPER
+    mov cx, 2
+    call delay_ms
+    xor di, di
+.hcca:
+    mov dword [es:USBK_FL + di], EBDA_BASE + USBK_QH
+    add di, 4
+    cmp di, 32 * 4
+    jb .hcca
+.zero:
+    mov dword [es:USBK_FL + di], 0
+    add di, 4
+    cmp di, 256
+    jb .zero
+    ; The endpoint: address, endpoint, IN, speed, max packet (8 at most)
+    movzx eax, byte [fs:USB_KBD_MPS]
+    cmp al, 8
+    jbe .mps
+    mov al, 8
+.mps:
+    shl eax, 16
+    or eax, 2 << 11             ; direction IN
+    movzx ebx, byte [fs:USB_KBD_EP]
+    shl ebx, 7
+    or eax, ebx
+    or al, [fs:USB_KBD_ADDR]
+    cmp byte [fs:USB_KBD_SPEED], 1
+    jne .fs
+    or eax, ED_LOWSPEED
+.fs:
+    mov [es:USBK_QH], eax
+    mov dword [es:USBK_QH + 4], EBDA_BASE + USBK_TAIL   ; TailP
+    mov dword [es:USBK_QH + 8], EBDA_BASE + USBK_TD     ; HeadP: DATA0
+    mov dword [es:USBK_QH + 12], 0
+    xor eax, eax
+    mov [es:USBK_PREV], eax
+    mov [es:USBK_PREV + 4], eax
+    mov byte [es:USBK_KIND], USBK_KIND_OHCI
+    call usb_hid_arm
+    mov dword [gs:esi + OHCI_HCCA], EBDA_BASE + USBK_FL
+    mov dword [gs:esi + OHCI_CONTROL], OCTL_HCFS_OPER | OCTL_PLE
+    call usb_hid_announce
+    pop es
+    popad
+    ret
+
 ; Arm the keyboard's transfer again (ES = USBK_SEG). Keeps every register.
 usb_hid_arm:
+    cmp byte [es:USBK_KIND], USBK_KIND_OHCI
+    je .ohci
     push eax
     mov dword [es:USBK_TD], TD_T
     mov eax, [es:USBK_TOKEN]
@@ -220,6 +287,26 @@ usb_hid_arm:
     mov eax, [es:USBK_STATUS]
     mov [es:USBK_TD + 4], eax
     mov dword [es:USBK_QH + 4], EBDA_BASE + USBK_TD     ; last: now the HC's
+    pop eax
+    ret
+.ohci:
+    ; A general TD for 8 bytes IN, the toggle from the endpoint, then the
+    ; empty tail; HeadP back to it, keeping the toggle carry and clearing
+    ; a halt
+    push eax
+    mov dword [es:USBK_TD], GTD_CC_NEW | GTD_NOINT | GTD_IN | GTD_ROUNDING
+    mov dword [es:USBK_TD + 4], EBDA_BASE + USBK_BUF
+    mov dword [es:USBK_TD + 8], EBDA_BASE + USBK_TAIL
+    mov dword [es:USBK_TD + 12], EBDA_BASE + USBK_BUF + 7
+    xor eax, eax
+    mov [es:USBK_TAIL], eax
+    mov [es:USBK_TAIL + 4], eax
+    mov [es:USBK_TAIL + 8], eax
+    mov [es:USBK_TAIL + 12], eax
+    mov eax, [es:USBK_QH + 8]
+    and eax, 2                  ; toggle carry
+    or eax, EBDA_BASE + USBK_TD
+    mov [es:USBK_QH + 8], eax
     pop eax
     ret
 
@@ -232,6 +319,8 @@ usb_hid_poll:
     push es
     push word USBK_SEG
     pop es
+    cmp byte [es:USBK_KIND], USBK_KIND_OHCI
+    je .ohci
     cmp byte [es:USBK_KIND], USBK_KIND_UHCI
     jne .out
     mov eax, [es:USBK_TD + 4]
@@ -248,6 +337,18 @@ usb_hid_poll:
     pop eax
     popf
     ret
+.ohci:
+    ; Done when the endpoint's head has moved on to the tail (or halted)
+    mov eax, [es:USBK_QH + 8]
+    test al, ED_HALTED
+    jnz .again
+    and eax, ~0x0F
+    cmp eax, EBDA_BASE + USBK_TAIL
+    jne .out
+    test dword [es:USBK_TD], 0xF0000000     ; condition code
+    jnz .again
+    call usb_hid_report
+    jmp .again
 
 ; A boot keyboard report at ES:USBK_BUF: every key in it that was not in
 ; the previous one is a key press, put in the BDA buffer with the

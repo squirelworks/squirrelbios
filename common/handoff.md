@@ -260,11 +260,12 @@ Apart from one keyboard, nothing USB runs after POST. Each controller
 is halted and reset once its devices are listed, so no device is
 configured at hand-off and no controller does DMA.
 
-The exception is the first boot-protocol keyboard found on a UHCI
-controller (`usb: keyboard is device N`). It is configured and set to
-the boot protocol, and its controller keeps running with a schedule in
-the EBDA (`0x9B000`–`0x9C04F`) that holds only the keyboard's interrupt
-transfer. IRQ0 checks that transfer on every tick. A key pressed on the
+The exception is the first boot-protocol keyboard found on a UHCI or
+OHCI controller (`usb: keyboard is device N`); a keyboard on an EHCI
+port is on its companion. It is configured and set to the boot
+protocol, and its controller keeps running with a schedule in the EBDA
+(`0x9B000`–`0x9C05F`) that holds only the keyboard's interrupt transfer
+(OHCI: only the periodic list runs). IRQ0 checks that transfer on every tick. A key pressed on the
 keyboard goes into the BDA keyboard buffer like a key from the 8042,
 with the same ASCII table, plus Shift and Ctrl on letters, so `INT 16h`
 reads it. An OS that drives the controller itself resets it, and the
