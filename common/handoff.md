@@ -16,7 +16,7 @@ If the firmware and this file disagree, the firmware has a bug.
 | Console | COM1 `0x3F8`, 115200 8N1 | PL011 `0x09000000` | NS16550A `0x10000000`, 115200 8N1 |
 | Interrupts | `IF = 0`; PIT/PIC programmed, IRQ0 unmasked | `DAIF` masked | `mstatus.MIE`/`SIE` = 0, `mie = 0` |
 | CPUs running | Boot CPU only | Boot CPU only | The boot hart (`fw_dynamic_info.boot_hart`, else hart 0); others through `sbi_hart_start` |
-| Firmware services | `INT 13h` `AH=00/02/03/08/42/43`, `INT 10h` `AH=02/03/06/07/0E/0F`, `INT 15h` `E820`/`AX=2400..2403`, `INT 16h` `AH=00/01`, `INT 1Ah` `AH=00/02` | None | SBI from S-mode: base, TIME, IPI, RFENCE, HSM, SRST |
+| Firmware services | `INT 13h` `AH=00/02/03/08/42/43` (diskettes `00/02/03/08/15`), `INT 10h` `AH=02/03/06/07/0E/0F`, `INT 15h` `E820`/`AX=2400..2403`, `INT 16h` `AH=00/01`, `INT 1Ah` `AH=00/02` | None | SBI from S-mode: base, TIME, IPI, RFENCE, HSM, SRST |
 
 ## Rules for every architecture
 
@@ -37,6 +37,8 @@ The OS must not assume:
    `EAX = 0xE820` returns the memory map. `INT 13h` `AH = 0x00`, `0x02`,
    `0x08` and `0x42` read the primary master (`DL = 0x80`) or primary
    slave (`DL = 0x81`); `AH = 0x03` and `0x43` write the same drives.
+   With `DL = 0x00` / `0x01`, `INT 13h` `AH = 0x00`, `0x02`, `0x03`,
+   `0x08` and `0x15` work on 1.44 MB diskettes in A: / B:.
    `INT 10h` `AH = 0x0E`
    writes one character to the VGA text screen; `AH = 0x02`/`0x03` set
    or get the cursor, `AH = 0x06`/`0x07` scroll, and `AH = 0x0F` reports
@@ -183,9 +185,30 @@ a count above 128, or a buffer that is not entirely below `0xA0000`,
 returns with CF set and `AH = 0x01`. A sector that is not on the disk
 returns with CF set and `AH = 0x04` (read) or `AH = 0x05` (reset failed)
 or `AH = 0x80` (timeout). `AH = 0x02` reports `AL = 0` when nothing was
-transferred. There is no floppy. The firmware boots from the master when
+transferred. The firmware boots from the master when
 it answers; if the master is absent it tries the slave and hands off with
 `DL = 0x81`.
+
+**Diskettes.** Drives come from CMOS register `0x10` (high nibble A:,
+low nibble B:); the BDA equipment word gets bit 0 and bits 6–7 to match.
+Before any hard disk, the firmware reads cylinder 0, head 0, sector 1 of
+A: to `0x7C00`. With the `0xAA55` signature it prints
+`booting from floppy A:` and hands off with `DL = 0x00`; without it, it
+prints `floppy: boot sector has no 0xAA55 signature, trying the hard
+disk` and goes on to the ATA boot. An empty drive is skipped quietly.
+Media is 1.44 MB (80 cylinders, 2 heads, 18 sectors). Transfers use
+ISA DMA channel 2 with IRQ 6 left masked. `INT 1Eh` points at an
+11-byte diskette parameter table in the ROM.
+
+| Call (`DL = 0x00` or `0x01`) | Result |
+|------|--------|
+| `AH = 0x00` | Reset the controller. CF clear, `AH = 0`. |
+| `AH = 0x02` / `0x03` | Read / write `AL` sectors at `CH`/`DH`/`CL` (sector 1–18) to / from `ES:BX`, continuing onto the next head and cylinder. `AL` = sectors done. CF clear and `AH = 0` on success; otherwise CF set and `AH` = `0x01` (bad call), `0x03` (write-protected), `0x04` (sector not found), `0x09` (a sector's buffer crosses a 64 KB physical boundary), `0x10` (CRC), `0x20` (controller), `0x40` (seek) or `0x80` (timeout, e.g. no media). Each sector is tried twice, with a reset in between. |
+| `AH = 0x08` | `BL` = CMOS drive type, `CH = 79`, `CL = 18`, `DH = 1`, `DL` = number of diskette drives, `ES:DI` = the parameter table. CF clear, `AX = 0`. A drive CMOS does not report: CF set, `AH = 0x07`. |
+| `AH = 0x15` | `AH = 1` (diskette, no change line) for a drive CMOS reports, `0` otherwise. CF clear. |
+
+The last diskette status is kept at `0x0441`. Other `AH`, or a drive CMOS
+does not report, returns CF set and `AH = 0x01`.
 
 At POST the firmware selects each unit and sends `IDENTIFY DEVICE`, so
 presence is judged from the status that command produces, not from
@@ -198,7 +221,8 @@ returns CF set and `AH = 0x07`.
 
 Before the jump the firmware fills the real-mode IVT. The vectors for
 `INT 08h` (IRQ0), `INT 09h` (IRQ1), `INT 10h`, `INT 13h`, `INT 15h`,
-`INT 16h` and `INT 1Ah` point at those services in the ROM (`0xF000`,
+`INT 16h` and `INT 1Ah` point at those services in the ROM, and `INT 1Eh`
+at the diskette parameter table (`0xF000`,
 where this 64 KB image is mapped). Every other vector is an `iret` that
 does not change flags, so a stray IRQ cannot flip CF. `IF` stays clear;
 IRQ0 and IRQ1 are unmasked on the PIC so a later `STI` receives timer

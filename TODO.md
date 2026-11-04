@@ -354,7 +354,7 @@ Later phases (C–F) get boxes here when Phase B is finished. Every PR says
 One box per PR, in order. Acceptance for each is the test in the
 roadmap item, run under QEMU in `make test`.
 
-- [ ] `x86-floppy` — 82077 FDC, `INT 13h DL=00h/01h`, `INT 1Eh`, boot
+- [x] `x86-floppy` — 82077 FDC, `INT 13h DL=00h/01h`, `INT 1Eh`, boot
   `-fda`.
 - [ ] `x86-pci` — PCI enumeration, `$PIR`, PCI BIOS `INT 1Ah B1xx`.
 - [ ] `x86-edd` — `INT 13h` EDD 3.0, LBA48, El Torito over ATAPI.

@@ -35,6 +35,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/x86-optrom.bin \
              $(TEST_DIR)/x86-bzimage-big.bin $(TEST_DIR)/x86-bzimage-toobig.bin \
              $(TEST_DIR)/x86-params.bin $(TEST_DIR)/x86-params-slave.bin \
+             $(TEST_DIR)/x86-floppy.img $(TEST_DIR)/x86-floppy-nosig.img \
              $(TEST_DIR)/arm-kernel.bin $(TEST_DIR)/arm-too-big.bin \
              $(TEST_DIR)/arm-image-fixed.bin $(TEST_DIR)/arm-image-reloc.bin \
              $(TEST_DIR)/arm-image-short.bin $(TEST_DIR)/arm-initrd.img \
@@ -249,6 +250,15 @@ $(TEST_DIR)/x86-params.bin: tests/x86-params.asm | $(TEST_DIR)
 	$(NASM) -f bin $< -o $@
 $(TEST_DIR)/x86-params-slave.bin: tests/x86-params.asm | $(TEST_DIR)
 	$(NASM) -f bin -DSLAVE $< -o $@
+
+# 1.44 MB diskettes: the floppy stand-in in C0 H0 S1, every other sector
+# tagged with its LBA; the -nosig one has no 0xAA55 (the hard disk boots)
+$(TEST_DIR)/x86-floppy.bin: tests/x86-floppy.asm | $(TEST_DIR)
+	$(NASM) -f bin $< -o $@
+$(TEST_DIR)/x86-floppy.img: $(TEST_DIR)/x86-floppy.bin tests/mkfloppy.py
+	tests/mkfloppy.py $< $@
+$(TEST_DIR)/x86-floppy-nosig.img: $(TEST_DIR)/x86-floppy.bin tests/mkfloppy.py
+	tests/mkfloppy.py $< $@ --nosig
 
 # Legacy option ROM (55 AA); last byte patched so the 512-byte sum is 0
 $(TEST_DIR)/x86-optrom.bin: tests/x86-optrom.asm | $(TEST_DIR)

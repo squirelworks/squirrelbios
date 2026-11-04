@@ -33,6 +33,7 @@ platform's `default.cfg` writes the defaults out, and `make test`
 | `CONFIG_SMBIOS` | `y` | SMBIOS 2.4 entry point and tables (`x86/tables/smbios/`) |
 | `CONFIG_BZIMAGE` | `y` | Linux bzImage loader (`x86/boot/bzimage.inc`); without it a `HdrS` disk boots as a plain boot sector |
 | `CONFIG_OPTROM` | `y` | Option ROM scan at `0xD0000`–`0xEFFFF` (`x86/boot/optrom.inc`) |
+| `CONFIG_FLOPPY` | `y` | 1.44 MB diskettes: FDC driver, `INT 13h` `DL = 0x00`/`0x01`, `INT 1Eh`, boot from A: (`x86/drivers/fdc/`, `x86/boot/floppy.inc`) |
 
 `x86-pc/minimal.cfg` turns the four modules off. `make test` boots it
 (`config-x86-minimal`) and checks that it really has no ACPI tables
