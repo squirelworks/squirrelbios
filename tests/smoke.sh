@@ -795,12 +795,29 @@ run riscv-no-kernel "boot: no kernel image|boot halted" \
 # -m 4G; i440fx works the same). Then the EFI system table, the UEFI
 # memory map with the firmware's own areas carved out, and the memory
 # services checked through the boot services table
-run x86_64-uefi "SquirrelBIOS 2.0.0-alpha (x86_64-uefi)|~^cpu: .*, long mode, [0-9]+-bit physical addresses|fw: running at 0x0000000000200000-|mem: 0000000000000000-0000000007ffffff usable|mem: 128 MB usable (from fw_cfg)|~^efi: system table at 0x[0-9a-f]{16}, UEFI 2.70, boot services at|efi: 0000000000000000-0000000000006fff BS data|efi: 00000000000a0000-00000000000fffff reserved|efi: 0000000000200000-|~^efi: [0-9]+ descriptors of 48 bytes|efi: memory services ok|fw: no image loader yet, halting" \
+run x86_64-uefi "SquirrelBIOS 2.0.0-alpha (x86_64-uefi)|~^cpu: .*, long mode, [0-9]+-bit physical addresses|fw: running at 0x0000000000200000-|mem: 0000000000000000-0000000007ffffff usable|mem: 128 MB usable (from fw_cfg)|~^efi: system table at 0x[0-9a-f]{16}, UEFI 2.70, boot services at|efi: 0000000000000000-0000000000006fff BS data|efi: 00000000000a0000-00000000000fffff reserved|efi: 0000000000200000-|~^efi: [0-9]+ descriptors of 48 bytes|efi: memory services ok|fw: nothing to boot (no opt/org.squirrelworks/boot.efi), halting" \
     "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd
-run x86_64-uefi-4g "mem: 0000000000000000-000000007fffffff usable|mem: 0000000100000000-000000017fffffff usable|mem: 4096 MB usable (from fw_cfg)|efi: 0000000100000000-000000017fffffff free|efi: memory services ok|fw: no image loader yet, halting" \
+run x86_64-uefi-4g "mem: 0000000000000000-000000007fffffff usable|mem: 0000000100000000-000000017fffffff usable|mem: 4096 MB usable (from fw_cfg)|efi: 0000000100000000-000000017fffffff free|efi: memory services ok|fw: nothing to boot (no opt/org.squirrelworks/boot.efi), halting" \
     "$QEMU_X86_64" -M q35 -m 4G -bios x86_64/squirrel-bios.fd
-run x86_64-uefi-pc "SquirrelBIOS 2.0.0-alpha (x86_64-uefi)|mem: 128 MB usable (from fw_cfg)|efi: memory services ok|fw: no image loader yet, halting" \
+run x86_64-uefi-pc "SquirrelBIOS 2.0.0-alpha (x86_64-uefi)|mem: 128 MB usable (from fw_cfg)|efi: memory services ok|fw: nothing to boot (no opt/org.squirrelworks/boot.efi), halting" \
     "$QEMU_X86_64" -M pc -bios x86_64/squirrel-bios.fd
+
+# x86-64 firmware: a PE32+ EFI application handed over through fw_cfg is
+# loaded (relocated: its preferred base, 256 MB, is past the RAM), started
+# with the system table, and checks the tables, its loaded image protocol,
+# the relocation and the memory services. It returns 1234h; then the same
+# image calls Exit(5678h). Either way it is unloaded and its pages come
+# back. With 4 GB it loads at its preferred base. A file that is not PE
+# is refused.
+X64_BOOT=name=opt/org.squirrelworks/boot.efi
+run x86_64-app "efi: image of 12288 bytes loaded at|APP x86_64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|efi: image returned 0x1234|efi: image unloaded, its memory given back|fw: halting|!=bad" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-app.efi
+run x86_64-app-exit "APP x86_64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|efi: image returned 0x5678|efi: image unloaded, its memory given back|!=bad|!exit=returned" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-app-exit.efi
+run x86_64-app-4g "efi: image of 12288 bytes loaded at 0x0000000010000000|APP x86_64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|efi: image returned 0x1234|!=bad" \
+    "$QEMU_X86_64" -M q35 -m 4G -bios x86_64/squirrel-bios.fd -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-app.efi
+run x86_64-app-junk "efi: LoadImage failed: 0x8000000000000001, halting" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd -fw_cfg $X64_BOOT,file=$TEST_DIR/x86-boot.bin
 
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

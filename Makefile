@@ -71,7 +71,8 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/riscv-harts.bin \
              $(TEST_DIR)/riscv-boot-hart.bin $(TEST_DIR)/riscv-kernel-hart2.bin \
              $(TEST_DIR)/riscv-numa.bin $(TEST_DIR)/riscv-aia.bin \
-             $(TEST_DIR)/riscv-ras.bin
+             $(TEST_DIR)/riscv-ras.bin \
+             $(TEST_DIR)/x86_64-app.efi $(TEST_DIR)/x86_64-app-exit.efi
 
 .PHONY: all x86 x86_64 arm riscv test linux-shell linux-x86 linux-big linux-stress os-boot clean
 .DELETE_ON_ERROR:
@@ -231,6 +232,12 @@ $(TEST_DIR)/x86-extra-boot.bin: tests/x86-extra.asm | $(TEST_DIR)
 	$(NASM) -f bin -DOVERLAP_BOOT $< -o $@
 $(TEST_DIR)/x86-extra-range.bin: tests/x86-extra.asm | $(TEST_DIR)
 	$(NASM) -f bin -DOUT_OF_RANGE $< -o $@
+
+# x86_64-uefi: a hand-written PE32+ EFI application, returning and calling Exit
+$(TEST_DIR)/x86_64-app.efi: tests/x86_64-app.asm | $(TEST_DIR)
+	$(NASM) -f bin $< -o $@
+$(TEST_DIR)/x86_64-app-exit.efi: tests/x86_64-app.asm | $(TEST_DIR)
+	$(NASM) -f bin -DEXIT $< -o $@
 
 # Boot sector plus a 96 KB 'S2OK' image, the shape of Squirrel-OS/2's disk
 $(TEST_DIR)/x86-osload.bin: tests/x86-osload.asm | $(TEST_DIR)

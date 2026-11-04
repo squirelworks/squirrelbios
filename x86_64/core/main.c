@@ -64,6 +64,46 @@ static void efi_dump_memory_map(void)
     printf("efi: %lu descriptors of %lu bytes, %lu KB free\n", size / dsize, dsize, free_pages * 4);
 }
 
+/* An EFI image given to QEMU as -fw_cfg name=opt/org.squirrelworks/boot.efi,file=...:
+ * load and start it. Real boot devices come with the file system step. */
+#define FWCFG_BOOT "opt/org.squirrelworks/boot.efi"
+
+static void boot_fwcfg_image(void)
+{
+    u16 sel;
+    u32 size;
+    if (!fwcfg_find(FWCFG_BOOT, &sel, &size)) {
+        printf("fw: nothing to boot (no %s), halting\n", FWCFG_BOOT);
+        return;
+    }
+    u64 free_before = efi_free_pages_count();
+    void *buf;
+    if (efi_allocate_pool(EfiBootServicesData, size, &buf) != EFI_SUCCESS) {
+        printf("fw: no memory for a %u-byte image, halting\n", size);
+        return;
+    }
+    fwcfg_read(sel, buf, size);
+    EFI_HANDLE h;
+    EFI_STATUS s = efi_load_image(0, efi_firmware_handle, NULL, buf, size, &h);
+    efi_free_pool(buf);
+    if (s != EFI_SUCCESS) {
+        printf("efi: LoadImage failed: 0x%lx, halting\n", s);
+        return;
+    }
+    EFI_LOADED_IMAGE_PROTOCOL *li;
+    efi_handle_protocol(h, (EFI_GUID *)&efi_loaded_image_guid, (void **)&li);
+    printf("efi: image of %u bytes loaded at %p\n", size, li->image_base);
+    UINTN xsize = 0;
+    CHAR16 *xdata = NULL;
+    s = efi_start_image(h, &xsize, &xdata);
+    printf("efi: image returned 0x%lx\n", s);
+    if (efi_free_pages_count() == free_before)
+        printf("efi: image unloaded, its memory given back\n");
+    else
+        printf("efi: %ld pages not given back\n", (s64)(free_before - efi_free_pages_count()));
+    printf("fw: halting\n");
+}
+
 void fw_main(void)
 {
     con_init();
@@ -81,13 +121,13 @@ void fw_main(void)
     }
     printf("mem: %lu MB usable%s\n", usable >> 20, fwcfg_present() ? " (from fw_cfg)" : " (from CMOS)");
 
-    efi_tables_init();
     efi_memory_init();
+    efi_tables_init();
     printf("efi: system table at %p, UEFI %u.%u, boot services at %p\n", efi_st,
            efi_st->hdr.revision >> 16, efi_st->hdr.revision & 0xFFFF, efi_st->boot_services);
     efi_dump_memory_map();
     printf("efi: memory services %s\n", efi_memory_selftest() ? "ok" : "FAILED");
 
-    printf("fw: no image loader yet, halting\n");
+    boot_fwcfg_image();
     halt();
 }
