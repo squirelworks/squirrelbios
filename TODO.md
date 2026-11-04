@@ -364,8 +364,10 @@ roadmap item, run under QEMU in `make test`.
   booted (no-emulation only).
   A real ISOLINUX 6.04 CD boots to its `boot:` prompt; it also wants
   `INT 10h` `AH=01h/09h` and `INT 16h` `AH=10h/11h`, which are not there yet.
-- [ ] `x86-ahci` — AHCI/SATA with `INT 13h` on top. Depends on:
-  `x86-pci`.
+- [x] `x86-ahci` — AHCI/SATA with `INT 13h` on top. Depends on:
+  `x86-pci`. Squirrel-OS/2 1.0.0 boots from a q35 SATA disk. One SATA
+  disk only, and only when no IDE hard disk answered; no port
+  multipliers; `INT 13h` on it from real mode only (not V86).
 - [ ] `x86-nvme` — NVMe with `INT 13h` on top. Depends on: `x86-pci`.
 - [ ] `x86-uhci`, `x86-ohci`, `x86-ehci`, `x86-xhci` — USB host
   controllers, one PR each. Depends on: `x86-pci`.

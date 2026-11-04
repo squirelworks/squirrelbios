@@ -6,7 +6,10 @@
 ; header loads the two sectors after the boot sector to 0x7E00. Steps:
 ;   e  AH=41h BX=55AAh: CF clear, BX = AA55h, AH = 30h, CX bit 0
 ;   p  AH=48h with a 42h-byte buffer: size 42h, 419430400 sectors,
-;      512 bytes per sector, key BEDDh, 'ATA', byte sum 1Eh-41h is 0
+;      512 bytes per sector, key BEDDh, 'ATA', byte sum 1Eh-41h is 0.
+;      Built with -DAHCI=<port>, the disk is on q35's AHCI controller
+;      (00:1F.2) instead: 'PCI', 'SATA', that bus/device/function, and
+;      the port in the device path
 ;   s  AH=48h with a 1Ah-byte buffer: size 1Ah, the same sector count
 ;   l  AH=42h, 2 sectors from 0FFFFFFFh: the range crosses 2^28, so
 ;      LBA48 commands; both tags arrive
@@ -20,6 +23,9 @@ BITS 16
 ORG 0x7C00
 
 COM1    equ 0x3F8
+%ifdef AHCI
+AHCI_BDF equ 0x00021F00          ; bus 0, device 1Fh, function 2, channel 0
+%endif
 EXTRA   equ 2
 BUF     equ 0x2000                  ; segment of the read buffer
 SECTORS equ 200 * 2 * 1024 * 1024   ; 200 GiB
@@ -74,8 +80,19 @@ main:
     jne bad
     cmp word [params + 0x1E], 0xBEDD
     jne bad
+%ifdef AHCI
+    cmp dword [params + 0x24], 'PCI '
+    jne bad
+    cmp dword [params + 0x28], 'SATA'
+    jne bad
+    cmp dword [params + 0x30], AHCI_BDF
+    jne bad
+    cmp byte [params + 0x38], AHCI
+    jne bad
+%else
     cmp dword [params + 0x28], 'ATA '
     jne bad
+%endif
     mov si, params + 0x1E
     mov cx, 0x24
     xor al, al

@@ -37,6 +37,10 @@ ata_read_retry:
 ;      CF = 1 on failure, SI = reason, BL = status, BH = error register.
 ;      EAX, ECX, EDX, EBP, EDI and ES are preserved either way.
 ata_read:
+%if CONFIG_AHCI
+    call ahci_owns              ; DL 80h may be a SATA disk
+    jnc ahci_read
+%endif
     push eax
     push ecx
     push edx
@@ -202,6 +206,10 @@ ata_read:
 ; Write sectors of the selected primary drive from memory below 1 MB.
 ; Same register convention as ata_read.
 ata_write:
+%if CONFIG_AHCI
+    call ahci_owns              ; DL 80h may be a SATA disk
+    jnc ahci_write
+%endif
     push eax
     push ecx
     push edx
@@ -587,6 +595,10 @@ ata_detect:
 ; Out: CF clear and EDX:EAX = sectors; CF set if the unit does not
 ; answer as an ATA disk. Keeps every other register.
 ata_capacity:
+%if CONFIG_AHCI
+    call ahci_owns              ; DL 80h may be a SATA disk
+    jnc ahci_capacity
+%endif
     push ebx
     push ecx
     push esi
@@ -657,6 +669,10 @@ ata_capacity:
 ; Software reset of the primary channel, then wait for BSY to clear.
 ; Preserves every register but the flags.
 ata_reset:
+%if CONFIG_AHCI
+    call ahci_owns              ; DL 80h may be a SATA disk
+    jnc ahci_reset
+%endif
     push eax
     push ebx
     push ecx

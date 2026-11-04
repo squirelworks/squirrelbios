@@ -16,7 +16,7 @@ If the firmware and this file disagree, the firmware has a bug.
 | Console | COM1 `0x3F8`, 115200 8N1 | PL011 `0x09000000` | NS16550A `0x10000000`, 115200 8N1 |
 | Interrupts | `IF = 0`; PIT/PIC programmed, IRQ0 unmasked | `DAIF` masked | `mstatus.MIE`/`SIE` = 0, `mie = 0` |
 | CPUs running | Boot CPU only | Boot CPU only | The boot hart (`fw_dynamic_info.boot_hart`, else hart 0); others through `sbi_hart_start` |
-| Firmware services | `INT 13h` `AH=00/02/03/08/41/42/43/44/47/48` (diskettes `00/02/03/08/15`; boot CD `00/41/42/48/4B`), `INT 10h` `AH=02/03/06/07/0E/0F`, `INT 15h` `E820`/`AX=2400..2403`, `INT 16h` `AH=00/01`, `INT 1Ah` `AH=00/02`, PCI BIOS `AX=B101/B102/B103/B108..B10D` | None | SBI from S-mode: base, TIME, IPI, RFENCE, HSM, SRST |
+| Firmware services | `INT 13h` `AH=00/02/03/08/41/42/43/44/47/48` (on an IDE or SATA disk; diskettes `00/02/03/08/15`; boot CD `00/41/42/48/4B`), `INT 10h` `AH=02/03/06/07/0E/0F`, `INT 15h` `E820`/`AX=2400..2403`, `INT 16h` `AH=00/01`, `INT 1Ah` `AH=00/02`, PCI BIOS `AX=B101/B102/B103/B108..B10D` | None | SBI from S-mode: base, TIME, IPI, RFENCE, HSM, SRST |
 
 ## Rules for every architecture
 
@@ -193,8 +193,28 @@ returns with CF set and `AH = 0x04` (read) or `AH = 0x05` (reset failed)
 or `AH = 0x80` (timeout). `AH = 0x02` reports `AL = 0` when nothing was
 transferred. The firmware boots from the master when
 it answers; if the master is absent it tries the slave and hands off with
-`DL = 0x81`. When no hard disk answered (or the master is ATAPI), it
-tries a CD before it halts.
+`DL = 0x81`. When no IDE hard disk answered (or the master is ATAPI),
+it looks for a SATA disk, then tries a CD before it halts.
+
+**SATA (AHCI).** With no IDE hard disk, the firmware looks on PCI bus 0
+for an AHCI controller (class `01:06:01`, such as q35's ICH9 at
+`00:1F.2`), resets it, and takes the lowest-numbered implemented port
+whose link is up and whose signature is an ATA disk (`00000101h`);
+ATAPI and empty ports are passed over. It prints `disk: SATA disk on
+AHCI port N`, and that disk is then `DL = 0x80`: it boots the same way
+as an IDE master (boot sector, SQBL, S2OK, bzImage), and the `INT 13h`
+calls above serve it, with `READ DMA EXT` and `WRITE DMA EXT` (each
+write followed by `FLUSH CACHE EXT`). Their buffers must also start at
+an even address. `AH = 0x48` names it as host bus `PCI` with the
+controller's bus, device and function, and interface `SATA` with the
+port number as the device path (EDD 4.0). `DL = 0x81` is not a drive
+then. Only one SATA disk is served, and none when an IDE hard disk
+answered. The firmware keeps the port running for the hand-off, with
+interrupts off (`GHC.IE = 0`); its command list, received-FIS area and
+command table are in the EBDA (`0x9F400`, `0x9F800`, `0x9F900`), and
+the byte at `0x04FF` is 1 while `DL = 0x80` is the SATA disk. The
+`INT 13h` calls reach the controller's registers through unreal mode, so
+they are served from real mode only, not from virtual 8086 mode.
 
 **CD-ROM (El Torito).** The firmware looks for ATAPI devices on the
 primary and secondary IDE channels, master before slave (QEMU's
@@ -401,7 +421,7 @@ addresses (segment 0):
 | Address | Size | Value |
 |---------|------|-------|
 | `0x0410` | word | Equipment list `0x0220`: 80x25 colour (bits 4–5 = `10`), one serial port (bits 9–11 = 1). No floppies or parallel ports. |
-| `0x040E` | word | Segment of the extended BIOS data area: `0x9F00`. The 4 KB EBDA at `0x9F000`–`0x9FFFF` is the firmware's; its first byte is its size in KB (`4`). |
+| `0x040E` | word | Segment of the extended BIOS data area: `0x9F00`. The 4 KB EBDA at `0x9F000`–`0x9FFFF` is the firmware's; its first byte is its size in KB (`4`). The AHCI driver keeps its state and DMA structures there. |
 | `0x0413` | word | Conventional memory size in KB: `636` (`0x00000`–`0x9EFFF`, matching the SQMM usable entry). |
 | `0x0450` | 2 bytes | Page-0 cursor: column then row. Starts at `(0, 0)`; `INT 10h` `AH=0x0E` keeps both inside 80x25. |
 | `0x046C` | dword | Timer ticks since midnight. IRQ0 (`INT 08h`) increments it; wraps at `0x1800B0` (~24 h at 18.2 Hz) and sets `0x0470` to 1. Starts at 0. |
