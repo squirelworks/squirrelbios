@@ -140,7 +140,7 @@ ohci_bus:
     mov si, msg_usb_ohci
     call usb_puts_head
     call usb_print_bdf
-    call con_newline
+    call usb_newline
     mov esi, [fs:USB_MMIO]
 
     ; Power the root ports, then wait POTPGT (2 ms units) and a margin

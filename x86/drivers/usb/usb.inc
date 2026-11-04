@@ -39,6 +39,10 @@ USB_TOGGLE      equ 0x1F08          ; dword: next data toggle (UHCI token bit)
 USB_SAVESP      equ 0x1F0C          ; word: POST's stack pointer
 USB_MMIO        equ 0x1F10          ; dword: operational registers (OHCI, EHCI, xHCI)
 USB_PASS        equ 0x1F14          ; byte: 1 EHCI, 2 UHCI and OHCI
+USB_CURSOR      equ 0x1F16          ; word: the console cursor (DI): the
+                                    ; routines that print keep their
+                                    ; registers, so each line starts and
+                                    ; ends here
 USB_STACK       equ 0x7C00          ; segment 0: enumeration nests deeper than
                                     ; the POST stack below 0x600 allows
 
@@ -84,6 +88,7 @@ usb_init:
     pop fs
     mov [fs:USB_SAVESP], sp
     mov sp, USB_STACK           ; SS = 0; nothing is loaded below it yet
+    mov [fs:USB_CURSOR], di
     mov byte [fs:USB_NEXTADDR], 1
     call pci_present
     jc .out
@@ -131,13 +136,24 @@ usb_init:
     jbe .pass
 .out:
     mov sp, [fs:USB_SAVESP]
+    mov ax, [fs:USB_CURSOR]
     pop fs
+    mov bp, sp
+    mov [ss:bp], ax             ; DI in the PUSHAD frame: past the lines
     popad
     ret
 
-; Print "usb: " and the message at CS:SI. Keeps every register but DI
-; (the cursor) and the flags.
+; End a line: CR LF, and the cursor kept in USB_CURSOR. Keeps every
+; register but DI.
+usb_newline:
+    call con_newline
+    mov [fs:USB_CURSOR], di
+    ret
+
+; Start a line at USB_CURSOR: print "usb: " and the message at CS:SI.
+; Keeps every register but DI (the cursor) and the flags.
 usb_puts_head:
+    mov di, [fs:USB_CURSOR]
     push si
     mov si, msg_usb
     call usb_puts
@@ -462,7 +478,7 @@ usb_enum:
     call usb_hub                ; finishes the line with the port count
     jmp .out
 .line:
-    call con_newline
+    call usb_newline
     cmp byte [bp - 10], 0
     je .detach
     call usb_hid_claim          ; a boot keyboard: keep it for after POST
@@ -483,7 +499,7 @@ usb_enum:
     mov al, [bp - 6]
     call usb_dec
 .fail_nl:
-    call con_newline
+    call usb_newline
     mov al, [bp - 1]
     call usb_detach
 .out:
@@ -525,7 +541,7 @@ usb_hub:
     call usb_dec
     mov si, msg_usb_ports
     call usb_puts
-    call con_newline
+    call usb_newline
     movzx si, byte [fs:USB_BUF + 2]     ; ports
     movzx ax, byte [fs:USB_BUF + 5]
     shl ax, 1
@@ -615,7 +631,7 @@ usb_hub:
     inc dx
     jmp .port
 .bad:
-    call con_newline
+    call usb_newline
 .out:
     popad
     ret
