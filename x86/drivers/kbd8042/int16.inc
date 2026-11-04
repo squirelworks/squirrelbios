@@ -15,7 +15,22 @@ irq1_handler:
     jnz .eoi                     ; break code
     call kbd_lookup
     jc .eoi                      ; unknown make code: drop
-    ; AL = ASCII, AH = scancode. Enqueue at tail if not full.
+    call kbd_enqueue
+.eoi:
+    mov al, 0x20
+    out PIC1_CMD, al
+    pop ds
+    pop bx
+    pop ax
+    iret
+
+; Put AX (AL = ASCII, AH = scancode) at the tail of the BDA keyboard
+; buffer, unless it is full. Keeps every register.
+kbd_enqueue:
+    push bx
+    push ds
+    push word 0
+    pop ds
     mov bx, [BDA_KBD_TAIL]
     mov [bx], ax
     add bx, 2
@@ -24,15 +39,12 @@ irq1_handler:
     mov bx, BDA_KBD_BUF
 .wrap:
     cmp bx, [BDA_KBD_HEAD]
-    je .eoi                      ; full: drop the key
+    je .full                     ; drop the key
     mov [BDA_KBD_TAIL], bx
-.eoi:
-    mov al, 0x20
-    out PIC1_CMD, al
+.full:
     pop ds
     pop bx
-    pop ax
-    iret
+    ret
 
 ; In: AL = make scancode. Out: CF clear, AL = ASCII, AH = scancode;
 ; CF set if this firmware has no ASCII for it. Uses CS-relative table.

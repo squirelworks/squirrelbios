@@ -166,6 +166,24 @@ else
     fail=$((fail + 1))
 fi
 
+# x86: the same 'a' from a USB keyboard on UHCI, polled from IRQ0 after
+# POST (QEMU sends keys to the keyboard added last). Then from one
+# behind a hub, with a mouse on the other root port
+if KBD_NAME=x86-usb-kbd \
+   KBD_ARGS="-device piix3-usb-uhci,id=uhci,addr=5 -device usb-kbd,bus=uhci.0,port=1" \
+   KBD_EXPECT="usb: keyboard is device 1" tests/x86-kbd-run.sh; then
+    pass=$((pass + 1))
+else
+    fail=$((fail + 1))
+fi
+if KBD_NAME=x86-usb-kbd-hub \
+   KBD_ARGS="-device piix3-usb-uhci,id=uhci,addr=5 -device usb-mouse,bus=uhci.0,port=1 -device usb-hub,bus=uhci.0,port=2 -device usb-kbd,bus=uhci.0,port=2.3" \
+   KBD_EXPECT="usb: device 3 on hub 2 port 3: 0627:0001, HID|usb: keyboard is device 3" tests/x86-kbd-run.sh; then
+    pass=$((pass + 1))
+else
+    fail=$((fail + 1))
+fi
+
 # x86: INT 1Ah AH=00 ticks from IRQ0; AH=02 RTC time in BCD
 run x86-time "SquirrelBIOS x86|OS-ENTRY x86 time=ok" \
     "$QEMU_X86" -bios x86/squirrel-bios.rom \

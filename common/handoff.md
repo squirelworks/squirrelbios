@@ -256,9 +256,20 @@ The class is the device's own class, or its first interface's class
 when the device leaves it to the interfaces. It is printed as `HID`,
 `mass storage`, `hub`, or `class` with its number in hex.
 
-Nothing USB runs after POST. Each controller is halted and reset once
-its devices are listed, so no device is configured at hand-off and no
-controller does DMA. An EHCI controller is halted but not reset, so
+Apart from one keyboard, nothing USB runs after POST. Each controller
+is halted and reset once its devices are listed, so no device is
+configured at hand-off and no controller does DMA.
+
+The exception is the first boot-protocol keyboard found on a UHCI
+controller (`usb: keyboard is device N`). It is configured and set to
+the boot protocol, and its controller keeps running with a schedule in
+the EBDA (`0x9B000`–`0x9C04F`) that holds only the keyboard's interrupt
+transfer. IRQ0 checks that transfer on every tick. A key pressed on the
+keyboard goes into the BDA keyboard buffer like a key from the 8042,
+with the same ASCII table, plus Shift and Ctrl on letters, so `INT 16h`
+reads it. An OS that drives the controller itself resets it, and the
+BIOS then gets nothing from it. An OS that replaces the INT 08h vector
+stops the polling. An EHCI controller is halted but not reset, so
 `CONFIGFLAG` stays set and the ports it handed over stay with the
 companions. Low- and full-speed devices behind a high-speed hub would
 need split transactions, which are not supported.

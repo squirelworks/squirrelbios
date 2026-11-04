@@ -283,6 +283,7 @@ ATTR_ERROR      equ 0x0C
 %if CONFIG_USB
 %include "drivers/usb/usb.inc"
 %include "drivers/usb/uhci.inc"
+%include "drivers/usb/hid.inc"
 %include "drivers/usb/ohci.inc"
 %include "drivers/usb/ehci.inc"
 %include "drivers/usb/xhci.inc"
@@ -342,6 +343,7 @@ msg_usb_msd db 'mass storage', 0
 msg_usb_hub db 'hub', 0
 msg_usb_class db 'class ', 0
 msg_usb_ports db ' ports', 0
+msg_usb_kbd db 'keyboard is device ', 0
 msg_usb_fail db 'no answer from the device on port ', 0
 %endif
 %if CONFIG_NVME

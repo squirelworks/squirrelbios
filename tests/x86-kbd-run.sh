@@ -1,6 +1,10 @@
 #!/bin/sh
 # Boot x86-kbd under QEMU, inject the 'a' key via QMP, and check the
 # serial log for kbd=ok. Invoked from tests/smoke.sh.
+#
+# KBD_NAME names the case (and its log), KBD_ARGS adds QEMU arguments
+# and KBD_EXPECT adds lines the log must hold. QEMU sends the key to the
+# keyboard added last: with a usb-kbd in KBD_ARGS, that one.
 set -u
 
 TEST_DIR=${TEST_DIR:-build/tests}
@@ -8,9 +12,10 @@ TIMEOUT=${SMOKE_TIMEOUT:-10}
 QEMU_X86=${QEMU_X86:-qemu-system-i386}
 ROM=${ROM:-x86/squirrel-bios.rom}
 IMG=$TEST_DIR/x86-kbd.bin
-LOG=$TEST_DIR/x86-kbd.log
-QMP=$TEST_DIR/x86-kbd.qmp
-expect='SquirrelBIOS x86|OS-ENTRY x86 kbd=ok'
+NAME=${KBD_NAME:-x86-kbd}
+LOG=$TEST_DIR/$NAME.log
+QMP=$TEST_DIR/$NAME.qmp
+expect="SquirrelBIOS x86|${KBD_EXPECT:+$KBD_EXPECT|}OS-ENTRY x86 kbd=ok"
 
 rm -f "$LOG" "$QMP"
 : > "$LOG"
@@ -18,7 +23,7 @@ rm -f "$LOG" "$QMP"
 "$QEMU_X86" -display none -monitor none -serial "file:$LOG" \
     -qmp "unix:$QMP,server,nowait" \
     -bios "$ROM" \
-    -drive format=raw,file="$IMG",if=ide \
+    -drive format=raw,file="$IMG",if=ide ${KBD_ARGS:-} \
     >/dev/null 2>&1 &
 qemu=$!
 
@@ -91,9 +96,9 @@ if [ -z "$status" ]; then
 fi
 
 if [ "$ok" -eq 1 ]; then
-    echo "PASS  x86-kbd"
+    echo "PASS  $NAME"
     exit 0
 fi
-echo "FAIL  x86-kbd (expected: $expect)"
+echo "FAIL  $NAME (expected: $expect)"
 sed 's/^/      | /' "$LOG"
 exit 1
