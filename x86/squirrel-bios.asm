@@ -61,9 +61,16 @@ OS_PROBE        equ 0x1000      ; scratch sector for the signature probe
 OS_SIG_LIN      equ OS_LOAD + OS_SECTORS * 512 - 4
 ; Linux bzImage: PM kernel at 1 MB; bounce buffer for ATA (below 1 MB).
 BZ_LOAD         equ 0x100000
-BZ_BOUNCE       equ 0x8000
-BZ_BOOT_PARAMS  equ 0x90000
-BZ_MAX_SECTORS  equ 128
+BZ_BOUNCE       equ 0x8000      ; BZ_CHUNK sectors, ends at 0x10000
+BZ_CHUNK        equ 64
+BZ_BOOT_PARAMS  equ 0x90000     ; boot_params, 4 KB
+BZ_CMDLINE      equ 0x91000     ; kernel command line (cmd_line_ptr)
+BZ_STACK        equ 0x90000     ; grows down, below boot_params
+BZ_HDR_MAX      equ 0x290       ; setup header ends before e820_table
+BZ_E820_MAX     equ 128
+BZ_LOADER_TYPE  equ 0xFF        ; boot.rst: undefined boot loader
+BZ_BOOT_CS      equ 0x10        ; __BOOT_CS
+BZ_BOOT_DS      equ 0x18        ; __BOOT_DS
 
 ; Primary ATA channel, legacy ports
 ATA_DATA        equ 0x1F0
@@ -87,12 +94,15 @@ CTRL_SRST       equ 0x04
 
 CMD_READ_SECTORS  equ 0x20
 CMD_WRITE_SECTORS equ 0x30
+CMD_IDENTIFY      equ 0xEC
 
 ATA_TIMEOUT     equ 0x00400000  ; status polls before giving up
 ATA_ATTEMPTS    equ 3
 ; Drive select base (LBA bit set): master 0xE0, slave 0xF0. Boot DL is
 ; 0x80 or 0x81. Both live in the page below the memory map; 0x04FE is
-; the ATA retry counter.
+; the ATA retry counter and 0x04FB which units answered IDENTIFY at POST
+; (bit 0 master, bit 1 slave).
+ATA_PRESENT     equ 0x04FB
 ATA_DEVSEL      equ 0x04FC
 BOOT_DL         equ 0x04FD
 ATA_RETRY_CNT   equ 0x04FE
@@ -116,6 +126,7 @@ DISK_CYL_HI_CL  equ 0xFF
 BDA_EQUIP       equ 0x0410      ; equipment list word
 BDA_MEMSIZE     equ 0x0413      ; conventional memory size, KB
 BDA_CURSOR      equ 0x0450      ; column, then row, one byte each (page 0)
+BDA_HDCOUNT     equ 0x0475      ; byte: number of hard disks
 BDA_TICKS       equ 0x046C      ; dword: PIT ticks since midnight (IRQ0)
 BDA_TICK_OVR    equ 0x0470      ; byte: 24-hour overflow flag
 BDA_KBD_HEAD    equ 0x041A      ; keyboard buffer head (offset into segment 0)
@@ -144,6 +155,7 @@ ST_OK           equ 0x00
 ST_BAD          equ 0x01        ; invalid function or parameter
 ST_NOTFOUND     equ 0x04
 ST_RESET        equ 0x05
+ST_PARAMS       equ 0x07        ; drive parameter activity failed
 ST_TIMEOUT      equ 0x80
 ST_NOTREADY     equ 0xAA
 
@@ -183,23 +195,29 @@ entry:
 
     ; Disk: sector 0 (LBA 0) to 0x7C00. Prefer the primary master; if
     ; nothing answered as master, try the primary slave and keep DL.
+    ; ata_detect asked each unit IDENTIFY with fresh status; read from
+    ; the first one that answered, and report why the master did not.
+    call ata_detect
     mov byte [ss:ATA_DEVSEL], ATA_SEL_MASTER
     mov byte [ss:BOOT_DL], 0x80
-    xor eax, eax
-    mov cl, 1
-    mov ebp, BOOT_SECTOR
-    call ata_read_retry
-    jnc .got_boot
+    test byte [ss:ATA_PRESENT], 1
+    jnz .read_boot
+    call ata_probe              ; again, for the reason and registers
+    jnc .read_boot
     cmp si, msg_nodrive
     jne disk_fail
     mov byte [ss:ATA_DEVSEL], ATA_SEL_SLAVE
     mov byte [ss:BOOT_DL], 0x81
+    test byte [ss:ATA_PRESENT], 2
+    jnz .read_boot
+    call ata_probe
+    jc disk_fail
+.read_boot:
     xor eax, eax
     mov cl, 1
     mov ebp, BOOT_SECTOR
     call ata_read_retry
     jc disk_fail
-.got_boot:
 
 ; A clean read without the signature is not a boot sector. Reading it
 ; again would give the same bytes, so this is not retried.
@@ -326,10 +344,13 @@ kernel_entry:
     mov di, MEMMAP_ADDR
     jmp 0x0000:OS_LOAD
 
-;; Load a Linux bzImage: setup_sects at 0x1F1, HdrS already seen, syssize
-; at 0x1F4 (paragraphs). Copy the PM image to 0x100000 through a bounce
-; buffer, fill a tiny boot_params, then enter 32-bit protected mode at
-; code32_start (dword at 0x214, default 0x100000).
+;; Load a Linux bzImage (32-bit boot protocol, Documentation/x86/boot.rst):
+; setup_sects at 0x1F1, HdrS already seen, syssize at 0x1F4 (16-byte
+; units). The protected-mode kernel follows the boot and setup sectors and
+; is copied to 0x100000 in BZ_CHUNK-sector pieces through a bounce buffer,
+; so its size is bounded only by the RAM at 1 MB. boot_params gets the
+; setup header, the E820 table, the command line and type_of_loader, and
+; the kernel is entered in flat 32-bit protected mode at code32_start.
 bzimage_go:
     movzx eax, byte [ss:BOOT_SECTOR + 0x1F1]
     test al, al
@@ -341,57 +362,37 @@ bzimage_go:
     mov eax, [ss:BOOT_SECTOR + 0x1F4]
     test eax, eax
     jz .bad
+    cmp eax, 0x0F000000         ; 3.75 GB in 16-byte units
+    jae .toobig
     add eax, 31
-    shr eax, 5                  ; paragraphs -> sectors
-    cmp eax, BZ_MAX_SECTORS
-    ja .bad
-    test eax, eax
-    jz .bad
+    shr eax, 5                  ; 16-byte units -> sectors
     mov ecx, eax                ; PM sector count
-    push es
-    mov ax, (BZ_BOOT_PARAMS >> 4)
-    mov es, ax
-    mov eax, [ss:BOOT_SECTOR + 0x214]
-    test eax, eax
-    jnz .entry
-    mov eax, BZ_LOAD
-.entry:
-    mov [es:0x214], eax
-    ; Zero boot_params and copy the first 0x250 header bytes into it
-    push di
-    push cx
-    xor di, di
-    xor eax, eax
-    mov cx, 0x1000 / 4
-    rep stosd
-    push ds
-    mov ax, (BOOT_SECTOR >> 4)
-    mov ds, ax
-    xor si, si
-    xor di, di
-    mov cx, 0x250 / 2
-    rep movsw
-    pop ds
-    pop cx
-    pop di
-    pop es
+    shl eax, 9                  ; bytes
+    call bz_ram_at_1m           ; EDX = usable bytes from 0x100000
+    cmp eax, edx
+    ja .toobig
+
+    call bz_fill_params
 
     mov eax, ebx                ; first PM LBA
     mov ebp, BZ_LOAD
 .load_loop:
-    push eax
+    mov edx, ecx                ; this chunk: min(left, BZ_CHUNK)
+    cmp edx, BZ_CHUNK
+    jbe .chunk
+    mov edx, BZ_CHUNK
+.chunk:
     push ecx
     push ebp
-    mov cl, 1
+    mov cl, dl
     mov ebp, BZ_BOUNCE
     call ata_read_retry
     pop ebp
     pop ecx
-    pop eax
     jc .readfail
-    call bz_copy_sector
-    inc eax
-    dec ecx
+    call bz_copy_chunk          ; EDX sectors to EBP; EBP advances
+    add eax, edx
+    sub ecx, edx
     jnz .load_loop
 
     call prepare_runtime
@@ -416,10 +417,13 @@ bzimage_go:
     mov cr0, eax
     db 0x66, 0xEA
     dd bz_pm_entry + 0xF0000
-    dw 0x08
+    dw BZ_BOOT_CS
 
 .bad:
     mov si, msg_bzbad
+    jmp boot_fail
+.toobig:
+    mov si, msg_bzbig
     jmp boot_fail
 .readfail:
     cmp si, msg_readerr
@@ -427,10 +431,115 @@ bzimage_go:
     mov si, msg_bzread
     jmp disk_fail
 
-; Copy 512 bytes BZ_BOUNCE -> linear EBP with unreal DS (flat); EBP += 512.
-; Do not reload ES/DS in real mode — that would replace the flat cache
-; with base = selector<<4.
-bz_copy_sector:
+; EDX = length of the usable SQMM entry that starts at 0x100000 (capped
+; below 4 GB), or 0 if there is none. Other registers preserved.
+bz_ram_at_1m:
+    push cx
+    push si
+    xor edx, edx
+    mov cx, [ss:MEMMAP_ADDR + 4]
+    mov si, MEMMAP_ENTRIES
+.next:
+    jcxz .done
+    cmp dword [ss:si], BZ_LOAD
+    jne .skip
+    cmp dword [ss:si + 4], 0
+    jne .skip
+    cmp dword [ss:si + 16], E820_USABLE
+    jne .skip
+    mov edx, [ss:si + 8]
+    cmp dword [ss:si + 12], 0
+    je .done
+    mov edx, 0xFFFFFFFF - BZ_LOAD + 1   ; length past 4 GB: what fits below
+    jmp .done
+.skip:
+    add si, MEMMAP_ENTRY
+    dec cx
+    jmp .next
+.done:
+    pop si
+    pop cx
+    ret
+
+; Build boot_params (the "zero page") at BZ_BOOT_PARAMS: all zero, then
+; the setup header from the image (0x1F1 up to 0x202 + byte at 0x201),
+; then the loader's fields. Every register preserved.
+bz_fill_params:
+    pushad
+    push ds
+    push es
+    mov ax, (BZ_BOOT_PARAMS >> 4)
+    mov es, ax
+    xor di, di
+    xor eax, eax
+    mov cx, 0x1000 / 4
+    cld
+    rep stosd
+
+    ; Setup header
+    movzx cx, byte [ss:BOOT_SECTOR + 0x201]
+    add cx, 0x202 - 0x1F1
+    cmp cx, BZ_HDR_MAX - 0x1F1
+    jbe .hdrlen
+    mov cx, BZ_HDR_MAX - 0x1F1
+.hdrlen:
+    xor ax, ax
+    mov ds, ax
+    mov si, BOOT_SECTOR + 0x1F1
+    mov di, 0x1F1
+    rep movsb
+
+    ; Loader fields
+    mov byte [es:0x210], BZ_LOADER_TYPE
+    mov eax, [ss:BOOT_SECTOR + 0x214]
+    test eax, eax
+    jnz .entry
+    mov eax, BZ_LOAD
+.entry:
+    mov [es:0x214], eax
+    mov dword [es:0x218], 0         ; no initrd
+    mov dword [es:0x21C], 0
+    mov dword [es:0x228], BZ_CMDLINE
+
+    ; E820 table: the SQMM entries are already in E820 layout
+    mov cx, [ss:MEMMAP_ADDR + 4]
+    cmp cx, BZ_E820_MAX
+    jbe .count
+    mov cx, BZ_E820_MAX
+.count:
+    mov [es:0x1E8], cl
+    mov ax, MEMMAP_ENTRY / 2
+    mul cx
+    mov cx, ax
+    mov si, MEMMAP_ENTRIES
+    mov di, 0x2D0
+    rep movsw
+
+    ; alt_mem_k: KB of RAM above 1 MB
+    call bz_ram_at_1m
+    shr edx, 10
+    mov [es:0x1E0], edx
+
+    ; Command line, right after boot_params
+    push cs
+    pop ds
+    mov si, bz_cmdline
+    mov di, BZ_CMDLINE - BZ_BOOT_PARAMS
+.cmd:
+    lodsb
+    stosb
+    test al, al
+    jnz .cmd
+
+    pop es
+    pop ds
+    popad
+    ret
+
+; Copy EDX sectors from BZ_BOUNCE to linear EBP with unreal DS (flat);
+; EBP advances past the copy. Do not reload DS in real mode in between:
+; that would replace the flat cache with base = selector<<4.
+bz_copy_chunk:
     push eax
     push ecx
     push esi
@@ -439,13 +548,15 @@ bz_copy_sector:
     call unreal_ds
     mov esi, BZ_BOUNCE
     mov edi, ebp
-    mov ecx, 512 / 4
+    mov ecx, edx
+    shl ecx, 7                  ; sectors -> dwords
 .copy:
     a32 mov eax, [esi]
     a32 mov [edi], eax
     add esi, 4
     add edi, 4
-    loop .copy
+    dec ecx
+    jnz .copy
     mov ebp, edi
     pop ds
     pop edi
@@ -454,17 +565,23 @@ bz_copy_sector:
     pop eax
     ret
 
+; Linux 32-bit entry: CS = 0x10 and DS/ES/SS = 0x18 (flat 4 GB), ESI =
+; boot_params, EBP = EDI = EBX = 0, interrupts off.
 BITS 32
 bz_pm_entry:
-    mov ax, 0x10
+    mov ax, BZ_BOOT_DS
     mov ds, ax
     mov es, ax
     mov fs, ax
     mov gs, ax
     mov ss, ax
-    mov esp, BZ_LOAD
+    mov esp, BZ_STACK
+    cld
     mov esi, BZ_BOOT_PARAMS
     mov eax, [BZ_BOOT_PARAMS + 0x214]
+    xor ebx, ebx
+    xor ebp, ebp
+    xor edi, edi
     jmp eax
 BITS 16
 
@@ -706,6 +823,7 @@ apic_gdt_end:
 
 align 8
 bz_gdt:
+    dq 0
     dq 0
     dw 0xFFFF, 0x0000
     db 0x00, 10011010b, 11001111b, 0x00
@@ -1414,12 +1532,24 @@ int13_handler:
 .params:
     call disk_set_dev
     jc .invalid
+    mov al, 1                       ; ATA_PRESENT bit for this unit
+    cmp byte [ss:ATA_DEVSEL], ATA_SEL_SLAVE
+    jne .params_bit
+    mov al, 2
+.params_bit:
+    test [ss:ATA_PRESENT], al
+    jz .params_absent
     mov byte [bp + 29], ST_OK
     mov byte [bp + 25], DISK_CYL_LO
     mov byte [bp + 24], DISK_CYL_HI_CL
     mov byte [bp + 21], DISK_HEADS - 1
-    mov byte [bp + 20], 1           ; one hard disk reported
+    mov al, [ss:BDA_HDCOUNT]
+    mov [bp + 20], al               ; hard disks present
     and word [bp + 36], 0xFFFE
+    jmp .out
+.params_absent:
+    mov byte [bp + 29], ST_PARAMS   ; drive parameter activity failed
+    or word [bp + 36], 1
     jmp .out
 
 .read_ext:
@@ -2178,6 +2308,133 @@ ata_poll:
     clc
     ret
 
+; Is there an ATA disk at ATA_DEVSEL? Select it, wait for BSY to drop,
+; then IDENTIFY DEVICE and read the status that command produces, so no
+; status left over from an earlier transfer or from the other unit is
+; trusted. The 512 IDENTIFY bytes are read and dropped.
+; Out: CF = 0 when an ATA disk answered. CF = 1 otherwise, with SI =
+;      msg_nodrive / msg_atapi (master or slave wording), BL = status,
+;      BH = error register, as ata_read reports them.
+;      Every other register preserved.
+ata_probe:
+    push eax
+    push ecx
+    push edx
+    mov dx, ATA_STATUS
+    in al, dx
+    cmp al, 0xFF                ; floating bus: no controller at all
+    je .nodrive
+    mov dx, ATA_DRIVE
+    mov al, [ss:ATA_DEVSEL]
+    out dx, al
+    call ata_delay400
+    mov ecx, ATA_TIMEOUT        ; wait for BSY to drop on this unit
+    mov dx, ATA_STATUS
+.idle:
+    in al, dx
+    test al, ST_BSY
+    jz .idle_ok
+    dec ecx
+    jnz .idle
+    jmp .nodrive
+.idle_ok:
+    xor al, al                  ; IDENTIFY ignores these; clear them so
+    mov dx, ATA_COUNT           ; the signature read below is fresh
+    out dx, al
+    mov dx, ATA_LBA_LO
+    out dx, al
+    mov dx, ATA_LBA_MID
+    out dx, al
+    mov dx, ATA_LBA_HI
+    out dx, al
+    mov dx, ATA_STATUS
+    mov al, CMD_IDENTIFY
+    out dx, al
+    call ata_delay400
+    in al, dx
+    test al, al                 ; 0: no device behind this select
+    jz .nodrive
+    cmp al, 0xFF
+    je .nodrive
+    push bx
+    mov bl, ST_DRQ | ST_ERR | ST_DF
+    call ata_poll
+    pop bx
+    jc .nodrive
+    test al, ST_ERR | ST_DF
+    jnz .aborted
+    mov ecx, 256                ; drain the IDENTIFY data block
+    mov dx, ATA_DATA
+.drain:
+    in ax, dx
+    loop .drain
+    pop edx
+    pop ecx
+    pop eax
+    clc
+    ret
+.aborted:
+    ; ATAPI devices abort IDENTIFY DEVICE and leave 14h EBh behind
+    mov dx, ATA_LBA_MID
+    in al, dx
+    cmp al, 0x14
+    jne .nodrive
+    mov dx, ATA_LBA_HI
+    in al, dx
+    cmp al, 0xEB
+    jne .nodrive
+    mov si, msg_atapi
+    cmp byte [ss:ATA_DEVSEL], ATA_SEL_SLAVE
+    jne .regs
+    mov si, msg_atapi_slave
+    jmp .regs
+.nodrive:
+    mov si, msg_nodrive
+    cmp byte [ss:ATA_DEVSEL], ATA_SEL_SLAVE
+    jne .regs
+    mov si, msg_nodrive_slave
+.regs:
+    mov dx, ATA_STATUS
+    in al, dx
+    mov bl, al
+    mov dx, ATA_ERROR
+    in al, dx
+    mov bh, al
+    pop edx
+    pop ecx
+    pop eax
+    stc
+    ret
+
+; Probe the primary master and slave once at POST. Sets ATA_PRESENT
+; (bit 0 master, bit 1 slave) and the BDA hard-disk count at 0x475.
+; ATA_DEVSEL is left on the master. Every register preserved.
+ata_detect:
+    push ax
+    push bx
+    push si
+    xor ah, ah
+    mov byte [ss:ATA_DEVSEL], ATA_SEL_SLAVE
+    call ata_probe
+    jc .master
+    or ah, 2
+.master:
+    mov byte [ss:ATA_DEVSEL], ATA_SEL_MASTER
+    call ata_probe
+    jc .done
+    or ah, 1
+.done:
+    mov [ss:ATA_PRESENT], ah
+    mov al, ah
+    shr al, 1
+    and ah, 1
+    add al, ah
+    mov [ss:BDA_HDCOUNT], al
+    pop si
+    pop bx
+    pop ax
+    ret
+
 ; Software reset of the primary channel, then wait for BSY to clear.
 ; Preserves every register but the flags.
 ata_reset:
@@ -2340,6 +2597,8 @@ msg_kload   db 'kernel loaded at 0x00008000, jumping', 0
 msg_bzload  db 'bzImage loaded at 0x00100000, jumping', 0
 msg_bzbad   db 'disk: bzImage header is invalid', 0
 msg_bzread  db 'disk: read of the bzImage failed', 0
+msg_bzbig   db 'disk: bzImage does not fit in RAM', 0
+bz_cmdline  db 'console=ttyS0,115200', 0
 msg_overlap db 'disk: load overlaps firmware data', 0
 msg_range   db 'disk: load address is out of range', 0
 msg_status  db '  status=', 0
