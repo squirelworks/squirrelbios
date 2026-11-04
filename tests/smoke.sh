@@ -192,6 +192,15 @@ if KBD_NAME=x86-usb-kbd-xhci \
 else
     fail=$((fail + 1))
 fi
+# The other order: an xHCI listed first works from the EBDA's USB pages
+# during POST, and a keyboard on a UHCI listed after it still starts
+if KBD_NAME=x86-usb-kbd-after-xhci \
+   KBD_ARGS="-device qemu-xhci,id=xhci,addr=5 -device usb-tablet,bus=xhci.0,port=3 -device piix3-usb-uhci,id=uhci,addr=8 -device usb-kbd,bus=uhci.0,port=1" \
+   KBD_EXPECT="usb: xHCI at 00:05.0|usb: keyboard is device 2" tests/x86-kbd-run.sh; then
+    pass=$((pass + 1))
+else
+    fail=$((fail + 1))
+fi
 
 # x86: INT 1Ah AH=00 ticks from IRQ0; AH=02 RTC time in BCD
 run x86-time "SquirrelBIOS x86|OS-ENTRY x86 time=ok" \
