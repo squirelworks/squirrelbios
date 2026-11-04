@@ -292,6 +292,28 @@ run x86-usb-ehci-alone "usb: EHCI at 00:07.0|usb: device 1 on root port 2: 46F4:
     -device usb-storage,bus=ehci.0,port=2,drive=usbdisk \
     -device usb-tablet,bus=ehci.0,port=4
 
+# x86: a QEMU xHCI controller. Its USB 3 ports are 1-4 and its USB 2
+# ports 5-8: the disk comes up at super speed on port 2, the hub chain
+# (mouse, second hub, keyboard) on port 5 and the tablet on port 7
+run x86-usb-xhci "usb: xHCI at 00:08.0|usb: device 1 on root port 2: 46F4:0001, mass storage|usb: device 2 on root port 5: 0409:55AA, hub, 8 ports|usb: device 3 on hub 2 port 2: 0627:0001, HID|usb: device 4 on hub 2 port 4: 0409:55AA, hub, 8 ports|usb: device 5 on hub 4 port 8: 0627:0001, HID|usb: device 6 on root port 7: 0627:0001, HID|OS-ENTRY x86 dl=ok memmap=ok flags=ok vga=ok" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -drive format=raw,file=$TEST_DIR/x86-boot.bin,if=ide,snapshot=on \
+    -device qemu-xhci,id=xhci,addr=8 \
+    -device usb-hub,bus=xhci.0,port=1 -device usb-mouse,bus=xhci.0,port=1.2 \
+    -device usb-hub,bus=xhci.0,port=1.4 -device usb-kbd,bus=xhci.0,port=1.4.8 \
+    -drive if=none,id=usbdisk,format=raw,file=$TEST_DIR/x86-one-sector.bin,snapshot=on \
+    -device usb-storage,bus=xhci.0,port=2,drive=usbdisk \
+    -device usb-tablet,bus=xhci.0,port=3
+
+# x86: xHCI on q35 with a USB Attached SCSI disk at super speed
+run x86-usb-xhci-q35 "usb: xHCI at 00:03.0|usb: device 1 on root port 4: 46F4:0003, mass storage|disk: SATA disk on AHCI port 0|OS-ENTRY x86 dl=ok memmap=ok" \
+    "$QEMU_X86" -M q35 -bios x86/squirrel-bios.rom \
+    -drive format=raw,file=$TEST_DIR/x86-boot.bin,if=ide,snapshot=on \
+    -device qemu-xhci,id=xhci \
+    -device usb-uas,id=uas,bus=xhci.0,port=4 \
+    -drive if=none,id=uasdisk,format=raw,file=$TEST_DIR/x86-one-sector.bin,snapshot=on \
+    -device scsi-hd,bus=uas.0,drive=uasdisk
+
 # x86: the 192-sector S2OK kernel load from an AHCI disk (q35, port 0)
 run x86-ahci-osload "SquirrelBIOS x86|disk: SATA disk on AHCI port 0|kernel loaded at 0x00008000, jumping|osload=ok dl=ok flags=ok memmap=ok sig=ok e820=ok|!boot halted" \
     "$QEMU_X86" -M q35 -bios x86/squirrel-bios.rom \

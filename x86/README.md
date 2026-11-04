@@ -19,7 +19,8 @@ drivers/   ata (ATA PIO, LBA28/LBA48, INT 13h with EDD 3.0),
            answered, DMA through the EBDA; CONFIG_AHCI),
            nvme (namespace 1 as DL 80h when no IDE or SATA disk
            answered, queues in the EBDA; CONFIG_NVME),
-           usb (USB core: enumeration and hubs; uhci, ohci, ehci;
+           usb (USB core: enumeration and hubs; uhci, ohci, ehci,
+           xhci;
            CONFIG_USB)
 tables/    acpi (CONFIG_ACPI), smbios (CONFIG_SMBIOS)
 ```

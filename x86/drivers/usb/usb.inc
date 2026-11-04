@@ -31,12 +31,13 @@ USB_HC          equ 0x1F00          ; byte: controller type of this bus
 USB_HC_UHCI     equ 1
 USB_HC_OHCI     equ 2
 USB_HC_EHCI     equ 3
+USB_HC_XHCI     equ 4
 USB_IOBASE      equ 0x1F02          ; word: controller I/O base
 USB_NEXTADDR    equ 0x1F04          ; byte: next device address (1-127)
 USB_BDF         equ 0x1F06          ; word: controller's PCI address
 USB_TOGGLE      equ 0x1F08          ; dword: next data toggle (UHCI token bit)
 USB_SAVESP      equ 0x1F0C          ; word: POST's stack pointer
-USB_MMIO        equ 0x1F10          ; dword: controller registers (OHCI, EHCI)
+USB_MMIO        equ 0x1F10          ; dword: operational registers (OHCI, EHCI, xHCI)
 USB_PASS        equ 0x1F14          ; byte: 1 EHCI, 2 UHCI and OHCI
 USB_STACK       equ 0x7C00          ; segment 0: enumeration nests deeper than
                                     ; the POST stack below 0x600 allows
@@ -47,6 +48,7 @@ USB_MAX_DEPTH   equ 5               ; hub tiers below the root hub
 USB_CLASS_UHCI  equ 0x0C0300
 USB_CLASS_OHCI  equ 0x0C0310
 USB_CLASS_EHCI  equ 0x0C0320
+USB_CLASS_XHCI  equ 0x0C0330
 
 ; Standard requests
 USB_REQ_GET_STATUS     equ 0
@@ -113,8 +115,13 @@ usb_init:
     jmp .next
 .not_uhci:
     cmp eax, USB_CLASS_OHCI
-    jne .next
+    jne .not_ohci
     call ohci_bus
+    jmp .next
+.not_ohci:
+    cmp eax, USB_CLASS_XHCI
+    jne .next
+    call xhci_bus
 .next:
     inc bl
     jnz .fn
@@ -230,12 +237,23 @@ usb_control:
     je ohci_control
     cmp byte [fs:USB_HC], USB_HC_EHCI
     je ehci_control
+    cmp byte [fs:USB_HC], USB_HC_XHCI
+    je xhci_control
     stc
+    ret
+
+; A new device answers at address 0 on this bus: tell the controller, if
+; it keeps its own state per device (xHCI). In: as usb_enum. CF set on
+; failure. Keeps every register.
+usb_attach:
+    cmp byte [fs:USB_HC], USB_HC_XHCI
+    je xhci_attach
+    clc
     ret
 
 ; A device was just reset on a port and answers at address 0. Give it an
 ; address, read what it is, print it, and enumerate a hub's ports.
-; In: AH = speed (0 full, 1 low, 2 high), DL = parent hub's address
+; In: AH = speed (0 full, 1 low, 2 high, 3 super), DL = parent hub's address
 ; (0: root hub), DH = port number, CL = hub tier (0 for a root port).
 ; Keeps every register.
 usb_enum:
@@ -252,6 +270,9 @@ usb_enum:
     cmp al, 127
     ja .out                     ; the bus is full
     mov [bp - 1], al
+    mov ah, [bp - 2]
+    call usb_attach
+    jc .fail
 
     ; The first 8 bytes of the device descriptor at address 0, with an
     ; 8-byte max packet: they hold bMaxPacketSize0
