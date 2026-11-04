@@ -286,6 +286,12 @@ run riscv-boot "SquirrelBIOS RISC-V|next_mode=1|OS-ENTRY riscv hart=ok dtb=ok a2
     "$QEMU_RISCV" -M virt -smp 2 -bios riscv/squirrel-bios.bin \
     -kernel $TEST_DIR/riscv-kernel.bin
 
+# Build configs: the riscv64-virt/small build (8 harts tracked, from
+# configs/riscv64-virt/small.cfg) boots the same image
+run config-riscv-small "SquirrelBIOS RISC-V|next_mode=1|OS-ENTRY riscv hart=ok dtb=ok a2=ok|!trap mcause=" \
+    "$QEMU_RISCV" -M virt -smp 2 -bios build/riscv64-virt/small/squirrel-bios.bin \
+    -kernel $TEST_DIR/riscv-kernel.bin
+
 # RISC-V: an ecall from S-mode reaches the SBI in M-mode and returns
 # SBI_ERR_NOT_SUPPORTED for an extension that does not exist
 run riscv-ecall "OS-ENTRY riscv ecall|ecall=ok|!trap mcause=" \

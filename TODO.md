@@ -336,7 +336,7 @@ Later phases (C–F) get boxes here when Phase B is finished. Every PR says
     the drive and reads fresh status before IDENTIFY; `INT 13h AH=08h`
     on an absent drive returns `CF=1`, `AH=07h` (`x86-slave-absent`).
 
-- [ ] `build-configs` — `make PLATFORM=<p> CONFIG=<c>` with
+- [x] `build-configs` — `make PLATFORM=<p> CONFIG=<c>` with
   `configs/<platform>/<name>.cfg`.
   - Acceptance: platforms `x86-pc`, `aarch64-virt`, `riscv64-virt`; a
     config generates `build/<p>/config.inc` (or `config.h`). Plain

@@ -12,6 +12,8 @@ arm/        AArch64 QEMU virt — PL011 banner + fw_cfg kernel load, DTB in x0
 riscv/      RISC-V QEMU virt — UART banner + S-mode entry to -kernel, DTB in a1, SBI
 tests/      stand-in OS images and smoke tests (make test)
 common/     hand-off contract
+configs/    build configurations, one directory per platform (make PLATFORM= CONFIG=)
+tools/      build helpers (mkconfig.sh: .cfg to config.inc / config.h)
 release-notes/  tagged releases (v0.2.0, v0.3.0, v1.0.0, …)
 ROADMAP.md  goals, principles, milestones
 TODO.md     small tasks, one per PR
@@ -25,7 +27,15 @@ make x86
 make arm
 make riscv
 make clean    # remove all build and test outputs
+
+make PLATFORM=x86-pc CONFIG=default        # build/x86-pc/default/squirrel-bios.rom
+make PLATFORM=riscv64-virt CONFIG=small    # build/riscv64-virt/small/squirrel-bios.bin
 ```
+
+`PLATFORM` is `x86-pc`, `aarch64-virt` or `riscv64-virt`, and `CONFIG`
+names a file in `configs/<platform>/` (default `default`). Plain `make`
+builds the same bytes as each platform's `default.cfg`; `make test`
+checks that. Keys and format: [configs/README.md](configs/README.md).
 
 Requires: `nasm`, `aarch64-linux-gnu-as`/`ld`/`objcopy`, `riscv64-linux-gnu-as`/`ld`/`objcopy`.
 Other cross prefixes work too: `make AARCH64=aarch64-elf- RISCV64=riscv64-elf-`.
@@ -36,8 +46,10 @@ Other cross prefixes work too: `make AARCH64=aarch64-elf- RISCV64=riscv64-elf-`.
 make test
 ```
 
-Builds everything, then boots each firmware under QEMU with a small
-stand-in OS image from `tests/` and checks the serial output:
+Builds everything, checks that each platform's `configs/*/default.cfg`
+builds byte-for-byte what plain `make` builds (`config-default`), then
+boots each firmware under QEMU with a small stand-in OS image from
+`tests/` and checks the serial output:
 
 | Case | Passes when |
 |------|-------------|
@@ -92,6 +104,7 @@ stand-in OS image from `tests/` and checks the serial output:
 | `riscv-srst-fail` | A shutdown for a system failure makes QEMU exit with status 1 |
 | `riscv-ras` | A fault in the SBI path prints `ras: hart=... mcause=... mepc=... mtval=... fatal`, parks the other started hart, prints `boot halted`, and shuts the machine down with QEMU exit status 1 |
 | `riscv-no-kernel` | Without `-kernel`, the firmware reports it and halts |
+| `config-riscv-small` | The `riscv64-virt/small` build (8 harts tracked) boots the `riscv-boot` image |
 
 Needs `qemu-system-i386`, `qemu-system-aarch64` and `qemu-system-riscv64`.
 Serial logs are kept in `build/tests/*.log`. `SMOKE_TIMEOUT` (seconds,

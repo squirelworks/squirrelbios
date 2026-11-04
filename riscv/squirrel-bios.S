@@ -14,7 +14,20 @@
  *   qemu-system-riscv64 -M virt -nographic -bios riscv/squirrel-bios.bin -kernel image.bin
  */
 
-        .equ UART_BASE,     0x10000000      /* NS16550A */
+/* Build configuration (configs/riscv64-virt/*.cfg, see configs/README.md).
+ * make PLATFORM=riscv64-virt passes --defsym SQ_CONFIG=1 and config.inc;
+ * plain make uses the defaults below, which are what default.cfg says. */
+        .ifdef SQ_CONFIG
+        .include "config.inc"
+        .endif
+        .ifndef CONFIG_UART_BASE
+        .equ CONFIG_UART_BASE, 0x10000000
+        .endif
+        .ifndef CONFIG_MAX_HARTS
+        .equ CONFIG_MAX_HARTS, 512
+        .endif
+
+        .equ UART_BASE,     CONFIG_UART_BASE /* NS16550A */
         .equ UART_THR,      0
         .equ UART_IER,      1
         .equ UART_FCR,      2
@@ -130,7 +143,7 @@
          * each hart at its own socket's CLINT. Higher hart IDs stay parked. The trap stacks and hart_table
          * grow with it and must stay inside the PMP-protected 2 MB (the
          * Makefile checks). */
-        .equ MAX_HARTS,         512
+        .equ MAX_HARTS,         CONFIG_MAX_HARTS
         .equ TRAP_STACK,        256         /* per hart */
 
         /* hart_table entry: state, start address, opaque (8 bytes each) */

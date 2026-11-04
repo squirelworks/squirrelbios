@@ -9,14 +9,27 @@
  *   qemu-system-aarch64 -M virt -cpu cortex-a57 -nographic -bios arm/squirrel-bios.bin -kernel image.bin
  */
 
-        .equ UART_BASE,     0x09000000
+/* Build configuration (configs/aarch64-virt/*.cfg, see configs/README.md).
+ * make PLATFORM=aarch64-virt passes --defsym SQ_CONFIG=1 and config.inc;
+ * plain make uses the defaults below, which are what default.cfg says. */
+        .ifdef SQ_CONFIG
+        .include "config.inc"
+        .endif
+        .ifndef CONFIG_UART_BASE
+        .equ CONFIG_UART_BASE, 0x09000000
+        .endif
+        .ifndef CONFIG_FWCFG_BASE
+        .equ CONFIG_FWCFG_BASE, 0x09020000
+        .endif
+
+        .equ UART_BASE,     CONFIG_UART_BASE
         .equ UART_DR,       0x00
         .equ UART_FR,       0x18
         .equ UART_CR,       0x30
         .equ UART_CR_ON,    0x301           /* UARTEN | TXE | RXE */
         .equ UART_TIMEOUT,  0x100000        /* FR polls per character */
 
-        .equ FWCFG_BASE,    0x09020000
+        .equ FWCFG_BASE,    CONFIG_FWCFG_BASE
         .equ FWCFG_DATA,    0x00
         .equ FWCFG_SEL,     0x08
         .equ FWCFG_DMA,     0x10
