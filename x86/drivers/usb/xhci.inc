@@ -35,6 +35,9 @@
 ;   1000h  input context (up to 33 contexts of 64 bytes)
 ;   1880h  the keyboard's report buffers, 15 of 8 bytes
 ;   1900h  the mouse's interrupt ring; 1A00h its report buffers
+;   1B00h  the disk's bulk OUT ring; 1C00h its bulk IN ring
+;   1D00h  its command block wrapper; 1D40h its status wrapper;
+;          1D80h a buffer for INQUIRY, REQUEST SENSE, READ CAPACITY
 ;   2000h  output device contexts, 2 KB per slot (slots 1-8)
 ;   6000h  scratchpad pages: 3 in the EBDA, up to 10 at XHCI_ALT
 ; Software's own tables stay in USB_SEG (usb.inc):
@@ -111,6 +114,11 @@ XHCI_INTRING    equ 0x0700              ; the keyboard's interrupt ring
 XHCI_INTBUF     equ 0x1880              ; and its report buffers
 XHCI_MINTRING   equ 0x1900              ; the mouse's
 XHCI_MINTBUF    equ 0x1A00
+XHCI_BOUT       equ 0x1B00              ; the disk's bulk rings (msd.inc)
+XHCI_BIN        equ 0x1C00
+XHCI_CBW        equ 0x1D00
+XHCI_CSW        equ 0x1D40
+XHCI_SCSIBUF    equ 0x1D80
 XHCI_INT_TRBS   equ 16                  ; 15 reports, then the link
 XHCI_RINGS      equ 0x0800
 XHCI_RING_TRBS  equ 16
@@ -144,6 +152,7 @@ XHCI_EV2        equ 0x1F28          ; dword: last event's status
 XHCI_EV3        equ 0x1F2C          ; dword: last event's control
 XHCI_PEND       equ 0x1F30          ; the device being set up: as an
                                     ; XHCI_ADDR entry, then its TT dword
+XHCI_EV0        equ 0x1F3C          ; dword: last event's TRB pointer
 XHCI_BASE       equ 0x1F48          ; dword: the block's linear address
 XHCI_HIDRING    equ 0x1F4C          ; dword: the ring xhci_hid_config fills
 
@@ -446,6 +455,7 @@ xhci_bus:
     call usb_hid_here
     jc .halt_it
     call xhci_hid_start
+    call usbd_keep              ; the disk's copy of the controller's state
     call usb_hid_announce       ; after: it needs ES:DI, the console cursor
     jmp .out
 .halt_it:
@@ -543,7 +553,9 @@ xhci_put:
     inc byte [fs:di]
     cmp byte [fs:di], XHCI_RING_TRBS - 1
     jb .out
-    mov eax, TRB_LINK_CTRL
+    mov eax, edx                ; the link chains as the TRB before it
+    and eax, 0x10
+    or eax, TRB_LINK_INT
     or al, [fs:di + 1]
     mov [gs:esi + (XHCI_RING_TRBS - 1) * 16 + 12], eax
     mov byte [fs:di], 0
@@ -553,7 +565,8 @@ xhci_put:
     ret
 
 ; Wait up to 1000 ms for an event of type AL, skipping others (port status
-; changes). Its status and control dwords go to XHCI_EV2 and XHCI_EV3. CF
+; changes). Its TRB pointer (low half), status and control dwords go to
+; XHCI_EV0, XHCI_EV2 and XHCI_EV3. CF
 ; set on a timeout. GS flat. Keeps every register.
 xhci_event:
     pushad
@@ -589,6 +602,8 @@ xhci_event:
     and ax, 0x3F
     cmp ax, bp
     jne .look
+    mov eax, [gs:edi + XHCI_EVRING]
+    mov [fs:XHCI_EV0], eax
     mov [fs:XHCI_EV2], ebx
     mov [fs:XHCI_EV3], edx
     popad
@@ -807,6 +822,8 @@ xhci_detach:
     cmp al, [fs:USB_KBD_ADDR]
     je .out
     cmp al, [fs:USB_MOU_ADDR]
+    je .out
+    cmp al, [fs:USBD_ADDR]
     je .out
 .not_kept:
     movzx bx, al
@@ -1087,6 +1104,118 @@ xhci_hid_config:
     pop gs
     popad
     stc
+    ret
+
+; The disk at address AL, bulk IN endpoint CL, bulk OUT endpoint CH, max
+; packet DX, is being claimed on this xHCI, whose block is in the EBDA:
+; give each bulk endpoint an empty ring (state at USBD_INST, USBD_OUTST)
+; and add both to its slot (Configure Endpoint). USBD_SLOT = its slot. CF
+; set on failure. Keeps every register.
+xhci_msd_config:
+    pushad
+    push gs
+    call flat_gs
+    movzx bx, al
+    shl bx, 3
+    movzx ebp, byte [fs:XHCI_ADDR + bx]     ; EBP = its slot
+    test bp, bp
+    jz .fail
+    mov [fs:USBD_SLOT], bp
+    mov ebx, [fs:XHCI_BASE]
+    lea esi, [ebx + XHCI_BOUT]
+    mov di, USBD_OUTST
+    call xhci_ring_init
+    lea esi, [ebx + XHCI_BIN]
+    mov di, USBD_INST
+    call xhci_ring_init
+    ; Input context: add the slot and both endpoints
+    lea edi, [ebx + XHCI_INCTX]
+    push cx
+    mov cx, 0x840 / 4
+    call xhci_zero
+    pop cx
+    movzx eax, cl
+    lea eax, [eax * 2 + 1]                  ; EAX = IN's context index
+    movzx esi, ch
+    shl esi, 1                              ; ESI = OUT's
+    bts dword [gs:edi + 4], eax
+    bts dword [gs:edi + 4], esi
+    or dword [gs:edi + 4], 1
+    cmp eax, esi                            ; ESI = the higher of the two
+    jb .last
+    mov esi, eax
+.last:
+    ; Slot context: as the controller has it, with the entries up to the
+    ; last endpoint
+    push edi
+    movzx eax, byte [fs:XHCI_CTXSZ]
+    add edi, eax
+    lea eax, [ebp - 1]
+    shl eax, 11
+    lea eax, [ebx + eax + XHCI_DEVCTX]
+    push ecx
+    mov ecx, [gs:eax]
+    and ecx, ~(0x1F << 27)
+    shl esi, 27
+    or ecx, esi
+    mov [gs:edi], ecx
+    mov ecx, [gs:eax + 4]
+    mov [gs:edi + 4], ecx
+    mov ecx, [gs:eax + 8]
+    mov [gs:edi + 8], ecx
+    pop ecx
+    pop edi
+    ; The two endpoint contexts: bulk OUT (type 2), bulk IN (type 6)
+    movzx eax, ch
+    shl eax, 1
+    lea esi, [ebx + XHCI_BOUT + 1]          ; dequeue, cycle 1
+    push ecx
+    mov cl, 2
+    call .ep
+    pop ecx
+    movzx eax, cl
+    lea eax, [eax * 2 + 1]
+    lea esi, [ebx + XHCI_BIN + 1]
+    mov cl, 6
+    call .ep
+    ; The command
+    mov eax, edi
+    xor ebx, ebx
+    mov edx, ebp
+    shl edx, 24
+    or edx, TRB_CONFIG_EP << 10
+    call xhci_cmd
+    jc .fail
+    pop gs
+    popad
+    clc
+    ret
+.fail:
+    pop gs
+    popad
+    stc
+    ret
+; Endpoint context EAX of the input context at EDI: type CL, max packet
+; DX, 3 retries, dequeue pointer ESI. Keeps EBX, EDI, EDX.
+.ep:
+    push ebx
+    push edi
+    inc eax
+    movzx ebx, byte [fs:XHCI_CTXSZ]
+    imul eax, ebx
+    add edi, eax
+    mov dword [gs:edi], 0
+    movzx eax, dx
+    shl eax, 16
+    shl cl, 3
+    or al, cl
+    or al, 3 << 1
+    mov [gs:edi + 4], eax
+    mov [gs:edi + 8], esi
+    mov dword [gs:edi + 12], 0
+    mov dword [gs:edi + 16], 512            ; average TRB length
+    pop edi
+    pop ebx
     ret
 
 ; Ring and buffer offsets in the block, per device (keyboard, mouse)

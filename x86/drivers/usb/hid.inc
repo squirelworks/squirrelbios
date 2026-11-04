@@ -99,6 +99,7 @@ usb_hid_claim:
     jne .out
     mov al, [fs:USB_KBD_ADDR]
     or al, [fs:USB_MOU_ADDR]
+    or al, [fs:USBD_ADDR]
     jz .first
     mov ax, [fs:USB_BDF]
     cmp ax, [fs:USB_KBD_BDF]
@@ -159,12 +160,13 @@ usb_hid_claim:
     popad
     ret
 
-; CF clear if the devices claimed on a bus are on this controller
-; (USB_BDF) and not running yet. Keeps every register.
+; CF clear if the devices claimed on a bus (keyboard, mouse, disk) are
+; on this controller (USB_BDF) and not running yet. Keeps every register.
 usb_hid_here:
     push ax
     mov al, [fs:USB_KBD_ADDR]
     or al, [fs:USB_MOU_ADDR]
+    or al, [fs:USBD_ADDR]
     jz .no
     push es
     push word USBK_SEG
@@ -183,8 +185,8 @@ usb_hid_here:
     stc
     ret
 
-; "usb: keyboard is device N", "usb: mouse is device N", for those
-; claimed. Keeps every register but DI (the cursor).
+; "usb: keyboard is device N", "usb: mouse is device N", "usb: disk is
+; device N", for those claimed. Keeps every register but DI (the cursor).
 usb_hid_announce:
     push ax
     push si
@@ -198,8 +200,16 @@ usb_hid_announce:
 .mouse:
     mov al, [fs:USB_MOU_ADDR]
     test al, al
-    jz .out
+    jz .disk
     mov si, msg_usb_mouse
+    call usb_puts_head
+    call usb_dec
+    call usb_newline
+.disk:
+    mov al, [fs:USBD_ADDR]
+    test al, al
+    jz .out
+    mov si, msg_usb_disk
     call usb_puts_head
     call usb_dec
     call usb_newline
