@@ -49,6 +49,10 @@ ata_read:
     call usbd_owns              ; or a USB disk
     jnc usbd_read
 %endif
+%if CONFIG_VIRTIO
+    call vblk_owns              ; or a virtio disk
+    jnc vblk_read
+%endif
     push eax
     push ecx
     push edx
@@ -225,6 +229,10 @@ ata_write:
 %if CONFIG_USB
     call usbd_owns              ; or a USB disk
     jnc usbd_write
+%endif
+%if CONFIG_VIRTIO
+    call vblk_owns              ; or a virtio disk
+    jnc vblk_write
 %endif
     push eax
     push ecx
@@ -623,6 +631,10 @@ ata_capacity:
     call usbd_owns              ; or a USB disk
     jnc usbd_capacity
 %endif
+%if CONFIG_VIRTIO
+    call vblk_owns              ; or a virtio disk
+    jnc vblk_capacity
+%endif
     push ebx
     push ecx
     push esi
@@ -704,6 +716,10 @@ ata_reset:
 %if CONFIG_USB
     call usbd_owns              ; or a USB disk
     jnc usbd_reset
+%endif
+%if CONFIG_VIRTIO
+    call vblk_owns              ; or a virtio disk
+    jnc vblk_reset
 %endif
     push eax
     push ebx

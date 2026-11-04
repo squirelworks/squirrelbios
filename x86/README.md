@@ -7,7 +7,8 @@ build options and the ROM layout, and includes one file per module:
 core/      entry (POST and first boot decision), post (BDA, A20, APIC,
            PIT/PIC), ivt (IVT, IRQ0), int15, console, memmap
 boot/      handoff, fail, floppy (A: boot; CONFIG_FLOPPY),
-           eltorito (CD boot; CONFIG_CDBOOT),
+           eltorito (CD boot; CONFIG_CDBOOT), netboot (DHCP and TFTP;
+           CONFIG_NETBOOT),
            bzimage (CONFIG_BZIMAGE), optrom (CONFIG_OPTROM)
 drivers/   ata (ATA PIO, LBA28/LBA48, INT 13h with EDD 3.0),
            fdc (82077 FDC, INT 13h diskettes; CONFIG_FLOPPY),
@@ -19,6 +20,9 @@ drivers/   ata (ATA PIO, LBA28/LBA48, INT 13h with EDD 3.0),
            answered, DMA through the EBDA; CONFIG_AHCI),
            nvme (namespace 1 as DL 80h when no IDE or SATA disk
            answered, queues in the EBDA; CONFIG_NVME),
+           virtio (a virtio-blk disk as DL 80h when no IDE, SATA or
+           NVMe disk answered; CONFIG_VIRTIO; virtio-net for the
+           network boot, boot/netboot.inc; CONFIG_NETBOOT),
            usb (USB core: enumeration and hubs; uhci, ohci, ehci,
            xhci; hid: keyboard and mouse after POST; msd: a
            bulk-only USB disk on xHCI as DL 80h; CONFIG_USB)

@@ -91,6 +91,18 @@ BITS 16
 %ifndef CONFIG_AHCI
 %define CONFIG_AHCI CONFIG_PCI
 %endif
+%ifndef CONFIG_VIRTIO
+%define CONFIG_VIRTIO CONFIG_PCI
+%endif
+%if CONFIG_VIRTIO && !CONFIG_PCI
+%error "CONFIG_VIRTIO needs CONFIG_PCI"
+%endif
+%ifndef CONFIG_NETBOOT
+%define CONFIG_NETBOOT CONFIG_VIRTIO
+%endif
+%if CONFIG_NETBOOT && !CONFIG_VIRTIO
+%error "CONFIG_NETBOOT needs CONFIG_VIRTIO"
+%endif
 %if CONFIG_AHCI && !CONFIG_PCI
 %error "CONFIG_AHCI needs CONFIG_PCI"
 %endif
@@ -283,6 +295,13 @@ ATTR_ERROR      equ 0x0C
 %if CONFIG_NVME
 %include "drivers/nvme/nvme.inc"
 %endif
+%if CONFIG_VIRTIO
+%include "drivers/virtio/blk.inc"
+%endif
+%if CONFIG_NETBOOT
+%include "drivers/virtio/net.inc"
+%include "boot/netboot.inc"
+%endif
 %if CONFIG_USB
 %include "drivers/usb/usb.inc"
 %include "drivers/usb/uhci.inc"
@@ -355,6 +374,23 @@ msg_usbd    db 'disk: USB disk (bulk-only)', 0
 %endif
 %if CONFIG_NVME
 msg_nvme    db 'disk: NVMe disk (namespace 1)', 0
+%endif
+%if CONFIG_VIRTIO
+msg_virtio  db 'disk: virtio disk', 0
+%endif
+%if CONFIG_NETBOOT
+msg_net_mac db 'net: virtio-net, MAC ', 0
+msg_net_ip  db 'net: address ', 0
+msg_net_from db ' from ', 0
+msg_net_file db ', boot file ', 0
+msg_net_got db 'net: loaded ', 0
+msg_net_bytes db ' bytes', 0
+msg_net_nodhcp db 'net: no DHCP answer', 0
+msg_net_nofile db 'net: DHCP gave no boot file', 0
+msg_net_noarp db 'net: the boot server does not answer ARP', 0
+msg_net_timeout db 'net: TFTP timed out', 0
+msg_net_refused db 'net: the TFTP server refused the file', 0
+msg_net_big db 'net: the boot file does not fit below 0x40000', 0
 %endif
 %if CONFIG_CDBOOT
 msg_cdboot  db 'booting from CD-ROM (El Torito, no emulation)', 0

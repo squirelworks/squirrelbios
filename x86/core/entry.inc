@@ -117,8 +117,21 @@ entry:
     jmp .read_boot
 .no_usbd:
 %endif
+%if CONFIG_VIRTIO
+    call vblk_detect            ; CF clear: DL 80h is a virtio disk
+    jc .no_virtio
+    mov si, msg_virtio
+    mov ah, ATTR_NORMAL
+    call con_print
+    call con_newline
+    jmp .read_boot
+.no_virtio:
+%endif
 %if CONFIG_CDBOOT
     call cd_boot                ; returns only if no CD booted
+%endif
+%if CONFIG_NETBOOT
+    call net_boot               ; returns only if nothing was booted
 %endif
     jmp disk_fail
 .read_boot:
