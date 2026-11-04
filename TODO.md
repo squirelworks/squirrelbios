@@ -410,8 +410,9 @@ stub, a 1 MB flash image for `qemu-system-x86_64 -bios`. One PR each.
   with 2 MB pages), the body copied from flash to RAM at 2 MB, COM1
   console, CPU name, memory map from fw_cfg `etc/e820` (CMOS as a
   fallback). Tests: `x86_64-uefi`, `-4g`, `-pc`.
-- [ ] `x86_64-boot-services` — system table, boot services core, memory
-  allocation and the UEFI memory map.
+- [x] `x86_64-boot-services` — system table, boot services core, memory
+  allocation and the UEFI memory map. Allocations below 4 GB only;
+  pool allocations take whole pages.
 - [ ] `x86_64-pe` — PE32+ loader, LoadImage/StartImage, a test app.
 - [ ] `x86_64-console` — Simple Text Input/Output.
 - [ ] `x86_64-fat` — Block I/O and a FAT32 Simple File System; boot
