@@ -359,8 +359,11 @@ roadmap item, run under QEMU in `make test`.
 - [x] `x86-pci` — PCI enumeration, `$PIR`, PCI BIOS `INT 1Ah B1xx`.
   Bus 0 only; still open: numbering and scanning behind PCI-to-PCI
   bridges, q35 (ICH9) interrupt routing, and a BIOS32 entry.
-- [ ] `x86-edd` — `INT 13h` EDD 3.0, LBA48, El Torito over ATAPI.
-  EDD 3.0 (`AH=41h/44h/47h/48h`) and LBA48 are done; El Torito is next.
+- [x] `x86-edd` — `INT 13h` EDD 3.0, LBA48, El Torito over ATAPI.
+  Floppy-emulation and hard-disk-emulation El Torito images are not
+  booted (no-emulation only).
+  A real ISOLINUX 6.04 CD boots to its `boot:` prompt; it also wants
+  `INT 10h` `AH=01h/09h` and `INT 16h` `AH=10h/11h`, which are not there yet.
 - [ ] `x86-ahci` — AHCI/SATA with `INT 13h` on top. Depends on:
   `x86-pci`.
 - [ ] `x86-nvme` — NVMe with `INT 13h` on top. Depends on: `x86-pci`.

@@ -192,6 +192,17 @@ run x86-slave "SquirrelBIOS x86|OS-ENTRY x86 dl=ok memmap=ok flags=ok|!dl=bad" \
     -drive if=none,id=slave,format=raw,file=$TEST_DIR/x86-slave.bin \
     -device ide-hd,drive=slave,bus=ide.0,unit=1
 
+# x86: El Torito no-emulation boot from -cdrom (secondary master) with no
+# hard disk; the image reads the CD through INT 13h DL = E0h
+run x86-cd "booting from CD-ROM|OS-ENTRY x86 cd cd=ok" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -cdrom $TEST_DIR/x86-cd.iso
+
+# x86: the same CD as primary slave, with no disk on the master
+run x86-cd-slave "booting from CD-ROM|OS-ENTRY x86 cd cd=ok" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -drive format=raw,file=$TEST_DIR/x86-cd-slave.iso,if=ide,media=cdrom,index=1
+
 # x86: EDD 3.0 on a 200 GiB disk: AH=41h/48h, LBA48 reads across 2^28
 # and at 143 GiB, a write read back, AH=44h at and past the last sector
 run x86-edd "SquirrelBIOS x86|OS-ENTRY x86 edd edd=ok" \
@@ -271,8 +282,9 @@ run x86-floppy-nosig "floppy: boot sector has no 0xAA55 signature, trying the ha
     -drive format=raw,file=$TEST_DIR/x86-floppy-nosig.img,if=floppy \
     -drive format=raw,file=$TEST_DIR/x86-boot.bin,if=ide
 
-# x86: a CD-ROM as primary master is rejected, not read
-run x86-atapi "disk: primary master is ATAPI (CD/DVD), not supported|boot halted" \
+# x86: a CD-ROM as primary master with a disc too small to hold a boot
+# record: the CD boot says so, then the ATAPI master is reported
+run x86-atapi "cd: read of the CD failed|disk: primary master is ATAPI (CD/DVD), not a hard disk|boot halted" \
     "$QEMU_X86" -bios x86/squirrel-bios.rom \
     -drive format=raw,file=$TEST_DIR/x86-boot.bin,if=ide,media=cdrom
 

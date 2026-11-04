@@ -18,6 +18,13 @@ int13_handler:
     test dl, 0x80
     jz fd_int13                 ; DL 0x00 / 0x01: diskettes
 %endif
+%if CONFIG_CDBOOT
+    cmp dl, CD_DRIVE
+    jne .not_cd
+    cmp byte [ss:CD_SEL], 0     ; segment 0 at hand-off
+    jne cd_int13
+.not_cd:
+%endif
     cmp ah, 0x00
     je .reset
     cmp ah, 0x02

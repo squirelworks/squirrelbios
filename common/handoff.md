@@ -16,7 +16,7 @@ If the firmware and this file disagree, the firmware has a bug.
 | Console | COM1 `0x3F8`, 115200 8N1 | PL011 `0x09000000` | NS16550A `0x10000000`, 115200 8N1 |
 | Interrupts | `IF = 0`; PIT/PIC programmed, IRQ0 unmasked | `DAIF` masked | `mstatus.MIE`/`SIE` = 0, `mie = 0` |
 | CPUs running | Boot CPU only | Boot CPU only | The boot hart (`fw_dynamic_info.boot_hart`, else hart 0); others through `sbi_hart_start` |
-| Firmware services | `INT 13h` `AH=00/02/03/08/41/42/43/44/47/48` (diskettes `00/02/03/08/15`), `INT 10h` `AH=02/03/06/07/0E/0F`, `INT 15h` `E820`/`AX=2400..2403`, `INT 16h` `AH=00/01`, `INT 1Ah` `AH=00/02`, PCI BIOS `AX=B101/B102/B103/B108..B10D` | None | SBI from S-mode: base, TIME, IPI, RFENCE, HSM, SRST |
+| Firmware services | `INT 13h` `AH=00/02/03/08/41/42/43/44/47/48` (diskettes `00/02/03/08/15`; boot CD `00/41/42/48/4B`), `INT 10h` `AH=02/03/06/07/0E/0F`, `INT 15h` `E820`/`AX=2400..2403`, `INT 16h` `AH=00/01`, `INT 1Ah` `AH=00/02`, PCI BIOS `AX=B101/B102/B103/B108..B10D` | None | SBI from S-mode: base, TIME, IPI, RFENCE, HSM, SRST |
 
 ## Rules for every architecture
 
@@ -193,7 +193,36 @@ returns with CF set and `AH = 0x04` (read) or `AH = 0x05` (reset failed)
 or `AH = 0x80` (timeout). `AH = 0x02` reports `AL = 0` when nothing was
 transferred. The firmware boots from the master when
 it answers; if the master is absent it tries the slave and hands off with
-`DL = 0x81`.
+`DL = 0x81`. When no hard disk answered (or the master is ATAPI), it
+tries a CD before it halts.
+
+**CD-ROM (El Torito).** The firmware looks for ATAPI devices on the
+primary and secondary IDE channels, master before slave (QEMU's
+`-cdrom` is the secondary master). For each one it reads block 17 (2048
+bytes) for the Boot Record Volume Descriptor (`CD001`, `EL TORITO
+SPECIFICATION`), then the boot catalog it names: a validation entry
+(header `01h`, key `55h AAh`, words summing to 0) and a default entry
+that must be bootable (`88h`) with media type 0, no emulation. The
+image's sector count (512-byte units) is loaded at its load segment
+(`0` means `0x07C0`), in whole 2048-byte blocks, which must lie between
+`0x7C00` and `0xA0000`. The firmware prints `booting from CD-ROM (El
+Torito, no emulation)` and enters it at load segment:0 with
+`DL = 0xE0`. A unit that cannot boot gets one `cd:` line with the reason
+(no disc or a read error, no boot record, a bad catalog, not bootable,
+an emulation image, or a load out of range), and the hard disk failure
+is then reported as before.
+
+| `INT 13h`, `DL = 0xE0` (after a CD boot) | Result |
+|------|--------|
+| `AH = 0x00` | CF clear, `AH = 0`. |
+| `AH = 0x41` | With `BX = 0x55AA`: CF clear, `BX = 0xAA55`, `AH = 0x30`, `CX = 0x0001`. |
+| `AH = 0x42` | Read, packet as for a hard disk but in 2048-byte blocks: count 1–32, LBA upper dword 0, buffer below `0xA0000`. CF set and `AH = 0x04` if the drive fails (each command is tried 3 times). |
+| `AH = 0x48` | Buffer of `0x1A` or more: total blocks (READ CAPACITY), 2048 bytes per block, no CHS (flags 0); with `0x1E`, DPTE `FFFF:FFFF`. |
+| `AH = 0x4B`, `AL = 0x00` / `0x01` | The 19-byte specification packet to `DS:SI`: size `0x13`, media 0 (no emulation), drive `0xE0`, controller 0 primary / 1 secondary, image block, device 0 master / 1 slave, load segment, sector count. Terminating changes nothing, since nothing is emulated. |
+
+Any other `AH` on `DL = 0xE0` returns CF set and `AH = 0x01`. Before a
+CD boot `DL = 0xE0` is not a drive. The firmware keeps the CD's port,
+unit, image block, load segment and sector count at `0x04F0`–`0x04FA`.
 
 **Diskettes.** Drives come from CMOS register `0x10` (high nibble A:,
 low nibble B:); the BDA equipment word gets bit 0 and bits 6–7 to match.
@@ -434,8 +463,8 @@ registers on COM1 (and the VGA text buffer), then halts:
 |---------|---------|
 | `no drive on primary master` | Floating bus, or nothing answered as master (before a slave retry). Not retried on that unit. |
 | `no drive on primary slave` | Nothing answered as slave after the master was absent (also the final line when both units are empty). Not retried. |
-| `primary master is ATAPI (CD/DVD), not supported` | ATAPI signature found on the master. Not retried; the slave is not tried. |
-| `primary slave is ATAPI (CD/DVD), not supported` | ATAPI signature found on the slave. Not retried. |
+| `primary master is ATAPI (CD/DVD), not a hard disk` | ATAPI signature found on the master. Not retried; the slave is not tried. The CD boot is tried first (see El Torito). |
+| `primary slave is ATAPI (CD/DVD), not a hard disk` | ATAPI signature found on the slave. Not retried. The CD boot is tried first. |
 | `timeout waiting for drive` | `BSY` never cleared or the expected bit never came up |
 | `read of LBA 0 failed` | Drive set `ERR`/`DF`, or the transfer ended in a bad state |
 | `boot sector has no 0xAA55 signature` | The read was clean but the last word of the sector is not `0xAA55`. Not retried, and no status or error registers are printed. |

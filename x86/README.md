@@ -7,10 +7,12 @@ build options and the ROM layout, and includes one file per module:
 core/      entry (POST and first boot decision), post (BDA, A20, APIC,
            PIT/PIC), ivt (IVT, IRQ0), int15, console, memmap
 boot/      handoff, fail, floppy (A: boot; CONFIG_FLOPPY),
+           eltorito (CD boot; CONFIG_CDBOOT),
            bzimage (CONFIG_BZIMAGE), optrom (CONFIG_OPTROM)
 drivers/   ata (ATA PIO, LBA28/LBA48, INT 13h with EDD 3.0),
            fdc (82077 FDC, INT 13h diskettes; CONFIG_FLOPPY),
-           vga (INT 10h, text mode, font),
+           atapi (ATAPI on both IDE channels, INT 13h for the boot CD;
+           CONFIG_CDBOOT), vga (INT 10h, text mode, font),
            kbd8042 (8042, IRQ1, INT 16h), rtc (INT 1Ah),
            pci (bus 0 scan, BARs, IRQ routing, INT 1Ah B1xx, $PIR;
            CONFIG_PCI)

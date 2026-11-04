@@ -73,7 +73,9 @@ boots each firmware under QEMU with a small stand-in OS image from
 | `x86-edd` | A sparse 200 GiB disk: `INT 13h` `AH=41h` reports EDD 3.0, `AH=48h` the sector count (with the device path and its checksum, and in a short buffer), `AH=42h` reads across sector 2^28 and at 143 GiB (LBA48), `AH=43h` writes there and reads back, `AH=44h` takes the last sector and refuses the one after, and an LBA past 32 bits is refused |
 | `x86-pci` | On i440fx with a virtio-rng: `INT 1Ah` `B101` returns `'PCI '`, `B102`/`B103` find devices by ID and class, POST placed I/O, 32-bit and 64-bit memory BARs and enabled decoding, INTA's Interrupt Line matches the PIIX3 route, config writes read back, and `$PIR` checks out |
 | `x86-pci-q35` | The same on q35, booting from a PIIX3 IDE card; Interrupt Line is `0xFF` there |
-| `x86-atapi` | With a CD-ROM as primary master, the firmware reports ATAPI and halts |
+| `x86-cd` | An El Torito no-emulation ISO on `-cdrom` boots with `DL = E0h`; its image checks it was loaded whole, `AH=41h`, the `AX=4B01h` packet (secondary master, block 20, segment `07C0h`), a 2-block `AH=42h` read and `AH=48h` (2048-byte blocks, 64 of them) |
+| `x86-cd-slave` | The same CD as primary slave with no disk on the master |
+| `x86-atapi` | With a disc too small for a boot record as primary master, the CD boot reports the failed read, then the firmware reports the ATAPI master and halts |
 | `x86-bad-sector` | A sector without the `0xAA55` signature is reported and not jumped to |
 | `x86-extra` | An SQBL header in the boot sector gets its extra sectors loaded before the jump |
 | `x86-extra-map`, `x86-extra-boot`, `x86-extra-range` | An SQBL load onto the memory map, onto the boot sector, or past `0xA0000` is refused |
