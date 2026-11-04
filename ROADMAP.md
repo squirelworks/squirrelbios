@@ -12,8 +12,16 @@ RISC-V `virt`. **v1.0.0** is a comprehensive **x86 PC BIOS** on QEMU —
 runtime services an OS and boot sector actually call — not a joke thin
 stub and not a copy of SeaBIOS/EDK2.
 
-Nothing in this repo is UEFI, and nothing is vendored third-party
-firmware.
+After v1.0.0 the direction widens: **one modular, original source tree**
+that builds firmware for ancient and modern machines, across the CPU
+families mainstream OSes run on, with storage and I/O from floppy and IDE
+to NVMe and USB, and with **Squirrel-OS/2 as the OS on top**. That plan is
+[Beyond v1.0.0](#beyond-v100-v11--v40) below (epics #82 and #83,
+follow-ups #84).
+
+Nothing in this repo is vendored third-party firmware. A UEFI-class
+interface arrives in Phase C as original code; until then nothing here is
+UEFI.
 
 ## Goals
 
@@ -65,9 +73,11 @@ x86 v1.0.0.
   the item's box in `TODO.md` in that PR.
 - **Branch from `main`.** Every PR targets `main`. Stacked PRs are not
   used. Merge, then start the next item from the new `main`.
-- **QEMU is the machine.** Addresses, CMOS, fw_cfg, and the UARTs are the
-  ones these three QEMU machines already use. A second board is out of
-  scope until the PC BIOS path is in good shape.
+- **QEMU is the reference machine.** Addresses, CMOS, fw_cfg, and the
+  UARTs are the ones the QEMU machines already use. Every new platform
+  runs under QEMU in `make test` before any real board. Real boards live
+  under `boards/`, and real-hardware checks are post-merge, never a merge
+  blocker.
 - **Failure is a message and a halt.** Match the messages already in the
   contract (`disk: ...`, `boot: ...`, then `boot halted`). Never jump to
   a partial or missing image.
@@ -128,7 +138,123 @@ When milestones 8–11's TODO boxes are checked: release notes, tag
 `v1.0.0`, and a contract that lists the full IVT surface. No SeaBIOS
 inside.
 
-## Secondary track (does not block v1.0.0)
+## Beyond v1.0.0 (v1.1 → v4.0)
+
+Imported from the SquirrelSoft addendum roadmap (2026-11-04). Epics:
+#82 (modular, multi-platform source) and #83 (storage and I/O range).
+v1.0.0 follow-ups are #84. Phases run in order; inside a phase, items run
+top to bottom. Each item is one PR (or one PR per driver where noted),
+with its `make test` case and contract update, exactly as in the
+Principles above. Squirrel-OS/2 booting on a target is the primary
+acceptance test; Linux and other OS loaders are secondary.
+
+### Phase A — v1.1: make the tree modular (no behaviour change)
+
+- **A1 (v1.1.0) Build system and configs.** `make PLATFORM=<p>
+  CONFIG=<c>`; `configs/<platform>/<name>.cfg` (key=value) generates
+  `build/<p>/config.inc` / `config.h`. Platforms: `x86-pc` (today's ROM),
+  `aarch64-virt`, `riscv64-virt`. Default `make` builds all three exactly
+  as today. Test: `make test` count unchanged, and the `x86-pc/default`
+  ROM is byte-for-byte v1.0.0's ROM (or a documented, intentional diff).
+- **A2 (v1.1.1) Split x86 into modules.** `x86/core/` (reset, POST,
+  IVT), `drivers/ata/`, `drivers/vga/`, `drivers/kbd8042/`,
+  `drivers/rtc/`, `tables/acpi/`, `tables/smbios/`, `boot/`, each
+  guarded by `CONFIG_*`. Test: a `CONFIG=minimal` ROM boots the
+  `x86-boot` test.
+- **A3 (v1.1.2) v1.0.0 follow-ups (#84).** bzImage loader for kernels
+  over 64 KB; `boot_params` gets the E820 table, command line and
+  `type_of_loader`; slave detection uses fresh status reads; `INT 13h
+  AH=08h` fails for absent drives. Test: an `x86-slave-absent` case and a
+  >64 KB synthetic bzImage; an optional job boots a real Linux bzImage.
+
+### Phase B — v1.2–v1.4: storage and I/O on x86 legacy (#83)
+
+- **B1 (v1.2.0) Floppy.** 82077 FDC driver, `INT 13h` `DL=00h/01h`
+  read/write, `INT 1Eh` diskette parameter table, boot from `-fda`.
+  Test: boot a 1.44 MB Squirrel-OS/2 `floppy.img`; read/write/verify.
+- **B2 (v1.2.1) PCI enumeration.** Config mechanism #1, bus scan, BAR
+  sizing, `$PIR` routing table, PCI BIOS `INT 1Ah AX=B1xx`. Test:
+  enumerate QEMU `i440fx` and `q35`; `B101h` returns `"PCI "`.
+- **B3 (v1.2.2) EDD 3.0 and LBA48.** `INT 13h AH=41h/42h/43h/48h`, disks
+  over 8 GB, El Torito no-emulation boot over ATAPI. Test: a 16 GB disk;
+  an ISO with `-cdrom`.
+- **B4 (v1.3.0) AHCI/SATA.** HBA init, port reset, READ/WRITE DMA EXT,
+  `INT 13h` on top. Test: `-machine q35` AHCI disk boots Squirrel-OS/2.
+- **B5 (v1.3.1) NVMe.** Admin and one I/O queue pair, Identify,
+  Read/Write, `INT 13h` on top. Test: `-device nvme` boots.
+- **B6 (v1.4.0) USB host controllers.** UHCI, OHCI, EHCI, xHCI (in that
+  order, one PR each), enumeration, hubs.
+- **B7 (v1.4.1) USB HID with legacy emulation.** Keyboard feeds
+  `INT 16h` and the BDA buffer; mouse feeds `INT 15h C2xx`. Test:
+  `-device usb-kbd` with scripted keys.
+- **B8 (v1.4.2) USB mass storage boot** (BOT, then UAS). Test:
+  `-device usb-storage` with `os.img` boots.
+- **B9 (v1.4.3) virtio-blk / virtio-net and network boot.** Original
+  TFTP client; boot `SQBL` over the network. Test: QEMU user-net TFTP.
+- **B10 (v1.4.4) Video.** VBE 2.0/3.0 linear-framebuffer modes on QEMU
+  std VGA (still not a full SVGA option-ROM replacement). Test: mode
+  list, set 800x600x32, read back a pixel.
+
+### Phase C — v2.0: x86-64 and a UEFI-class interface
+
+- **C1 (v2.0.0-alpha) `PLATFORM=x86_64-uefi`.** Reset to long mode in
+  firmware, page tables, PE32+ loader. Original boot services subset an
+  OS loader needs (memory map, GOP, Simple Text In/Out, Block I/O, Simple
+  File System over FAT32, LoadImage/StartImage, ExitBootServices) and
+  runtime services (GetTime, ResetSystem, variables). Test: `-machine
+  q35 -bios` boots a test PE32+ app; a Squirrel-OS/2 UEFI loader boots.
+- **C2 (v2.0.0) ACPI 2.0+/6.x and SMBIOS 3.x.** MADT, HPET, MCFG, FADT,
+  DSDT (original, generated AML). Test: Linux x86-64 boots to a shell
+  with ACPI; an `acpidump`-style self-check in `make test`.
+- **C3 (v2.0.1) CSM.** Legacy BIOS services kept on the x86-64 build.
+- **C4 (v2.1.x) SMP and Secure Boot.** INIT-SIPI-SIPI, MP table, x2APIC;
+  verify-only Secure Boot with our own keys.
+- **C5 (v2.2.x) Real x86 hardware track.** A flashing guide for one
+  cheap board; DDR training is research under `boards/` and never a
+  merge blocker.
+
+### Phase D — v2.5: ARM and RISC-V as full firmware
+
+- **D1** AArch64 `virt`: UEFI-class interface, device tree and ACPI
+  (SBBR-like), PSCI, GICv3.
+- **D2** AArch64 boards: Raspberry Pi 4/5 under `boards/rpi4`.
+- **D3** RISC-V `virt`: UEFI-class interface while keeping the SBI;
+  `DBCN`, SSE; boards (VisionFive 2, HiFive) under `boards/`.
+- **D4** Shared drivers across architectures (NVMe, xHCI, virtio, FAT,
+  PE/ELF loaders) from the same sources. Test: each QEMU target boots
+  Squirrel-OS/2 (once its port exists) and Linux to a shell.
+
+### Phase E — v3.0: other architectures
+
+- **E1** `PLATFORM=ppc64le-powernv`: OPAL-like runtime interface, device
+  tree, boot Linux on QEMU `powernv`.
+- **E2** `PLATFORM=sparc64-sun4u`: an IEEE 1275-style client interface
+  subset (no Forth), boot on QEMU `sun4u`.
+- **E3** Stretch: `m68k-virt`, `mips-malta`, `loongarch64-virt`, `s390x`
+  (IPL only). Test: each reaches a firmware prompt under QEMU and hands
+  off to a test kernel.
+
+### Phase F — v4.0: large and supercomputer-class nodes
+
+- **F1** NUMA (SRAT/SLIT/HMAT), more than 1000 CPUs, many PCIe root
+  complexes and ECAM segments.
+- **F2** RAS: machine-check logging (BERT/HEST/EINJ), corrected-error
+  thresholds, CXL memory enumeration (research).
+- **F3** Management: IPMI/Redfish-style BMC stubs, serial-over-LAN, HTTP
+  boot.
+- **F4** Diskless cluster boot of many nodes from one image server.
+  Test: QEMU `-smp 256 -numa ...`; `make linux-big` already covers part.
+
+### Squirrel-OS/2 hand-off on every platform
+
+Every platform build provides the same Squirrel hand-off
+([common/handoff.md](common/handoff.md)): memory map, console,
+framebuffer (if any), ACPI/DTB pointer, boot device. Squirrel-OS/2 boots
+on each new platform as soon as its port exists.
+
+## Secondary track
+
+The older polish items stay valid and fold into Phase D when it starts:
 
 - RISC-V: `DBCN`, device-tree-derived UART/CLINT addresses, SSE once
   QEMU can inject corrected errors, `aplic-imsic` when the hypervisor
@@ -138,10 +264,13 @@ inside.
 
 ## Out of scope
 
-- UEFI as the hand-off (ACPI tables without UEFI are in scope for
-  milestone 11).
-- Vendoring SeaBIOS, EDK2, OpenSBI, U-Boot, or another project's
-  firmware and calling it SquirrelBIOS.
-- A full VESA/SVGA video BIOS and option-ROM VGA BIOS replacement.
-- Boards other than QEMU PC, QEMU AArch64 `virt`, and QEMU RISC-V `virt`
-  until the PC BIOS path is in good shape.
+- Vendoring SeaBIOS, EDK2, OpenSBI, U-Boot, coreboot, OpenBIOS, or
+  another project's firmware and calling it SquirrelBIOS. Reading public
+  specifications is fine; cite them.
+- A full SVGA option-ROM replacement (VBE linear-framebuffer modes in B10
+  are in scope).
+- Committing firmware or OS images. Release images go only on GitHub
+  Releases, and only Squirrel tags or publishes.
+
+UEFI-class interfaces and boards other than the QEMU machines used to be
+listed here. Epic #82 moves both in scope, staged as Phases C and D.

@@ -4,8 +4,10 @@ The laundry list for [ROADMAP.md](ROADMAP.md). One checkbox is one PR,
 branched from `main` and merged to `main` before the next one starts.
 Stacked PRs are not used.
 
-Sections **1–7** are the hand-off era (**done in v0.3.0**). Work from
-**section 8** toward **v1.0.0** (comprehensive x86 PC BIOS). Finish a
+Sections **1–7** are the hand-off era (**done in v0.3.0**). Sections
+**8–12** built **v1.0.0** (comprehensive x86 PC BIOS) and are done. Work
+from **section 13** (Phase A of the
+[post-1.0 roadmap](ROADMAP.md#beyond-v100-v11--v40)). Finish a
 section before starting the next one. Inside a section, do items from the
 top and honour any `Depends on` line. The same PR updates
 `common/handoff.md` (and the architecture README, when the visible
@@ -317,7 +319,58 @@ so the IVT surface stays the contract.
     known gaps (no VESA, no UEFI). `make test` green. Tag `v1.0.0`.
     Depends on: every unchecked box in sections 8–11.
 
-## Secondary track (does not block v1.0.0)
+## Beyond v1.0.0
+
+Phases A and B of the [post-1.0 roadmap](ROADMAP.md#beyond-v100-v11--v40).
+Later phases (C–F) get boxes here when Phase B is finished. Every PR says
+`Refs #N` / `Fixes #N` for the issue it advances.
+
+## 13. Phase A — modular tree (v1.1, epic #82)
+
+- [ ] `x86-v1-followups` — v1.0.0 follow-ups (#84). Roadmap A3, done
+  first because these are bugs in the released ROM.
+  - Acceptance: bzImage protected-mode kernels over 64 KB are copied in
+    full to 1 MB (a >64 KB synthetic bzImage checks its tail);
+    `boot_params` has the E820 table, `cmd_line_ptr` and
+    `type_of_loader` (a stand-in checks them); slave detection selects
+    the drive and reads fresh status before IDENTIFY; `INT 13h AH=08h`
+    on an absent drive returns `CF=1`, `AH=07h` (`x86-slave-absent`).
+
+- [ ] `build-configs` — `make PLATFORM=<p> CONFIG=<c>` with
+  `configs/<platform>/<name>.cfg`.
+  - Acceptance: platforms `x86-pc`, `aarch64-virt`, `riscv64-virt`; a
+    config generates `build/<p>/config.inc` (or `config.h`). Plain
+    `make` and `make test` behave as today (58 cases). A test checks the
+    `x86-pc/default` ROM is byte-for-byte the pre-change ROM.
+
+- [ ] `x86-modules` — Split `x86/squirrel-bios.asm` into `core/`,
+  `drivers/{ata,vga,kbd8042,rtc}/`, `tables/{acpi,smbios}/`, `boot/`,
+  each behind `CONFIG_*`.
+  - Acceptance: default ROM unchanged; a `CONFIG=minimal` ROM boots the
+    `x86-boot` stand-in. Depends on: `build-configs`.
+
+## 14. Phase B — storage and I/O on x86 legacy (v1.2–v1.4, epic #83)
+
+One box per PR, in order. Acceptance for each is the test in the
+roadmap item, run under QEMU in `make test`.
+
+- [ ] `x86-floppy` — 82077 FDC, `INT 13h DL=00h/01h`, `INT 1Eh`, boot
+  `-fda`.
+- [ ] `x86-pci` — PCI enumeration, `$PIR`, PCI BIOS `INT 1Ah B1xx`.
+- [ ] `x86-edd` — `INT 13h` EDD 3.0, LBA48, El Torito over ATAPI.
+- [ ] `x86-ahci` — AHCI/SATA with `INT 13h` on top. Depends on:
+  `x86-pci`.
+- [ ] `x86-nvme` — NVMe with `INT 13h` on top. Depends on: `x86-pci`.
+- [ ] `x86-uhci`, `x86-ohci`, `x86-ehci`, `x86-xhci` — USB host
+  controllers, one PR each. Depends on: `x86-pci`.
+- [ ] `x86-usb-hid` — USB keyboard/mouse feeding `INT 16h` / `INT 15h
+  C2xx`.
+- [ ] `x86-usb-storage` — Boot from USB mass storage (BOT, then UAS).
+- [ ] `x86-virtio-net-boot` — virtio-blk/net and an original TFTP boot
+  of `SQBL`.
+- [ ] `x86-vbe` — VBE 2.0/3.0 linear-framebuffer modes.
+
+## Secondary track
 
 Open a PR for one of these when it helps; they are not the laundry list
 above.
