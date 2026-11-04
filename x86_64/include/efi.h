@@ -185,9 +185,55 @@ typedef struct {
     EFI_CONFIGURATION_TABLE *configuration_table;
 } EFI_SYSTEM_TABLE;
 
+#define EFI_IMAGE_SUBSYSTEM_EFI_APPLICATION          10
+#define EFI_IMAGE_SUBSYSTEM_EFI_BOOT_SERVICE_DRIVER  11
+#define EFI_IMAGE_SUBSYSTEM_EFI_RUNTIME_DRIVER       12
+
+#define EFI_OPEN_PROTOCOL_TEST_PROTOCOL 0x04
+
+typedef enum { AllHandles, ByRegisterNotify, ByProtocol } EFI_LOCATE_SEARCH_TYPE;
+
+#define EFI_LOADED_IMAGE_PROTOCOL_GUID \
+    { 0x5B1B31A1, 0x9562, 0x11d2, { 0x8E, 0x3F, 0x00, 0xA0, 0xC9, 0x69, 0x72, 0x3B } }
+#define EFI_LOADED_IMAGE_PROTOCOL_REVISION 0x1000
+
+typedef struct {
+    u32 revision;
+    EFI_HANDLE parent_handle;
+    void *system_table;
+    EFI_HANDLE device_handle;
+    void *file_path;
+    void *reserved;
+    u32 load_options_size;
+    void *load_options;
+    void *image_base;
+    u64 image_size;
+    EFI_MEMORY_TYPE image_code_type;
+    EFI_MEMORY_TYPE image_data_type;
+    EFI_STATUS (EFIAPI *unload)(EFI_HANDLE);
+} EFI_LOADED_IMAGE_PROTOCOL;
+
+extern const EFI_GUID efi_loaded_image_guid;
+int guid_eq(const EFI_GUID *a, const EFI_GUID *b);
+
+/* protocol.c */
+void efi_protocol_init(EFI_BOOT_SERVICES *bs);
+EFI_STATUS EFIAPI efi_install_protocol_interface(EFI_HANDLE *, EFI_GUID *, u32, void *);
+EFI_STATUS EFIAPI efi_uninstall_protocol_interface(EFI_HANDLE, EFI_GUID *, void *);
+EFI_STATUS EFIAPI efi_handle_protocol(EFI_HANDLE, EFI_GUID *, void **);
+EFI_STATUS EFIAPI efi_install_configuration_table(EFI_GUID *, void *);
+
+/* image.c */
+void efi_image_init(EFI_BOOT_SERVICES *bs);
+EFI_STATUS EFIAPI efi_load_image(BOOLEAN, EFI_HANDLE, void *, void *, UINTN, EFI_HANDLE *);
+EFI_STATUS EFIAPI efi_start_image(EFI_HANDLE, UINTN *, CHAR16 **);
+EFI_STATUS EFIAPI efi_unload_image(EFI_HANDLE);
+extern EFI_HANDLE efi_firmware_handle;
+
 /* memory.c */
 void efi_memory_init(void);
 int efi_memory_selftest(void);
+u64 efi_free_pages_count(void);
 EFI_STATUS EFIAPI efi_allocate_pages(EFI_ALLOCATE_TYPE, EFI_MEMORY_TYPE, UINTN, EFI_PHYSICAL_ADDRESS *);
 EFI_STATUS EFIAPI efi_free_pages(EFI_PHYSICAL_ADDRESS, UINTN);
 EFI_STATUS EFIAPI efi_get_memory_map(UINTN *, EFI_MEMORY_DESCRIPTOR *, UINTN *, UINTN *, u32 *);
@@ -197,6 +243,7 @@ EFI_STATUS EFIAPI efi_free_pool(void *);
 /* tables.c */
 extern EFI_SYSTEM_TABLE *efi_st;
 void efi_tables_init(void);
+void efi_reseal(EFI_TABLE_HEADER *h);
 u32 crc32(const void *buf, usize len);
 
 #endif

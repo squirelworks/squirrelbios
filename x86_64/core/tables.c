@@ -84,8 +84,15 @@ static void EFIAPI set_mem(void *d, UINTN n, u8 v)
     memset(d, v, n);
 }
 
+void efi_reseal(EFI_TABLE_HEADER *h)
+{
+    h->crc32 = 0;
+    h->crc32 = crc32(h, h->header_size);
+}
+
 void efi_tables_init(void)
 {
+    efi_st = &st;
     void **slot = (void **)&bs.create_event;
     void **last = (void **)&bs.create_event_ex;
     for (; slot <= last; slot++)
@@ -102,6 +109,8 @@ void efi_tables_init(void)
     bs.copy_mem = copy_mem;
     bs.set_mem = set_mem;
     bs.reserved = NULL;
+    efi_protocol_init(&bs);
+    efi_image_init(&bs);
     seal(&bs.hdr, EFI_BOOT_SERVICES_SIGNATURE, sizeof bs);
 
     slot = (void **)&rt.get_time;
@@ -117,5 +126,4 @@ void efi_tables_init(void)
     st.number_of_table_entries = 0;
     st.configuration_table = NULL;
     seal(&st.hdr, EFI_SYSTEM_TABLE_SIGNATURE, sizeof st);
-    efi_st = &st;
 }

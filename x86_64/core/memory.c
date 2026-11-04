@@ -242,6 +242,15 @@ EFI_STATUS EFIAPI efi_get_memory_map(UINTN *size, EFI_MEMORY_DESCRIPTOR *buf, UI
     return EFI_SUCCESS;
 }
 
+u64 efi_free_pages_count(void)
+{
+    u64 n = 0;
+    for (int i = 0; i < nmap; i++)
+        if (free_type(map[i].type))
+            n += map[i].pages;
+    return n;
+}
+
 #define POOL_MAGIC 0x6c6f6f5051537153ULL       /* "SqSQPool" */
 
 EFI_STATUS EFIAPI efi_allocate_pool(EFI_MEMORY_TYPE type, UINTN size, void **out)
