@@ -161,7 +161,7 @@ The boot sector's calls, which the firmware serves on every path:
 |------|-----------|
 | `INT 13h` `AH = 0x42` | Extended read. `DS:SI` points at a 16-byte disk address packet (size byte `0x10`, reserved, word count 1–128, word offset, word segment, qword LBA). The buffer must lie entirely below `0xA0000`. The LBA must fit in 28 bits. CF clear and `AH = 0` on success. |
 | `INT 13h` `AH = 0x43` | Extended write. Same packet rules as `AH = 0x42`. CF clear and `AH = 0` on success. |
-| `INT 13h` `AH = 0x08` | Drive parameters for `DL = 0x80` or `0x81`. CF clear, `AH = 0`, `DH = 15` (16 heads), `CL` bits 5–0 `= 63` (sectors per track), `CH = 0xFF` and `CL` bits 7–6 `= 3` (1023 cylinders), `DL = 1`. `ES:DI` and `BL` are left alone. |
+| `INT 13h` `AH = 0x08` | Drive parameters for `DL = 0x80` or `0x81`. CF clear, `AH = 0`, `DH = 15` (16 heads), `CL` bits 5–0 `= 63` (sectors per track), `CH = 0xFF` and `CL` bits 7–6 `= 3` (1023 cylinders), `DL` = number of hard disks that answered `IDENTIFY` at POST (1 or 2). `ES:DI` and `BL` are left alone. A drive that did not answer: CF set, `AH = 0x07`. |
 | `INT 13h` `AH = 0x02` | CHS read of `AL` sectors (1–128) to `ES:BX`, using that same geometry. Cylinder is `CH` plus `CL` bits 7–6, sector is `CL` bits 5–0, head is `DH`. CF clear, `AH = 0`, `AL` unchanged on success. |
 | `INT 13h` `AH = 0x03` | CHS write of `AL` sectors from `ES:BX`, same geometry and status rules as `AH = 0x02`. |
 | `INT 13h` `AH = 0x00` | Reset the primary channel. CF clear and `AH = 0` when the drive comes ready. |
@@ -186,6 +186,15 @@ or `AH = 0x80` (timeout). `AH = 0x02` reports `AL = 0` when nothing was
 transferred. There is no floppy. The firmware boots from the master when
 it answers; if the master is absent it tries the slave and hands off with
 `DL = 0x81`.
+
+At POST the firmware selects each unit and sends `IDENTIFY DEVICE`, so
+presence is judged from the status that command produces, not from
+whatever an earlier transfer or the other unit left behind. A unit is
+present when it returns its 512 identify bytes; an ATAPI device aborts
+the command and leaves `14h EBh`, and is reported as such. The result is
+kept at `0x04FB` (bit 0 master, bit 1 slave) and the BDA hard-disk count
+at `0x0475` is set from it. `AH = 0x08` on a unit that did not answer
+returns CF set and `AH = 0x07`.
 
 Before the jump the firmware fills the real-mode IVT. The vectors for
 `INT 08h` (IRQ0), `INT 09h` (IRQ1), `INT 10h`, `INT 13h`, `INT 15h`,
@@ -258,16 +267,34 @@ When sector 0 has `0xAA55`, no `SQBL` header, and offset `0x202` is
 `HdrS`, the firmware treats the disk as a bzImage:
 
 1. `setup_sects` at `0x1F1` (0 means 4) and `syssize` at `0x1F4`
-   (paragraphs) size the protected-mode image.
-2. That image is read from LBA `setup_sects+1` to linear `0x100000`
-   through a bounce buffer (ATA PIO stays below 1 MB).
-3. A boot_params page at `0x90000` is zeroed and the first `0x250` header
-   bytes are copied into it.
-4. The CPU enters 32-bit protected mode with a flat GDT; `ESI` =
-   `0x90000`, and control jumps to `code32_start` (dword at `0x214`,
-   default `0x100000`).
+   (16-byte units) size the protected-mode image. Its size is limited
+   only by the usable memory-map entry at `0x100000`; an image that does
+   not fit is refused before anything is read.
+2. That image is read from LBA `setup_sects+1` to linear `0x100000` in
+   64-sector pieces through a bounce buffer at `0x8000` (ATA PIO stays
+   below 1 MB), so kernels of any size that fits load whole.
+3. boot_params (the "zero page") at `0x90000` is zeroed, then gets the
+   image's setup header (`0x1F1` up to `0x202` + the byte at `0x201`) and:
 
-`SQBL` and `S2OK` are checked before `HdrS`. No initrd, no command line.
+   | Offset | Field | Value |
+   |---|---|---|
+   | `0x1E0` | `alt_mem_k` | KB of RAM from 1 MB (the memory-map entry there) |
+   | `0x1E8` | `e820_entries` | number of SQMM entries (at most 128) |
+   | `0x210` | `type_of_loader` | `0xFF` (undefined loader, per the boot protocol) |
+   | `0x214` | `code32_start` | from the image, or `0x100000` if it is zero |
+   | `0x218`, `0x21C` | `ramdisk_image`, `ramdisk_size` | 0 (no initrd) |
+   | `0x228` | `cmd_line_ptr` | `0x91000`: `console=ttyS0,115200` |
+   | `0x2D0` | `e820_table` | the SQMM entries, which already use the E820 layout |
+
+4. The CPU enters 32-bit protected mode with a flat GDT that has
+   `__BOOT_CS` at `0x10` and `__BOOT_DS` at `0x18`: `CS = 0x10`,
+   `DS = ES = FS = GS = SS = 0x18`, `ESI = 0x90000`, `EBX = EBP = EDI =
+   0`, `ESP = 0x90000`, interrupts off, `DF` clear. Control jumps to
+   `code32_start`.
+
+`SQBL` and `S2OK` are checked before `HdrS`. No initrd yet. Linux's
+own 32-bit boot protocol (`Documentation/arch/x86/boot.rst`) is the
+specification followed here.
 
 ### Option ROMs
 
@@ -356,6 +383,9 @@ registers on COM1 (and the VGA text buffer), then halts:
 | `load address is out of range` | The SQBL count is not 1–128, the load address is not below `0xA0000`, or the load runs past it. Nothing is read. No registers printed. |
 | `read of the extra sectors failed` | As `read of LBA 0 failed`, for the SQBL sectors. Retried like the first read. |
 | `read of the kernel image failed` | As `read of LBA 0 failed`, for the `S2OK` sectors after the signature probe. Retried like the first read. |
+| `bzImage header is invalid` | `syssize` is 0. No registers printed. |
+| `bzImage does not fit in RAM` | The protected-mode kernel would not fit in the usable RAM at 1 MB. Nothing is read. No registers printed. |
+| `read of the bzImage failed` | As `read of LBA 0 failed`, for the bzImage. Retried like the first read. |
 | `kernel image has no S2OK signature` | The signature was present in the probe and absent after the load. Not retried, and no status or error registers are printed. |
 
 ### How to test
@@ -365,7 +395,8 @@ registers on COM1 (and the VGA text buffer), then halts:
 `x86-extra-map`, `x86-extra-boot`, `x86-extra-range`, `x86-osload`,
 `x86-int13`, `x86-bda`, `x86-a20`, `x86-pit`, `x86-kbd`, `x86-time`,
 `x86-vid`, `x86-write`, `x86-int15a20`, `x86-slave`, `x86-acpi`,
-`x86-smbios`, `x86-bzimage` and `x86-optrom`. In `x86-boot` the boot sector checks
+`x86-smbios`, `x86-bzimage`, `x86-bzimage-big`, `x86-bzimage-toobig`,
+`x86-slave-absent`, `x86-params-slave` and `x86-optrom`. In `x86-boot` the boot sector checks
 `DL`, that `IF` and `DF` are clear, and that the memory map has the
 magic, 20-byte entries, ends by `0x0600`, contains the conventional and
 both reserved regions above exactly, requires an entry at `0x00100000`

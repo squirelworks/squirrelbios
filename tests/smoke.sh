@@ -203,9 +203,32 @@ run x86-smbios "SquirrelBIOS x86|OS-ENTRY x86 smbios=ok" \
     -drive format=raw,file=$TEST_DIR/x86-smbios.bin,if=ide
 
 # x86: Linux bzImage (HdrS) loaded at 1 MB; PM payload prints bz=ok
-run x86-bzimage "SquirrelBIOS x86|bzImage loaded at 0x00100000, jumping|bz=ok|!entered-boot-sector|!boot halted" \
+# The stand-in also checks the 32-bit entry segments and boot_params
+# (setup header, type_of_loader, E820 table, alt_mem_k, cmd_line_ptr).
+run x86-bzimage "SquirrelBIOS x86|bzImage loaded at 0x00100000, jumping|bz=ok seg=ok bp=ok tail=ok|!entered-boot-sector|!boot halted" \
     "$QEMU_X86" -bios x86/squirrel-bios.rom \
     -drive format=raw,file=$TEST_DIR/x86-bzimage.bin,if=ide
+
+# x86: a 300 KB protected-mode kernel is copied whole (its last dword)
+run x86-bzimage-big "bzImage loaded at 0x00100000, jumping|bz=ok seg=ok bp=ok tail=ok|!boot halted" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -drive format=raw,file=$TEST_DIR/x86-bzimage-big.bin,if=ide
+
+# x86: a kernel larger than the RAM at 1 MB is refused before the load
+run x86-bzimage-toobig "disk: bzImage does not fit in RAM|boot halted|!bz=ok|!bzImage loaded" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom -m 32 \
+    -drive format=raw,file=$TEST_DIR/x86-bzimage-toobig.bin,if=ide
+
+# x86: INT 13h AH=08h fails (CF=1, AH=07h) for an absent slave; DL and
+# BDA 0x475 count the disks that answered IDENTIFY
+run x86-slave-absent "OS-ENTRY x86 params=ok" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -drive format=raw,file=$TEST_DIR/x86-params.bin,if=ide
+run x86-params-slave "OS-ENTRY x86 params=ok" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -drive format=raw,file=$TEST_DIR/x86-params-slave.bin,if=ide \
+    -drive if=none,id=slave,format=raw,file=$TEST_DIR/x86-boot.bin \
+    -device ide-hd,drive=slave,bus=ide.0,unit=1
 
 # x86: option ROM at 0xD0000 is scanned and its init prints optrom=ok
 run x86-optrom "SquirrelBIOS x86|optrom=ok|OS-ENTRY x86 dl=ok" \

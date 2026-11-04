@@ -59,7 +59,11 @@ boots each firmware under QEMU with a small stand-in OS image from
 | `x86-slave` | With the image only on the primary slave, the firmware boots it with `DL = 0x81` |
 | `x86-acpi` | Finds the RSDP in `0xE0000`–`0xFFFFF`, checks its checksum and that the RSDT names a `FACP` |
 | `x86-smbios` | Finds the `_SM_` entry point in `0xF0000`–`0xFFFFF` and checks both checksums |
-| `x86-bzimage` | A minimal `HdrS` bzImage is loaded at 1 MB; the PM payload prints `bz=ok` |
+| `x86-bzimage` | A minimal `HdrS` bzImage is loaded at 1 MB; the PM payload checks the entry segments and registers and boot_params (setup header, `type_of_loader`, E820 table, `alt_mem_k`, command line) |
+| `x86-bzimage-big` | The same with a 300 KB protected-mode kernel; its last dword arrives |
+| `x86-bzimage-toobig` | A bzImage whose `syssize` is larger than RAM is refused before it is read |
+| `x86-slave-absent` | With only a master, `INT 13h` `AH=0x08` returns CF set and `AH = 0x07` for `DL = 0x81`, and `DL = 1` / BDA `0x475` = 1 for the master |
+| `x86-params-slave` | With a master and a slave, `AH=0x08` succeeds on both and reports 2 disks |
 | `x86-optrom` | An option ROM at `0xD0000` is checksum-checked and its init prints `optrom=ok` |
 | `x86-mem-low` | With `-m 8`, the map has 7 MB usable at 1 MB (the CMOS `0x30`/`0x31` path) |
 | `x86-mem-high` | With `-m 5120`, the map has a non-empty usable entry at 4 GB (CMOS `0x5B`–`0x5D`) |
@@ -112,6 +116,22 @@ CI runs exactly this check: `.github/workflows/make-test.yml` installs
 system emulators on Ubuntu 24.04, then runs `make test` on every push
 and pull request. The serial logs are uploaded as the `smoke-logs`
 artifact.
+
+### Linux on the x86 BIOS (optional)
+
+```bash
+make linux-x86                        # prints PASS linux-x86
+```
+
+Boots Ubuntu 24.04's amd64 kernel (6.8) from an IDE disk: the firmware
+reads the bzImage over ATA PIO, copies the 14 MB protected-mode kernel
+to 1 MB and enters it through the 32-bit boot protocol. It passes when
+the kernel's banner, the firmware's command line, the E820 map with
+usable RAM at 1 MB, and the kernel's memory summary are all on COM1.
+There is no initrd yet, so it stops short of a shell. The pinned package
+(about 15 MB, checked against its SHA-256) is kept in `build/linux-x86/`.
+Not part of `make test` or CI. `LINUX_TIMEOUT` and `LINUX_MEM` work as
+below; the log is `build/linux-x86/linux-x86.log`.
 
 ### Linux to a shell (RISC-V, optional)
 

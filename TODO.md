@@ -327,7 +327,7 @@ Later phases (C–F) get boxes here when Phase B is finished. Every PR says
 
 ## 13. Phase A — modular tree (v1.1, epic #82)
 
-- [ ] `x86-v1-followups` — v1.0.0 follow-ups (#84). Roadmap A3, done
+- [x] `x86-v1-followups` — v1.0.0 follow-ups (#84). Roadmap A3, done
   first because these are bugs in the released ROM.
   - Acceptance: bzImage protected-mode kernels over 64 KB are copied in
     full to 1 MB (a >64 KB synthetic bzImage checks its tail);
