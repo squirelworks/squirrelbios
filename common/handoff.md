@@ -16,7 +16,7 @@ If the firmware and this file disagree, the firmware has a bug.
 | Console | COM1 `0x3F8`, 115200 8N1 | PL011 `0x09000000` | NS16550A `0x10000000`, 115200 8N1 |
 | Interrupts | `IF = 0`; PIT/PIC programmed, IRQ0 unmasked | `DAIF` masked | `mstatus.MIE`/`SIE` = 0, `mie = 0` |
 | CPUs running | Boot CPU only | Boot CPU only | The boot hart (`fw_dynamic_info.boot_hart`, else hart 0); others through `sbi_hart_start` |
-| Firmware services | `INT 13h` `AH=00/02/03/08/41/42/43/44/47/48` (on an IDE, SATA or NVMe disk; diskettes `00/02/03/08/15`; boot CD `00/41/42/48/4B`), `INT 10h` `AH=02/03/06/07/0E/0F`, `INT 15h` `E820`/`AX=2400..2403`, `INT 16h` `AH=00/01`, `INT 1Ah` `AH=00/02`, PCI BIOS `AX=B101/B102/B103/B108..B10D` | None | SBI from S-mode: base, TIME, IPI, RFENCE, HSM, SRST |
+| Firmware services | `INT 13h` `AH=00/02/03/08/41/42/43/44/47/48` (on an IDE, SATA or NVMe disk; diskettes `00/02/03/08/15`; boot CD `00/41/42/48/4B`), `INT 10h` `AH=02/03/06/07/0E/0F`, `INT 15h` `E820`/`AX=2400..2403`/`AH=C2` (USB mouse), `INT 16h` `AH=00/01`, `INT 1Ah` `AH=00/02`, PCI BIOS `AX=B101/B102/B103/B108..B10D` | None | SBI from S-mode: base, TIME, IPI, RFENCE, HSM, SRST |
 
 ## Rules for every architecture
 
@@ -260,26 +260,35 @@ Apart from one keyboard, nothing USB runs after POST. Each controller
 is halted and reset once its devices are listed, so no device is
 configured at hand-off and no controller does DMA.
 
-The exception is the first boot-protocol keyboard found on a UHCI,
-OHCI or xHCI controller (`usb: keyboard is device N`); a keyboard on an
-EHCI port is on its companion. It is configured and set to the boot
-protocol, and its controller keeps running with a schedule in the EBDA
-(`0x97000`–`0x9805F`) that holds only the keyboard's interrupt transfer
-(OHCI: only the periodic list runs). An xHCI keeps its whole block in
-the EBDA (`0x97000`–`0x9FFFF`), with the keyboard's endpoint on a ring
-of 15 transfers that post no events, so hubs on the way keep their
-slots too; an xHCI whose block had to go to `0x40000` does not keep a
-keyboard. If that endpoint stops on a transfer error after POST, the
-keyboard stays silent: restarting it takes controller commands, which
-IRQ0 does not send. IRQ0 checks that transfer on every tick. A key pressed on the
-keyboard goes into the BDA keyboard buffer like a key from the 8042,
-with the same ASCII table, plus Shift and Ctrl on letters, so `INT 16h`
-reads it. An OS that drives the controller itself resets it, and the
-BIOS then gets nothing from it. An OS that replaces the INT 08h vector
-stops the polling. An EHCI controller is halted but not reset, so
-`CONFIGFLAG` stays set and the ports it handed over stay with the
-companions. Low- and full-speed devices behind a high-speed hub would
-need split transactions, which are not supported.
+The exception is the first boot-protocol keyboard and the first
+boot-protocol mouse found on one UHCI, OHCI or xHCI controller (`usb:
+keyboard is device N`, `usb: mouse is device N`); a device on an EHCI
+port is on its companion, and a mouse on another controller than the
+keyboard's (or a keyboard on another than the mouse's, whichever was
+found first) is not kept. Each is configured and set to the boot
+protocol, and the controller keeps running with a schedule in the EBDA
+(`0x97000`–`0x980FF`) that holds only their interrupt transfers (OHCI:
+only the periodic list runs). An xHCI keeps its whole block in the EBDA
+(`0x97000`–`0x9FFFF`), with each endpoint on a ring of 15 transfers
+that post no events; an xHCI whose block had to go to `0x40000` keeps
+neither. If an xHCI endpoint stops on a transfer error after POST, its
+device stays silent: restarting it takes controller commands, which
+IRQ0 does not send. IRQ0 checks the transfers on every tick. A key
+pressed on the keyboard goes into the BDA keyboard buffer like a key
+from the 8042, with the same ASCII table, plus Shift and Ctrl on
+letters, so `INT 16h` reads it. A mouse report goes to the handler set
+with `INT 15h` `AX = 0xC207` while the mouse is enabled (`AX = 0xC200`),
+called as the PS/2 BIOS calls it: a far call with four words pushed,
+status (buttons in bits 0–2, bit 3 set, the X and Y sign bits in 4 and
+5), X, Y (up is positive) and 0, which the BIOS pops. The handler runs
+from IRQ0 with interrupts off. An OS that drives the controller itself
+resets it, and the BIOS then gets nothing from it. An OS that replaces
+the INT 08h vector stops the polling, and one that reads the 8042
+itself (as Squirrel-OS/2 does) sees neither device. An EHCI controller
+is halted but not reset, so `CONFIGFLAG` stays set and the ports it
+handed over stay with the companions. Low- and full-speed devices
+behind a high-speed hub would need split transactions, which are not
+supported.
 
 On xHCI the controller assigns the bus addresses, so the address
 numbers in the listing are the BIOS's own. The controller has eight
@@ -401,6 +410,7 @@ set-1 scancodes.
 | `INT 15h`, `AX = 0x2401` | Enable A20 (same path as hand-off). CF clear, `AH = 0`. |
 | `INT 15h`, `AX = 0x2402` | Query A20: `AL = 1` if port `0x92` bit 1 set, else `0`. CF clear, `AH = 0`. |
 | `INT 15h`, `AX = 0x2403` | A20 support: `BX` bit 1 set (port `0x92`). CF clear, `AH = 0`. |
+| `INT 15h`, `AH = 0xC2` | The pointing device interface, on a USB mouse kept after POST. `AL = 0x00` enable (`BH = 1`, a handler must be set) or disable (`BH = 0`); `0x01` reset: disabled, rate 100, resolution 2, scaling 1:1, `BX = 0x00AA`; `0x02` sample rate (`BH = 0`–`6`: 10, 20, 40, 60, 80, 100, 200); `0x03` resolution (`BH = 0`–`3`); `0x04` device type, `BH = 0`; `0x05` initialize, `BH` = packet size 1–8, then as reset; `0x06` with `BH = 0` status (`BL` bit 5 enabled, bit 4 scaling 2:1, bit 2 left button, bit 0 right button; `CL` resolution, `DL` sample rate), `BH = 1` / `2` scaling 1:1 / 2:1; `0x07` handler `ES:BX` (`0:0` removes it). Rate, resolution and scaling are kept and reported but do not change the reports. CF clear and `AH = 0` on success; CF set and `AH = 1` (bad function), `2` (bad input), `3` (no USB mouse), `5` (enable without a handler) |
 | Any other `INT 15h` | CF set. No register changes |
 
 That `E820` data is the memory map already built at `0x0500`, one entry

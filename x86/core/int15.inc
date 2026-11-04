@@ -4,6 +4,8 @@
 ; Stacked real-mode frame: [bp+2] = IP, [bp+4] = CS, [bp+6] = FLAGS.
 ; EAX=E820 memory map; AX=2400/2401/2402 A20 disable/enable/query via
 ; port 0x92 (same gate as enable_a20). AX=2403 reports port-0x92 support.
+; AH=C2 is the pointing device interface, served by a USB mouse kept
+; after POST (usb_mouse_int15, CONFIG_USB).
 int15_handler:
     push bp
     mov bp, sp
@@ -17,6 +19,10 @@ int15_handler:
     je .a20_query
     cmp ax, 0x2403
     je .a20_support
+%if CONFIG_USB
+    cmp ah, 0xC2
+    je usb_mouse_int15
+%endif
     jmp .fail
 
 .a20_off:

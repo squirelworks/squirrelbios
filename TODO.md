@@ -387,7 +387,7 @@ roadmap item, run under QEMU in `make test`.
   - [x] Keyboard on UHCI (boot protocol, polled from IRQ0)
   - [x] Keyboard on OHCI (and on EHCI ports, through the companions)
   - [x] Keyboard on xHCI (EHCI hands keyboards to its companions)
-  - [ ] Mouse, `INT 15h C2xx`
+  - [x] Mouse, `INT 15h C2xx`
 - [ ] `x86-usb-storage` — Boot from USB mass storage (BOT, then UAS).
 - [ ] `x86-virtio-net-boot` — virtio-blk/net and an original TFTP boot
   of `SQBL`.
