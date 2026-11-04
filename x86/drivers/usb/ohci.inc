@@ -220,6 +220,7 @@ ohci_bus:
     call usb_hid_here
     jc .halt_it
     call ohci_hid_start
+    call usb_hid_announce       ; after: it needs ES:DI, the console cursor
     jmp .out
 .halt_it:
     ; Back to the reset state: no lists, no DMA after POST

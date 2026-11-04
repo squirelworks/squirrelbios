@@ -215,7 +215,6 @@ uhci_hid_start:
     pop dx
     mov ax, CMD_RS | CMD_CF | CMD_MAXP
     out dx, ax
-    call usb_hid_announce
     pop es
     popad
     ret
@@ -270,7 +269,6 @@ ohci_hid_start:
     call usb_hid_arm
     mov dword [gs:esi + OHCI_HCCA], EBDA_BASE + USBK_FL
     mov dword [gs:esi + OHCI_CONTROL], OCTL_HCFS_OPER | OCTL_PLE
-    call usb_hid_announce
     pop es
     popad
     ret
