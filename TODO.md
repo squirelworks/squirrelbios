@@ -376,7 +376,8 @@ roadmap item, run under QEMU in `make test`.
   - [x] `x86-uhci`, with the USB core (enumeration, hubs). Devices are
     listed at POST; nothing runs after it until B7/B8 need it.
   - [x] `x86-ohci`
-  - [ ] `x86-ehci`
+  - [x] `x86-ehci`. High-speed devices on the root ports; the rest go to
+    the companion controllers. No split transactions yet.
   - [ ] `x86-xhci`
 - [ ] `x86-usb-hid` — USB keyboard/mouse feeding `INT 16h` / `INT 15h
   C2xx`.

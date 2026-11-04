@@ -77,6 +77,8 @@ boots each firmware under QEMU with a small stand-in OS image from
 | `x86-nvme-osload` | The 192-sector S2OK kernel load from NVMe on q35, past its empty AHCI controller |
 | `x86-usb` | A PIIX3 UHCI controller with a hub on root port 1 (a keyboard and a USB disk behind it) and a mouse on root port 2: each device is listed with its address, place, IDs and class, and the IDE disk then boots with the memory map intact |
 | `x86-usb-ohci` | An OHCI controller: a keyboard and a second hub behind a hub on root port 1, a tablet behind the second hub, a mouse on root port 3 |
+| `x86-usb-ehci` | ICH9 EHCI with three UHCI companions on q35: EHCI keeps a high-speed disk and tablet, and a full-speed keyboard and a hub with a mouse go to the companions, which list them |
+| `x86-usb-ehci-alone` | A lone EHCI controller on i440fx with a high-speed disk and tablet |
 | `x86-usb-q35` | Two ICH9 UHCI functions on q35, a hub behind a hub on the first and a tablet on the second; addresses run on across controllers |
 | `x86-pci` | On i440fx with a virtio-rng: `INT 1Ah` `B101` returns `'PCI '`, `B102`/`B103` find devices by ID and class, POST placed I/O, 32-bit and 64-bit memory BARs and enabled decoding, INTA's Interrupt Line matches the PIIX3 route, config writes read back, and `$PIR` checks out |
 | `x86-pci-q35` | The same on q35, booting from a PIIX3 IDE card; Interrupt Line is `0xFF` there |

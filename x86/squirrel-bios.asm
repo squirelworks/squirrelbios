@@ -282,6 +282,7 @@ ATTR_ERROR      equ 0x0C
 %include "drivers/usb/usb.inc"
 %include "drivers/usb/uhci.inc"
 %include "drivers/usb/ohci.inc"
+%include "drivers/usb/ehci.inc"
 %endif
 
 %if CONFIG_PCI
@@ -325,6 +326,7 @@ msg_ahci    db 'disk: SATA disk on AHCI port ', 0
 msg_usb     db 'usb: ', 0
 msg_usb_uhci db 'UHCI at ', 0
 msg_usb_ohci db 'OHCI at ', 0
+msg_usb_ehci db 'EHCI at ', 0
 msg_usb_dev db 'device ', 0
 msg_usb_on_root db ' on root port ', 0
 msg_usb_on_hub db ' on hub ', 0
