@@ -171,6 +171,7 @@ uhci_bus:
     call usb_hid_here
     jc .halt_it
     call uhci_hid_start
+    call usb_hid_announce       ; after: it needs ES:DI, the console cursor
     jmp .out
 .halt_it:
     ; Halt, wait for it, then reset the controller: no DMA after POST

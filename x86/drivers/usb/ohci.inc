@@ -26,6 +26,7 @@ OHCI_RHDESCA    equ 0x48
 OHCI_RHSTATUS   equ 0x50
 OHCI_RHPORT     equ 0x54            ; + 4 * (port - 1)
 
+OCTL_PLE        equ 0x00000004      ; periodic list enable
 OCTL_CLE        equ 0x00000010      ; control list enable
 OCTL_HCFS_OPER  equ 0x00000080      ; functional state: operational
 OCTL_IR         equ 0x00000100      ; interrupts routed to SMM
@@ -214,6 +215,14 @@ ohci_bus:
     jmp .port
 
 .stop:
+    ; The keyboard kept for after POST is here: keep the controller
+    ; running, with only that keyboard's transfer
+    call usb_hid_here
+    jc .halt_it
+    call ohci_hid_start
+    call usb_hid_announce       ; after: it needs ES:DI, the console cursor
+    jmp .out
+.halt_it:
     ; Back to the reset state: no lists, no DMA after POST
     mov dword [gs:esi + OHCI_CONTROL], 0
     mov dword [gs:esi + OHCI_CMDSTATUS], OCS_HCR

@@ -202,6 +202,23 @@ else
     fail=$((fail + 1))
 fi
 
+# x86: a USB keyboard behind a hub on OHCI; then a full-speed one on an
+# ICH9 EHCI port, handed to its UHCI companion, which keeps it
+if KBD_NAME=x86-usb-kbd-ohci \
+   KBD_ARGS="-device pci-ohci,id=ohci,addr=6 -device usb-hub,bus=ohci.0,port=2 -device usb-kbd,bus=ohci.0,port=2.1" \
+   KBD_EXPECT="usb: OHCI at 00:06.0|usb: device 2 on hub 1 port 1: 0627:0001, HID|usb: keyboard is device 2" tests/x86-kbd-run.sh; then
+    pass=$((pass + 1))
+else
+    fail=$((fail + 1))
+fi
+if KBD_NAME=x86-usb-kbd-ehci \
+   KBD_ARGS="-M q35 -device ich9-usb-ehci1,id=ehci,addr=1d.7,multifunction=on -device ich9-usb-uhci1,masterbus=ehci.0,firstport=0,addr=1d.0,multifunction=on -device ich9-usb-uhci2,masterbus=ehci.0,firstport=2,addr=1d.1,multifunction=on -device usb-kbd,bus=ehci.0,port=3,usb_version=1" \
+   KBD_EXPECT="usb: UHCI at 00:1D.1|usb: device 1 on root port 1: 0627:0001, HID|usb: keyboard is device 1" tests/x86-kbd-run.sh; then
+    pass=$((pass + 1))
+else
+    fail=$((fail + 1))
+fi
+
 # x86: INT 1Ah AH=00 ticks from IRQ0; AH=02 RTC time in BCD
 run x86-time "SquirrelBIOS x86|OS-ENTRY x86 time=ok" \
     "$QEMU_X86" -bios x86/squirrel-bios.rom \

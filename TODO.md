@@ -385,7 +385,7 @@ roadmap item, run under QEMU in `make test`.
 - [ ] `x86-usb-hid` — USB keyboard/mouse feeding `INT 16h` / `INT 15h
   C2xx`.
   - [x] Keyboard on UHCI (boot protocol, polled from IRQ0)
-  - [ ] Keyboard on OHCI
+  - [x] Keyboard on OHCI (and on EHCI ports, through the companions)
   - [ ] Keyboard on xHCI (EHCI hands keyboards to its companions)
   - [ ] Mouse, `INT 15h C2xx`
 - [ ] `x86-usb-storage` — Boot from USB mass storage (BOT, then UAS).
