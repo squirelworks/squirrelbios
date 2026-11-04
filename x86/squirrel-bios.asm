@@ -76,6 +76,12 @@ BITS 16
 %ifndef CONFIG_CDBOOT
 %define CONFIG_CDBOOT 1
 %endif
+%ifndef CONFIG_USB
+%define CONFIG_USB CONFIG_PCI
+%endif
+%if CONFIG_USB && !CONFIG_PCI
+%error "CONFIG_USB needs CONFIG_PCI"
+%endif
 %ifndef CONFIG_NVME
 %define CONFIG_NVME CONFIG_PCI
 %endif
@@ -272,6 +278,10 @@ ATTR_ERROR      equ 0x0C
 %if CONFIG_NVME
 %include "drivers/nvme/nvme.inc"
 %endif
+%if CONFIG_USB
+%include "drivers/usb/usb.inc"
+%include "drivers/usb/uhci.inc"
+%endif
 
 %if CONFIG_PCI
 %include "drivers/pci/pci.inc"
@@ -309,6 +319,22 @@ bz_cmdline  db 'console=ttyS0,115200', 0
 %endif
 %if CONFIG_AHCI
 msg_ahci    db 'disk: SATA disk on AHCI port ', 0
+%endif
+%if CONFIG_USB
+msg_usb     db 'usb: ', 0
+msg_usb_uhci db 'UHCI at ', 0
+msg_usb_dev db 'device ', 0
+msg_usb_on_root db ' on root port ', 0
+msg_usb_on_hub db ' on hub ', 0
+msg_usb_port db ' port ', 0
+msg_usb_colon db ': ', 0
+msg_usb_comma db ', ', 0
+msg_usb_hid db 'HID', 0
+msg_usb_msd db 'mass storage', 0
+msg_usb_hub db 'hub', 0
+msg_usb_class db 'class ', 0
+msg_usb_ports db ' ports', 0
+msg_usb_fail db 'no answer from the device on port ', 0
 %endif
 %if CONFIG_NVME
 msg_nvme    db 'disk: NVMe disk (namespace 1)', 0

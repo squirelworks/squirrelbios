@@ -234,6 +234,31 @@ at `0x9C000` (admin submission), `0x9D000` (admin completion),
 controller is left enabled with interrupts unused. As for SATA, the
 `INT 13h` calls are served from real mode only.
 
+**USB.** Before it looks for a boot disk, POST lists the USB devices on
+every UHCI controller (class `0C:03:00`) on PCI bus 0. It resets the
+controller and each root port that has a device. It then gives every
+device an address, starting at 1 and counting on across controllers,
+and reads its device and configuration descriptors. A hub is
+configured, its ports are powered and reset, and the devices behind it
+are listed in turn, down to five hub tiers. Each device gets one line:
+
+```
+usb: UHCI at 00:05.0
+usb: device 1 on root port 1: 0409:55AA, hub, 8 ports
+usb: device 2 on hub 1 port 3: 0627:0001, HID
+```
+
+The class is the device's own class, or its first interface's class
+when the device leaves it to the interfaces. It is printed as `HID`,
+`mass storage`, `hub`, or `class` with its number in hex.
+
+Nothing USB runs after POST. Each controller is halted and reset once
+its devices are listed, so no device is configured at hand-off and no
+controller does DMA. The work memory is `0x30000`–`0x3FFFF`, and the
+listing runs on a stack just below `0x7C00`. Both are free, since
+nothing has been loaded yet. The reset timings come from PIT
+channel 2, which is left gated off.
+
 **CD-ROM (El Torito).** The firmware looks for ATAPI devices on the
 primary and secondary IDE channels, master before slave (QEMU's
 `-cdrom` is the secondary master). For each one it reads block 17 (2048

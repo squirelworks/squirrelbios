@@ -373,6 +373,11 @@ roadmap item, run under QEMU in `make test`.
   512-byte blocks; one controller; BAR0 must be below 4 GB.
 - [ ] `x86-uhci`, `x86-ohci`, `x86-ehci`, `x86-xhci` — USB host
   controllers, one PR each. Depends on: `x86-pci`.
+  - [x] `x86-uhci`, with the USB core (enumeration, hubs). Devices are
+    listed at POST; nothing runs after it until B7/B8 need it.
+  - [ ] `x86-ohci`
+  - [ ] `x86-ehci`
+  - [ ] `x86-xhci`
 - [ ] `x86-usb-hid` — USB keyboard/mouse feeding `INT 16h` / `INT 15h
   C2xx`.
 - [ ] `x86-usb-storage` — Boot from USB mass storage (BOT, then UAS).

@@ -145,6 +145,45 @@ flat_gs:
     pop eax
     ret
 
+; Wait CX milliseconds (CX >= 1) on PIT channel 2: one 1 ms count in
+; mode 0 per millisecond, gated through port 61h bit 0, done when OUT2
+; (port 61h bit 5) goes high. The speaker stays off. Keeps every register.
+PIT_CH2         equ 0x42
+PIT_1MS         equ 1193            ; 1.193182 MHz input clock
+delay_ms:
+    push ax
+    push cx
+    push edx
+.ms:
+    in al, 0x61
+    and al, 0xFC                ; gate low, speaker data off
+    out 0x61, al
+    mov al, 0xB0                ; channel 2, low then high byte, mode 0
+    out PIT_CMD, al
+    mov al, PIT_1MS & 0xFF
+    out PIT_CH2, al
+    mov al, PIT_1MS >> 8
+    out PIT_CH2, al
+    in al, 0x61
+    or al, 0x01                 ; gate high: the count runs
+    out 0x61, al
+    mov edx, 0x00100000         ; give up on a PIT that never ends
+.wait:
+    in al, 0x61
+    test al, 0x20
+    jnz .done
+    dec edx
+    jnz .wait
+.done:
+    loop .ms
+    in al, 0x61
+    and al, 0xFC
+    out 0x61, al
+    pop edx
+    pop cx
+    pop ax
+    ret
+
 align 8
 apic_gdt:
     dq 0
