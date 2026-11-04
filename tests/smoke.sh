@@ -209,6 +209,19 @@ run x86-edd "SquirrelBIOS x86|OS-ENTRY x86 edd edd=ok" \
     "$QEMU_X86" -bios x86/squirrel-bios.rom \
     -drive format=raw,file=$TEST_DIR/x86-edd.img,if=ide
 
+# x86: the same 200 GiB disk on q35's AHCI controller, port 4 (q35's
+# empty CD drive sits on port 2 and is passed over): READ/WRITE DMA EXT
+# through INT 13h, and AH=48h names PCI 00:1F.2 and SATA port 4
+run x86-ahci "SquirrelBIOS x86|disk: SATA disk on AHCI port 4|OS-ENTRY x86 edd edd=ok" \
+    "$QEMU_X86" -M q35 -bios x86/squirrel-bios.rom \
+    -drive if=none,id=sata,format=raw,file=$TEST_DIR/x86-ahci.img \
+    -device ide-hd,drive=sata,bus=ide.4
+
+# x86: the 192-sector S2OK kernel load from an AHCI disk (q35, port 0)
+run x86-ahci-osload "SquirrelBIOS x86|disk: SATA disk on AHCI port 0|kernel loaded at 0x00008000, jumping|osload=ok dl=ok flags=ok memmap=ok sig=ok e820=ok|!boot halted" \
+    "$QEMU_X86" -M q35 -bios x86/squirrel-bios.rom \
+    -drive format=raw,file=$TEST_DIR/x86-osload.bin,if=ide,snapshot=on
+
 # x86: PCI on i440fx: the PCI BIOS finds devices by ID and class, POST
 # placed the BARs (I/O, 32- and 64-bit memory) and routed INTA through
 # the PIIX3, and the $PIR table checks out

@@ -67,6 +67,32 @@ entry:
     call ata_probe
     jnc .read_boot
 .no_disk:
+%if CONFIG_AHCI
+    call ahci_detect            ; CF clear: DL 80h is a SATA disk, AL = port
+    jc .no_ahci
+    mov si, msg_ahci
+    mov bl, al
+    mov ah, ATTR_NORMAL
+    call con_print
+    mov al, bl
+    aam                         ; AH = tens, AL = units
+    test ah, ah
+    jz .units
+    xchg al, ah
+    add al, '0'
+    push ax
+    mov ah, ATTR_NORMAL
+    call con_putc
+    pop ax
+    mov al, ah
+.units:
+    add al, '0'
+    mov ah, ATTR_NORMAL
+    call con_putc
+    call con_newline
+    jmp .read_boot
+.no_ahci:
+%endif
 %if CONFIG_CDBOOT
     call cd_boot                ; returns only if no CD booted
 %endif

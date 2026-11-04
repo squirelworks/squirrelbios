@@ -118,6 +118,13 @@ int13_handler:
     mov byte [si + 0x20], 0x24      ; its length, from the key
     mov byte [si + 0x21], 0
     mov word [si + 0x22], 0
+%if CONFIG_AHCI
+    call ahci_owns
+    jc .params_ata
+    call ahci_edd_path              ; 'PCI' / 'SATA', port number
+    jmp .params_checksum
+.params_ata:
+%endif
     mov dword [si + 0x24], 'ISA '   ; host bus: legacy ports
     mov dword [si + 0x28], 'ATA '
     mov dword [si + 0x2C], '    '
@@ -130,6 +137,7 @@ int13_handler:
 .params_path:
     mov [si + 0x38], eax            ; device path: 0 master, 1 slave
     mov dword [si + 0x3C], 0
+.params_checksum:
     mov word [si + 0x40], 0
     xor al, al                      ; checksum over 1Eh-41h
     mov bx, 0x1E
@@ -445,6 +453,10 @@ disk_parse_packet:
 ; A failed command leaves ERR set, and ata_read refuses to start another
 ; while that bit is set. Drop it before a guest read. Preserves registers.
 disk_clear_stale:
+%if CONFIG_AHCI
+    call ahci_owns              ; no IDE task file behind DL 80h
+    jnc .ret
+%endif
     push ax
     push dx
     mov dx, ATA_STATUS
@@ -455,4 +467,5 @@ disk_clear_stale:
 .ok:
     pop dx
     pop ax
+.ret:
     ret

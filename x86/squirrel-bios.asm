@@ -76,6 +76,12 @@ BITS 16
 %ifndef CONFIG_CDBOOT
 %define CONFIG_CDBOOT 1
 %endif
+%ifndef CONFIG_AHCI
+%define CONFIG_AHCI CONFIG_PCI
+%endif
+%if CONFIG_AHCI && !CONFIG_PCI
+%error "CONFIG_AHCI needs CONFIG_PCI"
+%endif
 
 FW_STACK        equ 0x0600
 
@@ -250,6 +256,10 @@ ATTR_ERROR      equ 0x0C
 %include "boot/eltorito.inc"
 %endif
 
+%if CONFIG_AHCI
+%include "drivers/ahci/ahci.inc"
+%endif
+
 %if CONFIG_PCI
 %include "drivers/pci/pci.inc"
 %include "drivers/pci/int1apci.inc"
@@ -283,6 +293,9 @@ msg_bzbad   db 'disk: bzImage header is invalid', 0
 msg_bzread  db 'disk: read of the bzImage failed', 0
 msg_bzbig   db 'disk: bzImage does not fit in RAM', 0
 bz_cmdline  db 'console=ttyS0,115200', 0
+%endif
+%if CONFIG_AHCI
+msg_ahci    db 'disk: SATA disk on AHCI port ', 0
 %endif
 %if CONFIG_CDBOOT
 msg_cdboot  db 'booting from CD-ROM (El Torito, no emulation)', 0
