@@ -246,6 +246,16 @@ run x86-usb "usb: UHCI at 00:05.0|usb: device 1 on root port 1: 0409:55AA, hub, 
     -device usb-storage,bus=uhci.0,port=1.5,drive=usbdisk \
     -device usb-mouse,bus=uhci.0,port=2
 
+# x86: USB on an OHCI controller: a keyboard and a second hub behind a
+# hub on root port 1, a tablet at the bottom, a mouse on root port 3
+run x86-usb-ohci "usb: OHCI at 00:06.0|usb: device 1 on root port 1: 0409:55AA, hub, 8 ports|usb: device 2 on hub 1 port 2: 0627:0001, HID|usb: device 3 on hub 1 port 4: 0409:55AA, hub, 8 ports|usb: device 4 on hub 3 port 8: 0627:0001, HID|usb: device 5 on root port 3: 0627:0001, HID|OS-ENTRY x86 dl=ok memmap=ok flags=ok vga=ok" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -drive format=raw,file=$TEST_DIR/x86-boot.bin,if=ide,snapshot=on \
+    -device pci-ohci,id=ohci,addr=6 \
+    -device usb-hub,bus=ohci.0,port=1 -device usb-kbd,bus=ohci.0,port=1.2 \
+    -device usb-hub,bus=ohci.0,port=1.4 -device usb-tablet,bus=ohci.0,port=1.4.8 \
+    -device usb-mouse,bus=ohci.0,port=3
+
 # x86: two ICH9 UHCI functions on q35, a hub behind a hub on the first
 # and a tablet on the second; device addresses run on across controllers
 run x86-usb-q35 "usb: UHCI at 00:1D.0|usb: device 2 on hub 1 port 4: 0409:55AA, hub, 8 ports|usb: device 3 on hub 2 port 1: 0627:0001, HID|usb: UHCI at 00:1D.1|usb: device 4 on root port 1: 0627:0001, HID|OS-ENTRY x86 dl=ok memmap=ok" \
