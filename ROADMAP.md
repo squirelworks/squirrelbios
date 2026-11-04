@@ -191,11 +191,12 @@ item, is kept as a checklist on #82 (all phases) and #83 (phase B).
 - ✅ **B7 (v1.4.1) USB HID with legacy emulation.** Keyboard feeds
   `INT 16h` and the BDA buffer; mouse feeds `INT 15h C2xx`. Test:
   `-device usb-kbd` with scripted keys.
-- **B8 (v1.4.2) USB mass storage boot** (BOT, then UAS). Test:
+- ✅ **B8 (v1.4.2) USB mass storage boot** (BOT, then UAS; BOT on xHCI
+  done, UAS not yet). Test:
   `-device usb-storage` with `os.img` boots.
-- **B9 (v1.4.3) virtio-blk / virtio-net and network boot.** Original
+- ✅ **B9 (v1.4.3) virtio-blk / virtio-net and network boot.** Original
   TFTP client; boot `SQBL` over the network. Test: QEMU user-net TFTP.
-- **B10 (v1.4.4) Video.** VBE 2.0/3.0 linear-framebuffer modes on QEMU
+- ✅ **B10 (v1.4.4) Video.** VBE 2.0/3.0 linear-framebuffer modes on QEMU
   std VGA (still not a full SVGA option-ROM replacement). Test: mode
   list, set 800x600x32, read back a pixel.
 
