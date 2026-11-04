@@ -201,6 +201,23 @@ if KBD_NAME=x86-usb-kbd-after-xhci \
 else
     fail=$((fail + 1))
 fi
+# A keyboard on xHCI: the controller keeps running from the EBDA. Twenty
+# keys (40 reports) take its 15-TRB ring round more than twice. Then one
+# behind two hubs, next to other devices whose slots are given back
+if KBD_NAME=x86-usb-kbd-on-xhci KBD_IMG=$TEST_DIR/x86-kbd-many.bin KBD_KEYS=20 \
+   KBD_ARGS="-device qemu-xhci,id=xhci,addr=5 -device usb-kbd,bus=xhci.0,port=1" \
+   KBD_EXPECT="usb: device 1 on root port 5: 0627:0001, HID|usb: keyboard is device 1" tests/x86-kbd-run.sh; then
+    pass=$((pass + 1))
+else
+    fail=$((fail + 1))
+fi
+if KBD_NAME=x86-usb-kbd-on-xhci-hub \
+   KBD_ARGS="-device qemu-xhci,id=xhci,addr=5 -device usb-hub,bus=xhci.0,port=1 -device usb-mouse,bus=xhci.0,port=1.1 -device usb-hub,bus=xhci.0,port=1.2 -device usb-tablet,bus=xhci.0,port=1.2.1 -device usb-kbd,bus=xhci.0,port=1.2.3" \
+   KBD_EXPECT="usb: device 5 on hub 3 port 3: 0627:0001, HID|usb: keyboard is device 5" tests/x86-kbd-run.sh; then
+    pass=$((pass + 1))
+else
+    fail=$((fail + 1))
+fi
 
 # x86: a USB keyboard behind a hub on OHCI; then a full-speed one on an
 # ICH9 EHCI port, handed to its UHCI companion, which keeps it

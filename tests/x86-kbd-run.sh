@@ -4,14 +4,17 @@
 #
 # KBD_NAME names the case (and its log), KBD_ARGS adds QEMU arguments
 # and KBD_EXPECT adds lines the log must hold. QEMU sends the key to the
-# keyboard added last: with a usb-kbd in KBD_ARGS, that one.
+# keyboard added last: with a usb-kbd in KBD_ARGS, that one. KBD_KEYS
+# sends that many 'a' keys, 100 ms apart, for an image built to wait for
+# them (KBD_IMG).
 set -u
 
 TEST_DIR=${TEST_DIR:-build/tests}
 TIMEOUT=${SMOKE_TIMEOUT:-10}
 QEMU_X86=${QEMU_X86:-qemu-system-i386}
 ROM=${ROM:-x86/squirrel-bios.rom}
-IMG=$TEST_DIR/x86-kbd.bin
+IMG=${KBD_IMG:-$TEST_DIR/x86-kbd.bin}
+KEYS=${KBD_KEYS:-1}
 NAME=${KBD_NAME:-x86-kbd}
 LOG=$TEST_DIR/$NAME.log
 QMP=$TEST_DIR/$NAME.qmp
@@ -37,9 +40,10 @@ while [ "$ticks" -gt 0 ]; do
     esac
     if [ "$sent" -eq 0 ] && grep -qF 'OS-ENTRY' "$LOG" 2>/dev/null; then
         if [ -S "$QMP" ]; then
-            python3 - "$QMP" <<'PY'
+            python3 - "$QMP" "$KEYS" <<'PY'
 import json, socket, sys, time
 path = sys.argv[1]
+keys = int(sys.argv[2])
 deadline = time.time() + 2
 s = None
 while time.time() < deadline:
@@ -71,8 +75,10 @@ ev = {
         ]
     },
 }
-s.sendall((json.dumps(ev) + "\n").encode())
-one()
+for _ in range(keys):
+    s.sendall((json.dumps(ev) + "\n").encode())
+    one()
+    time.sleep(0.1)
 s.close()
 PY
             sent=1

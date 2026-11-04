@@ -260,12 +260,18 @@ Apart from one keyboard, nothing USB runs after POST. Each controller
 is halted and reset once its devices are listed, so no device is
 configured at hand-off and no controller does DMA.
 
-The exception is the first boot-protocol keyboard found on a UHCI or
-OHCI controller (`usb: keyboard is device N`); a keyboard on an EHCI
-port is on its companion. It is configured and set to the boot
+The exception is the first boot-protocol keyboard found on a UHCI,
+OHCI or xHCI controller (`usb: keyboard is device N`); a keyboard on an
+EHCI port is on its companion. It is configured and set to the boot
 protocol, and its controller keeps running with a schedule in the EBDA
 (`0x97000`–`0x9805F`) that holds only the keyboard's interrupt transfer
-(OHCI: only the periodic list runs). IRQ0 checks that transfer on every tick. A key pressed on the
+(OHCI: only the periodic list runs). An xHCI keeps its whole block in
+the EBDA (`0x97000`–`0x9FFFF`), with the keyboard's endpoint on a ring
+of 15 transfers that post no events, so hubs on the way keep their
+slots too; an xHCI whose block had to go to `0x40000` does not keep a
+keyboard. If that endpoint stops on a transfer error after POST, the
+keyboard stays silent: restarting it takes controller commands, which
+IRQ0 does not send. IRQ0 checks that transfer on every tick. A key pressed on the
 keyboard goes into the BDA keyboard buffer like a key from the 8042,
 with the same ASCII table, plus Shift and Ctrl on letters, so `INT 16h`
 reads it. An OS that drives the controller itself resets it, and the
