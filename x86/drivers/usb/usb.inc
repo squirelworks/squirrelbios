@@ -251,6 +251,15 @@ usb_attach:
     clc
     ret
 
+; The device at address AL (or still at address 0) is listed and is not a
+; hub: the controller may forget it, if it keeps state per device (xHCI)
+; and the device is not the keyboard kept for after POST. Keeps every
+; register.
+usb_detach:
+    cmp byte [fs:USB_HC], USB_HC_XHCI
+    je xhci_detach
+    ret
+
 ; A device was just reset on a port and answers at address 0. Give it an
 ; address, read what it is, print it, and enumerate a hub's ports.
 ; In: AH = speed (0 full, 1 low, 2 high, 3 super), DL = parent hub's address
@@ -455,8 +464,11 @@ usb_enum:
 .line:
     call con_newline
     cmp byte [bp - 10], 0
-    je .out
+    je .detach
     call usb_hid_claim          ; a boot keyboard: keep it for after POST
+.detach:
+    mov al, [bp - 1]
+    call usb_detach
     jmp .out
 
 .fail:
@@ -472,6 +484,8 @@ usb_enum:
     call usb_dec
 .fail_nl:
     call con_newline
+    mov al, [bp - 1]
+    call usb_detach
 .out:
     mov sp, bp
     popad

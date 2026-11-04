@@ -378,9 +378,10 @@ roadmap item, run under QEMU in `make test`.
   - [x] `x86-ohci`
   - [x] `x86-ehci`. High-speed devices on the root ports; the rest go to
     the companion controllers. No split transactions yet.
-  - [x] `x86-xhci`. Up to 16 devices per controller and 4 scratchpad
-    pages; hubs are not marked as hubs in their slot context (see the
-    handoff notes).
+  - [x] `x86-xhci`. Eight slots, given back by every device that is not
+    a hub once it is listed; up to 10 scratchpad pages (3 when the
+    controller's structures are in the EBDA); hubs are not marked as
+    hubs in their slot context (see the handoff notes).
 - [ ] `x86-usb-hid` — USB keyboard/mouse feeding `INT 16h` / `INT 15h
   C2xx`.
   - [x] Keyboard on UHCI (boot protocol, polled from IRQ0)

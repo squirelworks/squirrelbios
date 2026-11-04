@@ -23,7 +23,9 @@
 ;   6000h  queue head (UHCI) or endpoint descriptor (OHCI)
 ;   6020h  transfer descriptor; 6030h OHCI's empty tail TD
 ;   6040h  report buffer (8 bytes); 6048h previous report
-;   6050h  runtime variables
+; and its variables in the EBDA's first page, at 0F00h: an xHCI that
+; works from the EBDA during POST (xhci.inc) overwrites every USB page,
+; and must not be taken for a running keyboard by IRQ0.
 
 USBK_SEG        equ EBDA_BASE >> 4
 USBK_FL         equ 0x5000
@@ -32,9 +34,9 @@ USBK_TD         equ 0x6020
 USBK_TAIL       equ 0x6030
 USBK_BUF        equ 0x6040
 USBK_PREV       equ 0x6048
-USBK_KIND       equ 0x6050          ; byte: 0 none, 1 UHCI, 2 OHCI
-USBK_TOKEN      equ 0x6054          ; dword: next TD token (UHCI)
-USBK_STATUS     equ 0x6058          ; dword: TD status to arm with (UHCI)
+USBK_KIND       equ 0x0F00          ; byte: 0 none, 1 UHCI, 2 OHCI
+USBK_TOKEN      equ 0x0F04          ; dword: next TD token (UHCI)
+USBK_STATUS     equ 0x0F08          ; dword: TD status to arm with (UHCI)
 USBK_KIND_UHCI  equ 1
 USBK_KIND_OHCI  equ 2
 
