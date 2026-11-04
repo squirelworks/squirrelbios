@@ -1,6 +1,20 @@
 # x86 SquirrelBIOS
 
-64 KB ROM for QEMU PC.
+64 KB ROM for QEMU PC. `squirrel-bios.asm` holds the constants, the
+build options and the ROM layout, and includes one file per module:
+
+```
+core/      entry (POST and first boot decision), post (BDA, A20, APIC,
+           PIT/PIC), ivt (IVT, IRQ0), int15, console, memmap
+boot/      handoff, fail, bzimage (CONFIG_BZIMAGE), optrom (CONFIG_OPTROM)
+drivers/   ata (ATA PIO, INT 13h), vga (INT 10h, text mode, font),
+           kbd8042 (8042, IRQ1, INT 16h), rtc (INT 1Ah)
+tables/    acpi (CONFIG_ACPI), smbios (CONFIG_SMBIOS)
+```
+
+The modules are included in a fixed order, so the default build is the
+same ROM, byte for byte, as before the split. `configs/x86-pc/minimal.cfg`
+leaves out the four optional modules (`make PLATFORM=x86-pc CONFIG=minimal`).
 
 ```bash
 nasm -f bin squirrel-bios.asm -o squirrel-bios.rom   # run from x86/, or pass -i x86/
@@ -10,7 +24,7 @@ qemu-system-i386 -bios squirrel-bios.rom -drive format=raw,file=boot.bin,if=ide 
 - Reset vector at offset 0xFFF0
 - Programs COM1 at 115200 8N1
 - Puts the VGA in 80x25 colour text mode and loads its own 8x16 font
-  (`vga.inc`, `font.inc`); every message goes to the screen and COM1
+  (`drivers/vga/vga.inc`, `font.inc`); every message goes to the screen and COM1
 - Fills the BIOS data area equipment list (`0x0410` = `0x0220`),
   conventional memory KB (`0x0413` = 640), and page-0 cursor (`0x0450`)
 - Enables A20 through port `0x92` before the hand-off jump
@@ -25,8 +39,8 @@ qemu-system-i386 -bios squirrel-bios.rom -drive format=raw,file=boot.bin,if=ide 
 - `INT 13h` `AH=0x03` / `0x43` write the primary master or slave
   (`DL=0x80` / `0x81`, CHS / LBA)
 - `INT 15h` `AX=0x2400`–`0x2403` control and query the A20 gate
-- Places a SMBIOS 2.4 entry point at `0xFD000` (`smbios.inc`) and a
-  minimal ACPI 1.0 RSDP/RSDT/FADT/DSDT at `0xFE000` (`acpi.inc`)
+- Places a SMBIOS 2.4 entry point at `0xFD000` (`tables/smbios/`) and a
+  minimal ACPI 1.0 RSDP/RSDT/FADT/DSDT at `0xFE000` (`tables/acpi/`)
 - Detects a Linux `bzImage` (`HdrS`), loads the whole PM kernel at 1 MB
   (any size that fits in RAM), fills boot_params (setup header, E820
   table, command line, `type_of_loader`) and enters it through the 32-bit
@@ -52,13 +66,13 @@ qemu-system-i386 -bios squirrel-bios.rom -drive format=raw,file=boot.bin,if=ide 
   `0x81` (so a boot sector can load a kernel itself), `INT 10h`
   `AH=0x0E` is a VGA teletype, and `INT 15h` `E820` returns the memory
   map. Any other function on those vectors returns with carry set
-- Builds a memory map at `0x0000:0x0500` from the RAM sizes in CMOS (`memmap.inc`)
+- Builds a memory map at `0x0000:0x0500` from the RAM sizes in CMOS (`core/memmap.inc`)
 - On success jumps to `0x0000:0x7C00` with `DL = 0x80` or `0x81`,
   `ES:DI = 0x0000:0x0500`
 
 The font is an original design. Its glyphs are drawn in `mkfont.py`,
 which writes `font.inc`; after editing a glyph, run
-`python3 x86/mkfont.py > x86/font.inc` from the repository root. The
+`python3 x86/drivers/vga/mkfont.py > x86/drivers/vga/font.inc` from the repository root. The
 build itself does not need Python.
 
 See `../common/handoff.md`.

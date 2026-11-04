@@ -343,7 +343,7 @@ Later phases (C–F) get boxes here when Phase B is finished. Every PR says
     `make` and `make test` behave as today (58 cases). A test checks the
     `x86-pc/default` ROM is byte-for-byte the pre-change ROM.
 
-- [ ] `x86-modules` — Split `x86/squirrel-bios.asm` into `core/`,
+- [x] `x86-modules` — Split `x86/squirrel-bios.asm` into `core/`,
   `drivers/{ata,vga,kbd8042,rtc}/`, `tables/{acpi,smbios}/`, `boot/`,
   each behind `CONFIG_*`.
   - Acceptance: default ROM unchanged; a `CONFIG=minimal` ROM boots the
