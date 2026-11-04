@@ -243,10 +243,14 @@ Minimal ACPI 1.0 tables live in the BIOS ROM (mapped at `0xF0000`):
 |----------|-------|
 | `0xFE000` | RSDP (`"RSD PTR "`, revision 0, 20 bytes). OEMID `SQRRL `. |
 | `0xFE020` | RSDT (one entry). |
-| `0xFE050` | FADT (`FACP`, length 116). No FACS or DSDT; PM blocks are zero. |
+| `0xFE050` | FADT (`FACP`, length 116). `DSDT` = `0xFE0D0`; no FACS; PM blocks are zero. |
+| `0xFE0D0` | DSDT (36 bytes): a header with no AML objects. |
 
 The RSDP checksum (sum of the 20 bytes is 0) and each SDT checksum are
-valid. Find the RSDP by scanning `0xE0000`–`0xFFFFF` on a 16-byte stride
+valid. Linux loads its ACPI namespace from the DSDT the FADT names and
+faults when there is none, so the DSDT is always present, even empty.
+With the PM blocks still zero, Linux reports that it cannot start the
+ACPI interpreter and carries on without it. Find the RSDP by scanning `0xE0000`–`0xFFFFF` on a 16-byte stride
 (the usual BIOS search). No UEFI. No XSDT.
 
 ### SMBIOS

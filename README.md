@@ -45,7 +45,7 @@ stand-in OS image from `tests/` and checks the serial output:
 | `x86-one-sector` | The same checks for a boot sector without an SQBL header |
 | `x86-no-drive` | With no disk, the firmware reports it (after trying master then slave) and halts |
 | `x86-slave` | With the image only on the primary slave, the firmware boots it with `DL = 0x81` |
-| `x86-acpi` | Finds the RSDP in `0xE0000`–`0xFFFFF`, checks its checksum and that the RSDT names a `FACP` |
+| `x86-acpi` | Finds the RSDP in `0xE0000`–`0xFFFFF`, checks its checksum, that the RSDT names a `FACP`, and that the FADT points at a `DSDT`, with every table checksum valid |
 | `x86-smbios` | Finds the `_SM_` entry point in `0xF0000`–`0xFFFFF` and checks both checksums |
 | `x86-bzimage` | A minimal `HdrS` bzImage is loaded at 1 MB; the PM payload checks the entry segments and registers and boot_params (setup header, `type_of_loader`, E820 table, `alt_mem_k`, command line) |
 | `x86-bzimage-big` | The same with a 300 KB protected-mode kernel; its last dword arrives |

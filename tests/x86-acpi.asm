@@ -3,7 +3,8 @@
 ;
 ; Scans 0xE0000–0xFFFFF every 16 bytes for "RSD PTR ", verifies the
 ; ACPI 1.0 checksum over the first 20 bytes, checks that the RSDT
-; signature and checksum are valid and that entry 0 is FACP. Prints
+; signature and checksum are valid and that entry 0 is FACP, that the
+; FACP checksum is valid and it points at a DSDT with a valid checksum. Prints
 ; acpi=ok.
 
 BITS 16
@@ -70,6 +71,20 @@ start:
     call lin_es_bx
     cmp dword [es:bx], 'FACP'
     jne .bad
+    call table_sum
+    jnz .bad
+
+    ; The FADT names a DSDT with a valid header and checksum
+    mov eax, [es:bx + 40]
+    test eax, eax
+    jz .bad
+    call lin_es_bx
+    cmp dword [es:bx], 'DSDT'
+    jne .bad
+    cmp dword [es:bx + 4], 36
+    jb .bad
+    call table_sum
+    jnz .bad
 
     mov si, msg_ok
     jmp .done
@@ -88,6 +103,20 @@ start:
     cli
     hlt
     jmp .halt
+
+; ES:BX = an SDT whose length (offset 4) is below 64 KB. ZF set when
+; its bytes sum to 0. Keeps BX; uses AL, CX.
+table_sum:
+    push si
+    mov cx, [es:bx + 4]
+    mov si, bx
+    xor al, al
+.s: add al, [es:si]
+    inc si
+    loop .s
+    pop si
+    test al, al
+    ret
 
 ; EAX = linear address. Out: ES:BX = that address (BX < 16).
 lin_es_bx:
