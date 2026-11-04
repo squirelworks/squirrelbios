@@ -232,6 +232,30 @@ run x86-nvme-osload "SquirrelBIOS x86|disk: NVMe disk (namespace 1)|kernel loade
     -drive if=none,id=nvm,format=raw,file=$TEST_DIR/x86-osload.bin,snapshot=on \
     -device nvme,serial=squirrel,drive=nvm
 
+# x86: USB on a PIIX3 UHCI controller: a hub on root port 1 with a
+# keyboard and a USB disk behind it, a mouse on root port 2. Every device
+# is listed with its address, place, IDs and class, and the IDE disk
+# still boots afterwards with an intact memory map
+run x86-usb "usb: UHCI at 00:05.0|usb: device 1 on root port 1: 0409:55AA, hub, 8 ports|usb: device 2 on hub 1 port 3: 0627:0001, HID|usb: device 3 on hub 1 port 5: 46F4:0001, mass storage|usb: device 4 on root port 2: 0627:0001, HID|OS-ENTRY x86 dl=ok memmap=ok flags=ok vga=ok" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -drive format=raw,file=$TEST_DIR/x86-boot.bin,if=ide,snapshot=on \
+    -device piix3-usb-uhci,id=uhci,addr=5 \
+    -device usb-hub,bus=uhci.0,port=1 \
+    -device usb-kbd,bus=uhci.0,port=1.3 \
+    -drive if=none,id=usbdisk,format=raw,file=$TEST_DIR/x86-one-sector.bin,snapshot=on \
+    -device usb-storage,bus=uhci.0,port=1.5,drive=usbdisk \
+    -device usb-mouse,bus=uhci.0,port=2
+
+# x86: two ICH9 UHCI functions on q35, a hub behind a hub on the first
+# and a tablet on the second; device addresses run on across controllers
+run x86-usb-q35 "usb: UHCI at 00:1D.0|usb: device 2 on hub 1 port 4: 0409:55AA, hub, 8 ports|usb: device 3 on hub 2 port 1: 0627:0001, HID|usb: UHCI at 00:1D.1|usb: device 4 on root port 1: 0627:0001, HID|OS-ENTRY x86 dl=ok memmap=ok" \
+    "$QEMU_X86" -M q35 -bios x86/squirrel-bios.rom \
+    -drive format=raw,file=$TEST_DIR/x86-boot.bin,if=ide,snapshot=on \
+    -device ich9-usb-uhci1,id=u1,addr=1d.0,multifunction=on \
+    -device ich9-usb-uhci2,id=u2,addr=1d.1 \
+    -device usb-hub,bus=u1.0,port=2 -device usb-hub,bus=u1.0,port=2.4 \
+    -device usb-kbd,bus=u1.0,port=2.4.1 -device usb-tablet,bus=u2.0,port=1
+
 # x86: the 192-sector S2OK kernel load from an AHCI disk (q35, port 0)
 run x86-ahci-osload "SquirrelBIOS x86|disk: SATA disk on AHCI port 0|kernel loaded at 0x00008000, jumping|osload=ok dl=ok flags=ok memmap=ok sig=ok e820=ok|!boot halted" \
     "$QEMU_X86" -M q35 -bios x86/squirrel-bios.rom \

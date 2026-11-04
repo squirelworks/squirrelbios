@@ -75,6 +75,8 @@ boots each firmware under QEMU with a small stand-in OS image from
 | `x86-ahci-osload` | The 192-sector S2OK kernel load from a SATA disk on q35's AHCI port 0 |
 | `x86-nvme` | The `x86-edd` disk as namespace 1 of an NVMe controller in PCI slot 5: the same checks over NVMe Read/Write and PRP lists, and `AH=48h` names PCI `00:05.0`, `NVMe` and namespace 1 |
 | `x86-nvme-osload` | The 192-sector S2OK kernel load from NVMe on q35, past its empty AHCI controller |
+| `x86-usb` | A PIIX3 UHCI controller with a hub on root port 1 (a keyboard and a USB disk behind it) and a mouse on root port 2: each device is listed with its address, place, IDs and class, and the IDE disk then boots with the memory map intact |
+| `x86-usb-q35` | Two ICH9 UHCI functions on q35, a hub behind a hub on the first and a tablet on the second; addresses run on across controllers |
 | `x86-pci` | On i440fx with a virtio-rng: `INT 1Ah` `B101` returns `'PCI '`, `B102`/`B103` find devices by ID and class, POST placed I/O, 32-bit and 64-bit memory BARs and enabled decoding, INTA's Interrupt Line matches the PIIX3 route, config writes read back, and `$PIR` checks out |
 | `x86-pci-q35` | The same on q35, booting from a PIIX3 IDE card; Interrupt Line is `0xFF` there |
 | `x86-cd` | An El Torito no-emulation ISO on `-cdrom` boots with `DL = E0h`; its image checks it was loaded whole, `AH=41h`, the `AX=4B01h` packet (secondary master, block 20, segment `07C0h`), a 2-block `AH=42h` read and `AH=48h` (2048-byte blocks, 64 of them) |

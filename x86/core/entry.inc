@@ -43,6 +43,10 @@ entry:
     call con_print
     call con_newline
 
+%if CONFIG_USB
+    call usb_init               ; lists the USB devices
+%endif
+
 %if CONFIG_FLOPPY
     call floppy_boot            ; returns only if A: did not boot
 %endif
