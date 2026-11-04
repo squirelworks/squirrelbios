@@ -184,7 +184,7 @@ ehci_bus:
     mov si, msg_usb_ehci
     call usb_puts_head
     call usb_print_bdf
-    call con_newline
+    call usb_newline
     mov esi, [fs:USB_MMIO]
 
     ; Power the ports if they switch, then 20 ms for it to settle

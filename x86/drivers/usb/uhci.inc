@@ -130,7 +130,7 @@ uhci_bus:
     mov si, msg_usb_uhci
     call usb_puts_head
     call usb_print_bdf
-    call con_newline
+    call usb_newline
 
     ; Each root port with something connected: reset, enable, enumerate
     xor cx, cx

@@ -153,7 +153,7 @@ usb_hid_announce:
     call usb_puts_head
     mov al, [fs:USB_KBD_ADDR]
     call usb_dec
-    call con_newline
+    call usb_newline
     pop si
     pop ax
     ret

@@ -352,7 +352,7 @@ xhci_bus:
     mov si, msg_usb_xhci
     call usb_puts_head
     call usb_print_bdf
-    call con_newline
+    call usb_newline
     mov esi, [fs:USB_MMIO]
 
     ; Power every port, then 20 ms for it to settle
