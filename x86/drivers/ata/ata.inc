@@ -29,7 +29,8 @@ ata_read_retry:
 
 ; Read sectors of the selected primary drive into memory below 1 MB.
 ; ATA_DEVSEL is master (0xE0) or slave (0xF0). In/Out as before.
-; In:  EAX = LBA (bits 27:0; bits 31:28 must be 0),
+; In:  EAX = LBA; a range that reaches 2^28 or above is read with the
+;      LBA48 command (READ SECTORS EXT), anything below with LBA28,
 ;      CL  = sector count (1-128),
 ;      EBP = linear address of the destination.
 ; Out: CF = 0 on success. Every register preserved.
@@ -51,8 +52,10 @@ ata_read:
     jz .badarg
     cmp si, 128
     ja .badarg
-    test edi, 0xF0000000
-    jnz .badarg
+    movzx eax, si               ; the last sector must still be below 2^32
+    dec eax
+    add eax, edi
+    jc .badarg
 
     ; 0xFF is a floating bus: no controller on the primary channel
     mov dx, ATA_STATUS
@@ -106,22 +109,8 @@ ata_read:
     test al, ST_ERR | ST_DF
     jnz .error
 
-    mov dx, ATA_COUNT
-    mov ax, si
-    out dx, al
-    mov eax, edi
-    mov dx, ATA_LBA_LO
-    out dx, al
-    shr eax, 8
-    mov dx, ATA_LBA_MID
-    out dx, al
-    shr eax, 8
-    mov dx, ATA_LBA_HI
-    out dx, al
-
-    mov dx, ATA_STATUS
-    mov al, CMD_READ_SECTORS
-    out dx, al
+    mov ax, CMD_READ_EXT << 8 | CMD_READ_SECTORS
+    call ata_issue
 
     cld
     ; One DRQ block per sector
@@ -228,8 +217,10 @@ ata_write:
     jz .badarg
     cmp si, 128
     ja .badarg
-    test edi, 0xF0000000
-    jnz .badarg
+    movzx eax, si               ; the last sector must still be below 2^32
+    dec eax
+    add eax, edi
+    jc .badarg
 
     mov dx, ATA_STATUS
     in al, dx
@@ -278,22 +269,8 @@ ata_write:
     test al, ST_ERR | ST_DF
     jnz .error
 
-    mov dx, ATA_COUNT
-    mov ax, si
-    out dx, al
-    mov eax, edi
-    mov dx, ATA_LBA_LO
-    out dx, al
-    shr eax, 8
-    mov dx, ATA_LBA_MID
-    out dx, al
-    shr eax, 8
-    mov dx, ATA_LBA_HI
-    out dx, al
-
-    mov dx, ATA_STATUS
-    mov al, CMD_WRITE_SECTORS
-    out dx, al
+    mov ax, CMD_WRITE_EXT << 8 | CMD_WRITE_SECTORS
+    call ata_issue
 
     cld
 .sector:
@@ -387,6 +364,62 @@ ata_write:
     clc
     ret
 
+; Load the taskfile with LBA EDI and count SI (1-128), then send the
+; command: AL (LBA28) when the last sector is below 2^28, otherwise AH
+; (LBA48, the "previous" high bytes first). The drive is selected already.
+; Clobbers EAX and DX.
+ata_issue:
+    push ecx
+    movzx ecx, si
+    dec ecx
+    add ecx, edi
+    cmp ecx, 0x0FFFFFFF
+    pop ecx
+    jbe .lba28
+    push ax
+    mov dx, ATA_DRIVE           ; LBA48: device register bits 3:0 are 0
+    mov al, [ss:ATA_DEVSEL]
+    out dx, al
+    xor al, al
+    mov dx, ATA_COUNT           ; count bits 15:8
+    out dx, al
+    mov eax, edi
+    shr eax, 24
+    mov dx, ATA_LBA_LO          ; LBA bits 31:24
+    out dx, al
+    xor al, al
+    mov dx, ATA_LBA_MID         ; LBA bits 39:32
+    out dx, al
+    mov dx, ATA_LBA_HI          ; LBA bits 47:40
+    out dx, al
+    call .low
+    pop ax
+    mov al, ah
+    jmp .command
+.lba28:
+    call .low
+.command:
+    mov dx, ATA_STATUS
+    out dx, al
+    ret
+; Count bits 7:0 and LBA bits 23:0. Keeps AL.
+.low:
+    push ax
+    mov dx, ATA_COUNT
+    mov ax, si
+    out dx, al
+    mov eax, edi
+    mov dx, ATA_LBA_LO
+    out dx, al
+    shr eax, 8
+    mov dx, ATA_LBA_MID
+    out dx, al
+    shr eax, 8
+    mov dx, ATA_LBA_HI
+    out dx, al
+    pop ax
+    ret
+
 ; Poll status until BSY is clear and any bit in BL is set.
 ; In: BL = mask.  Out: AL = status, CF = 1 on timeout.
 ata_poll:
@@ -416,6 +449,26 @@ ata_poll:
 ;      BH = error register, as ata_read reports them.
 ;      Every other register preserved.
 ata_probe:
+    call ata_probe_cmd
+    jc .ret
+    push ax
+    push cx
+    push dx
+    mov cx, 256                 ; drain the IDENTIFY data block
+    mov dx, ATA_DATA
+.drain:
+    in ax, dx
+    loop .drain
+    pop dx
+    pop cx
+    pop ax
+    clc
+.ret:
+    ret
+
+; ata_probe up to the point where the 512 IDENTIFY bytes wait in the data
+; register (CF clear); the caller reads them. Same outputs otherwise.
+ata_probe_cmd:
     push eax
     push ecx
     push edx
@@ -462,12 +515,7 @@ ata_probe:
     jc .nodrive
     test al, ST_ERR | ST_DF
     jnz .aborted
-    mov ecx, 256                ; drain the IDENTIFY data block
-    mov dx, ATA_DATA
-.drain:
-    in ax, dx
-    loop .drain
-    pop edx
+    pop edx                     ; the data block is ready to read
     pop ecx
     pop eax
     clc
@@ -532,6 +580,78 @@ ata_detect:
     pop si
     pop bx
     pop ax
+    ret
+
+; Size of the ATA disk at ATA_DEVSEL from IDENTIFY DEVICE: words 100-103
+; when word 83 bit 10 says LBA48 is supported, else words 60-61.
+; Out: CF clear and EDX:EAX = sectors; CF set if the unit does not
+; answer as an ATA disk. Keeps every other register.
+ata_capacity:
+    push ebx
+    push ecx
+    push esi
+    push edi
+    call ata_probe_cmd
+    jc .fail
+    xor ecx, ecx                ; word index
+    xor esi, esi                ; words 60-61
+    xor edi, edi                ; words 100-101
+    xor ebx, ebx                ; BX = words 102, word 83 in the high half
+    mov dx, ATA_DATA
+.word:
+    in ax, dx
+    cmp cl, 60
+    jne .w61
+    mov si, ax
+.w61:
+    cmp cl, 61
+    jne .w83
+    ror esi, 16
+    mov si, ax
+    ror esi, 16
+.w83:
+    cmp cl, 83
+    jne .w100
+    ror ebx, 16
+    mov bx, ax
+    ror ebx, 16
+.w100:
+    cmp cl, 100
+    jne .w101
+    mov di, ax
+.w101:
+    cmp cl, 101
+    jne .w102
+    ror edi, 16
+    mov di, ax
+    ror edi, 16
+.w102:
+    cmp cl, 102
+    jne .wnext
+    mov bx, ax                  ; word 103 is 0 below 2^48 sectors
+.wnext:
+    inc cx
+    cmp cx, 256
+    jb .word
+    mov eax, esi
+    xor edx, edx
+    test ebx, 0x04000000        ; word 83 bit 10: LBA48 feature set
+    jz .done
+    mov eax, edi
+    movzx edx, bx
+.done:
+    pop edi
+    pop esi
+    pop ecx
+    pop ebx
+    clc
+    ret
+.fail:
+    pop edi
+    pop esi
+    pop ecx
+    pop ebx
+    stc
     ret
 
 ; Software reset of the primary channel, then wait for BSY to clear.

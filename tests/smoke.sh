@@ -192,6 +192,12 @@ run x86-slave "SquirrelBIOS x86|OS-ENTRY x86 dl=ok memmap=ok flags=ok|!dl=bad" \
     -drive if=none,id=slave,format=raw,file=$TEST_DIR/x86-slave.bin \
     -device ide-hd,drive=slave,bus=ide.0,unit=1
 
+# x86: EDD 3.0 on a 200 GiB disk: AH=41h/48h, LBA48 reads across 2^28
+# and at 143 GiB, a write read back, AH=44h at and past the last sector
+run x86-edd "SquirrelBIOS x86|OS-ENTRY x86 edd edd=ok" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -drive format=raw,file=$TEST_DIR/x86-edd.img,if=ide
+
 # x86: PCI on i440fx: the PCI BIOS finds devices by ID and class, POST
 # placed the BARs (I/O, 32- and 64-bit memory) and routed INTA through
 # the PIIX3, and the $PIR table checks out

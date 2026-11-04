@@ -36,7 +36,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/x86-bzimage-big.bin $(TEST_DIR)/x86-bzimage-toobig.bin \
              $(TEST_DIR)/x86-params.bin $(TEST_DIR)/x86-params-slave.bin \
              $(TEST_DIR)/x86-floppy.img $(TEST_DIR)/x86-floppy-nosig.img \
-             $(TEST_DIR)/x86-pci.bin \
+             $(TEST_DIR)/x86-pci.bin $(TEST_DIR)/x86-edd.img \
              $(TEST_DIR)/arm-kernel.bin $(TEST_DIR)/arm-too-big.bin \
              $(TEST_DIR)/arm-image-fixed.bin $(TEST_DIR)/arm-image-reloc.bin \
              $(TEST_DIR)/arm-image-short.bin $(TEST_DIR)/arm-initrd.img \
@@ -226,6 +226,13 @@ $(TEST_DIR)/x86-int15a20.bin: tests/x86-int15a20.asm | $(TEST_DIR)
 # One-sector hand-off expecting DL=0x81 (image on primary slave only)
 $(TEST_DIR)/x86-slave.bin: tests/x86-boot.asm | $(TEST_DIR)
 	$(NASM) -f bin -DONE_SECTOR -DEXPECT_DL=0x81 $< -o $@
+
+# EDD 3.0 / LBA48: a sparse 200 GiB disk (a few KB on disk) with tags
+# either side of 2^28 sectors and at 143 GiB
+$(TEST_DIR)/x86-edd.bin: tests/x86-edd.asm | $(TEST_DIR)
+	$(NASM) -f bin $< -o $@
+$(TEST_DIR)/x86-edd.img: $(TEST_DIR)/x86-edd.bin tests/mkbigdisk.py
+	tests/mkbigdisk.py $< $@ 200 0x0FFFFFFF 0x10000000 300000000
 
 # PCI BIOS (INT 1Ah B1xx), BAR placement, IRQ routing and $PIR
 $(TEST_DIR)/x86-pci.bin: tests/x86-pci.asm | $(TEST_DIR)
