@@ -6,7 +6,9 @@
 # and KBD_EXPECT adds lines the log must hold. QEMU sends the key to the
 # keyboard added last: with a usb-kbd in KBD_ARGS, that one. KBD_KEYS
 # sends that many 'a' keys, 100 ms apart, for an image built to wait for
-# them (KBD_IMG).
+# them (KBD_IMG). KBD_MOUSE=1 instead moves the mouse added last 10
+# right and 5 down with the left button held, and KBD_OK names the
+# result the image prints.
 set -u
 
 TEST_DIR=${TEST_DIR:-build/tests}
@@ -15,10 +17,11 @@ QEMU_X86=${QEMU_X86:-qemu-system-i386}
 ROM=${ROM:-x86/squirrel-bios.rom}
 IMG=${KBD_IMG:-$TEST_DIR/x86-kbd.bin}
 KEYS=${KBD_KEYS:-1}
+MOUSE=${KBD_MOUSE:-0}
 NAME=${KBD_NAME:-x86-kbd}
 LOG=$TEST_DIR/$NAME.log
 QMP=$TEST_DIR/$NAME.qmp
-expect="SquirrelBIOS x86|${KBD_EXPECT:+$KBD_EXPECT|}OS-ENTRY x86 kbd=ok"
+expect="SquirrelBIOS x86|${KBD_EXPECT:+$KBD_EXPECT|}OS-ENTRY x86 ${KBD_OK:-kbd=ok}"
 
 rm -f "$LOG" "$QMP"
 : > "$LOG"
@@ -40,10 +43,11 @@ while [ "$ticks" -gt 0 ]; do
     esac
     if [ "$sent" -eq 0 ] && grep -qF 'OS-ENTRY' "$LOG" 2>/dev/null; then
         if [ -S "$QMP" ]; then
-            python3 - "$QMP" "$KEYS" <<'PY'
+            python3 - "$QMP" "$KEYS" "$MOUSE" <<'PY'
 import json, socket, sys, time
 path = sys.argv[1]
 keys = int(sys.argv[2])
+mouse = sys.argv[3] == "1"
 deadline = time.time() + 2
 s = None
 while time.time() < deadline:
@@ -75,6 +79,13 @@ ev = {
         ]
     },
 }
+if mouse:
+    keys = 1
+    ev["arguments"]["events"] = [
+        {"type": "btn", "data": {"down": True, "button": "left"}},
+        {"type": "rel", "data": {"axis": "x", "value": 10}},
+        {"type": "rel", "data": {"axis": "y", "value": 5}},
+    ]
 for _ in range(keys):
     s.sendall((json.dumps(ev) + "\n").encode())
     one()

@@ -347,6 +347,7 @@ msg_usb_hub db 'hub', 0
 msg_usb_class db 'class ', 0
 msg_usb_ports db ' ports', 0
 msg_usb_kbd db 'keyboard is device ', 0
+msg_usb_mouse db 'mouse is device ', 0
 msg_usb_fail db 'no answer from the device on port ', 0
 %endif
 %if CONFIG_NVME

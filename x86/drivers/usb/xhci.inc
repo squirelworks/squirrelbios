@@ -34,6 +34,7 @@
 ;   0800h  endpoint 0 transfer rings, 16 TRBs per slot
 ;   1000h  input context (up to 33 contexts of 64 bytes)
 ;   1880h  the keyboard's report buffers, 15 of 8 bytes
+;   1900h  the mouse's interrupt ring; 1A00h its report buffers
 ;   2000h  output device contexts, 2 KB per slot (slots 1-8)
 ;   6000h  scratchpad pages: 3 in the EBDA, up to 10 at XHCI_ALT
 ; Software's own tables stay in USB_SEG (usb.inc):
@@ -108,6 +109,8 @@ XHCI_EVRING     equ 0x0300
 XHCI_EV_TRBS    equ 64
 XHCI_INTRING    equ 0x0700              ; the keyboard's interrupt ring
 XHCI_INTBUF     equ 0x1880              ; and its report buffers
+XHCI_MINTRING   equ 0x1900              ; the mouse's
+XHCI_MINTBUF    equ 0x1A00
 XHCI_INT_TRBS   equ 16                  ; 15 reports, then the link
 XHCI_RINGS      equ 0x0800
 XHCI_RING_TRBS  equ 16
@@ -142,6 +145,7 @@ XHCI_EV3        equ 0x1F2C          ; dword: last event's control
 XHCI_PEND       equ 0x1F30          ; the device being set up: as an
                                     ; XHCI_ADDR entry, then its TT dword
 XHCI_BASE       equ 0x1F48          ; dword: the block's linear address
+XHCI_HIDRING    equ 0x1F4C          ; dword: the ring xhci_hid_config fills
 
 ; The xHCI function at USB_BDF (BX): take it over, reset it, run it, then
 ; enumerate each root port with a device. The controller is halted and
@@ -791,18 +795,20 @@ xhci_attach:
     ret
 
 ; usb_detach for xHCI: give back the slot of the device at address AL, or
-; of the one at address 0 if it never got AL, unless it is the keyboard
-; kept for after POST. Keeps every register.
+; of the one at address 0 if it never got AL, unless it is the keyboard or
+; mouse kept for after POST. Keeps every register.
 xhci_detach:
     pushad
     push gs
     call flat_gs
-    cmp al, [fs:USB_KBD_ADDR]
-    jne .not_kbd
     mov dx, [fs:USB_BDF]
     cmp dx, [fs:USB_KBD_BDF]
+    jne .not_kept
+    cmp al, [fs:USB_KBD_ADDR]
     je .out
-.not_kbd:
+    cmp al, [fs:USB_MOU_ADDR]
+    je .out
+.not_kept:
     movzx bx, al
     shl bx, 3
     movzx edx, byte [fs:XHCI_ADDR + bx]
@@ -971,15 +977,19 @@ xhci_control:
     stc
     ret
 
-; The keyboard at address AL, interrupt IN endpoint CL, max packet DL is
-; being claimed on this xHCI, whose block is in the EBDA: fill its
-; interrupt ring with 15 Normal TRBs (no events: a finished one is seen by
-; its buffer, which starts as all ones) and add the endpoint to its slot
-; (Configure Endpoint). CF set on failure. Keeps every register.
+; Device BX (0 the keyboard, 1 the mouse) at address AL, interrupt IN
+; endpoint CL, max packet DL is being claimed on this xHCI, whose block is
+; in the EBDA: fill its interrupt ring with 15 Normal TRBs (no events: a
+; finished one is seen by its buffer, which starts as all ones) and add
+; the endpoint to its slot (Configure Endpoint). CF set on failure. Keeps
+; every register.
 xhci_hid_config:
     pushad
     push gs
     call flat_gs
+    shl bx, 2
+    mov si, [cs:xhci_hid_rings + bx]        ; its ring, then its buffers
+    mov di, [cs:xhci_hid_rings + bx + 2]
     movzx bx, al
     shl bx, 3
     movzx ebp, byte [fs:XHCI_ADDR + bx]     ; EBP = its slot
@@ -990,8 +1000,11 @@ xhci_hid_config:
     lea ecx, [ecx * 2 + 1]                  ; ECX = device context index
     mov ebx, [fs:XHCI_BASE]
     ; The ring: TRB i reads 8 bytes into buffer i; the last one links back
-    lea edi, [ebx + XHCI_INTRING]
-    lea esi, [ebx + XHCI_INTBUF]
+    movzx eax, si
+    movzx esi, di
+    add esi, ebx
+    lea edi, [ebx + eax]
+    mov [fs:XHCI_HIDRING], edi
     push cx
     mov cx, XHCI_INT_TRBS - 1
 .trb:
@@ -1005,7 +1018,7 @@ xhci_hid_config:
     add edi, 16
     loop .trb
     pop cx
-    lea eax, [ebx + XHCI_INTRING]
+    mov eax, [fs:XHCI_HIDRING]
     mov [gs:edi], eax
     mov dword [gs:edi + 4], 0
     mov dword [gs:edi + 8], 0
@@ -1050,7 +1063,8 @@ xhci_hid_config:
     shl eax, 16
     or eax, (3 << 1) | (7 << 3)
     mov [gs:esi + 4], eax
-    lea eax, [ebx + XHCI_INTRING + 1]       ; dequeue, cycle 1
+    mov eax, [fs:XHCI_HIDRING]
+    inc eax                                 ; dequeue, cycle 1
     mov [gs:esi + 8], eax
     mov dword [gs:esi + 12], 0
     mov eax, edx
@@ -1075,27 +1089,52 @@ xhci_hid_config:
     stc
     ret
 
-; The bus with the keyboard is listed: leave the controller running and
-; start the keyboard's endpoint (its doorbell). From here on IRQ0 reads its
-; reports (usb_hid_poll). GS flat. Keeps every register.
+; Ring and buffer offsets in the block, per device (keyboard, mouse)
+xhci_hid_rings:
+    dw XHCI_INTRING, XHCI_INTBUF
+    dw XHCI_MINTRING, XHCI_MINTBUF
+
+; The bus with the keyboard or mouse is listed: leave the controller
+; running and start their endpoints (their doorbells). From here on IRQ0
+; reads their reports (usb_hid_poll). GS flat. Keeps every register.
 xhci_hid_start:
     pushad
     push es
     push word USBK_SEG
     pop es
-    xor eax, eax
-    mov [es:USBK_PREV], eax
-    mov [es:USBK_PREV + 4], eax
-    mov byte [es:USBK_XIDX], 0
-    mov byte [es:USBK_XCYC], 1
-    mov byte [es:USBK_KIND], USBK_KIND_XHCI
-    movzx bx, byte [fs:USB_KBD_ADDR]
+    mov al, USBK_KIND_XHCI
+    call usb_hid_begin
+    mov bx, 1
+.dev:
+    bt word [es:USBK_DEVS], bx
+    jnc .next
+    call usb_hid_dev                    ; DI = its variables
+    mov byte [es:di + USBK_XIDX], 0
+    mov byte [es:di + USBK_XCYC], 1
+    push bx
+    shl bx, 2
+    mov ax, [cs:xhci_hid_rings + bx]
+    add ax, XHCI_EBDA - EBDA_BASE
+    mov [es:di + USBK_XRING], ax
+    mov ax, [cs:xhci_hid_rings + bx + 2]
+    add ax, XHCI_EBDA - EBDA_BASE
+    mov [es:di + USBK_XBUF], ax
+    pop bx
+    ; Its doorbell: slot, endpoint's context index
+    push bx
+    shl bx, 4
+    movzx ax, byte [fs:USB_KBD_ADDR + bx]
+    movzx ecx, byte [fs:USB_KBD_EP + bx]
+    mov bx, ax
     shl bx, 3
     movzx ebx, byte [fs:XHCI_ADDR + bx]
-    movzx eax, byte [fs:USB_KBD_EP]
-    lea eax, [eax * 2 + 1]
+    lea eax, [ecx * 2 + 1]
     mov edx, [fs:XHCI_DB]
     mov [gs:edx + ebx * 4], eax
+    pop bx
+.next:
+    dec bx
+    jns .dev
     pop es
     popad
     ret

@@ -85,6 +85,7 @@ boots each firmware under QEMU with a small stand-in OS image from
 | `x86-usb-kbd`, `x86-usb-kbd-hub` | A USB keyboard on UHCI (on a root port, then behind a hub) is kept running after POST; a key typed on it reaches `INT 16h` |
 | `x86-usb-kbd-ohci`, `x86-usb-kbd-ehci` | The same with a keyboard behind a hub on OHCI, and with a full-speed keyboard on an ICH9 EHCI port that its UHCI companion keeps |
 | `x86-usb-kbd-xhci` | The same keyboard with an xHCI listed after it: the xHCI works from POST-only memory and the keyboard still types |
+| `x86-usb-mouse`, `x86-usb-mouse-ohci`, `x86-usb-mouse-xhci` | `INT 15h` `C2xx` on a USB mouse kept beside a keyboard (UHCI, OHCI, xHCI behind a hub): refusals, reset, type, init, status, then the handler gets one motion with the left button as PS/2 packets |
 | `x86-usb-kbd-on-xhci`, `x86-usb-kbd-on-xhci-hub` | A keyboard on xHCI: twenty keys (its ring goes round more than twice), then one behind two hubs |
 | `x86-usb-kbd-after-xhci` | The same keyboard with an xHCI listed before it, working from the EBDA during POST: the keyboard still starts and types |
 | `x86-usb-q35` | Two ICH9 UHCI functions on q35, a hub behind a hub on the first and a tablet on the second; addresses run on across controllers |

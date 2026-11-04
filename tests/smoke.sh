@@ -218,6 +218,22 @@ if KBD_NAME=x86-usb-kbd-on-xhci-hub \
 else
     fail=$((fail + 1))
 fi
+# A USB mouse beside the keyboard: INT 15h C2xx, then a motion reaches
+# the handler set with C207h (QEMU moves the mouse added last)
+for m in "x86-usb-mouse|-device piix3-usb-uhci,id=uhci,addr=5 -device usb-kbd,bus=uhci.0,port=1 -device usb-mouse,bus=uhci.0,port=2|usb: mouse is device 2" \
+         "x86-usb-mouse-ohci|-device pci-ohci,id=ohci,addr=5 -device usb-kbd,bus=ohci.0,port=1 -device usb-mouse,bus=ohci.0,port=2|usb: mouse is device 2" \
+         "x86-usb-mouse-xhci|-device qemu-xhci,id=xhci,addr=5 -device usb-kbd,bus=xhci.0,port=1 -device usb-hub,bus=xhci.0,port=2 -device usb-mouse,bus=xhci.0,port=2.1|usb: mouse is device 3"; do
+    old_ifs=$IFS
+    IFS='|'
+    set -- $m
+    IFS=$old_ifs
+    if KBD_NAME=$1 KBD_IMG=$TEST_DIR/x86-mouse.bin KBD_MOUSE=1 KBD_OK=mouse=ok \
+       KBD_ARGS="$2" KBD_EXPECT="usb: keyboard is device 1|$3" tests/x86-kbd-run.sh; then
+        pass=$((pass + 1))
+    else
+        fail=$((fail + 1))
+    fi
+done
 
 # x86: a USB keyboard behind a hub on OHCI; then a full-speed one on an
 # ICH9 EHCI port, handed to its UHCI companion, which keeps it
