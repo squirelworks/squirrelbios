@@ -19,6 +19,8 @@ drivers/   ata (ATA PIO, LBA28/LBA48, INT 13h with EDD 3.0),
            answered, DMA through the EBDA; CONFIG_AHCI),
            nvme (namespace 1 as DL 80h when no IDE or SATA disk
            answered, queues in the EBDA; CONFIG_NVME),
+           virtio (a virtio-blk disk as DL 80h when no IDE, SATA or
+           NVMe disk answered; CONFIG_VIRTIO),
            usb (USB core: enumeration and hubs; uhci, ohci, ehci,
            xhci; hid: keyboard and mouse after POST; msd: a
            bulk-only USB disk on xHCI as DL 80h; CONFIG_USB)

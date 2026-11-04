@@ -39,6 +39,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/x86-pci.bin $(TEST_DIR)/x86-edd.img \
              $(TEST_DIR)/x86-ahci.img $(TEST_DIR)/x86-nvme.img \
              $(TEST_DIR)/x86-usbdisk.img \
+             $(TEST_DIR)/x86-virtio.img \
              $(TEST_DIR)/x86-cd.iso $(TEST_DIR)/x86-cd-slave.iso \
              $(TEST_DIR)/arm-kernel.bin $(TEST_DIR)/arm-too-big.bin \
              $(TEST_DIR)/arm-image-fixed.bin $(TEST_DIR)/arm-image-reloc.bin \
@@ -269,6 +270,12 @@ $(TEST_DIR)/x86-nvme.img: $(TEST_DIR)/x86-nvme.bin tests/mkbigdisk.py
 $(TEST_DIR)/x86-usbdisk.bin: tests/x86-edd.asm | $(TEST_DIR)
 	$(NASM) -f bin -DUSB=5 $< -o $@
 $(TEST_DIR)/x86-usbdisk.img: $(TEST_DIR)/x86-usbdisk.bin tests/mkbigdisk.py
+	tests/mkbigdisk.py $< $@ 200 0x0FFFFFFF 0x10000000 300000000
+
+# The same as a virtio-blk device in PCI slot 5
+$(TEST_DIR)/x86-virtio.bin: tests/x86-edd.asm | $(TEST_DIR)
+	$(NASM) -f bin -DVIRTIO=5 $< -o $@
+$(TEST_DIR)/x86-virtio.img: $(TEST_DIR)/x86-virtio.bin tests/mkbigdisk.py
 	tests/mkbigdisk.py $< $@ 200 0x0FFFFFFF 0x10000000 300000000
 
 # PCI BIOS (INT 1Ah B1xx), BAR placement, IRQ routing and $PIR

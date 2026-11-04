@@ -74,6 +74,7 @@ boots each firmware under QEMU with a small stand-in OS image from
 | `x86-ahci` | The `x86-edd` disk on q35's AHCI controller, port 4 (past q35's empty CD on port 2): the same checks over `READ/WRITE DMA EXT`, and `AH=48h` names PCI `00:1F.2`, `SATA` and port 4 |
 | `x86-ahci-osload` | The 192-sector S2OK kernel load from a SATA disk on q35's AHCI port 0 |
 | `x86-nvme` | The `x86-edd` disk as namespace 1 of an NVMe controller in PCI slot 5: the same checks over NVMe Read/Write and PRP lists, and `AH=48h` names PCI `00:05.0`, `NVMe` and namespace 1 |
+| `x86-virtio`, `x86-virtio-osload`, `x86-virtio-int13` | The `x86-edd` disk as a virtio-blk device in PCI slot 5 (the same checks, `AH=48h` naming PCI `00:05.0`), then the S2OK kernel load on q35 and the `INT 13h` boot sector from a virtio disk |
 | `x86-nvme-osload` | The 192-sector S2OK kernel load from NVMe on q35, past its empty AHCI controller |
 | `x86-usb` | A PIIX3 UHCI controller with a hub on root port 1 (a keyboard and a USB disk behind it) and a mouse on root port 2: each device is listed with its address, place, IDs and class, and the IDE disk then boots with the memory map intact |
 | `x86-usb-ohci` | An OHCI controller: a keyboard and a second hub behind a hub on root port 1, a tablet behind the second hub, a mouse on root port 3 |

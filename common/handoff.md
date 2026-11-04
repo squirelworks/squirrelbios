@@ -16,7 +16,7 @@ If the firmware and this file disagree, the firmware has a bug.
 | Console | COM1 `0x3F8`, 115200 8N1 | PL011 `0x09000000` | NS16550A `0x10000000`, 115200 8N1 |
 | Interrupts | `IF = 0`; PIT/PIC programmed, IRQ0 unmasked | `DAIF` masked | `mstatus.MIE`/`SIE` = 0, `mie = 0` |
 | CPUs running | Boot CPU only | Boot CPU only | The boot hart (`fw_dynamic_info.boot_hart`, else hart 0); others through `sbi_hart_start` |
-| Firmware services | `INT 13h` `AH=00/02/03/08/41/42/43/44/47/48` (on an IDE, SATA, NVMe or USB disk; diskettes `00/02/03/08/15`; boot CD `00/41/42/48/4B`), `INT 10h` `AH=02/03/06/07/0E/0F`, `INT 15h` `E820`/`AX=2400..2403`/`AH=C2` (USB mouse), `INT 16h` `AH=00/01`, `INT 1Ah` `AH=00/02`, PCI BIOS `AX=B101/B102/B103/B108..B10D` | None | SBI from S-mode: base, TIME, IPI, RFENCE, HSM, SRST |
+| Firmware services | `INT 13h` `AH=00/02/03/08/41/42/43/44/47/48` (on an IDE, SATA, NVMe, USB or virtio disk; diskettes `00/02/03/08/15`; boot CD `00/41/42/48/4B`), `INT 10h` `AH=02/03/06/07/0E/0F`, `INT 15h` `E820`/`AX=2400..2403`/`AH=C2` (USB mouse), `INT 16h` `AH=00/01`, `INT 1Ah` `AH=00/02`, PCI BIOS `AX=B101/B102/B103/B108..B10D` | None | SBI from S-mode: base, TIME, IPI, RFENCE, HSM, SRST |
 
 ## Rules for every architecture
 
@@ -194,7 +194,8 @@ or `AH = 0x80` (timeout). `AH = 0x02` reports `AL = 0` when nothing was
 transferred. The firmware boots from the master when
 it answers; if the master is absent it tries the slave and hands off with
 `DL = 0x81`. When no IDE hard disk answered (or the master is ATAPI),
-it looks for a SATA disk, then an NVMe disk, then a USB disk, then
+it looks for a SATA disk, then an NVMe disk, then a USB disk, then a
+virtio disk, then
 tries a CD before it halts.
 
 **SATA (AHCI).** With no IDE hard disk, the firmware looks on PCI bus 0
@@ -233,6 +234,20 @@ at `0x93000` (admin submission), `0x94000` (admin completion),
 `0x95000` (I/O submission) and `0x96000` (I/O completion); the
 controller is left enabled with interrupts unused. As for SATA, the
 `INT 13h` calls are served from real mode only.
+
+**virtio-blk.** With no IDE, SATA or NVMe disk, the firmware looks on
+PCI bus 0 for a virtio block device with the legacy interface (vendor
+`1AF4h`, device `1001h`, BAR0 an I/O range). It resets the device,
+accepts no optional features (so the disk writes through), sets up
+queue 0 in the three EBDA pages at `0x93000` that NVMe would have used
+(queues of up to 256 entries fit), and reads the capacity. It prints
+`disk: virtio disk`, and the device is then `DL = 0x80`, booting and
+served by `INT 13h` as above, one request at a time with the caller's
+buffer as its data descriptor; the used ring is polled with interrupts
+off. `AH = 0x48` names it as host bus `PCI` with its bus, device and
+function, and interface `SCSI`, the nearest EDD 3.0 has. The device is
+left running with no interrupts unmasked. A modern-only device (ID
+`1042h`) is not used.
 
 **USB.** Before it looks for a boot disk, POST lists the USB devices on
 every EHCI (class `0C:03:20`), UHCI (`0C:03:00`), OHCI (`0C:03:10`)
@@ -538,7 +553,7 @@ addresses (segment 0):
 | Address | Size | Value |
 |---------|------|-------|
 | `0x0410` | word | Equipment list `0x0220`: 80x25 colour (bits 4–5 = `10`), one serial port (bits 9–11 = 1). No floppies or parallel ports. |
-| `0x040E` | word | Segment of the extended BIOS data area: `0x9200`. The 56 KB EBDA at `0x92000`–`0x9FFFF` is the firmware's; its first byte is its size in KB (`56`). Its first 4 KB hold firmware data; the four 4 KB pages after it are kept for disk controller queues (NVMe), and the last nine for the USB controller that keeps a keyboard, mouse or disk running after POST. The AHCI driver keeps its state and DMA structures there. |
+| `0x040E` | word | Segment of the extended BIOS data area: `0x9200`. The 56 KB EBDA at `0x92000`–`0x9FFFF` is the firmware's; its first byte is its size in KB (`56`). Its first 4 KB hold firmware data; the four 4 KB pages after it are kept for disk controller queues (NVMe or virtio), and the last nine for the USB controller that keeps a keyboard, mouse or disk running after POST. The AHCI driver keeps its state and DMA structures there. |
 | `0x0413` | word | Conventional memory size in KB: `584` (`0x00000`–`0x91FFF`, matching the SQMM usable entry). |
 | `0x0450` | 2 bytes | Page-0 cursor: column then row. Starts at `(0, 0)`; `INT 10h` `AH=0x0E` keeps both inside 80x25. |
 | `0x046C` | dword | Timer ticks since midnight. IRQ0 (`INT 08h`) increments it; wraps at `0x1800B0` (~24 h at 18.2 Hz) and sets `0x0470` to 1. Starts at 0. |
