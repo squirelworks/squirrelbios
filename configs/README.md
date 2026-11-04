@@ -38,6 +38,7 @@ platform's `default.cfg` writes the defaults out, and `make test`
 | `CONFIG_NVME` | `y` | Namespace 1 of an NVMe controller as `DL = 80h` when no IDE or SATA disk answered: boot and `INT 13h` (`x86/drivers/nvme/`). Needs `CONFIG_PCI` |
 | `CONFIG_VIRTIO` | `y` | A virtio-blk device (legacy interface) as `DL = 80h` when no IDE, SATA or NVMe disk answered: boot and `INT 13h` (`x86/drivers/virtio/`). Needs `CONFIG_PCI` |
 | `CONFIG_NETBOOT` | `y` | When no disk or CD booted, DHCP and a TFTP download of the boot file to `0x7C00` over a virtio-net device (`x86/boot/netboot.inc`, `x86/drivers/virtio/net.inc`). Needs `CONFIG_VIRTIO` |
+| `CONFIG_VBE` | `y` | VBE 3.0 (`INT 10h` `AH=4Fh`): 16- and 32-bit linear-framebuffer modes up to 1280x1024 on QEMU's standard VGA (`x86/drivers/vga/vbe.inc`). Needs `CONFIG_PCI` |
 | `CONFIG_USB` | `y` | List the USB devices at POST: EHCI, UHCI, OHCI and xHCI controllers, enumeration and hubs (`x86/drivers/usb/`). Needs `CONFIG_PCI` |
 | `CONFIG_PCI` | `y` | PCI bus 0 enumeration, BAR placement, PIIX3 IRQ routing, PCI BIOS `INT 1Ah` `AX=B1xx` and `$PIR` (`x86/drivers/pci/`) |
 | `CONFIG_FLOPPY` | `y` | 1.44 MB diskettes: FDC driver, `INT 13h` `DL = 0x00`/`0x01`, `INT 1Eh`, boot from A: (`x86/drivers/fdc/`, `x86/boot/floppy.inc`) |

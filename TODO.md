@@ -397,7 +397,9 @@ roadmap item, run under QEMU in `make test`.
     request at a time; a modern-only device (1042h) is not found.
   - [x] virtio-net, DHCP, ARP and TFTP: the boot file loaded at 0x7C00
     when no disk or CD booted. No routing; files up to 230400 bytes.
-- [ ] `x86-vbe` — VBE 2.0/3.0 linear-framebuffer modes.
+- [x] `x86-vbe` — VBE 2.0/3.0 linear-framebuffer modes. VBE 3.0 on QEMU's
+  standard VGA: 16- and 32-bit modes up to 1280x1024, linear frame buffer
+  only (no banked windows, palette or protected-mode interface).
 
 ## Secondary track
 
