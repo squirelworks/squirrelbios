@@ -70,6 +70,9 @@ BITS 16
 %ifndef CONFIG_FLOPPY
 %define CONFIG_FLOPPY 1
 %endif
+%ifndef CONFIG_PCI
+%define CONFIG_PCI 1
+%endif
 
 FW_STACK        equ 0x0600
 
@@ -229,6 +232,12 @@ ATTR_ERROR      equ 0x0C
 %include "drivers/fdc/fdc.inc"
 %include "drivers/fdc/int13fd.inc"
 %include "boot/floppy.inc"
+%endif
+
+%if CONFIG_PCI
+%include "drivers/pci/pci.inc"
+%include "drivers/pci/int1apci.inc"
+%include "drivers/pci/pir.inc"
 %endif
 
 %include "core/console.inc"

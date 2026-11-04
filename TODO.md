@@ -356,7 +356,9 @@ roadmap item, run under QEMU in `make test`.
 
 - [x] `x86-floppy` — 82077 FDC, `INT 13h DL=00h/01h`, `INT 1Eh`, boot
   `-fda`.
-- [ ] `x86-pci` — PCI enumeration, `$PIR`, PCI BIOS `INT 1Ah B1xx`.
+- [x] `x86-pci` — PCI enumeration, `$PIR`, PCI BIOS `INT 1Ah B1xx`.
+  Bus 0 only; still open: numbering and scanning behind PCI-to-PCI
+  bridges, q35 (ICH9) interrupt routing, and a BIOS32 entry.
 - [ ] `x86-edd` — `INT 13h` EDD 3.0, LBA48, El Torito over ATAPI.
 - [ ] `x86-ahci` — AHCI/SATA with `INT 13h` on top. Depends on:
   `x86-pci`.

@@ -192,6 +192,23 @@ run x86-slave "SquirrelBIOS x86|OS-ENTRY x86 dl=ok memmap=ok flags=ok|!dl=bad" \
     -drive if=none,id=slave,format=raw,file=$TEST_DIR/x86-slave.bin \
     -device ide-hd,drive=slave,bus=ide.0,unit=1
 
+# x86: PCI on i440fx: the PCI BIOS finds devices by ID and class, POST
+# placed the BARs (I/O, 32- and 64-bit memory) and routed INTA through
+# the PIIX3, and the $PIR table checks out
+run x86-pci "SquirrelBIOS x86|OS-ENTRY x86 pci pci=ok" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -drive format=raw,file=$TEST_DIR/x86-pci.bin,if=ide \
+    -device virtio-rng-pci
+
+# x86: the same on q35 (no PIIX3: Interrupt Line is 0xFF), booting from
+# a PIIX3 IDE controller since q35's own disks are AHCI
+run x86-pci-q35 "SquirrelBIOS x86|OS-ENTRY x86 pci pci=ok" \
+    "$QEMU_X86" -M q35 -bios x86/squirrel-bios.rom \
+    -device piix3-ide,id=pide \
+    -drive if=none,id=pcidisk,format=raw,file=$TEST_DIR/x86-pci.bin \
+    -device ide-hd,drive=pcidisk,bus=pide.0 \
+    -device virtio-rng-pci
+
 # x86: ACPI RSDP in 0xE0000–0xFFFFF, checksum and RSDT→FACP
 run x86-acpi "SquirrelBIOS x86|OS-ENTRY x86 acpi=ok" \
     "$QEMU_X86" -bios x86/squirrel-bios.rom \

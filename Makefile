@@ -36,6 +36,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/x86-bzimage-big.bin $(TEST_DIR)/x86-bzimage-toobig.bin \
              $(TEST_DIR)/x86-params.bin $(TEST_DIR)/x86-params-slave.bin \
              $(TEST_DIR)/x86-floppy.img $(TEST_DIR)/x86-floppy-nosig.img \
+             $(TEST_DIR)/x86-pci.bin \
              $(TEST_DIR)/arm-kernel.bin $(TEST_DIR)/arm-too-big.bin \
              $(TEST_DIR)/arm-image-fixed.bin $(TEST_DIR)/arm-image-reloc.bin \
              $(TEST_DIR)/arm-image-short.bin $(TEST_DIR)/arm-initrd.img \
@@ -225,6 +226,10 @@ $(TEST_DIR)/x86-int15a20.bin: tests/x86-int15a20.asm | $(TEST_DIR)
 # One-sector hand-off expecting DL=0x81 (image on primary slave only)
 $(TEST_DIR)/x86-slave.bin: tests/x86-boot.asm | $(TEST_DIR)
 	$(NASM) -f bin -DONE_SECTOR -DEXPECT_DL=0x81 $< -o $@
+
+# PCI BIOS (INT 1Ah B1xx), BAR placement, IRQ routing and $PIR
+$(TEST_DIR)/x86-pci.bin: tests/x86-pci.asm | $(TEST_DIR)
+	$(NASM) -f bin $< -o $@
 
 # ACPI RSDP in the ROM area: checksum and RSDT→FACP
 $(TEST_DIR)/x86-acpi.bin: tests/x86-acpi.asm | $(TEST_DIR)
