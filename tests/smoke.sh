@@ -266,6 +266,32 @@ run x86-usb-q35 "usb: UHCI at 00:1D.0|usb: device 2 on hub 1 port 4: 0409:55AA, 
     -device usb-hub,bus=u1.0,port=2 -device usb-hub,bus=u1.0,port=2.4 \
     -device usb-kbd,bus=u1.0,port=2.4.1 -device usb-tablet,bus=u2.0,port=1
 
+# x86: ICH9 EHCI with its three UHCI companions on q35. EHCI keeps the
+# high-speed disk and tablet; the full-speed keyboard and the (full-speed)
+# hub with a mouse behind it are handed to the companions, which list
+# them on their own root ports
+run x86-usb-ehci "usb: EHCI at 00:1D.7|usb: device 1 on root port 1: 46F4:0001, mass storage|usb: device 2 on root port 6: 0627:0001, HID|usb: UHCI at 00:1D.1|usb: device 3 on root port 2: 0627:0001, HID|usb: UHCI at 00:1D.2|usb: device 4 on root port 1: 0409:55AA, hub, 8 ports|usb: device 5 on hub 4 port 2: 0627:0001, HID|OS-ENTRY x86 dl=ok memmap=ok flags=ok vga=ok" \
+    "$QEMU_X86" -M q35 -bios x86/squirrel-bios.rom \
+    -drive format=raw,file=$TEST_DIR/x86-boot.bin,if=ide,snapshot=on \
+    -device ich9-usb-ehci1,id=ehci,addr=1d.7,multifunction=on \
+    -device ich9-usb-uhci1,masterbus=ehci.0,firstport=0,addr=1d.0,multifunction=on \
+    -device ich9-usb-uhci2,masterbus=ehci.0,firstport=2,addr=1d.1,multifunction=on \
+    -device ich9-usb-uhci3,masterbus=ehci.0,firstport=4,addr=1d.2,multifunction=on \
+    -drive if=none,id=usbdisk,format=raw,file=$TEST_DIR/x86-one-sector.bin,snapshot=on \
+    -device usb-storage,bus=ehci.0,port=1,drive=usbdisk \
+    -device usb-kbd,bus=ehci.0,port=4,usb_version=1 \
+    -device usb-hub,bus=ehci.0,port=5 -device usb-mouse,bus=ehci.0,port=5.2 \
+    -device usb-tablet,bus=ehci.0,port=6
+
+# x86: a lone EHCI controller on i440fx with two high-speed devices
+run x86-usb-ehci-alone "usb: EHCI at 00:07.0|usb: device 1 on root port 2: 46F4:0001, mass storage|usb: device 2 on root port 4: 0627:0001, HID|OS-ENTRY x86 dl=ok memmap=ok flags=ok vga=ok" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -drive format=raw,file=$TEST_DIR/x86-boot.bin,if=ide,snapshot=on \
+    -device usb-ehci,id=ehci,addr=7 \
+    -drive if=none,id=usbdisk,format=raw,file=$TEST_DIR/x86-one-sector.bin,snapshot=on \
+    -device usb-storage,bus=ehci.0,port=2,drive=usbdisk \
+    -device usb-tablet,bus=ehci.0,port=4
+
 # x86: the 192-sector S2OK kernel load from an AHCI disk (q35, port 0)
 run x86-ahci-osload "SquirrelBIOS x86|disk: SATA disk on AHCI port 0|kernel loaded at 0x00008000, jumping|osload=ok dl=ok flags=ok memmap=ok sig=ok e820=ok|!boot halted" \
     "$QEMU_X86" -M q35 -bios x86/squirrel-bios.rom \

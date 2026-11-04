@@ -30,12 +30,14 @@ USB_BUFLEN      equ 256
 USB_HC          equ 0x1F00          ; byte: controller type of this bus
 USB_HC_UHCI     equ 1
 USB_HC_OHCI     equ 2
+USB_HC_EHCI     equ 3
 USB_IOBASE      equ 0x1F02          ; word: controller I/O base
 USB_NEXTADDR    equ 0x1F04          ; byte: next device address (1-127)
 USB_BDF         equ 0x1F06          ; word: controller's PCI address
 USB_TOGGLE      equ 0x1F08          ; dword: next data toggle (UHCI token bit)
 USB_SAVESP      equ 0x1F0C          ; word: POST's stack pointer
-USB_MMIO        equ 0x1F10          ; dword: controller registers (OHCI)
+USB_MMIO        equ 0x1F10          ; dword: controller registers (OHCI, EHCI)
+USB_PASS        equ 0x1F14          ; byte: 1 EHCI, 2 UHCI and OHCI
 USB_STACK       equ 0x7C00          ; segment 0: enumeration nests deeper than
                                     ; the POST stack below 0x600 allows
 
@@ -44,6 +46,7 @@ USB_MAX_DEPTH   equ 5               ; hub tiers below the root hub
 ; Class, subclass, programming interface (PCI class 0C:03)
 USB_CLASS_UHCI  equ 0x0C0300
 USB_CLASS_OHCI  equ 0x0C0310
+USB_CLASS_EHCI  equ 0x0C0320
 
 ; Standard requests
 USB_REQ_GET_STATUS     equ 0
@@ -68,6 +71,7 @@ HUB_PS_CONNECT  equ 0x0001
 HUB_PS_ENABLE   equ 0x0002
 HUB_PS_RESET    equ 0x0010
 HUB_PS_LOWSPEED equ 0x0200
+HUB_PS_HIGHSPEED equ 0x0400
 
 ; POST: find every USB host controller on bus 0 and list its devices.
 ; Keeps every register (ES:DI stays the console cursor).
@@ -81,16 +85,28 @@ usb_init:
     mov byte [fs:USB_NEXTADDR], 1
     call pci_present
     jc .out
+    ; Two passes: EHCI first, so that it takes the high-speed devices and
+    ; hands the rest to its companion UHCI / OHCI functions, which the
+    ; second pass lists
+    mov byte [fs:USB_PASS], 1
+.pass:
     xor bx, bx
 .fn:
     call pci_next
-    jc .out
+    jc .pass_done
     push di
     mov di, 0x08                ; class code in bits 31:8
     call pci_read32
     pop di
     shr eax, 8
     mov [fs:USB_BDF], bx
+    cmp byte [fs:USB_PASS], 1
+    jne .companions
+    cmp eax, USB_CLASS_EHCI
+    jne .next
+    call ehci_bus
+    jmp .next
+.companions:
     cmp eax, USB_CLASS_UHCI
     jne .not_uhci
     call uhci_bus
@@ -102,6 +118,10 @@ usb_init:
 .next:
     inc bl
     jnz .fn
+.pass_done:
+    inc byte [fs:USB_PASS]
+    cmp byte [fs:USB_PASS], 2
+    jbe .pass
 .out:
     mov sp, [fs:USB_SAVESP]
     pop fs
@@ -201,20 +221,22 @@ usb_setup:
 
 ; Run the control transfer whose setup packet is at USB_SETUP, data (if
 ; any) at USB_BUF, on this bus's controller. In: AL = device address,
-; AH bit 0 = low speed, BL = endpoint 0 max packet size. CF set on
-; failure. Keeps every register.
+; AH = speed (0 full, 1 low, 2 high), BL = endpoint 0 max packet size.
+; CF set on failure. Keeps every register.
 usb_control:
     cmp byte [fs:USB_HC], USB_HC_UHCI
     je uhci_control
     cmp byte [fs:USB_HC], USB_HC_OHCI
     je ohci_control
+    cmp byte [fs:USB_HC], USB_HC_EHCI
+    je ehci_control
     stc
     ret
 
 ; A device was just reset on a port and answers at address 0. Give it an
 ; address, read what it is, print it, and enumerate a hub's ports.
-; In: AH bit 0 = low speed, DL = parent hub's address (0: root hub),
-; DH = port number, CL = hub tier (0 for a root port).
+; In: AH = speed (0 full, 1 low, 2 high), DL = parent hub's address
+; (0: root hub), DH = port number, CL = hub tier (0 for a root port).
 ; Keeps every register.
 usb_enum:
     pushad
@@ -493,13 +515,17 @@ usb_hub:
     mov cx, 10                  ; reset recovery
     call delay_ms
     pop ax
-    ; Enumerate: low speed from the port status, parent = this hub
+    ; Enumerate: speed from the port status, parent = this hub
     mov cl, [bp - 5]
     inc cl
-    mov ah, 0
-    test ax, HUB_PS_LOWSPEED
-    jz .speed
+    mov bx, ax
     mov ah, 1
+    test bx, HUB_PS_LOWSPEED
+    jnz .speed
+    mov ah, 2
+    test bx, HUB_PS_HIGHSPEED
+    jnz .speed
+    mov ah, 0
 .speed:
     push dx
     mov dh, dl                  ; port
