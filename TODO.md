@@ -368,7 +368,9 @@ roadmap item, run under QEMU in `make test`.
   `x86-pci`. Squirrel-OS/2 1.0.0 boots from a q35 SATA disk. One SATA
   disk only, and only when no IDE hard disk answered; no port
   multipliers; `INT 13h` on it from real mode only (not V86).
-- [ ] `x86-nvme` — NVMe with `INT 13h` on top. Depends on: `x86-pci`.
+- [x] `x86-nvme` — NVMe with `INT 13h` on top. Depends on: `x86-pci`.
+  Squirrel-OS/2 1.0.0 boots from `-device nvme`. Namespace 1 only, with
+  512-byte blocks; one controller; BAR0 must be below 4 GB.
 - [ ] `x86-uhci`, `x86-ohci`, `x86-ehci`, `x86-xhci` — USB host
   controllers, one PR each. Depends on: `x86-pci`.
 - [ ] `x86-usb-hid` — USB keyboard/mouse feeding `INT 16h` / `INT 15h

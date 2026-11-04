@@ -41,6 +41,10 @@ ata_read:
     call ahci_owns              ; DL 80h may be a SATA disk
     jnc ahci_read
 %endif
+%if CONFIG_NVME
+    call nvme_owns              ; or an NVMe namespace
+    jnc nvme_read
+%endif
     push eax
     push ecx
     push edx
@@ -209,6 +213,10 @@ ata_write:
 %if CONFIG_AHCI
     call ahci_owns              ; DL 80h may be a SATA disk
     jnc ahci_write
+%endif
+%if CONFIG_NVME
+    call nvme_owns              ; or an NVMe namespace
+    jnc nvme_write
 %endif
     push eax
     push ecx
@@ -599,6 +607,10 @@ ata_capacity:
     call ahci_owns              ; DL 80h may be a SATA disk
     jnc ahci_capacity
 %endif
+%if CONFIG_NVME
+    call nvme_owns              ; or an NVMe namespace
+    jnc nvme_capacity
+%endif
     push ebx
     push ecx
     push esi
@@ -672,6 +684,10 @@ ata_reset:
 %if CONFIG_AHCI
     call ahci_owns              ; DL 80h may be a SATA disk
     jnc ahci_reset
+%endif
+%if CONFIG_NVME
+    call nvme_owns              ; or an NVMe namespace
+    jnc nvme_reset
 %endif
     push eax
     push ebx

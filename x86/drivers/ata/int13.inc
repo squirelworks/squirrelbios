@@ -125,6 +125,13 @@ int13_handler:
     jmp .params_checksum
 .params_ata:
 %endif
+%if CONFIG_NVME
+    call nvme_owns
+    jc .params_not_nvme
+    call nvme_edd_path              ; 'PCI' / 'NVMe', namespace ID
+    jmp .params_checksum
+.params_not_nvme:
+%endif
     mov dword [si + 0x24], 'ISA '   ; host bus: legacy ports
     mov dword [si + 0x28], 'ATA '
     mov dword [si + 0x2C], '    '
@@ -455,6 +462,10 @@ disk_parse_packet:
 disk_clear_stale:
 %if CONFIG_AHCI
     call ahci_owns              ; no IDE task file behind DL 80h
+    jnc .ret
+%endif
+%if CONFIG_NVME
+    call nvme_owns
     jnc .ret
 %endif
     push ax

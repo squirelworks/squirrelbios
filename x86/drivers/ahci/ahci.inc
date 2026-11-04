@@ -6,7 +6,7 @@
 ; class 01:06:01 function (AHCI 1.0), resets the HBA and takes the first
 ; implemented port with a link up and an ATA disk's signature. That disk
 ; becomes DL = 80h: ata_read, ata_write, ata_capacity and ata_reset hand
-; over to the routines here while AHCI_ON is set, so the boot path and
+; over to the routines here while DISK_KIND says AHCI, so the boot path and
 ; INT 13h use it unchanged.
 ;
 ; One command slot, one PRD, polled with interrupts off. READ DMA EXT and
@@ -16,7 +16,8 @@
 ; hand-off.
 ;
 ; The HBA registers sit above 1 MB, so every access goes through GS
-; loaded as a flat 4 GB segment (unreal mode). ahci_flat loads it and
+; loaded as a flat 4 GB segment (unreal mode). flat_gs (core/post.inc)
+; loads it and
 ; puts the caller's GDTR back; the caller's GS returns at the end of
 ; each routine, so a guest never keeps the flat GS. This needs real
 ; mode: INT 13h from virtual 8086 mode is not served on the AHCI disk.
@@ -31,11 +32,9 @@ AHCI_CLB        equ EBDA_BASE + 0x400   ; command list (1 KB aligned)
 AHCI_FB         equ EBDA_BASE + 0x800   ; received FISes (256 bytes)
 AHCI_CTBA       equ EBDA_BASE + 0x900   ; command table: FIS, PRD at +80h
 AHCI_IDBUF      equ EBDA_BASE + 0xA00   ; IDENTIFY DEVICE data (512 bytes)
-AHCI_ON         equ 0x04FF              ; byte: 1 when DL 80h is AHCI
 
 AHCI_CLASS      equ 0x010601            ; mass storage, SATA, AHCI 1.0
 AHCI_BAR        equ 0x24                ; BAR5: ABAR
-PCI_CMD_MASTER  equ 0x04
 
 HBA_CAP         equ 0x00
 HBA_GHC         equ 0x04
@@ -75,7 +74,7 @@ AHCI_LINK_POLLS equ 0x00010000          ; PxSSTS reads while the link comes up
 ; CF clear when DL 80h is the AHCI disk and ATA_DEVSEL names it.
 ; Keeps every register but the flags.
 ahci_owns:
-    cmp byte [ss:AHCI_ON], 1
+    cmp byte [ss:DISK_KIND], DISK_AHCI
     jne .no
     cmp byte [ss:ATA_DEVSEL], ATA_SEL_MASTER
     jne .no
@@ -85,39 +84,9 @@ ahci_owns:
     stc
     ret
 
-; GS = flat 4 GB data segment (base 0), through the ROM's GDT; the
-; caller's GDTR is loaded again before returning. Interrupts must be off
-; and stay off while GS is in use. Keeps every register but GS.
-ahci_flat:
-    push eax
-    push bx
-    sub sp, 12
-    mov bx, sp
-    o32 sgdt [ss:bx + 6]
-    xor eax, eax
-    mov ax, cs
-    shl eax, 4
-    add eax, apic_gdt
-    mov word [ss:bx], apic_gdt_end - apic_gdt - 1
-    mov [ss:bx + 2], eax
-    o32 lgdt [ss:bx]
-    mov eax, cr0
-    or al, 1
-    mov cr0, eax
-    mov ax, 0x08
-    mov gs, ax
-    mov eax, cr0
-    and al, 0xFE
-    mov cr0, eax
-    o32 lgdt [ss:bx + 6]
-    add sp, 12
-    pop bx
-    pop eax
-    ret
-
 ; POST, when no IDE hard disk answered: find an AHCI controller on bus 0
 ; and a SATA disk behind it. On success CF is clear, AL = the port, and
-; DL 80h is that disk (AHCI_ON, ATA_PRESENT bit 0, one hard disk in the
+; DL 80h is that disk (DISK_KIND, ATA_PRESENT bit 0, one hard disk in the
 ; BDA, ATA_DEVSEL on the master, BOOT_DL = 80h). On failure CF is set
 ; and every register is kept, so the IDE failure can still be reported.
 ahci_detect:
@@ -149,7 +118,7 @@ ahci_detect:
     or ax, PCI_CMD_MEM | PCI_CMD_MASTER
     mov cx, ax
     call pci_write16
-    call ahci_flat
+    call flat_gs
     mov [gs:dword AHCI_ABAR], esi
     mov [gs:dword AHCI_BDF], bx
     call ahci_hba_reset
@@ -167,7 +136,7 @@ ahci_detect:
     ret
 .found:
     mov [gs:dword AHCI_PORTNUM], al
-    mov byte [ss:AHCI_ON], 1
+    mov byte [ss:DISK_KIND], DISK_AHCI
     or byte [ss:ATA_PRESENT], 1
     mov byte [ss:BDA_HDCOUNT], 1
     mov byte [ss:ATA_DEVSEL], ATA_SEL_MASTER
@@ -499,7 +468,7 @@ ahci_rw:
     push gs
     pushf
     cli
-    call ahci_flat
+    call flat_gs
     movzx ecx, cl
     test cx, cx
     jz .badarg
@@ -586,7 +555,7 @@ ahci_reset:
     push gs
     pushf
     cli
-    call ahci_flat
+    call flat_gs
     mov edi, [gs:dword AHCI_PORTB]
     call ahci_restart
     jc .fail
