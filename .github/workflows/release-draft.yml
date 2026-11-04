@@ -1,0 +1,98 @@
+name: Draft release
+
+# Run by hand from the Actions tab. Builds the three firmware images at the
+# given commit, runs make test on it, and makes a DRAFT GitHub Release with
+# them, SHA256SUMS.txt and the notes from release-notes/v<version>.md on
+# main. A draft creates no tag: the tag appears only when a person opens
+# the draft and clicks Publish.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version without the v, for example 1.3.1"
+        required: true
+      target:
+        description: "Commit the tag goes on (full or short SHA)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  draft:
+    runs-on: ubuntu-24.04
+    env:
+      VERSION: ${{ inputs.version }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Check the inputs
+        env:
+          TARGET: ${{ inputs.target }}
+        run: |
+          echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' \
+            || { echo "version must look like 1.3.1"; exit 1; }
+          echo "$TARGET" | grep -Eq '^[0-9a-f]{7,40}$' \
+            || { echo "target must be a commit SHA"; exit 1; }
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            echo "a release v$VERSION already exists"; exit 1
+          fi
+
+      - name: Check out main (for the notes)
+        uses: actions/checkout@v4
+        with:
+          path: main
+
+      - name: Check out the target
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.target }}
+          path: src
+          fetch-depth: 0
+
+      - name: Find the notes and the full SHA
+        run: |
+          test -f "main/release-notes/v$VERSION.md" \
+            || { echo "no release-notes/v$VERSION.md on main"; exit 1; }
+          git -C src merge-base --is-ancestor HEAD origin/main \
+            || { echo "the target is not on main"; exit 1; }
+          echo "SHA=$(git -C src rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Install toolchains and QEMU
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            make nasm gcc-aarch64-linux-gnu gcc-riscv64-linux-gnu \
+            qemu-system-x86 qemu-system-arm qemu-system-misc
+
+      - name: make and make test
+        working-directory: src
+        run: |
+          make
+          make test
+
+      - name: Name the files and checksum them
+        run: |
+          mkdir out
+          cp src/x86/squirrel-bios.rom   "out/SquirrelBIOS-$VERSION-x86-pc.rom"
+          cp src/arm/squirrel-bios.bin   "out/SquirrelBIOS-$VERSION-aarch64-virt.bin"
+          cp src/riscv/squirrel-bios.bin "out/SquirrelBIOS-$VERSION-riscv64-virt.bin"
+          cd out
+          sha256sum SquirrelBIOS-* > SHA256SUMS.txt
+          {
+            echo "### SHA256SUMS for v$VERSION at $SHA"
+            echo '```'
+            cat SHA256SUMS.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Make the draft release
+        run: |
+          title=$(head -n 1 "main/release-notes/v$VERSION.md" | sed 's/^# *//')
+          url=$(gh release create "v$VERSION" --draft \
+            --target "$SHA" \
+            --title "$title" \
+            --notes-file "main/release-notes/v$VERSION.md" \
+            out/*)
+          echo "Draft: $url" | tee -a "$GITHUB_STEP_SUMMARY"
