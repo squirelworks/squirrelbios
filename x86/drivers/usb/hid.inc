@@ -617,6 +617,10 @@ usb_mouse_report:
     movsx dx, byte [es:USBM_BUF + 1]    ; X
     movsx cx, byte [es:USBM_BUF + 2]
     neg cx                              ; Y: USB down, PS/2 up
+    cmp cx, 127                         ; -128 up: as 127, so that a
+    jle .yclamp                         ; handler reading only the low
+    mov cx, 127                         ; byte still moves up
+.yclamp:
     test dx, dx
     jns .xpos
     or al, 0x10
