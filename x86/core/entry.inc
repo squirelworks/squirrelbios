@@ -26,6 +26,9 @@ entry:
 %if CONFIG_PCI
     call pci_init
 %endif
+%if CONFIG_CDBOOT
+    mov byte [ss:CD_SEL], 0     ; INT 13h has no CD until one boots
+%endif
 %if CONFIG_SMBIOS
     call smbios_init
 %endif
@@ -56,13 +59,18 @@ entry:
     call ata_probe              ; again, for the reason and registers
     jnc .read_boot
     cmp si, msg_nodrive
-    jne disk_fail
+    jne .no_disk
     mov byte [ss:ATA_DEVSEL], ATA_SEL_SLAVE
     mov byte [ss:BOOT_DL], 0x81
     test byte [ss:ATA_PRESENT], 2
     jnz .read_boot
     call ata_probe
-    jc disk_fail
+    jnc .read_boot
+.no_disk:
+%if CONFIG_CDBOOT
+    call cd_boot                ; returns only if no CD booted
+%endif
+    jmp disk_fail
 .read_boot:
     xor eax, eax
     mov cl, 1

@@ -37,6 +37,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/x86-params.bin $(TEST_DIR)/x86-params-slave.bin \
              $(TEST_DIR)/x86-floppy.img $(TEST_DIR)/x86-floppy-nosig.img \
              $(TEST_DIR)/x86-pci.bin $(TEST_DIR)/x86-edd.img \
+             $(TEST_DIR)/x86-cd.iso $(TEST_DIR)/x86-cd-slave.iso \
              $(TEST_DIR)/arm-kernel.bin $(TEST_DIR)/arm-too-big.bin \
              $(TEST_DIR)/arm-image-fixed.bin $(TEST_DIR)/arm-image-reloc.bin \
              $(TEST_DIR)/arm-image-short.bin $(TEST_DIR)/arm-initrd.img \
@@ -226,6 +227,17 @@ $(TEST_DIR)/x86-int15a20.bin: tests/x86-int15a20.asm | $(TEST_DIR)
 # One-sector hand-off expecting DL=0x81 (image on primary slave only)
 $(TEST_DIR)/x86-slave.bin: tests/x86-boot.asm | $(TEST_DIR)
 	$(NASM) -f bin -DONE_SECTOR -DEXPECT_DL=0x81 $< -o $@
+
+# El Torito: a 64-block no-emulation CD built around the x86-cd image
+$(TEST_DIR)/x86-cd.bin: tests/x86-cd.asm | $(TEST_DIR)
+	$(NASM) -f bin $< -o $@
+$(TEST_DIR)/x86-cd.iso: $(TEST_DIR)/x86-cd.bin tests/mkiso.py
+	tests/mkiso.py $< $@
+# The same, expecting to be the primary slave
+$(TEST_DIR)/x86-cd-slave.bin: tests/x86-cd.asm | $(TEST_DIR)
+	$(NASM) -f bin -DCD_CTRL=0 -DCD_DEV=1 $< -o $@
+$(TEST_DIR)/x86-cd-slave.iso: $(TEST_DIR)/x86-cd-slave.bin tests/mkiso.py
+	tests/mkiso.py $< $@
 
 # EDD 3.0 / LBA48: a sparse 200 GiB disk (a few KB on disk) with tags
 # either side of 2^28 sectors and at 143 GiB

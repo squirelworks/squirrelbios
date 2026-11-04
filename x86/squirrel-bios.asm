@@ -73,6 +73,9 @@ BITS 16
 %ifndef CONFIG_PCI
 %define CONFIG_PCI 1
 %endif
+%ifndef CONFIG_CDBOOT
+%define CONFIG_CDBOOT 1
+%endif
 
 FW_STACK        equ 0x0600
 
@@ -238,6 +241,12 @@ ATTR_ERROR      equ 0x0C
 %include "boot/floppy.inc"
 %endif
 
+%if CONFIG_CDBOOT
+%include "drivers/atapi/atapi.inc"
+%include "drivers/atapi/int13cd.inc"
+%include "boot/eltorito.inc"
+%endif
+
 %if CONFIG_PCI
 %include "drivers/pci/pci.inc"
 %include "drivers/pci/int1apci.inc"
@@ -252,8 +261,8 @@ ATTR_ERROR      equ 0x0C
 banner      db 'SquirrelBIOS x86', 0
 msg_nodrive db 'disk: no drive on primary master', 0
 msg_nodrive_slave db 'disk: no drive on primary slave', 0
-msg_atapi   db 'disk: primary master is ATAPI (CD/DVD), not supported', 0
-msg_atapi_slave db 'disk: primary slave is ATAPI (CD/DVD), not supported', 0
+msg_atapi   db 'disk: primary master is ATAPI (CD/DVD), not a hard disk', 0
+msg_atapi_slave db 'disk: primary slave is ATAPI (CD/DVD), not a hard disk', 0
 msg_timeout db 'disk: timeout waiting for drive', 0
 msg_readerr db 'disk: read of LBA 0 failed', 0
 msg_nosig   db 'disk: boot sector has no 0xAA55 signature', 0
@@ -271,6 +280,15 @@ msg_bzbad   db 'disk: bzImage header is invalid', 0
 msg_bzread  db 'disk: read of the bzImage failed', 0
 msg_bzbig   db 'disk: bzImage does not fit in RAM', 0
 bz_cmdline  db 'console=ttyS0,115200', 0
+%endif
+%if CONFIG_CDBOOT
+msg_cdboot  db 'booting from CD-ROM (El Torito, no emulation)', 0
+msg_cdread  db 'cd: read of the CD failed', 0
+msg_cdnoboot db 'cd: no El Torito boot record', 0
+msg_cdcatalog db 'cd: boot catalog is invalid', 0
+msg_cdnotboot db 'cd: default entry is not bootable', 0
+msg_cdemul  db 'cd: only no-emulation boot images are supported', 0
+msg_cdrange db 'cd: boot image load address is out of range', 0
 %endif
 msg_overlap db 'disk: load overlaps firmware data', 0
 msg_range   db 'disk: load address is out of range', 0
