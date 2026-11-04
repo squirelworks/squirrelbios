@@ -2,8 +2,8 @@
 ; Original code.
 ;
 ; Checks equipment list (VGA, 80x25 colour, plus the diskette bits for the
-; drives CMOS register 0x10 reports), conventional memory size (KB), and
-; that the page-0 cursor INT 10h uses is still inside 80x25. Prints bda=ok.
+; drives CMOS register 0x10 reports), conventional memory size (KB), the
+; EBDA pointer and the EBDA's size byte, and that the page-0 cursor INT 10h uses is still inside 80x25. Prints bda=ok.
 
 BITS 16
 ORG 0x7C00
@@ -13,7 +13,9 @@ BDA_EQUIP       equ 0x0410
 BDA_MEMSIZE     equ 0x0413
 BDA_CURSOR      equ 0x0450
 BDA_EQUIP_VAL   equ 0x0220      ; without diskette drives
-BDA_MEM_KB      equ 640
+BDA_MEM_KB      equ 636         ; below the 4 KB EBDA
+BDA_EBDA_SEG    equ 0x040E
+EBDA_SEG        equ 0x9F00
 VGA_COLS        equ 80
 VGA_ROWS        equ 25
 
@@ -43,6 +45,14 @@ start:
     cmp [BDA_EQUIP], bx
     jne .done
     cmp word [BDA_MEMSIZE], BDA_MEM_KB
+    jne .done
+    cmp word [BDA_EBDA_SEG], EBDA_SEG
+    jne .done
+    push es
+    mov ax, EBDA_SEG
+    mov es, ax
+    cmp byte [es:0], 4          ; EBDA size in KB
+    pop es
     jne .done
     mov ax, [BDA_CURSOR]        ; AL = column, AH = row
     cmp al, VGA_COLS

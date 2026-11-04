@@ -36,12 +36,16 @@ build_memmap:
     mov word [es:MEMMAP_ADDR + 6], MEMMAP_ENTRY
     mov di, MEMMAP_ENTRIES
 
-    ; Conventional memory
+    ; Conventional memory, then the EBDA
     xor eax, eax
     xor edx, edx
-    mov ecx, 0xA0000
+    mov ecx, EBDA_BASE
     xor esi, esi
     mov bl, E820_USABLE
+    call memmap_add
+    mov eax, EBDA_BASE
+    mov ecx, EBDA_SIZE
+    mov bl, E820_RESERVED
     call memmap_add
 
     ; VGA window, option ROMs, this firmware
