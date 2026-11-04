@@ -183,8 +183,8 @@ putc:
 
 ; Regions every map must contain: base, length, type (all below 4 GB)
 req_regions:
-    dd 0x00000000, 0x0009B000, 1    ; conventional memory
-    dd 0x0009B000, 0x00005000, 2    ; EBDA
+    dd 0x00000000, 0x00096000, 1    ; conventional memory
+    dd 0x00096000, 0x0000A000, 2    ; EBDA
     dd 0x000A0000, 0x00060000, 2    ; VGA window, ROMs
     dd 0xFEC00000, 0x01400000, 2    ; IOAPIC, LAPIC, firmware
 req_regions_end:
