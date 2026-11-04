@@ -80,7 +80,7 @@ boots each firmware under QEMU with a small stand-in OS image from
 | `x86-atapi` | With a disc too small for a boot record as primary master, the CD boot reports the failed read, then the firmware reports the ATAPI master and halts |
 | `x86-bad-sector` | A sector without the `0xAA55` signature is reported and not jumped to |
 | `x86-extra` | An SQBL header in the boot sector gets its extra sectors loaded before the jump |
-| `x86-extra-map`, `x86-extra-boot`, `x86-extra-range` | An SQBL load onto the memory map, onto the boot sector, or past the EBDA (`0x9F000`) is refused |
+| `x86-extra-map`, `x86-extra-boot`, `x86-extra-range` | An SQBL load onto the memory map, onto the boot sector, or past the EBDA (`0x9B000`) is refused |
 | `x86-osload` | A disk signed `S2OK` (the Squirrel-OS/2 layout, no SQBL header) is loaded at `0x8000` and entered there; `INT 15h` `E820` returns the memory map, and a malformed `INT 13h` packet returns with carry set |
 | `x86-int13` | A disk without that signature is entered at `0x7C00`. The boot sector reads with `INT 13h` `AH=0x42` / `0x02` / `0x08` / `0x00`, and `INT 10h` `AH=0x0E` writes the VGA cell it checks |
 | `arm-boot` | The `-kernel` image runs with a valid device tree in `x0`, `x1`–`x3` = 0, MMU and D-cache off, little-endian, `DAIF` masked |

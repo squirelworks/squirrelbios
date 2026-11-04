@@ -34,7 +34,7 @@ qemu-system-i386 -bios squirrel-bios.rom -drive format=raw,file=boot.bin,if=ide 
 - Puts the VGA in 80x25 colour text mode and loads its own 8x16 font
   (`drivers/vga/vga.inc`, `font.inc`); every message goes to the screen and COM1
 - Fills the BIOS data area equipment list (`0x0410` = `0x0220`),
-  conventional memory KB (`0x0413` = 636, below a 4 KB EBDA at `0x9F000`
+  conventional memory KB (`0x0413` = 620, below a 20 KB EBDA at `0x9B000`
   that `0x040E` points at), and page-0 cursor (`0x0450`)
 - Enables A20 through port `0x92` before the hand-off jump
 - Puts the local APIC in virtual-wire mode (ExtINT) when present, then
