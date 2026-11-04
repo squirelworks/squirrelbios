@@ -130,6 +130,9 @@ entry:
 %if CONFIG_CDBOOT
     call cd_boot                ; returns only if no CD booted
 %endif
+%if CONFIG_NETBOOT
+    call net_boot               ; returns only if nothing was booted
+%endif
     jmp disk_fail
 .read_boot:
     xor eax, eax

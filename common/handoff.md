@@ -195,8 +195,7 @@ transferred. The firmware boots from the master when
 it answers; if the master is absent it tries the slave and hands off with
 `DL = 0x81`. When no IDE hard disk answered (or the master is ATAPI),
 it looks for a SATA disk, then an NVMe disk, then a USB disk, then a
-virtio disk, then
-tries a CD before it halts.
+virtio disk, then tries a CD, then the network, before it halts.
 
 **SATA (AHCI).** With no IDE hard disk, the firmware looks on PCI bus 0
 for an AHCI controller (class `01:06:01`, such as q35's ICH9 at
@@ -248,6 +247,29 @@ off. `AH = 0x48` names it as host bus `PCI` with its bus, device and
 function, and interface `SCSI`, the nearest EDD 3.0 has. The device is
 left running with no interrupts unmasked. A modern-only device (ID
 `1042h`) is not used.
+
+**Network boot.** When no disk or CD booted, the firmware looks on PCI
+bus 0 for a virtio network device with the legacy interface (vendor
+`1AF4h`, device `1000h`) and prints its address (`net: virtio-net, MAC
+52:54:00:12:34:56`). It asks for an address by DHCP (DISCOVER, then
+REQUEST; up to four tries of 2 s each) and takes the boot server from
+the reply's `siaddr` (else the DHCP server) and the boot file from
+option 67 (else the `file` field): `net: address 10.0.2.15 from
+10.0.2.2, boot file NAME`. It finds the server's Ethernet address by ARP
+and answers ARP requests for its own address. It then reads the file
+over TFTP (octet mode, 512-byte blocks, each wait 1 s and five tries)
+into memory from `0x7C00`, as if its sectors had been read there from a
+disk, prints `net: loaded N bytes`, resets the device and enters the
+file at `0000:7C00` like a boot sector, with `DL = 0xFF`: there is no
+`INT 13h` drive behind it. The file must end below `0x40000`, which
+allows 230400 bytes: the network buffers and queues are at
+`0x40000`–`0x4FFFF` while it runs. The server must be on the local
+network, as there is no routing. When something fails it says why
+(`net: no DHCP answer`, `net: DHCP gave no boot file`, `net: the boot
+server does not answer ARP`, `net: TFTP timed out`, `net: the TFTP
+server refused the file`, `net: the boot file does not fit below
+0x40000`) and the boot halts as before. Everything runs during POST
+with interrupts off; no network service is left behind.
 
 **USB.** Before it looks for a boot disk, POST lists the USB devices on
 every EHCI (class `0C:03:20`), UHCI (`0C:03:00`), OHCI (`0C:03:10`)

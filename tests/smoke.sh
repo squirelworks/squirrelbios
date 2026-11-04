@@ -363,6 +363,28 @@ run x86-virtio-int13 "disk: virtio disk|via-boot-sector|int13=ok tty=ok|!boot ha
     -drive if=none,id=vd,format=raw,file=$TEST_DIR/x86-int13.bin,snapshot=on \
     -device virtio-blk-pci,drive=vd
 
+# x86: B9, network boot. No disk; QEMU's user network gives an address
+# and serves the boot file over TFTP, which is loaded at 0x7C00 and
+# entered with DL = FFh: 5000 bytes, 2048 on q35 (an empty last block),
+# 200000 (block numbers past 255). Then a file the server does not have,
+# and one too large for the memory below the network buffers
+NET_TFTP="tftp=$TEST_DIR/tftp"
+run x86-netboot "net: virtio-net, MAC 52:54:00:12:34:56|net: address 10.0.2.15 from 10.0.2.2, boot file x86-netboot.bin|net: loaded 5000 bytes|OS-ENTRY x86 netboot=ok" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -netdev user,id=n0,$NET_TFTP,bootfile=x86-netboot.bin -device virtio-net-pci,netdev=n0,addr=5
+run x86-netboot-q35 "net: loaded 2048 bytes|OS-ENTRY x86 netboot=ok" \
+    "$QEMU_X86" -M q35 -bios x86/squirrel-bios.rom \
+    -netdev user,id=n0,$NET_TFTP,bootfile=x86-netboot-2k.bin -device virtio-net-pci,netdev=n0
+run x86-netboot-big "net: loaded 200000 bytes|OS-ENTRY x86 netboot=ok" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -netdev user,id=n0,$NET_TFTP,bootfile=x86-netboot-big.bin -device virtio-net-pci,netdev=n0
+run x86-netboot-missing "net: the TFTP server refused the file|boot halted|!OS-ENTRY" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -netdev user,id=n0,$NET_TFTP,bootfile=no-such-file.bin -device virtio-net-pci,netdev=n0
+run x86-netboot-huge "net: the boot file does not fit below 0x40000|boot halted|!OS-ENTRY" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -netdev user,id=n0,$NET_TFTP,bootfile=x86-netboot-huge.bin -device virtio-net-pci,netdev=n0
+
 # x86: the 192-sector S2OK kernel load from NVMe on q35, where the AHCI
 # controller is there but has no disk
 run x86-nvme-osload "SquirrelBIOS x86|disk: NVMe disk (namespace 1)|kernel loaded at 0x00008000, jumping|osload=ok dl=ok flags=ok memmap=ok sig=ok e820=ok|!boot halted" \

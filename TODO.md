@@ -395,6 +395,8 @@ roadmap item, run under QEMU in `make test`.
   of `SQBL`.
   - [x] virtio-blk (legacy interface) as DL 80h, after NVMe. One
     request at a time; a modern-only device (1042h) is not found.
+  - [x] virtio-net, DHCP, ARP and TFTP: the boot file loaded at 0x7C00
+    when no disk or CD booted. No routing; files up to 230400 bytes.
 - [ ] `x86-vbe` — VBE 2.0/3.0 linear-framebuffer modes.
 
 ## Secondary track
