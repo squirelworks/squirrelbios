@@ -9,13 +9,17 @@
 ;      512 bytes per sector, key BEDDh, 'ATA', byte sum 1Eh-41h is 0.
 ;      Built with -DAHCI=<port>, the disk is on q35's AHCI controller
 ;      (00:1F.2) instead: 'PCI', 'SATA', that bus/device/function, and
-;      the port in the device path
+;      the port in the device path. With -DNVME=<slot>, it is namespace
+;      1 of an NVMe controller in that PCI slot: 'PCI', 'NVMe', the slot,
+;      and namespace ID 1 in the device path
 ;   s  AH=48h with a 1Ah-byte buffer: size 1Ah, the same sector count
 ;   l  AH=42h, 2 sectors from 0FFFFFFFh: the range crosses 2^28, so
 ;      LBA48 commands; both tags arrive
 ;   h  AH=42h at LBA 300000000 (143 GiB in): its tag
 ;   w  AH=43h writes LBA 10000010h, AH=42h reads it back
 ;   v  AH=44h on the last sector: CF clear; one past it: CF set, AH = 04h
+;   u  AH=42h, 9 sectors from LBA 0 to BUF:0E00h (not page-aligned, so
+;      it spans three 4 KB pages): sectors 0 and 1 arrive in place
 ;   b  AH=42h with the LBA's upper dword set: CF set, AH = 01h
 ; Prints edd=ok, or edd=bad:<step> <AH in hex>.
 
@@ -88,6 +92,15 @@ main:
     cmp dword [params + 0x30], AHCI_BDF
     jne bad
     cmp byte [params + 0x38], AHCI
+    jne bad
+%elifdef NVME
+    cmp dword [params + 0x24], 'PCI '
+    jne bad
+    cmp dword [params + 0x28], 'NVMe'
+    jne bad
+    cmp dword [params + 0x30], NVME << 8    ; bus 0, device NVME, function 0
+    jne bad
+    cmp dword [params + 0x38], 1            ; namespace 1
     jne bad
 %else
     cmp dword [params + 0x28], 'ATA '
@@ -168,6 +181,34 @@ main:
     int 0x13
     jnc bad
     cmp ah, 0x04
+    jne bad
+
+    mov byte [step], 'u'
+    mov word [dap_count], 9         ; 4.5 KB from BUF:0E00h: three pages
+    mov word [dap_off], 0x0E00
+    xor eax, eax
+    mov [dap_lba], eax
+    mov [dap_lba + 4], eax
+    mov si, dap
+    mov dl, 0x80
+    mov ah, 0x42
+    int 0x13
+    jc bad
+    mov word [dap_off], 0
+    push es
+    mov bx, BUF
+    mov es, bx
+    mov eax, [0x7C00]               ; this image's sectors 0 and 1
+    cmp [es:0x0E00], eax
+    jne .u_bad
+    mov eax, [0x7E00]
+    cmp [es:0x1000], eax
+    jne .u_bad
+    mov eax, [0x7E00 + 0x1FC]
+    cmp [es:0x11FC], eax
+.u_bad:
+    pop es
+    mov ah, 0
     jne bad
 
     mov byte [step], 'b'
@@ -269,6 +310,7 @@ dap:
     db 0x10, 0
 dap_count:
     dw 1
+dap_off:
     dw 0, BUF                       ; offset, segment
 dap_lba:
     dq 0

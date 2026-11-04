@@ -93,6 +93,16 @@ entry:
     jmp .read_boot
 .no_ahci:
 %endif
+%if CONFIG_NVME
+    call nvme_detect            ; CF clear: DL 80h is NVMe namespace 1
+    jc .no_nvme
+    mov si, msg_nvme
+    mov ah, ATTR_NORMAL
+    call con_print
+    call con_newline
+    jmp .read_boot
+.no_nvme:
+%endif
 %if CONFIG_CDBOOT
     call cd_boot                ; returns only if no CD booted
 %endif

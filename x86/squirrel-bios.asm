@@ -76,6 +76,12 @@ BITS 16
 %ifndef CONFIG_CDBOOT
 %define CONFIG_CDBOOT 1
 %endif
+%ifndef CONFIG_NVME
+%define CONFIG_NVME CONFIG_PCI
+%endif
+%if CONFIG_NVME && !CONFIG_PCI
+%error "CONFIG_NVME needs CONFIG_PCI"
+%endif
 %ifndef CONFIG_AHCI
 %define CONFIG_AHCI CONFIG_PCI
 %endif
@@ -149,6 +155,9 @@ ATA_PRESENT     equ 0x04FB
 ATA_DEVSEL      equ 0x04FC
 BOOT_DL         equ 0x04FD
 ATA_RETRY_CNT   equ 0x04FE
+DISK_KIND       equ 0x04FF      ; what DL 80h is: 0 IDE, else one of these
+DISK_AHCI       equ 1
+DISK_NVME       equ 2
 ATA_SEL_MASTER  equ 0xE0
 ATA_SEL_SLAVE   equ 0xF0
 
@@ -260,6 +269,9 @@ ATTR_ERROR      equ 0x0C
 %if CONFIG_AHCI
 %include "drivers/ahci/ahci.inc"
 %endif
+%if CONFIG_NVME
+%include "drivers/nvme/nvme.inc"
+%endif
 
 %if CONFIG_PCI
 %include "drivers/pci/pci.inc"
@@ -297,6 +309,9 @@ bz_cmdline  db 'console=ttyS0,115200', 0
 %endif
 %if CONFIG_AHCI
 msg_ahci    db 'disk: SATA disk on AHCI port ', 0
+%endif
+%if CONFIG_NVME
+msg_nvme    db 'disk: NVMe disk (namespace 1)', 0
 %endif
 %if CONFIG_CDBOOT
 msg_cdboot  db 'booting from CD-ROM (El Torito, no emulation)', 0

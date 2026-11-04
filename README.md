@@ -70,9 +70,11 @@ boots each firmware under QEMU with a small stand-in OS image from
 | `x86-mem-high` | With `-m 5120`, the map has a non-empty usable entry at 4 GB (CMOS `0x5B`–`0x5D`) |
 | `x86-floppy` | A 1.44 MB diskette in A: boots first with `DL = 0x00`; its boot sector checks `INT 13h` `AH=0x15`/`0x08`/`0x02`/`0x03` (multi-sector reads across heads, a write read back, a sector past the track refused) and `INT 1Eh` |
 | `x86-floppy-nosig` | A diskette without `0xAA55` is reported, then the hard disk boots |
-| `x86-edd` | A sparse 200 GiB disk: `INT 13h` `AH=41h` reports EDD 3.0, `AH=48h` the sector count (with the device path and its checksum, and in a short buffer), `AH=42h` reads across sector 2^28 and at 143 GiB (LBA48), `AH=43h` writes there and reads back, `AH=44h` takes the last sector and refuses the one after, and an LBA past 32 bits is refused |
+| `x86-edd` | A sparse 200 GiB disk: `INT 13h` `AH=41h` reports EDD 3.0, `AH=48h` the sector count (with the device path and its checksum, and in a short buffer), `AH=42h` reads across sector 2^28 and at 143 GiB (LBA48), `AH=43h` writes there and reads back, `AH=44h` takes the last sector and refuses the one after, a 9-sector read to an offset that spans three 4 KB pages arrives in place, and an LBA past 32 bits is refused |
 | `x86-ahci` | The `x86-edd` disk on q35's AHCI controller, port 4 (past q35's empty CD on port 2): the same checks over `READ/WRITE DMA EXT`, and `AH=48h` names PCI `00:1F.2`, `SATA` and port 4 |
 | `x86-ahci-osload` | The 192-sector S2OK kernel load from a SATA disk on q35's AHCI port 0 |
+| `x86-nvme` | The `x86-edd` disk as namespace 1 of an NVMe controller in PCI slot 5: the same checks over NVMe Read/Write and PRP lists, and `AH=48h` names PCI `00:05.0`, `NVMe` and namespace 1 |
+| `x86-nvme-osload` | The 192-sector S2OK kernel load from NVMe on q35, past its empty AHCI controller |
 | `x86-pci` | On i440fx with a virtio-rng: `INT 1Ah` `B101` returns `'PCI '`, `B102`/`B103` find devices by ID and class, POST placed I/O, 32-bit and 64-bit memory BARs and enabled decoding, INTA's Interrupt Line matches the PIIX3 route, config writes read back, and `$PIR` checks out |
 | `x86-pci-q35` | The same on q35, booting from a PIIX3 IDE card; Interrupt Line is `0xFF` there |
 | `x86-cd` | An El Torito no-emulation ISO on `-cdrom` boots with `DL = E0h`; its image checks it was loaded whole, `AH=41h`, the `AX=4B01h` packet (secondary master, block 20, segment `07C0h`), a 2-block `AH=42h` read and `AH=48h` (2048-byte blocks, 64 of them) |

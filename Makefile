@@ -37,7 +37,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/x86-params.bin $(TEST_DIR)/x86-params-slave.bin \
              $(TEST_DIR)/x86-floppy.img $(TEST_DIR)/x86-floppy-nosig.img \
              $(TEST_DIR)/x86-pci.bin $(TEST_DIR)/x86-edd.img \
-             $(TEST_DIR)/x86-ahci.img \
+             $(TEST_DIR)/x86-ahci.img $(TEST_DIR)/x86-nvme.img \
              $(TEST_DIR)/x86-cd.iso $(TEST_DIR)/x86-cd-slave.iso \
              $(TEST_DIR)/arm-kernel.bin $(TEST_DIR)/arm-too-big.bin \
              $(TEST_DIR)/arm-image-fixed.bin $(TEST_DIR)/arm-image-reloc.bin \
@@ -250,6 +250,11 @@ $(TEST_DIR)/x86-edd.img: $(TEST_DIR)/x86-edd.bin tests/mkbigdisk.py
 $(TEST_DIR)/x86-ahci.bin: tests/x86-edd.asm | $(TEST_DIR)
 	$(NASM) -f bin -DAHCI=4 $< -o $@
 $(TEST_DIR)/x86-ahci.img: $(TEST_DIR)/x86-ahci.bin tests/mkbigdisk.py
+	tests/mkbigdisk.py $< $@ 200 0x0FFFFFFF 0x10000000 300000000
+# The same as namespace 1 of an NVMe controller in PCI slot 5
+$(TEST_DIR)/x86-nvme.bin: tests/x86-edd.asm | $(TEST_DIR)
+	$(NASM) -f bin -DNVME=5 $< -o $@
+$(TEST_DIR)/x86-nvme.img: $(TEST_DIR)/x86-nvme.bin tests/mkbigdisk.py
 	tests/mkbigdisk.py $< $@ 200 0x0FFFFFFF 0x10000000 300000000
 
 # PCI BIOS (INT 1Ah B1xx), BAR placement, IRQ routing and $PIR
