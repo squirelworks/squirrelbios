@@ -3,7 +3,8 @@
 ;
 ; Expects the harness to inject scancode for 'a' (QEMU sendkey a) after
 ; the firmware banner. Checks AH=01 then AH=00, refuses an unknown AH
-; with CF set, leaves IF clear, prints kbd=ok.
+; with CF set, leaves IF clear, prints kbd=ok. Built with -DKEYS=N it
+; waits for N 'a' keys, each within MAX_TICKS (x86-kbd-many).
 
 BITS 16
 ORG 0x7C00
@@ -13,6 +14,9 @@ BDA_TICKS       equ 0x046C
 FLAG_IF         equ 0x0200
 ; Wait up to ~2 s of PIT ticks (~36 at 18.2 Hz) for the injected key.
 MAX_TICKS       equ 40
+%ifndef KEYS
+%define KEYS 1
+%endif
 
 start:
     cli
@@ -31,6 +35,8 @@ start:
     int 0x16
     jnc .bad
 
+    mov bp, KEYS
+.next:
     mov ebx, [BDA_TICKS]
     sti
 .wait:
@@ -56,6 +62,8 @@ start:
     pop bx
     test bx, FLAG_IF
     jnz .bad
+    dec bp
+    jnz .next
 
     mov si, msg_ok
     jmp .done

@@ -17,6 +17,12 @@
 ; keyboard holds its next report until it is asked, so nothing is lost
 ; between ticks.
 ;
+; On xHCI the controller already works from the EBDA (xhci.inc) and the
+; keyboard's endpoint is added to its slot (Configure Endpoint). Its
+; ring holds 15 transfers at once, each into its own buffer, and posts
+; no events: IRQ0 takes every buffer that has been written and hands its
+; transfer back, without touching the controller's registers.
+;
 ; EBDA layout from +5000h (USBK_*, offsets in the EBDA segment):
 ;   5000h  UHCI frame list, 4 KB, every entry the queue head;
 ;          OHCI: the HCCA (256 bytes)
@@ -34,11 +40,16 @@ USBK_TD         equ 0x6020
 USBK_TAIL       equ 0x6030
 USBK_BUF        equ 0x6040
 USBK_PREV       equ 0x6048
-USBK_KIND       equ 0x0F00          ; byte: 0 none, 1 UHCI, 2 OHCI
+USBK_KIND       equ 0x0F00          ; byte: 0 none, 1 UHCI, 2 OHCI, 3 xHCI
 USBK_TOKEN      equ 0x0F04          ; dword: next TD token (UHCI)
 USBK_STATUS     equ 0x0F08          ; dword: TD status to arm with (UHCI)
+USBK_XIDX       equ 0x0F0C          ; byte: next TRB to look at (xHCI)
+USBK_XCYC       equ 0x0F0D          ; byte: and the lap's cycle bit
+USBK_XRING      equ XHCI_EBDA - EBDA_BASE + XHCI_INTRING
+USBK_XBUF       equ XHCI_EBDA - EBDA_BASE + XHCI_INTBUF
 USBK_KIND_UHCI  equ 1
 USBK_KIND_OHCI  equ 2
+USBK_KIND_XHCI  equ 3
 
 %if EBDA_SIZE < 0x7000
 %error "USB keyboard needs a 28 KB or larger EBDA"
@@ -67,7 +78,16 @@ usb_hid_claim:
     cmp byte [fs:USB_HC], USB_HC_UHCI
     je .can
     cmp byte [fs:USB_HC], USB_HC_OHCI
+    je .can
+    cmp byte [fs:USB_HC], USB_HC_XHCI
     jne .out
+    cmp dword [fs:XHCI_BASE], XHCI_EBDA
+    jne .out                    ; its block will not survive POST
+    mov al, [bp - 1]
+    mov cl, [bp - 10]
+    mov dl, [bp - 11]
+    call xhci_hid_config        ; the controller must know the endpoint
+    jc .out
 .can:
     ; SET_CONFIGURATION
     mov ax, USB_REQ_SET_CONFIG << 8
@@ -321,6 +341,8 @@ usb_hid_poll:
     pop es
     cmp byte [es:USBK_KIND], USBK_KIND_OHCI
     je .ohci
+    cmp byte [es:USBK_KIND], USBK_KIND_XHCI
+    je .xhci
     cmp byte [es:USBK_KIND], USBK_KIND_UHCI
     jne .out
     mov eax, [es:USBK_TD + 4]
@@ -332,6 +354,9 @@ usb_hid_poll:
     call usb_hid_report
 .again:
     call usb_hid_arm
+    jmp .out
+.xhci:
+    call usb_hid_xpoll
 .out:
     pop es
     pop eax
@@ -349,6 +374,58 @@ usb_hid_poll:
     jnz .again
     call usb_hid_report
     jmp .again
+
+; usb_hid_poll for xHCI (ES = USBK_SEG). The controller fills the ring's
+; buffers in order and posts no events; a buffer that is no longer all
+; ones holds a report. Each one is taken, its buffer set back to all
+; ones, and its TRB handed back for the next lap (the other cycle bit).
+; Once TRB 0 of a lap is done the controller has followed the link, so
+; the link gets this lap's cycle bit for the next time round. Reading
+; memory only, this works in virtual-8086 mode too. Keeps every register.
+usb_hid_xpoll:
+    pushad
+    mov cx, XHCI_INT_TRBS - 1   ; at most one lap per tick
+.look:
+    movzx bx, byte [es:USBK_XIDX]
+    mov si, bx
+    shl si, 3
+    add si, USBK_XBUF
+    cmp dword [es:si], -1
+    jne .report
+    cmp dword [es:si + 4], -1
+    je .out                     ; still waiting for the keyboard
+.report:
+    mov eax, [es:si]
+    mov [es:USBK_BUF], eax
+    mov eax, [es:si + 4]
+    mov [es:USBK_BUF + 4], eax
+    mov dword [es:si], -1
+    mov dword [es:si + 4], -1
+    call usb_hid_report
+    movzx eax, byte [es:USBK_XCYC]
+    test bx, bx
+    jnz .repost
+    or eax, TRB_LINK_INT
+    mov [es:USBK_XRING + (XHCI_INT_TRBS - 1) * 16 + 12], eax
+    movzx eax, byte [es:USBK_XCYC]
+.repost:
+    xor al, 1
+    or eax, TRB_NORMAL << 10
+    mov di, bx
+    shl di, 4
+    mov [es:USBK_XRING + di + 12], eax
+    inc bx
+    cmp bx, XHCI_INT_TRBS - 1
+    jb .store
+    xor bx, bx
+    xor byte [es:USBK_XCYC], 1
+.store:
+    mov [es:USBK_XIDX], bl
+    dec cx
+    jnz .look
+.out:
+    popad
+    ret
 
 ; A boot keyboard report at ES:USBK_BUF: every key in it that was not in
 ; the previous one is a key press, put in the BDA buffer with the

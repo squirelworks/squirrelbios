@@ -30,9 +30,10 @@
 ;   0140h  scratchpad buffer array
 ;   0200h  command ring, 16 TRBs
 ;   0300h  event ring, 64 TRBs
-;   0700h  (kept for the keyboard's interrupt transfers)
+;   0700h  the keyboard's interrupt ring: 15 TRBs and a link
 ;   0800h  endpoint 0 transfer rings, 16 TRBs per slot
-;   1000h  input context (up to 3 contexts of 64 bytes)
+;   1000h  input context (up to 33 contexts of 64 bytes)
+;   1880h  the keyboard's report buffers, 15 of 8 bytes
 ;   2000h  output device contexts, 2 KB per slot (slots 1-8)
 ;   6000h  scratchpad pages: 3 in the EBDA, up to 10 at XHCI_ALT
 ; Software's own tables stay in USB_SEG (usb.inc):
@@ -79,6 +80,7 @@ XLEG_BIOS       equ 0x00010000
 XLEG_OS         equ 0x01000000
 
 ; TRB types
+TRB_NORMAL      equ 1
 TRB_SETUP       equ 2
 TRB_DATA        equ 3
 TRB_STATUS      equ 4
@@ -87,11 +89,13 @@ TRB_ENABLE_SLOT equ 9
 TRB_DISABLE_SLOT equ 10
 TRB_ADDRESS     equ 11
 TRB_RESET_EP    equ 14
+TRB_CONFIG_EP   equ 12
 TRB_STOP_EP     equ 15
 TRB_SET_DEQ     equ 16
 TRB_EV_TRANSFER equ 32
 TRB_EV_COMMAND  equ 33
 TRB_LINK_CTRL   equ (TRB_LINK << 10) | 0x12     ; toggle cycle, chain
+TRB_LINK_INT    equ (TRB_LINK << 10) | 0x02     ; toggle cycle
 CC_SUCCESS      equ 1
 CC_SHORT        equ 13
 
@@ -102,6 +106,9 @@ XHCI_SPARRAY    equ 0x0140
 XHCI_CMDRING    equ 0x0200
 XHCI_EVRING     equ 0x0300
 XHCI_EV_TRBS    equ 64
+XHCI_INTRING    equ 0x0700              ; the keyboard's interrupt ring
+XHCI_INTBUF     equ 0x1880              ; and its report buffers
+XHCI_INT_TRBS   equ 16                  ; 15 reports, then the link
 XHCI_RINGS      equ 0x0800
 XHCI_RING_TRBS  equ 16
 XHCI_INCTX      equ 0x1000
@@ -429,8 +436,16 @@ xhci_bus:
     jmp .port
 
 .stop:
-    ; Halt it and reset it: no DMA after POST
+    ; The keyboard kept for after POST is here: keep the controller
+    ; running from the EBDA, with only that keyboard's transfers
     mov esi, [fs:USB_MMIO]
+    call usb_hid_here
+    jc .halt_it
+    call xhci_hid_start
+    call usb_hid_announce       ; after: it needs ES:DI, the console cursor
+    jmp .out
+.halt_it:
+    ; Halt it and reset it: no DMA after POST
     and dword [gs:esi + XHCI_USBCMD], ~XCMD_RS
     call xhci_halt
     mov dword [gs:esi + XHCI_USBCMD], XCMD_HCRST
@@ -954,4 +969,133 @@ xhci_control:
     pop gs
     popad
     stc
+    ret
+
+; The keyboard at address AL, interrupt IN endpoint CL, max packet DL is
+; being claimed on this xHCI, whose block is in the EBDA: fill its
+; interrupt ring with 15 Normal TRBs (no events: a finished one is seen by
+; its buffer, which starts as all ones) and add the endpoint to its slot
+; (Configure Endpoint). CF set on failure. Keeps every register.
+xhci_hid_config:
+    pushad
+    push gs
+    call flat_gs
+    movzx bx, al
+    shl bx, 3
+    movzx ebp, byte [fs:XHCI_ADDR + bx]     ; EBP = its slot
+    test bp, bp
+    jz .fail
+    movzx edx, dl                           ; EDX = max packet
+    movzx ecx, cl
+    lea ecx, [ecx * 2 + 1]                  ; ECX = device context index
+    mov ebx, [fs:XHCI_BASE]
+    ; The ring: TRB i reads 8 bytes into buffer i; the last one links back
+    lea edi, [ebx + XHCI_INTRING]
+    lea esi, [ebx + XHCI_INTBUF]
+    push cx
+    mov cx, XHCI_INT_TRBS - 1
+.trb:
+    mov dword [gs:esi], -1
+    mov dword [gs:esi + 4], -1
+    mov [gs:edi], esi
+    mov dword [gs:edi + 4], 0
+    mov dword [gs:edi + 8], 8
+    mov dword [gs:edi + 12], (TRB_NORMAL << 10) | 1
+    add esi, 8
+    add edi, 16
+    loop .trb
+    pop cx
+    lea eax, [ebx + XHCI_INTRING]
+    mov [gs:edi], eax
+    mov dword [gs:edi + 4], 0
+    mov dword [gs:edi + 8], 0
+    mov dword [gs:edi + 12], TRB_LINK_INT | 1
+    ; Input context: add the slot and this endpoint
+    lea edi, [ebx + XHCI_INCTX]
+    push cx
+    mov cx, 0x840 / 4
+    call xhci_zero
+    pop cx
+    mov eax, 1
+    shl eax, cl
+    or al, 1
+    mov [gs:edi + 4], eax
+    ; Slot context: as the controller has it, with the entries up to this
+    ; endpoint
+    lea esi, [ebp - 1]
+    shl esi, 11
+    lea esi, [ebx + esi + XHCI_DEVCTX]
+    movzx eax, byte [fs:XHCI_CTXSZ]
+    push edi
+    add edi, eax
+    mov eax, [gs:esi]
+    and eax, ~(0x1F << 27)
+    push ecx
+    shl ecx, 27
+    or eax, ecx
+    pop ecx
+    mov [gs:edi], eax
+    mov eax, [gs:esi + 4]
+    mov [gs:edi + 4], eax
+    mov eax, [gs:esi + 8]
+    mov [gs:edi + 8], eax
+    pop edi
+    ; Endpoint context: interrupt IN, every 8 ms (2^6 x 125 us), 3 retries
+    movzx eax, byte [fs:XHCI_CTXSZ]
+    lea esi, [ecx + 1]
+    imul esi, eax
+    add esi, edi
+    mov dword [gs:esi], 6 << 16
+    mov eax, edx
+    shl eax, 16
+    or eax, (3 << 1) | (7 << 3)
+    mov [gs:esi + 4], eax
+    lea eax, [ebx + XHCI_INTRING + 1]       ; dequeue, cycle 1
+    mov [gs:esi + 8], eax
+    mov dword [gs:esi + 12], 0
+    mov eax, edx
+    shl eax, 16
+    or eax, 8                               ; average TRB length, max ESIT payload
+    mov [gs:esi + 16], eax
+    ; The command
+    mov eax, edi
+    xor ebx, ebx
+    mov edx, ebp
+    shl edx, 24
+    or edx, TRB_CONFIG_EP << 10
+    call xhci_cmd
+    jc .fail
+    pop gs
+    popad
+    clc
+    ret
+.fail:
+    pop gs
+    popad
+    stc
+    ret
+
+; The bus with the keyboard is listed: leave the controller running and
+; start the keyboard's endpoint (its doorbell). From here on IRQ0 reads its
+; reports (usb_hid_poll). GS flat. Keeps every register.
+xhci_hid_start:
+    pushad
+    push es
+    push word USBK_SEG
+    pop es
+    xor eax, eax
+    mov [es:USBK_PREV], eax
+    mov [es:USBK_PREV + 4], eax
+    mov byte [es:USBK_XIDX], 0
+    mov byte [es:USBK_XCYC], 1
+    mov byte [es:USBK_KIND], USBK_KIND_XHCI
+    movzx bx, byte [fs:USB_KBD_ADDR]
+    shl bx, 3
+    movzx ebx, byte [fs:XHCI_ADDR + bx]
+    movzx eax, byte [fs:USB_KBD_EP]
+    lea eax, [eax * 2 + 1]
+    mov edx, [fs:XHCI_DB]
+    mov [gs:edx + ebx * 4], eax
+    pop es
+    popad
     ret

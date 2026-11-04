@@ -27,7 +27,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/x86-extra-boot.bin $(TEST_DIR)/x86-extra-range.bin \
              $(TEST_DIR)/x86-osload.bin $(TEST_DIR)/x86-int13.bin \
              $(TEST_DIR)/x86-bda.bin $(TEST_DIR)/x86-a20.bin \
-             $(TEST_DIR)/x86-pit.bin $(TEST_DIR)/x86-kbd.bin \
+             $(TEST_DIR)/x86-pit.bin $(TEST_DIR)/x86-kbd.bin $(TEST_DIR)/x86-kbd-many.bin \
              $(TEST_DIR)/x86-time.bin $(TEST_DIR)/x86-vid.bin \
              $(TEST_DIR)/x86-write.bin $(TEST_DIR)/x86-int15a20.bin \
              $(TEST_DIR)/x86-slave.bin $(TEST_DIR)/x86-acpi.bin \
@@ -208,6 +208,10 @@ $(TEST_DIR)/x86-pit.bin: tests/x86-pit.asm | $(TEST_DIR)
 # INT 16h keyboard; tests/x86-kbd-run.sh injects a key via the monitor
 $(TEST_DIR)/x86-kbd.bin: tests/x86-kbd.asm | $(TEST_DIR)
 	$(NASM) -f bin $< -o $@
+
+# The same, waiting for 20 keys (a USB keyboard's ring wraps)
+$(TEST_DIR)/x86-kbd-many.bin: tests/x86-kbd.asm | $(TEST_DIR)
+	$(NASM) -f bin -DKEYS=20 $< -o $@
 
 # INT 1Ah: tick count and RTC time (BCD)
 $(TEST_DIR)/x86-time.bin: tests/x86-time.asm | $(TEST_DIR)
