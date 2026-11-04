@@ -16,7 +16,7 @@ If the firmware and this file disagree, the firmware has a bug.
 | Console | COM1 `0x3F8`, 115200 8N1 | PL011 `0x09000000` | NS16550A `0x10000000`, 115200 8N1 |
 | Interrupts | `IF = 0`; PIT/PIC programmed, IRQ0 unmasked | `DAIF` masked | `mstatus.MIE`/`SIE` = 0, `mie = 0` |
 | CPUs running | Boot CPU only | Boot CPU only | The boot hart (`fw_dynamic_info.boot_hart`, else hart 0); others through `sbi_hart_start` |
-| Firmware services | `INT 13h` `AH=00/02/03/08/41/42/43/44/47/48` (on an IDE or SATA disk; diskettes `00/02/03/08/15`; boot CD `00/41/42/48/4B`), `INT 10h` `AH=02/03/06/07/0E/0F`, `INT 15h` `E820`/`AX=2400..2403`, `INT 16h` `AH=00/01`, `INT 1Ah` `AH=00/02`, PCI BIOS `AX=B101/B102/B103/B108..B10D` | None | SBI from S-mode: base, TIME, IPI, RFENCE, HSM, SRST |
+| Firmware services | `INT 13h` `AH=00/02/03/08/41/42/43/44/47/48` (on an IDE, SATA or NVMe disk; diskettes `00/02/03/08/15`; boot CD `00/41/42/48/4B`), `INT 10h` `AH=02/03/06/07/0E/0F`, `INT 15h` `E820`/`AX=2400..2403`, `INT 16h` `AH=00/01`, `INT 1Ah` `AH=00/02`, PCI BIOS `AX=B101/B102/B103/B108..B10D` | None | SBI from S-mode: base, TIME, IPI, RFENCE, HSM, SRST |
 
 ## Rules for every architecture
 
@@ -194,7 +194,8 @@ or `AH = 0x80` (timeout). `AH = 0x02` reports `AL = 0` when nothing was
 transferred. The firmware boots from the master when
 it answers; if the master is absent it tries the slave and hands off with
 `DL = 0x81`. When no IDE hard disk answered (or the master is ATAPI),
-it looks for a SATA disk, then tries a CD before it halts.
+it looks for a SATA disk, then an NVMe disk, then tries a CD before it
+halts.
 
 **SATA (AHCI).** With no IDE hard disk, the firmware looks on PCI bus 0
 for an AHCI controller (class `01:06:01`, such as q35's ICH9 at
@@ -212,9 +213,26 @@ then. Only one SATA disk is served, and none when an IDE hard disk
 answered. The firmware keeps the port running for the hand-off, with
 interrupts off (`GHC.IE = 0`); its command list, received-FIS area and
 command table are in the EBDA (`0x9B400`, `0x9B800`, `0x9B900`), and
-the byte at `0x04FF` is 1 while `DL = 0x80` is the SATA disk. The
+the byte at `0x04FF` is 1 while `DL = 0x80` is the SATA disk (2 for
+NVMe, 0 for IDE). The
 `INT 13h` calls reach the controller's registers through unreal mode, so
 they are served from real mode only, not from virtual 8086 mode.
+
+**NVMe.** With no IDE or SATA disk, the firmware looks on PCI bus 0 for
+an NVMe controller (class `01:08:02`) whose BAR0 it placed below 4 GB.
+It resets and enables it with 8-entry admin queues, identifies
+namespace 1, which must use 512-byte blocks, and creates one 8-entry
+I/O queue pair. It prints `disk: NVMe disk (namespace 1)`, and that
+namespace is then `DL = 0x80`, booting and served by `INT 13h` as above
+with NVMe Read and Write (each write followed by Flush). Their buffers
+must start on a 4-byte boundary. A transfer that spans more than two
+4 KB pages uses a PRP list. `AH = 0x48` names it as host bus `PCI` with
+the controller's bus, device and function, and interface `NVMe` with
+namespace ID 1 as the device path. The four queues are the EBDA's pages
+at `0x9C000` (admin submission), `0x9D000` (admin completion),
+`0x9E000` (I/O submission) and `0x9F000` (I/O completion); the
+controller is left enabled with interrupts unused. As for SATA, the
+`INT 13h` calls are served from real mode only.
 
 **CD-ROM (El Torito).** The firmware looks for ATAPI devices on the
 primary and secondary IDE channels, master before slave (QEMU's

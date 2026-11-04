@@ -217,6 +217,21 @@ run x86-ahci "SquirrelBIOS x86|disk: SATA disk on AHCI port 4|OS-ENTRY x86 edd e
     -drive if=none,id=sata,format=raw,file=$TEST_DIR/x86-ahci.img \
     -device ide-hd,drive=sata,bus=ide.4
 
+# x86: the same 200 GiB disk as namespace 1 of an NVMe controller in PCI
+# slot 5 (i440fx): Read/Write (with Flush) through INT 13h, PRP lists,
+# and AH=48h names PCI 00:05.0, NVMe and namespace 1
+run x86-nvme "SquirrelBIOS x86|disk: NVMe disk (namespace 1)|OS-ENTRY x86 edd edd=ok" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -drive if=none,id=nvm,format=raw,file=$TEST_DIR/x86-nvme.img \
+    -device nvme,serial=squirrel,drive=nvm,addr=5
+
+# x86: the 192-sector S2OK kernel load from NVMe on q35, where the AHCI
+# controller is there but has no disk
+run x86-nvme-osload "SquirrelBIOS x86|disk: NVMe disk (namespace 1)|kernel loaded at 0x00008000, jumping|osload=ok dl=ok flags=ok memmap=ok sig=ok e820=ok|!boot halted" \
+    "$QEMU_X86" -M q35 -bios x86/squirrel-bios.rom \
+    -drive if=none,id=nvm,format=raw,file=$TEST_DIR/x86-osload.bin,snapshot=on \
+    -device nvme,serial=squirrel,drive=nvm
+
 # x86: the 192-sector S2OK kernel load from an AHCI disk (q35, port 0)
 run x86-ahci-osload "SquirrelBIOS x86|disk: SATA disk on AHCI port 0|kernel loaded at 0x00008000, jumping|osload=ok dl=ok flags=ok memmap=ok sig=ok e820=ok|!boot halted" \
     "$QEMU_X86" -M q35 -bios x86/squirrel-bios.rom \

@@ -33,6 +33,7 @@ PCI_INT_PIN     equ 0x3D
 
 PCI_CMD_IO      equ 0x01
 PCI_CMD_MEM     equ 0x02
+PCI_CMD_MASTER  equ 0x04
 
 PCI_MEM_BASE    equ 0xE0000000  ; above the RAM QEMU maps below 4 GB
 PCI_MEM_LIMIT   equ 0xFEC00000  ; IOAPIC, HPET, LAPIC and the ROM above

@@ -115,6 +115,36 @@ unreal_ds:
     pop eax
     ret
 
+; GS = flat 4 GB data segment (base 0), through the ROM's GDT; the
+; caller's GDTR is loaded again before returning. Interrupts must be off
+; and stay off while GS is in use. Keeps every register but GS.
+flat_gs:
+    push eax
+    push bx
+    sub sp, 12
+    mov bx, sp
+    o32 sgdt [ss:bx + 6]
+    xor eax, eax
+    mov ax, cs
+    shl eax, 4
+    add eax, apic_gdt
+    mov word [ss:bx], apic_gdt_end - apic_gdt - 1
+    mov [ss:bx + 2], eax
+    o32 lgdt [ss:bx]
+    mov eax, cr0
+    or al, 1
+    mov cr0, eax
+    mov ax, 0x08
+    mov gs, ax
+    mov eax, cr0
+    and al, 0xFE
+    mov cr0, eax
+    o32 lgdt [ss:bx + 6]
+    add sp, 12
+    pop bx
+    pop eax
+    ret
+
 align 8
 apic_gdt:
     dq 0

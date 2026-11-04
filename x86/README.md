@@ -16,7 +16,9 @@ drivers/   ata (ATA PIO, LBA28/LBA48, INT 13h with EDD 3.0),
            kbd8042 (8042, IRQ1, INT 16h), rtc (INT 1Ah),
            pci (bus 0 scan, BARs, IRQ routing, INT 1Ah B1xx, $PIR;
            CONFIG_PCI), ahci (one SATA disk as DL 80h when no IDE disk
-           answered, DMA through the EBDA; CONFIG_AHCI)
+           answered, DMA through the EBDA; CONFIG_AHCI),
+           nvme (namespace 1 as DL 80h when no IDE or SATA disk
+           answered, queues in the EBDA; CONFIG_NVME)
 tables/    acpi (CONFIG_ACPI), smbios (CONFIG_SMBIOS)
 ```
 
