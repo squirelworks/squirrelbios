@@ -13,9 +13,9 @@ BDA_EQUIP       equ 0x0410
 BDA_MEMSIZE     equ 0x0413
 BDA_CURSOR      equ 0x0450
 BDA_EQUIP_VAL   equ 0x0220      ; without diskette drives
-BDA_MEM_KB      equ 620         ; below the 20 KB EBDA
+BDA_MEM_KB      equ 600         ; below the 40 KB EBDA
 BDA_EBDA_SEG    equ 0x040E
-EBDA_SEG        equ 0x9B00
+EBDA_SEG        equ 0x9600
 VGA_COLS        equ 80
 VGA_ROWS        equ 25
 
@@ -51,7 +51,7 @@ start:
     push es
     mov ax, EBDA_SEG
     mov es, ax
-    cmp byte [es:0], 20         ; EBDA size in KB
+    cmp byte [es:0], 40         ; EBDA size in KB
     pop es
     jne .done
     mov ax, [BDA_CURSOR]        ; AL = column, AH = row

@@ -194,11 +194,13 @@ BDA_KBD_END     equ 0x043E      ; first byte past the buffer
 ; Equipment: 80x25 colour (bits 4-5 = 10), one serial port (bits 9-11 = 1).
 ; No floppies, no parallel ports. Matches COM1 + VGA text in this firmware.
 BDA_EQUIP_VAL   equ 0x0220
-BDA_MEM_KB      equ EBDA_BASE >> 10 ; 0x00000-0x9AFFF, as in the memory map
+BDA_MEM_KB      equ EBDA_BASE >> 10 ; 0x00000-0x95FFF, as in the memory map
 BDA_EBDA_SEG    equ 0x040E      ; segment of the extended BIOS data area
-EBDA_BASE       equ 0x9B000     ; 20 KB EBDA just below the VGA window:
-EBDA_SIZE       equ 0x5000      ; a page of firmware data, then 4 KB-aligned
-                                ; pages for controller queues (NVMe)
+EBDA_BASE       equ 0x96000     ; 40 KB EBDA just below the VGA window:
+EBDA_SIZE       equ 0xA000      ; a page of firmware data, then 4 KB-aligned
+                                ; pages for controller queues (NVMe, +1000h
+                                ; to +4FFFh) and for the USB controller that
+                                ; keeps running after POST (+5000h on)
 ; PIT channel 0: divisor 0 => 65536, ~18.2065 Hz from 1.193182 MHz
 PIT_CMD         equ 0x43
 PIT_CH0         equ 0x40
