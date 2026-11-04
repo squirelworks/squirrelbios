@@ -81,6 +81,7 @@ boots each firmware under QEMU with a small stand-in OS image from
 | `x86-usb-ehci-alone` | A lone EHCI controller on i440fx with a high-speed disk and tablet |
 | `x86-usb-xhci` | A QEMU xHCI controller: a super-speed disk on USB 3 port 2, a hub chain (mouse, second hub, keyboard) on USB 2 port 5, a tablet on port 7 |
 | `x86-usb-xhci-q35` | xHCI on q35 with a USB Attached SCSI disk at super speed |
+| `x86-usb-kbd`, `x86-usb-kbd-hub` | A USB keyboard on UHCI (on a root port, then behind a hub) is kept running after POST; a key typed on it reaches `INT 16h` |
 | `x86-usb-q35` | Two ICH9 UHCI functions on q35, a hub behind a hub on the first and a tablet on the second; addresses run on across controllers |
 | `x86-pci` | On i440fx with a virtio-rng: `INT 1Ah` `B101` returns `'PCI '`, `B102`/`B103` find devices by ID and class, POST placed I/O, 32-bit and 64-bit memory BARs and enabled decoding, INTA's Interrupt Line matches the PIIX3 route, config writes read back, and `$PIR` checks out |
 | `x86-pci-q35` | The same on q35, booting from a PIIX3 IDE card; Interrupt Line is `0xFF` there |

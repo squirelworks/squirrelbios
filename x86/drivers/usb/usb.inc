@@ -259,9 +259,15 @@ usb_attach:
 usb_enum:
     pushad
     mov bp, sp
-    sub sp, 8
+    sub sp, 16
     ; [bp-1] address  [bp-2] speed  [bp-3] max packet  [bp-4] class
     ; [bp-5] tier     [bp-6] parent [bp-7] port
+    ; A boot keyboard or mouse (B7): [bp-8] boot protocol (1 keyboard,
+    ; 2 mouse, 0 neither), [bp-9] its interface, [bp-10] its interrupt IN
+    ; endpoint (0: none), [bp-11] that endpoint's max packet,
+    ; [bp-12] configuration value
+    mov dword [bp - 12], 0
+    mov byte [bp - 8], 0
     mov [bp - 2], ah
     mov [bp - 5], cl
     mov [bp - 6], dl
@@ -340,6 +346,8 @@ usb_enum:
     mov cx, bx                  ; bytes read, for the walk
     call .ctrl
     jc .print
+    mov al, [fs:USB_BUF + 5]    ; bConfigurationValue
+    mov [bp - 12], al
     cmp byte [bp - 4], 0        ; class per interface
     jne .print
     ; Walk the descriptors for the first interface (type 4)
@@ -357,6 +365,39 @@ usb_enum:
 .iface:
     mov al, [fs:USB_BUF + si + 5]   ; bInterfaceClass
     mov [bp - 4], al
+    cmp al, USB_CLASS_HID
+    jne .print
+    cmp byte [fs:USB_BUF + si + 6], 1   ; boot interface subclass
+    jne .print
+    mov al, [fs:USB_BUF + si + 7]       ; protocol: 1 keyboard, 2 mouse
+    cmp al, 2
+    ja .print
+    mov [bp - 8], al
+    mov al, [fs:USB_BUF + si + 2]
+    mov [bp - 9], al
+    ; Its first interrupt IN endpoint, before the next interface
+.ep:
+    movzx ax, byte [fs:USB_BUF + si]
+    test ax, ax
+    jz .print
+    add si, ax
+    cmp si, cx
+    jae .print
+    cmp byte [fs:USB_BUF + si + 1], 4
+    je .print
+    cmp byte [fs:USB_BUF + si + 1], 5
+    jne .ep
+    mov al, [fs:USB_BUF + si + 3]       ; bmAttributes
+    and al, 3
+    cmp al, 3                           ; interrupt
+    jne .ep
+    mov al, [fs:USB_BUF + si + 2]       ; bEndpointAddress
+    test al, 0x80
+    jz .ep
+    and al, 0x0F
+    mov [bp - 10], al
+    mov al, [fs:USB_BUF + si + 4]
+    mov [bp - 11], al
 
 .print:
     ; "usb: device A on root port P: VVVV:PPPP, <class>"
@@ -413,6 +454,9 @@ usb_enum:
     jmp .out
 .line:
     call con_newline
+    cmp byte [bp - 10], 0
+    je .out
+    call usb_hid_claim          ; a boot keyboard: keep it for after POST
     jmp .out
 
 .fail:

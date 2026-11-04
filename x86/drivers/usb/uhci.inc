@@ -165,8 +165,15 @@ uhci_bus:
     jmp .port
 
 .stop:
-    ; Halt, wait for it, then reset the controller: no DMA after POST
+    ; The keyboard kept for after POST is here: keep the controller
+    ; running, with only that keyboard's transfer
     mov dx, [fs:USB_IOBASE]
+    call usb_hid_here
+    jc .halt_it
+    call uhci_hid_start
+    jmp .out
+.halt_it:
+    ; Halt, wait for it, then reset the controller: no DMA after POST
     xor ax, ax
     out dx, ax
     add dx, UHCI_STS

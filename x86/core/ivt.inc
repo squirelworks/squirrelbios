@@ -50,6 +50,9 @@ irq0_handler:
     mov dword [BDA_TICKS], 0
     mov byte [BDA_TICK_OVR], 1
 .eoi:
+%if CONFIG_USB
+    call usb_hid_poll           ; a USB keyboard kept after POST
+%endif
     mov al, 0x20
     out PIC1_CMD, al
     pop ds
