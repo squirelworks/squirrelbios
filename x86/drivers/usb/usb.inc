@@ -90,6 +90,13 @@ usb_init:
     mov sp, USB_STACK           ; SS = 0; nothing is loaded below it yet
     mov [fs:USB_CURSOR], di
     mov byte [fs:USB_NEXTADDR], 1
+    xor ax, ax                  ; no keyboard, mouse or disk claimed yet
+    mov bx, 0x1F40
+.records:
+    mov [fs:bx], ax
+    add bx, 2
+    cmp bx, 0x1F80
+    jb .records
     call pci_present
     jc .out
     ; Two passes: EHCI first, so that it takes the high-speed devices and
@@ -284,14 +291,19 @@ usb_detach:
 usb_enum:
     pushad
     mov bp, sp
-    sub sp, 16
+    sub sp, 24
     ; [bp-1] address  [bp-2] speed  [bp-3] max packet  [bp-4] class
     ; [bp-5] tier     [bp-6] parent [bp-7] port
     ; A boot keyboard or mouse (B7): [bp-8] boot protocol (1 keyboard,
     ; 2 mouse, 0 neither), [bp-9] its interface, [bp-10] its interrupt IN
     ; endpoint (0: none), [bp-11] that endpoint's max packet,
     ; [bp-12] configuration value
+    ; A bulk-only mass storage interface (B8): [bp-13] its bulk IN
+    ; endpoint, [bp-14] its bulk OUT endpoint (0: none), [bp-16] word:
+    ; their max packet, [bp-17] 1 if the interface is bulk-only SCSI
     mov dword [bp - 12], 0
+    mov dword [bp - 16], 0
+    mov byte [bp - 17], 0
     mov byte [bp - 8], 0
     mov [bp - 2], ah
     mov [bp - 5], cl
@@ -390,6 +402,8 @@ usb_enum:
 .iface:
     mov al, [fs:USB_BUF + si + 5]   ; bInterfaceClass
     mov [bp - 4], al
+    cmp al, USB_CLASS_MSD
+    je .msd
     cmp al, USB_CLASS_HID
     jne .print
     cmp byte [fs:USB_BUF + si + 6], 1   ; boot interface subclass
@@ -423,6 +437,42 @@ usb_enum:
     mov [bp - 10], al
     mov al, [fs:USB_BUF + si + 4]
     mov [bp - 11], al
+    jmp .print
+
+.msd:
+    ; Mass storage: SCSI commands (subclass 6) over bulk-only transport
+    ; (protocol 50h). Its bulk endpoints, before the next interface.
+    cmp word [fs:USB_BUF + si + 6], 0x5006
+    jne .print
+    mov byte [bp - 17], 1
+.bulk:
+    movzx ax, byte [fs:USB_BUF + si]
+    test ax, ax
+    jz .print
+    add si, ax
+    cmp si, cx
+    jae .print
+    cmp byte [fs:USB_BUF + si + 1], 4
+    je .print
+    cmp byte [fs:USB_BUF + si + 1], 5
+    jne .bulk
+    mov al, [fs:USB_BUF + si + 3]       ; bmAttributes
+    and al, 3
+    cmp al, 2                           ; bulk
+    jne .bulk
+    mov ax, [fs:USB_BUF + si + 4]       ; wMaxPacketSize
+    and ax, 0x07FF
+    mov [bp - 16], ax
+    mov al, [fs:USB_BUF + si + 2]       ; bEndpointAddress
+    test al, 0x80
+    jz .bulk_out
+    and al, 0x0F
+    mov [bp - 13], al
+    jmp .bulk
+.bulk_out:
+    and al, 0x0F
+    mov [bp - 14], al
+    jmp .bulk
 
 .print:
     ; "usb: device A on root port P: VVVV:PPPP, <class>"
@@ -480,8 +530,12 @@ usb_enum:
 .line:
     call usb_newline
     cmp byte [bp - 10], 0
-    je .detach
+    je .disk
     call usb_hid_claim          ; a boot keyboard: keep it for after POST
+.disk:
+    cmp byte [bp - 17], 0
+    je .detach
+    call usb_disk_claim         ; a USB disk: keep it to boot from
 .detach:
     mov al, [bp - 1]
     call usb_detach

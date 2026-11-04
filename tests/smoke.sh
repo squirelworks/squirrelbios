@@ -235,6 +235,41 @@ for m in "x86-usb-mouse|-device piix3-usb-uhci,id=uhci,addr=5 -device usb-kbd,bu
     fi
 done
 
+# x86: B8, booting from a USB disk (bulk-only) on xHCI when there is no
+# IDE, SATA or NVMe disk. The boot sector, a Squirrel-OS/2 kernel load
+# on q35, the INT 13h calls its boot sector makes, and the 200 GiB EDD
+# disk (LBA48-range reads, a write, an unaligned read over three pages;
+# AH=48h names PCI 00:05.0, USB and device 1)
+run x86-usbdisk "usb: device 1 on root port 1: 46F4:0001, mass storage|usb: disk is device 1|disk: USB disk (bulk-only)|OS-ENTRY x86 dl=ok memmap=ok flags=ok vga=ok" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -device qemu-xhci,id=xhci,addr=5 \
+    -drive if=none,id=ud,format=raw,file=$TEST_DIR/x86-boot.bin,snapshot=on \
+    -device usb-storage,bus=xhci.0,drive=ud
+run x86-usbdisk-osload "disk: USB disk (bulk-only)|kernel loaded at 0x00008000, jumping|osload=ok dl=ok flags=ok memmap=ok sig=ok e820=ok|!boot halted" \
+    "$QEMU_X86" -M q35 -bios x86/squirrel-bios.rom \
+    -device qemu-xhci,id=xhci \
+    -drive if=none,id=ud,format=raw,file=$TEST_DIR/x86-osload.bin,snapshot=on \
+    -device usb-storage,bus=xhci.0,drive=ud
+run x86-usbdisk-int13 "disk: USB disk (bulk-only)|via-boot-sector|int13=ok tty=ok|!boot halted" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -device qemu-xhci,id=xhci,addr=5 \
+    -drive if=none,id=ud,format=raw,file=$TEST_DIR/x86-int13.bin,snapshot=on \
+    -device usb-storage,bus=xhci.0,drive=ud
+run x86-usbdisk-edd "disk: USB disk (bulk-only)|OS-ENTRY x86 edd edd=ok" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -device qemu-xhci,id=xhci,addr=5 \
+    -drive if=none,id=ud,format=raw,file=$TEST_DIR/x86-usbdisk.img,snapshot=on \
+    -device usb-storage,bus=xhci.0,drive=ud
+# The disk behind a hub, with a keyboard and a mouse on the same xHCI:
+# all three are kept, and twenty keys still arrive after the boot
+if KBD_NAME=x86-usbdisk-kbd KBD_IMG=$TEST_DIR/x86-kbd-many.bin KBD_KEYS=20 KBD_USBDISK=xhci.0,port=2.3 \
+   KBD_ARGS="-device qemu-xhci,id=xhci,addr=5 -device usb-hub,bus=xhci.0,port=2 -device usb-mouse,bus=xhci.0,port=3 -device usb-kbd,bus=xhci.0,port=1" \
+   KBD_EXPECT="usb: keyboard is device 1|usb: mouse is device 4|usb: disk is device 3|disk: USB disk (bulk-only)" tests/x86-kbd-run.sh; then
+    pass=$((pass + 1))
+else
+    fail=$((fail + 1))
+fi
+
 # x86: a USB keyboard behind a hub on OHCI; then a full-speed one on an
 # ICH9 EHCI port, handed to its UHCI companion, which keeps it
 if KBD_NAME=x86-usb-kbd-ohci \

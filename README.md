@@ -87,6 +87,9 @@ boots each firmware under QEMU with a small stand-in OS image from
 | `x86-usb-kbd-xhci` | The same keyboard with an xHCI listed after it: the xHCI works from POST-only memory and the keyboard still types |
 | `x86-usb-mouse`, `x86-usb-mouse-ohci`, `x86-usb-mouse-xhci` | `INT 15h` `C2xx` on a USB mouse kept beside a keyboard (UHCI, OHCI, xHCI behind a hub): refusals, reset, type, init, status, then the handler gets one motion with the left button as PS/2 packets |
 | `x86-usb-kbd-on-xhci`, `x86-usb-kbd-on-xhci-hub` | A keyboard on xHCI: twenty keys (its ring goes round more than twice), then one behind two hubs |
+| `x86-usbdisk`, `x86-usbdisk-osload`, `x86-usbdisk-int13` | With no other disk, a bulk-only USB disk on xHCI boots: the boot-sector test, a Squirrel-OS/2-shaped kernel load on q35, and the `INT 13h` calls its boot sector makes |
+| `x86-usbdisk-edd` | The 200 GiB EDD disk as a USB disk: reads past 2^28 and at 143 GiB, a write, an unaligned read over three pages, and `AH=48h` naming PCI 00:05.0, USB and device 1 |
+| `x86-usbdisk-kbd` | The disk behind a hub with a keyboard and a mouse on the same xHCI: all three are kept, it boots, and twenty keys still arrive |
 | `x86-usb-kbd-after-xhci` | The same keyboard with an xHCI listed before it, working from the EBDA during POST: the keyboard still starts and types |
 | `x86-usb-q35` | Two ICH9 UHCI functions on q35, a hub behind a hub on the first and a tablet on the second; addresses run on across controllers |
 | `x86-pci` | On i440fx with a virtio-rng: `INT 1Ah` `B101` returns `'PCI '`, `B102`/`B103` find devices by ID and class, POST placed I/O, 32-bit and 64-bit memory BARs and enabled decoding, INTA's Interrupt Line matches the PIIX3 route, config writes read back, and `$PIR` checks out |

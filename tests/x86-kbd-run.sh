@@ -8,7 +8,8 @@
 # sends that many 'a' keys, 100 ms apart, for an image built to wait for
 # them (KBD_IMG). KBD_MOUSE=1 instead moves the mouse added last 10
 # right and 5 down with the left button held, and KBD_OK names the
-# result the image prints.
+# result the image prints. KBD_USBDISK=<bus> puts the image on a USB
+# disk on that bus (as -device usb-storage) instead of the IDE disk.
 set -u
 
 TEST_DIR=${TEST_DIR:-build/tests}
@@ -21,6 +22,11 @@ MOUSE=${KBD_MOUSE:-0}
 NAME=${KBD_NAME:-x86-kbd}
 LOG=$TEST_DIR/$NAME.log
 QMP=$TEST_DIR/$NAME.qmp
+if [ -n "${KBD_USBDISK:-}" ]; then
+    disk="-drive if=none,id=kbdusb,format=raw,file=$IMG,snapshot=on -device usb-storage,bus=$KBD_USBDISK,drive=kbdusb"
+else
+    disk="-drive format=raw,file=$IMG,if=ide"
+fi
 expect="SquirrelBIOS x86|${KBD_EXPECT:+$KBD_EXPECT|}OS-ENTRY x86 ${KBD_OK:-kbd=ok}"
 
 rm -f "$LOG" "$QMP"
@@ -29,7 +35,7 @@ rm -f "$LOG" "$QMP"
 "$QEMU_X86" -display none -monitor none -serial "file:$LOG" \
     -qmp "unix:$QMP,server,nowait" \
     -bios "$ROM" \
-    -drive format=raw,file="$IMG",if=ide ${KBD_ARGS:-} \
+    ${KBD_ARGS:-} $disk \
     >/dev/null 2>&1 &
 qemu=$!
 

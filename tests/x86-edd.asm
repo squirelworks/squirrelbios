@@ -11,7 +11,9 @@
 ;      (00:1F.2) instead: 'PCI', 'SATA', that bus/device/function, and
 ;      the port in the device path. With -DNVME=<slot>, it is namespace
 ;      1 of an NVMe controller in that PCI slot: 'PCI', 'NVMe', the slot,
-;      and namespace ID 1 in the device path
+;      and namespace ID 1 in the device path. With -DUSB=<slot>, it is
+;      a USB disk, device 1 on an xHCI in that PCI slot: 'PCI', 'USB',
+;      the slot, and the device's address in the device path
 ;   s  AH=48h with a 1Ah-byte buffer: size 1Ah, the same sector count
 ;   l  AH=42h, 2 sectors from 0FFFFFFFh: the range crosses 2^28, so
 ;      LBA48 commands; both tags arrive
@@ -101,6 +103,15 @@ main:
     cmp dword [params + 0x30], NVME << 8    ; bus 0, device NVME, function 0
     jne bad
     cmp dword [params + 0x38], 1            ; namespace 1
+    jne bad
+%elifdef USB
+    cmp dword [params + 0x24], 'PCI '
+    jne bad
+    cmp dword [params + 0x28], 'USB '
+    jne bad
+    cmp dword [params + 0x30], USB << 8     ; bus 0, device USB, function 0
+    jne bad
+    cmp dword [params + 0x38], 1            ; USB address 1
     jne bad
 %else
     cmp dword [params + 0x28], 'ATA '

@@ -16,7 +16,7 @@ If the firmware and this file disagree, the firmware has a bug.
 | Console | COM1 `0x3F8`, 115200 8N1 | PL011 `0x09000000` | NS16550A `0x10000000`, 115200 8N1 |
 | Interrupts | `IF = 0`; PIT/PIC programmed, IRQ0 unmasked | `DAIF` masked | `mstatus.MIE`/`SIE` = 0, `mie = 0` |
 | CPUs running | Boot CPU only | Boot CPU only | The boot hart (`fw_dynamic_info.boot_hart`, else hart 0); others through `sbi_hart_start` |
-| Firmware services | `INT 13h` `AH=00/02/03/08/41/42/43/44/47/48` (on an IDE, SATA or NVMe disk; diskettes `00/02/03/08/15`; boot CD `00/41/42/48/4B`), `INT 10h` `AH=02/03/06/07/0E/0F`, `INT 15h` `E820`/`AX=2400..2403`/`AH=C2` (USB mouse), `INT 16h` `AH=00/01`, `INT 1Ah` `AH=00/02`, PCI BIOS `AX=B101/B102/B103/B108..B10D` | None | SBI from S-mode: base, TIME, IPI, RFENCE, HSM, SRST |
+| Firmware services | `INT 13h` `AH=00/02/03/08/41/42/43/44/47/48` (on an IDE, SATA, NVMe or USB disk; diskettes `00/02/03/08/15`; boot CD `00/41/42/48/4B`), `INT 10h` `AH=02/03/06/07/0E/0F`, `INT 15h` `E820`/`AX=2400..2403`/`AH=C2` (USB mouse), `INT 16h` `AH=00/01`, `INT 1Ah` `AH=00/02`, PCI BIOS `AX=B101/B102/B103/B108..B10D` | None | SBI from S-mode: base, TIME, IPI, RFENCE, HSM, SRST |
 
 ## Rules for every architecture
 
@@ -194,8 +194,8 @@ or `AH = 0x80` (timeout). `AH = 0x02` reports `AL = 0` when nothing was
 transferred. The firmware boots from the master when
 it answers; if the master is absent it tries the slave and hands off with
 `DL = 0x81`. When no IDE hard disk answered (or the master is ATAPI),
-it looks for a SATA disk, then an NVMe disk, then tries a CD before it
-halts.
+it looks for a SATA disk, then an NVMe disk, then a USB disk, then
+tries a CD before it halts.
 
 **SATA (AHCI).** With no IDE hard disk, the firmware looks on PCI bus 0
 for an AHCI controller (class `01:06:01`, such as q35's ICH9 at
@@ -229,8 +229,8 @@ must start on a 4-byte boundary. A transfer that spans more than two
 4 KB pages uses a PRP list. `AH = 0x48` names it as host bus `PCI` with
 the controller's bus, device and function, and interface `NVMe` with
 namespace ID 1 as the device path. The four queues are the EBDA's pages
-at `0x9C000` (admin submission), `0x9D000` (admin completion),
-`0x9E000` (I/O submission) and `0x9F000` (I/O completion); the
+at `0x93000` (admin submission), `0x94000` (admin completion),
+`0x95000` (I/O submission) and `0x96000` (I/O completion); the
 controller is left enabled with interrupts unused. As for SATA, the
 `INT 13h` calls are served from real mode only.
 
@@ -256,7 +256,8 @@ The class is the device's own class, or its first interface's class
 when the device leaves it to the interfaces. It is printed as `HID`,
 `mass storage`, `hub`, or `class` with its number in hex.
 
-Apart from one keyboard, nothing USB runs after POST. Each controller
+Apart from one keyboard, one mouse and one disk, nothing USB runs after
+POST. Each controller
 is halted and reset once its devices are listed, so no device is
 configured at hand-off and no controller does DMA.
 
@@ -307,6 +308,29 @@ listing runs on a stack just below `0x7C00`. OHCI, EHCI and xHCI registers
 are reached through unreal mode, as for AHCI. Both are free, since
 nothing has been loaded yet. The reset timings come from PIT
 channel 2, which is left gated off.
+
+**USB disk.** The first USB mass storage device with a bulk-only SCSI
+interface (class 08h, subclass 06h, protocol 50h) on an xHCI whose
+block is in the EBDA is kept (`usb: disk is device N`), on the same
+controller as a kept keyboard or mouse if there is one: its two bulk
+endpoints get rings in the block, it is configured, and the controller
+keeps running. A disk on a UHCI, OHCI or EHCI controller, or on an
+xHCI working from `0x40000`, is only listed, and a USB Attached SCSI
+interface is not used yet. With no IDE, SATA or NVMe disk, POST sends it
+INQUIRY, then TEST UNIT READY (with REQUEST SENSE after each "not
+ready", for up to 2 s), then READ CAPACITY(10); it must have 512-byte
+blocks. It prints `disk: USB disk (bulk-only)`, and the disk is then
+`DL = 0x80`, booting and served by `INT 13h` as above with READ(10) and
+WRITE(10), up to 128 sectors a call, straight to and from the caller's
+buffer. `AH = 0x48` names it as host bus `PCI` with the controller's
+bus, device and function, and interface `USB` with the device's address
+as the device path. Each command waits for its transfer events with
+interrupts off, on a 512-byte stack of its own in the EBDA's first page
+(`0x92D00`–`0x92EFF`); the controller state it needs is copied to
+`0x92F80`–`0x92FFF` when the bus has been listed. A command that stalls
+an endpoint fails, and the endpoint is not recovered, so the disk then
+stays failed. As for NVMe, the `INT 13h` calls are served from real
+mode only.
 
 **CD-ROM (El Torito).** The firmware looks for ATAPI devices on the
 primary and secondary IDE channels, master before slave (QEMU's
@@ -514,7 +538,7 @@ addresses (segment 0):
 | Address | Size | Value |
 |---------|------|-------|
 | `0x0410` | word | Equipment list `0x0220`: 80x25 colour (bits 4–5 = `10`), one serial port (bits 9–11 = 1). No floppies or parallel ports. |
-| `0x040E` | word | Segment of the extended BIOS data area: `0x9200`. The 56 KB EBDA at `0x92000`–`0x9FFFF` is the firmware's; its first byte is its size in KB (`56`). Its first 4 KB hold firmware data; the four 4 KB pages after it are kept for disk controller queues (NVMe), and the last nine for the USB controller that keeps a keyboard or mouse running after POST. The AHCI driver keeps its state and DMA structures there. |
+| `0x040E` | word | Segment of the extended BIOS data area: `0x9200`. The 56 KB EBDA at `0x92000`–`0x9FFFF` is the firmware's; its first byte is its size in KB (`56`). Its first 4 KB hold firmware data; the four 4 KB pages after it are kept for disk controller queues (NVMe), and the last nine for the USB controller that keeps a keyboard, mouse or disk running after POST. The AHCI driver keeps its state and DMA structures there. |
 | `0x0413` | word | Conventional memory size in KB: `584` (`0x00000`–`0x91FFF`, matching the SQMM usable entry). |
 | `0x0450` | 2 bytes | Page-0 cursor: column then row. Starts at `(0, 0)`; `INT 10h` `AH=0x0E` keeps both inside 80x25. |
 | `0x046C` | dword | Timer ticks since midnight. IRQ0 (`INT 08h`) increments it; wraps at `0x1800B0` (~24 h at 18.2 Hz) and sets `0x0470` to 1. Starts at 0. |

@@ -45,6 +45,10 @@ ata_read:
     call nvme_owns              ; or an NVMe namespace
     jnc nvme_read
 %endif
+%if CONFIG_USB
+    call usbd_owns              ; or a USB disk
+    jnc usbd_read
+%endif
     push eax
     push ecx
     push edx
@@ -217,6 +221,10 @@ ata_write:
 %if CONFIG_NVME
     call nvme_owns              ; or an NVMe namespace
     jnc nvme_write
+%endif
+%if CONFIG_USB
+    call usbd_owns              ; or a USB disk
+    jnc usbd_write
 %endif
     push eax
     push ecx
@@ -611,6 +619,10 @@ ata_capacity:
     call nvme_owns              ; or an NVMe namespace
     jnc nvme_capacity
 %endif
+%if CONFIG_USB
+    call usbd_owns              ; or a USB disk
+    jnc usbd_capacity
+%endif
     push ebx
     push ecx
     push esi
@@ -688,6 +700,10 @@ ata_reset:
 %if CONFIG_NVME
     call nvme_owns              ; or an NVMe namespace
     jnc nvme_reset
+%endif
+%if CONFIG_USB
+    call usbd_owns              ; or a USB disk
+    jnc usbd_reset
 %endif
     push eax
     push ebx

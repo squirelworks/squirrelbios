@@ -290,6 +290,7 @@ ATTR_ERROR      equ 0x0C
 %include "drivers/usb/ohci.inc"
 %include "drivers/usb/ehci.inc"
 %include "drivers/usb/xhci.inc"
+%include "drivers/usb/msd.inc"
 %endif
 
 %if CONFIG_PCI
@@ -348,7 +349,9 @@ msg_usb_class db 'class ', 0
 msg_usb_ports db ' ports', 0
 msg_usb_kbd db 'keyboard is device ', 0
 msg_usb_mouse db 'mouse is device ', 0
+msg_usb_disk db 'disk is device ', 0
 msg_usb_fail db 'no answer from the device on port ', 0
+msg_usbd    db 'disk: USB disk (bulk-only)', 0
 %endif
 %if CONFIG_NVME
 msg_nvme    db 'disk: NVMe disk (namespace 1)', 0

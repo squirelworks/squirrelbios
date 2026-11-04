@@ -107,6 +107,16 @@ entry:
     jmp .read_boot
 .no_nvme:
 %endif
+%if CONFIG_USB
+    call usbd_detect            ; CF clear: DL 80h is the USB disk
+    jc .no_usbd
+    mov si, msg_usbd
+    mov ah, ATTR_NORMAL
+    call con_print
+    call con_newline
+    jmp .read_boot
+.no_usbd:
+%endif
 %if CONFIG_CDBOOT
     call cd_boot                ; returns only if no CD booted
 %endif

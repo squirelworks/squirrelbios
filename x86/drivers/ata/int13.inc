@@ -132,6 +132,13 @@ int13_handler:
     jmp .params_checksum
 .params_not_nvme:
 %endif
+%if CONFIG_USB
+    call usbd_owns
+    jc .params_not_usb
+    call usbd_edd_path              ; 'PCI' / 'USB', device address
+    jmp .params_checksum
+.params_not_usb:
+%endif
     mov dword [si + 0x24], 'ISA '   ; host bus: legacy ports
     mov dword [si + 0x28], 'ATA '
     mov dword [si + 0x2C], '    '
@@ -466,6 +473,10 @@ disk_clear_stale:
 %endif
 %if CONFIG_NVME
     call nvme_owns
+    jnc .ret
+%endif
+%if CONFIG_USB
+    call usbd_owns
     jnc .ret
 %endif
     push ax
