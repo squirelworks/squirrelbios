@@ -1,6 +1,6 @@
 # SquirrelBIOS build
 #
-#   make            build all three firmware images
+#   make            build all four firmware images
 #   make PLATFORM=x86-pc CONFIG=default
 #                   build one platform from configs/<platform>/<config>.cfg
 #                   into build/<platform>/<config>/ (see configs/README.md)
@@ -12,6 +12,7 @@
 # Cross tools can be overridden, e.g. make AARCH64=aarch64-elf-
 
 NASM    ?= nasm
+CC64    ?= gcc
 AARCH64 ?= aarch64-linux-gnu-
 RISCV64 ?= riscv64-linux-gnu-
 
@@ -20,6 +21,17 @@ X86_ROM   := x86/squirrel-bios.rom
 X86_SRCS  := $(wildcard x86/*/*.inc x86/*/*/*.inc)
 ARM_BIN   := arm/squirrel-bios.bin
 RISCV_BIN := riscv/squirrel-bios.bin
+# x86-64 UEFI-class firmware (roadmap C1): a 1 MB flash image, its body
+# (C and NASM) linked to run from RAM at X64_FW_BASE, and the 4 KB reset
+# stub (x86_64/reset/reset.asm) at its top
+X64_FD      := x86_64/squirrel-bios.fd
+X64_C       := $(wildcard x86_64/*/*.c)
+X64_H       := $(wildcard x86_64/include/*.h)
+X64_FLASH   := 0x100000
+X64_FW_BASE := 0x200000
+X64_CFLAGS  := -m64 -std=gnu11 -O2 -Wall -Wextra -Werror -ffreestanding -fno-builtin \
+               -fno-pic -fno-pie -no-pie -fno-stack-protector -fno-asynchronous-unwind-tables \
+               -mno-red-zone -mgeneral-regs-only -nostdlib -static -Ix86_64/include
 
 TEST_DIR  := build/tests
 TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)/x86-bad-sector.bin \
@@ -61,18 +73,19 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/riscv-numa.bin $(TEST_DIR)/riscv-aia.bin \
              $(TEST_DIR)/riscv-ras.bin
 
-.PHONY: all x86 arm riscv test linux-shell linux-x86 linux-big linux-stress os-boot clean
+.PHONY: all x86 x86_64 arm riscv test linux-shell linux-x86 linux-big linux-stress os-boot clean
 .DELETE_ON_ERROR:
 
-PLATFORMS := x86-pc aarch64-virt riscv64-virt
+PLATFORMS := x86-pc x86_64-uefi aarch64-virt riscv64-virt
 PLATFORM  ?=
 CONFIG    ?= default
 OUT_x86-pc       := squirrel-bios.rom
+OUT_x86_64-uefi  := squirrel-bios.fd
 OUT_aarch64-virt := squirrel-bios.bin
 OUT_riscv64-virt := squirrel-bios.bin
 
 ifeq ($(PLATFORM),)
-all: x86 arm riscv
+all: x86 x86_64 arm riscv
 else
 ifeq ($(filter $(PLATFORM),$(PLATFORMS)),)
 $(error PLATFORM must be one of: $(PLATFORMS))
@@ -84,6 +97,7 @@ all: build/$(PLATFORM)/$(CONFIG)/$(OUT_$(PLATFORM))
 endif
 
 x86: $(X86_ROM)
+x86_64: $(X64_FD)
 arm: $(ARM_BIN)
 riscv: $(RISCV_BIN)
 
@@ -91,6 +105,28 @@ riscv: $(RISCV_BIN)
 
 $(X86_ROM): x86/squirrel-bios.asm $(X86_SRCS)
 	$(NASM) -f bin -i x86/ $< -o $@
+
+# x86_64-uefi: $(1) is the directory for the pieces, $(2) extra C flags.
+# The body must leave room for the 4 KB stub.
+define X64_BUILD
+	@mkdir -p $(1)
+	$(NASM) -f elf64 x86_64/core/start.asm -o $(1)/start.o
+	$(CC64) $(X64_CFLAGS) $(2) -Wl,-T,x86_64/link.ld -Wl,--defsym,FW_BASE=$(X64_FW_BASE) \
+	    -Wl,--build-id=none -Wl,--no-warn-rwx-segments $(1)/start.o $(X64_C) -o $(1)/body.elf
+	objcopy -O binary $(1)/body.elf $(1)/body.bin
+	@size=$$(stat -c %s $(1)/body.bin); \
+	if [ $$size -gt $$(($(X64_FLASH) - 0x1000)) ]; then \
+	    echo "x86_64: body is $$size bytes, past the flash image" >&2; exit 1; \
+	fi
+	$(NASM) -f bin -DFLASH_SIZE=$(X64_FLASH) -DFW_BASE=$(X64_FW_BASE) x86_64/reset/reset.asm -o $(1)/reset.bin
+	cp $(1)/body.bin $@.tmp
+	truncate -s $$(($(X64_FLASH) - 0x1000)) $@.tmp
+	cat $(1)/reset.bin >> $@.tmp
+	mv $@.tmp $@
+endef
+
+$(X64_FD): x86_64/core/start.asm x86_64/reset/reset.asm x86_64/link.ld $(X64_C) $(X64_H)
+	$(call X64_BUILD,build/x86_64,)
 
 arm/squirrel-bios.o: arm/squirrel-bios.S
 	$(AARCH64)as -o $@ $<
@@ -136,6 +172,10 @@ build/x86-pc/%/squirrel-bios.rom: x86/squirrel-bios.asm $(X86_SRCS) \
 		build/x86-pc/%/config.inc build/x86-pc/%/config.h
 	$(NASM) -f bin -DSQ_CONFIG -i $(@D)/ -i x86/ $< -o $@
 
+build/x86_64-uefi/%/squirrel-bios.fd: x86_64/core/start.asm x86_64/reset/reset.asm x86_64/link.ld \
+		$(X64_C) $(X64_H) build/x86_64-uefi/%/config.h
+	$(call X64_BUILD,$(@D)/obj,-DSQ_CONFIG -I$(@D))
+
 build/aarch64-virt/%/squirrel-bios.o: arm/squirrel-bios.S build/aarch64-virt/%/config.inc build/aarch64-virt/%/config.h
 	$(AARCH64)as --defsym SQ_CONFIG=1 -I $(@D) -o $@ $<
 build/aarch64-virt/%/squirrel-bios.elf: build/aarch64-virt/%/squirrel-bios.o
@@ -156,10 +196,12 @@ build/riscv64-virt/%/squirrel-bios.bin: build/riscv64-virt/%/squirrel-bios.elf
 
 # Each platform's default.cfg must build the same bytes as plain make
 .PHONY: config-default
-config-default: x86 arm riscv build/x86-pc/default/squirrel-bios.rom \
+config-default: x86 x86_64 arm riscv build/x86-pc/default/squirrel-bios.rom \
+		build/x86_64-uefi/default/squirrel-bios.fd \
 		build/aarch64-virt/default/squirrel-bios.bin build/riscv64-virt/default/squirrel-bios.bin \
 		build/riscv64-virt/small/squirrel-bios.bin build/x86-pc/minimal/squirrel-bios.rom
 	cmp $(X86_ROM) build/x86-pc/default/squirrel-bios.rom
+	cmp $(X64_FD) build/x86_64-uefi/default/squirrel-bios.fd
 	cmp $(ARM_BIN) build/aarch64-virt/default/squirrel-bios.bin
 	cmp $(RISCV_BIN) build/riscv64-virt/default/squirrel-bios.bin
 	@echo "config-default: default.cfg builds match plain make"
@@ -530,7 +572,7 @@ $(SRST_IMAGES:=.elf): %.elf: %.o
 $(SRST_IMAGES:=.bin): %.bin: %.elf
 	$(RISCV64)objcopy -O binary $< $@
 
-test: x86 arm riscv config-default $(TEST_BINS)
+test: x86 x86_64 arm riscv config-default $(TEST_BINS)
 	tests/smoke.sh
 
 # Optional, not part of make test: downloads an Ubuntu riscv64 kernel and
@@ -584,7 +626,7 @@ linux-stress: riscv
 	tests/linux-stress.sh
 
 clean:
-	rm -f $(X86_ROM) \
+	rm -f $(X86_ROM) $(X64_FD) \
 	      arm/squirrel-bios.o arm/squirrel-bios.elf $(ARM_BIN) \
 	      riscv/squirrel-bios.o riscv/squirrel-bios.elf $(RISCV_BIN)
 	rm -rf build

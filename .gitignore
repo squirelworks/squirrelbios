@@ -1,5 +1,6 @@
 # Build outputs
 x86/*.rom
+x86_64/*.fd
 arm/*.o
 arm/*.elf
 arm/*.bin

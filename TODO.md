@@ -401,6 +401,24 @@ roadmap item, run under QEMU in `make test`.
   standard VGA: 16- and 32-bit modes up to 1280x1024, linear frame buffer
   only (no banked windows, palette or protected-mode interface).
 
+## 15. Phase C1 — x86-64 UEFI-class firmware (v2.0.0-alpha, epic #82)
+
+`PLATFORM=x86_64-uefi`, in `x86_64/`: freestanding C with a NASM reset
+stub, a 1 MB flash image for `qemu-system-x86_64 -bios`. One PR each.
+
+- [x] `x86_64-reset` — reset vector to long mode (first 4 GB mapped 1:1
+  with 2 MB pages), the body copied from flash to RAM at 2 MB, COM1
+  console, CPU name, memory map from fw_cfg `etc/e820` (CMOS as a
+  fallback). Tests: `x86_64-uefi`, `-4g`, `-pc`.
+- [ ] `x86_64-boot-services` — system table, boot services core, memory
+  allocation and the UEFI memory map.
+- [ ] `x86_64-pe` — PE32+ loader, LoadImage/StartImage, a test app.
+- [ ] `x86_64-console` — Simple Text Input/Output.
+- [ ] `x86_64-fat` — Block I/O and a FAT32 Simple File System; boot
+  `\EFI\BOOT\BOOTX64.EFI`.
+- [ ] `x86_64-gop` — Graphics Output Protocol, runtime services,
+  ExitBootServices.
+
 ## Secondary track
 
 Open a PR for one of these when it helps; they are not the laundry list
