@@ -48,7 +48,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/riscv-numa.bin $(TEST_DIR)/riscv-aia.bin \
              $(TEST_DIR)/riscv-ras.bin
 
-.PHONY: all x86 arm riscv test config-default linux-shell linux-big linux-stress os-boot clean
+.PHONY: all x86 arm riscv test linux-shell linux-big linux-stress os-boot clean
 .DELETE_ON_ERROR:
 
 PLATFORMS := x86-pc aarch64-virt riscv64-virt
@@ -142,6 +142,7 @@ build/riscv64-virt/%/squirrel-bios.bin: build/riscv64-virt/%/squirrel-bios.elf
 	$(RISCV64)objcopy -O binary $< $@
 
 # Each platform's default.cfg must build the same bytes as plain make
+.PHONY: config-default
 config-default: x86 arm riscv build/x86-pc/default/squirrel-bios.rom \
 		build/aarch64-virt/default/squirrel-bios.bin build/riscv64-virt/default/squirrel-bios.bin \
 		build/riscv64-virt/small/squirrel-bios.bin
