@@ -26,7 +26,7 @@ qemu-system-i386 -bios squirrel-bios.rom -drive format=raw,file=boot.bin,if=ide 
   (`DL=0x80` / `0x81`, CHS / LBA)
 - `INT 15h` `AX=0x2400`–`0x2403` control and query the A20 gate
 - Places a SMBIOS 2.4 entry point at `0xFD000` (`smbios.inc`) and a
-  minimal ACPI 1.0 RSDP/RSDT/FADT at `0xFE000` (`acpi.inc`)
+  minimal ACPI 1.0 RSDP/RSDT/FADT/DSDT at `0xFE000` (`acpi.inc`)
 - Detects a Linux `bzImage` (`HdrS`), loads the whole PM kernel at 1 MB
   (any size that fits in RAM), fills boot_params (setup header, E820
   table, command line, `type_of_loader`) and enters it through the 32-bit
