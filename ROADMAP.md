@@ -149,20 +149,23 @@ with its `make test` case and contract update, exactly as in the
 Principles above. Squirrel-OS/2 booting on a target is the primary
 acceptance test; Linux and other OS loaders are secondary.
 
+✅ marks an item whose PRs have all merged. The same progress, item by
+item, is kept as a checklist on #82 (all phases) and #83 (phase B).
+
 ### Phase A — v1.1: make the tree modular (no behaviour change)
 
-- **A1 (v1.1.0) Build system and configs.** `make PLATFORM=<p>
+- ✅ **A1 (v1.1.0) Build system and configs.** `make PLATFORM=<p>
   CONFIG=<c>`; `configs/<platform>/<name>.cfg` (key=value) generates
   `build/<p>/config.inc` / `config.h`. Platforms: `x86-pc` (today's ROM),
   `aarch64-virt`, `riscv64-virt`. Default `make` builds all three exactly
   as today. Test: `make test` count unchanged, and the `x86-pc/default`
   ROM is byte-for-byte v1.0.0's ROM (or a documented, intentional diff).
-- **A2 (v1.1.1) Split x86 into modules.** `x86/core/` (reset, POST,
+- ✅ **A2 (v1.1.1) Split x86 into modules.** `x86/core/` (reset, POST,
   IVT), `drivers/ata/`, `drivers/vga/`, `drivers/kbd8042/`,
   `drivers/rtc/`, `tables/acpi/`, `tables/smbios/`, `boot/`, each
   guarded by `CONFIG_*`. Test: a `CONFIG=minimal` ROM boots the
   `x86-boot` test.
-- **A3 (v1.1.2) v1.0.0 follow-ups (#84).** bzImage loader for kernels
+- ✅ **A3 (v1.1.2) v1.0.0 follow-ups (#84).** bzImage loader for kernels
   over 64 KB; `boot_params` gets the E820 table, command line and
   `type_of_loader`; slave detection uses fresh status reads; `INT 13h
   AH=08h` fails for absent drives. Test: an `x86-slave-absent` case and a
@@ -170,22 +173,22 @@ acceptance test; Linux and other OS loaders are secondary.
 
 ### Phase B — v1.2–v1.4: storage and I/O on x86 legacy (#83)
 
-- **B1 (v1.2.0) Floppy.** 82077 FDC driver, `INT 13h` `DL=00h/01h`
+- ✅ **B1 (v1.2.0) Floppy.** 82077 FDC driver, `INT 13h` `DL=00h/01h`
   read/write, `INT 1Eh` diskette parameter table, boot from `-fda`.
   Test: boot a 1.44 MB Squirrel-OS/2 `floppy.img`; read/write/verify.
-- **B2 (v1.2.1) PCI enumeration.** Config mechanism #1, bus scan, BAR
+- ✅ **B2 (v1.2.1) PCI enumeration.** Config mechanism #1, bus scan, BAR
   sizing, `$PIR` routing table, PCI BIOS `INT 1Ah AX=B1xx`. Test:
   enumerate QEMU `i440fx` and `q35`; `B101h` returns `"PCI "`.
-- **B3 (v1.2.2) EDD 3.0 and LBA48.** `INT 13h AH=41h/42h/43h/48h`, disks
+- ✅ **B3 (v1.2.2) EDD 3.0 and LBA48.** `INT 13h AH=41h/42h/43h/48h`, disks
   over 8 GB, El Torito no-emulation boot over ATAPI. Test: a 16 GB disk;
   an ISO with `-cdrom`.
-- **B4 (v1.3.0) AHCI/SATA.** HBA init, port reset, READ/WRITE DMA EXT,
+- ✅ **B4 (v1.3.0) AHCI/SATA.** HBA init, port reset, READ/WRITE DMA EXT,
   `INT 13h` on top. Test: `-machine q35` AHCI disk boots Squirrel-OS/2.
-- **B5 (v1.3.1) NVMe.** Admin and one I/O queue pair, Identify,
+- ✅ **B5 (v1.3.1) NVMe.** Admin and one I/O queue pair, Identify,
   Read/Write, `INT 13h` on top. Test: `-device nvme` boots.
-- **B6 (v1.4.0) USB host controllers.** UHCI, OHCI, EHCI, xHCI (in that
+- ✅ **B6 (v1.4.0) USB host controllers.** UHCI, OHCI, EHCI, xHCI (in that
   order, one PR each), enumeration, hubs.
-- **B7 (v1.4.1) USB HID with legacy emulation.** Keyboard feeds
+- ✅ **B7 (v1.4.1) USB HID with legacy emulation.** Keyboard feeds
   `INT 16h` and the BDA buffer; mouse feeds `INT 15h C2xx`. Test:
   `-device usb-kbd` with scripted keys.
 - **B8 (v1.4.2) USB mass storage boot** (BOT, then UAS). Test:
