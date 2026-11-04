@@ -28,6 +28,8 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/x86-slave.bin $(TEST_DIR)/x86-acpi.bin \
              $(TEST_DIR)/x86-smbios.bin $(TEST_DIR)/x86-bzimage.bin \
              $(TEST_DIR)/x86-optrom.bin \
+             $(TEST_DIR)/x86-bzimage-big.bin $(TEST_DIR)/x86-bzimage-toobig.bin \
+             $(TEST_DIR)/x86-params.bin $(TEST_DIR)/x86-params-slave.bin \
              $(TEST_DIR)/arm-kernel.bin $(TEST_DIR)/arm-too-big.bin \
              $(TEST_DIR)/arm-image-fixed.bin $(TEST_DIR)/arm-image-reloc.bin \
              $(TEST_DIR)/arm-image-short.bin $(TEST_DIR)/arm-initrd.img \
@@ -45,7 +47,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/riscv-numa.bin $(TEST_DIR)/riscv-aia.bin \
              $(TEST_DIR)/riscv-ras.bin
 
-.PHONY: all x86 arm riscv test linux-shell linux-big linux-stress os-boot clean
+.PHONY: all x86 arm riscv test linux-shell linux-x86 linux-big linux-stress os-boot clean
 .DELETE_ON_ERROR:
 
 all: x86 arm riscv
@@ -160,6 +162,19 @@ $(TEST_DIR)/x86-smbios.bin: tests/x86-smbios.asm | $(TEST_DIR)
 # Minimal bzImage (HdrS) with a 32-bit payload at 1 MB
 $(TEST_DIR)/x86-bzimage.bin: tests/x86-bzimage.asm | $(TEST_DIR)
 	$(NASM) -f bin $< -o $@
+
+# The same with a 300 KB payload (past the old 64 KB limit), and one
+# whose syssize claims 64 MB so the firmware must refuse it
+$(TEST_DIR)/x86-bzimage-big.bin: tests/x86-bzimage.asm | $(TEST_DIR)
+	$(NASM) -f bin -DBIG $< -o $@
+$(TEST_DIR)/x86-bzimage-toobig.bin: tests/x86-bzimage.asm | $(TEST_DIR)
+	$(NASM) -f bin -DTOOBIG $< -o $@
+
+# INT 13h AH=08h with the slave absent, and with a slave present
+$(TEST_DIR)/x86-params.bin: tests/x86-params.asm | $(TEST_DIR)
+	$(NASM) -f bin $< -o $@
+$(TEST_DIR)/x86-params-slave.bin: tests/x86-params.asm | $(TEST_DIR)
+	$(NASM) -f bin -DSLAVE $< -o $@
 
 # Legacy option ROM (55 AA); last byte patched so the 512-byte sum is 0
 $(TEST_DIR)/x86-optrom.bin: tests/x86-optrom.asm | $(TEST_DIR)
@@ -360,6 +375,12 @@ test: all $(TEST_BINS)
 # busybox into build/linux (about 40 MB, once) and checks for a shell prompt
 linux-shell: riscv
 	tests/linux-shell.sh
+
+# Optional, not part of make test: downloads Ubuntu 24.04's amd64 kernel
+# into build/linux-x86 (about 15 MB, once), boots its bzImage from an IDE
+# disk and checks that it starts with the firmware's E820 map
+linux-x86: x86
+	tests/linux-x86.sh
 
 # Optional, not part of make test. OS_IMG is a Squirrel-OS/2 hard-disk
 # image (that repo's build/os.img). The OS banner is on the VGA, so the
