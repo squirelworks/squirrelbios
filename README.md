@@ -70,6 +70,8 @@ boots each firmware under QEMU with a small stand-in OS image from
 | `x86-mem-high` | With `-m 5120`, the map has a non-empty usable entry at 4 GB (CMOS `0x5B`–`0x5D`) |
 | `x86-floppy` | A 1.44 MB diskette in A: boots first with `DL = 0x00`; its boot sector checks `INT 13h` `AH=0x15`/`0x08`/`0x02`/`0x03` (multi-sector reads across heads, a write read back, a sector past the track refused) and `INT 1Eh` |
 | `x86-floppy-nosig` | A diskette without `0xAA55` is reported, then the hard disk boots |
+| `x86-pci` | On i440fx with a virtio-rng: `INT 1Ah` `B101` returns `'PCI '`, `B102`/`B103` find devices by ID and class, POST placed I/O, 32-bit and 64-bit memory BARs and enabled decoding, INTA's Interrupt Line matches the PIIX3 route, config writes read back, and `$PIR` checks out |
+| `x86-pci-q35` | The same on q35, booting from a PIIX3 IDE card; Interrupt Line is `0xFF` there |
 | `x86-atapi` | With a CD-ROM as primary master, the firmware reports ATAPI and halts |
 | `x86-bad-sector` | A sector without the `0xAA55` signature is reported and not jumped to |
 | `x86-extra` | An SQBL header in the boot sector gets its extra sectors loaded before the jump |

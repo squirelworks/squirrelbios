@@ -23,6 +23,9 @@ entry:
 %if CONFIG_FLOPPY
     call fdc_bda_init
 %endif
+%if CONFIG_PCI
+    call pci_init
+%endif
 %if CONFIG_SMBIOS
     call smbios_init
 %endif

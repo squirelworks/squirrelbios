@@ -16,7 +16,7 @@ If the firmware and this file disagree, the firmware has a bug.
 | Console | COM1 `0x3F8`, 115200 8N1 | PL011 `0x09000000` | NS16550A `0x10000000`, 115200 8N1 |
 | Interrupts | `IF = 0`; PIT/PIC programmed, IRQ0 unmasked | `DAIF` masked | `mstatus.MIE`/`SIE` = 0, `mie = 0` |
 | CPUs running | Boot CPU only | Boot CPU only | The boot hart (`fw_dynamic_info.boot_hart`, else hart 0); others through `sbi_hart_start` |
-| Firmware services | `INT 13h` `AH=00/02/03/08/42/43` (diskettes `00/02/03/08/15`), `INT 10h` `AH=02/03/06/07/0E/0F`, `INT 15h` `E820`/`AX=2400..2403`, `INT 16h` `AH=00/01`, `INT 1Ah` `AH=00/02` | None | SBI from S-mode: base, TIME, IPI, RFENCE, HSM, SRST |
+| Firmware services | `INT 13h` `AH=00/02/03/08/42/43` (diskettes `00/02/03/08/15`), `INT 10h` `AH=02/03/06/07/0E/0F`, `INT 15h` `E820`/`AX=2400..2403`, `INT 16h` `AH=00/01`, `INT 1Ah` `AH=00/02`, PCI BIOS `AX=B101/B102/B103/B108..B10D` | None | SBI from S-mode: base, TIME, IPI, RFENCE, HSM, SRST |
 
 ## Rules for every architecture
 
@@ -44,7 +44,8 @@ The OS must not assume:
    or get the cursor, `AH = 0x06`/`0x07` scroll, and `AH = 0x0F` reports
    the 80x25 mode. `INT 16h` `AH = 0x00` and `0x01` read or check the
    keyboard buffer. `INT 1Ah` `AH = 0x00` returns the tick count;
-   `AH = 0x02` reads the RTC time in BCD. Any other function on those
+   `AH = 0x02` reads the RTC time in BCD; `AH = 0xB1` is the PCI BIOS
+   (real mode). Any other function on those
    vectors returns with CF set (`INT 16h` check uses ZF instead). No
    other software interrupt is serviced. No UEFI. Anything else the OS
    needs, it drives itself.
@@ -209,6 +210,32 @@ ISA DMA channel 2 with IRQ 6 left masked. `INT 1Eh` points at an
 
 The last diskette status is kept at `0x0441`. Other `AH`, or a drive CMOS
 does not report, returns CF set and `AH = 0x01`.
+
+**PCI.** At POST the firmware walks bus 0 through configuration
+mechanism #1 (`0xCF8`/`0xCFC`); bridges are not followed yet. Every
+memory BAR gets an address from `0xE0000000` up and every I/O BAR a port
+from `0xC000` up, each aligned to its size; 64-bit BARs go below 4 GB.
+Memory and I/O decoding are turned on for the functions that got one;
+expansion ROM BARs stay off. On i440fx the PIIX3 (00:01.0) routes PIRQA–D
+to IRQ 10, 10, 11, 11, level-triggered in the ELCR, and each function's
+Interrupt Line holds the IRQ its pin reaches (device `d`, INTx: PIRQ
+`(d − 1 + x − 1) mod 4`). Without a PIIX3 (q35) Interrupt Line is
+`0xFF`. A `$PIR` table for the PIIX3 sits on a 16-byte boundary in
+`0xF0000`–`0xFFFFF`.
+
+| PCI BIOS call (`INT 1Ah`) | Result |
+|------|--------|
+| `AX = 0xB101` | Installation check: `AH = 0`, `AL = 0x01` (mechanism #1), `BX = 0x0210` (2.10), `CL = 0` (last bus), `EDX = 'PCI '`. CF clear. |
+| `AX = 0xB102` | Find device `CX` (device ID) of vendor `DX`, the `SI`'th match from 0: `BH` = bus, `BL` = device << 3 \| function. |
+| `AX = 0xB103` | Find class code `ECX` bits 23–0, the `SI`'th match: `BH`, `BL` as above. |
+| `AX = 0xB108` / `0xB109` / `0xB10A` | Read the configuration byte / word / dword at register `DI` of `BH`/`BL` into `CL` / `CX` / `ECX`. |
+| `AX = 0xB10B` / `0xB10C` / `0xB10D` | Write `CL` / `CX` / `ECX` there. |
+
+CF clear and `AH = 0` on success. Otherwise CF set and `AH` = `0x81`
+(function not supported, including `0xB106`, `0xB10E`, `0xB10F`),
+`0x83` (vendor `0xFFFF`), `0x86` (device not found) or `0x87` (register
+above `0xFF`, or not aligned to the access size). There is no BIOS32
+(`_32_`) protected-mode entry.
 
 At POST the firmware selects each unit and sends `IDENTIFY DEVICE`, so
 presence is judged from the status that command produces, not from

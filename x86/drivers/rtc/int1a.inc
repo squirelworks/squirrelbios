@@ -3,8 +3,13 @@
 
 ; INT 1Ah: AH=0x00 read ticks (CX:DX, AL = midnight flag then clear it);
 ; AH=0x02 read RTC time in BCD (CH=hours, CL=minutes, DH=seconds, DL=0).
+; AH=0xB1 is the PCI BIOS (drivers/pci/int1apci.inc) when CONFIG_PCI.
 ; Other AH -> CF set. Stacked frame: [bp+2]=IP, [bp+4]=CS, [bp+6]=FLAGS.
 int1a_handler:
+%if CONFIG_PCI
+    cmp ah, 0xB1
+    je pci_int1a
+%endif
     push bp
     mov bp, sp
     cmp ah, 0x00
