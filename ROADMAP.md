@@ -271,7 +271,10 @@ The older polish items stay valid and fold into Phase D when it starts:
 - A full SVGA option-ROM replacement (VBE linear-framebuffer modes in B10
   are in scope).
 - Committing firmware or OS images. Release images go only on GitHub
-  Releases, and only Squirrel tags or publishes.
+  Releases, and only Squirrel tags or publishes. The "Draft release"
+  workflow (Actions tab, run by Squirrel) builds and tests a commit and
+  leaves a draft release with the images and `release-notes/v<version>.md`;
+  publishing the draft creates the tag.
 
 UEFI-class interfaces and boards other than the QEMU machines used to be
 listed here. Epic #82 moves both in scope, staged as Phases C and D.
