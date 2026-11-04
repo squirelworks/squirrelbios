@@ -8,6 +8,7 @@
 | `x86-pc` | `squirrel-bios.rom` | QEMU PC (`-bios`) |
 | `aarch64-virt` | `squirrel-bios.bin` | QEMU AArch64 `virt` (`-bios`) |
 | `riscv64-virt` | `squirrel-bios.bin` | QEMU RISC-V `virt` (`-bios`) |
+| `x86_64-uefi` | `squirrel-bios.fd` | QEMU q35 or PC, 64-bit (`qemu-system-x86_64 -bios`) |
 
 A `.cfg` file is `KEY=VALUE` lines; `#` starts a comment line. Keys are
 `CONFIG_*`; values are decimal or `0x` hex numbers, or `y` / `n` (1 / 0).
@@ -46,6 +47,14 @@ platform's `default.cfg` writes the defaults out, and `make test`
 `x86-pc/minimal.cfg` turns the four modules off. `make test` boots it
 (`config-x86-minimal`) and checks that it really has no ACPI tables
 (`config-x86-minimal-noacpi`). The ROM stays 64 KB; the space is padding.
+
+### x86_64-uefi
+
+| Key | Default | Meaning |
+|---|---|---|
+| `CONFIG_COM1_BASE` | `0x3F8` | I/O port of the serial console |
+
+The C sources include `config.h` when built with `-DSQ_CONFIG`.
 
 ### aarch64-virt
 

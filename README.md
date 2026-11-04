@@ -9,6 +9,8 @@ the v0.3.0 hand-off contract. See [ROADMAP.md](ROADMAP.md),
 ```
 x86/        64 KB ROM — PC BIOS: ATA boot, INT 10h/13h/15h/16h/1Ah, ACPI, SMBIOS
             (core/, boot/, drivers/, tables/ modules)
+x86_64/     1 MB flash image — x86-64 UEFI-class firmware in progress (roadmap C1):
+            reset to long mode, memory map from fw_cfg (C and NASM)
 arm/        AArch64 QEMU virt — PL011 banner + fw_cfg kernel load, DTB in x0
 riscv/      RISC-V QEMU virt — UART banner + S-mode entry to -kernel, DTB in a1, SBI
 tests/      stand-in OS images and smoke tests (make test)
@@ -25,20 +27,22 @@ TODO.md     small tasks, one per PR
 ```bash
 make          # all
 make x86
+make x86_64
 make arm
 make riscv
 make clean    # remove all build and test outputs
 
 make PLATFORM=x86-pc CONFIG=default        # build/x86-pc/default/squirrel-bios.rom
 make PLATFORM=riscv64-virt CONFIG=small    # build/riscv64-virt/small/squirrel-bios.bin
+make PLATFORM=x86_64-uefi CONFIG=default   # build/x86_64-uefi/default/squirrel-bios.fd
 ```
 
-`PLATFORM` is `x86-pc`, `aarch64-virt` or `riscv64-virt`, and `CONFIG`
+`PLATFORM` is `x86-pc`, `x86_64-uefi`, `aarch64-virt` or `riscv64-virt`, and `CONFIG`
 names a file in `configs/<platform>/` (default `default`). Plain `make`
 builds the same bytes as each platform's `default.cfg`; `make test`
 checks that. Keys and format: [configs/README.md](configs/README.md).
 
-Requires: `nasm`, `aarch64-linux-gnu-as`/`ld`/`objcopy`, `riscv64-linux-gnu-as`/`ld`/`objcopy`.
+Requires: `nasm`, a host `gcc` that targets x86-64 (`CC64`), `aarch64-linux-gnu-as`/`ld`/`objcopy`, `riscv64-linux-gnu-as`/`ld`/`objcopy`.
 Other cross prefixes work too: `make AARCH64=aarch64-elf- RISCV64=riscv64-elf-`.
 
 ## Test
@@ -140,8 +144,11 @@ boots each firmware under QEMU with a small stand-in OS image from
 | `config-x86-minimal` | The `x86-pc/minimal` build boots the `x86-boot` image with every hand-off check |
 | `config-x86-minimal-noacpi` | The same build has no RSDP (the `x86-acpi` image prints `acpi=bad`) |
 | `config-riscv-small` | The `riscv64-virt/small` build (8 harts tracked) boots the `riscv-boot` image |
+| `x86_64-uefi` | The x86-64 firmware on q35: from the reset vector to long mode, its body copied to RAM at 2 MB, the CPU named, and the memory map read from QEMU's fw_cfg (128 MB) |
+| `x86_64-uefi-4g` | The same with `-m 4G`: RAM below the PCI hole and above 4 GB, 4096 MB in all |
+| `x86_64-uefi-pc` | The same firmware on i440fx |
 
-Needs `qemu-system-i386`, `qemu-system-aarch64` and `qemu-system-riscv64`.
+Needs `qemu-system-i386`, `qemu-system-x86_64`, `qemu-system-aarch64` and `qemu-system-riscv64`.
 Serial logs are kept in `build/tests/*.log`. `SMOKE_TIMEOUT` (seconds,
 default 10) sets how long each case may take. A case can also require
 QEMU to exit by itself with a given status (`@exit=N` in `tests/smoke.sh`).
@@ -231,6 +238,9 @@ qemu-system-i386 -bios x86/squirrel-bios.rom -drive format=raw,file=boot.bin,if=
 # tests/os-boot.sh checks them; it is not part of make test.
 qemu-system-i386 -bios x86/squirrel-bios.rom -drive format=raw,file=os.img,if=ide -serial stdio
 tests/os-boot.sh path/to/os.img
+
+# x86-64 UEFI-class firmware (in progress: it stops after the memory map)
+qemu-system-x86_64 -M q35 -bios x86_64/squirrel-bios.fd -serial stdio
 
 # AArch64 (image linked at 0x40200000)
 qemu-system-aarch64 -M virt -cpu cortex-a57 -nographic -bios arm/squirrel-bios.bin -kernel image.bin
