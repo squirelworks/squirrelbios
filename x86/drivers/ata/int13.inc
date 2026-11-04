@@ -30,7 +30,114 @@ int13_handler:
     je .read_ext
     cmp ah, 0x43
     je .write_ext
+    cmp ah, 0x41
+    je .edd_check
+    cmp ah, 0x44
+    je .verify_ext
+    cmp ah, 0x47
+    je .verify_ext              ; seek: nothing to move, same checks
+    cmp ah, 0x48
+    je .edd_params
     jmp .invalid
+
+; AH=41h, BX=55AAh: EDD 3.0 with the fixed disk access subset
+; (42h, 43h, 44h, 47h, 48h).
+.edd_check:
+    cmp word [bp + 16], 0x55AA
+    jne .invalid
+    call disk_set_dev
+    jc .invalid
+    call disk_present
+    jc .invalid
+    mov word [bp + 16], 0xAA55
+    mov byte [bp + 29], EDD_VERSION
+    mov word [bp + 24], EDD_SUBSET_FIXED
+    and word [bp + 36], 0xFFFE
+    jmp .out
+
+; AH=44h verify / AH=47h seek: the packet must name sectors that exist.
+.verify_ext:
+    call disk_parse_packet
+    jc .invalid
+    call disk_present
+    jc .invalid
+    push edx
+    push eax
+    call ata_capacity           ; EDX:EAX = sectors on the disk
+    pop ecx                     ; first LBA
+    jc .verify_gone
+    pop ebx                     ; buffer (unused)
+    test edx, edx
+    jnz .verify_ok              ; 2^32 sectors or more: any 32-bit LBA
+    movzx ebx, word [si + 2]
+    add ebx, ecx
+    jc .notfound
+    cmp ebx, eax
+    ja .notfound
+.verify_ok:
+    mov byte [bp + 29], ST_OK
+    and word [bp + 36], 0xFFFE
+    jmp .out
+.verify_gone:
+    pop ebx
+    jmp .notready
+
+; AH=48h: drive parameters into the caller's buffer at DS:SI.
+.edd_params:
+    call disk_set_dev
+    jc .invalid
+    call disk_present
+    jc .invalid
+    mov ax, [si]                ; buffer size the caller offers
+    cmp ax, 0x1A
+    jb .invalid
+    call ata_capacity
+    jc .notready
+    mov [si + 16], eax          ; total sectors
+    mov [si + 20], edx
+    mov word [si + 2], 0        ; flags: CHS below is the INT 13h
+    mov dword [si + 4], 1024    ; translation, not the drive's own
+    mov dword [si + 8], DISK_HEADS
+    mov dword [si + 12], DISK_SPT
+    mov word [si + 24], 512
+    mov cx, 0x1A
+    cmp word [si], 0x1E
+    jb .params_size
+    mov dword [si + 26], 0xFFFFFFFF ; no DPTE
+    mov cx, 0x1E
+    cmp word [si], 0x42
+    jb .params_size
+    mov word [si + 0x1E], 0xBEDD    ; device path key
+    mov byte [si + 0x20], 0x24      ; its length, from the key
+    mov byte [si + 0x21], 0
+    mov word [si + 0x22], 0
+    mov dword [si + 0x24], 'ISA '   ; host bus: legacy ports
+    mov dword [si + 0x28], 'ATA '
+    mov dword [si + 0x2C], '    '
+    mov dword [si + 0x30], ATA_DATA ; interface path: base port
+    mov dword [si + 0x34], 0
+    xor eax, eax
+    cmp byte [ss:ATA_DEVSEL], ATA_SEL_SLAVE
+    jne .params_path
+    inc ax
+.params_path:
+    mov [si + 0x38], eax            ; device path: 0 master, 1 slave
+    mov dword [si + 0x3C], 0
+    mov word [si + 0x40], 0
+    xor al, al                      ; checksum over 1Eh-41h
+    mov bx, 0x1E
+.params_sum:
+    sub al, [si + bx]
+    inc bx
+    cmp bx, 0x41
+    jb .params_sum
+    mov [si + 0x41], al
+    mov cx, 0x42
+.params_size:
+    mov [si], cx
+    mov byte [bp + 29], ST_OK
+    and word [bp + 36], 0xFFFE
+    jmp .out
 
 .reset:
     call disk_set_dev
@@ -216,6 +323,11 @@ int13_handler:
     or word [bp + 36], 1
     jmp .out
 
+.notready:
+    mov byte [bp + 29], ST_NOTREADY
+    or word [bp + 36], 1
+    jmp .out
+
 .notfound:
     mov byte [bp + 28], 0
     mov byte [bp + 29], ST_NOTFOUND
@@ -271,13 +383,33 @@ disk_set_dev:
     clc
     ret
 
-; Parse a 16-byte disk address packet at DS:SI.
+; CF clear if the unit ATA_DEVSEL names answered IDENTIFY at POST.
+; Keeps every register but the flags.
+disk_present:
+    push ax
+    mov al, 1
+    cmp byte [ss:ATA_DEVSEL], ATA_SEL_SLAVE
+    jne .bit
+    mov al, 2
+.bit:
+    test [ss:ATA_PRESENT], al
+    pop ax
+    jz .absent
+    clc
+    ret
+.absent:
+    stc
+    ret
+
+; Parse a disk address packet at DS:SI (size 10h or more; the 64-bit
+; flat buffer of a larger packet is not used). The LBA's upper dword
+; must be 0: disks up to 2 TB.
 ; Out: CF clear, EAX = LBA, CL = count, EDX = linear buffer; CF set if bad.
 disk_parse_packet:
     call disk_set_dev
     jc .bad
     cmp byte [si], 0x10
-    jne .bad
+    jb .bad
     movzx ecx, word [si + 2]
     test cx, cx
     jz .bad
@@ -286,8 +418,6 @@ disk_parse_packet:
     cmp dword [si + 12], 0
     jne .bad
     mov eax, [si + 8]
-    test eax, 0xF0000000
-    jnz .bad
     movzx edx, word [si + 6]
     shl edx, 4
     movzx ebx, word [si + 4]

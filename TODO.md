@@ -360,6 +360,7 @@ roadmap item, run under QEMU in `make test`.
   Bus 0 only; still open: numbering and scanning behind PCI-to-PCI
   bridges, q35 (ICH9) interrupt routing, and a BIOS32 entry.
 - [ ] `x86-edd` — `INT 13h` EDD 3.0, LBA48, El Torito over ATAPI.
+  EDD 3.0 (`AH=41h/44h/47h/48h`) and LBA48 are done; El Torito is next.
 - [ ] `x86-ahci` — AHCI/SATA with `INT 13h` on top. Depends on:
   `x86-pci`.
 - [ ] `x86-nvme` — NVMe with `INT 13h` on top. Depends on: `x86-pci`.

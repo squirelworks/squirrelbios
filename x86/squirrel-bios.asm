@@ -127,6 +127,8 @@ CTRL_SRST       equ 0x04
 CMD_READ_SECTORS  equ 0x20
 CMD_WRITE_SECTORS equ 0x30
 CMD_IDENTIFY      equ 0xEC
+CMD_READ_EXT      equ 0x24      ; READ SECTORS EXT (LBA48)
+CMD_WRITE_EXT     equ 0x34      ; WRITE SECTORS EXT
 
 ATA_TIMEOUT     equ 0x00400000  ; status polls before giving up
 ATA_ATTEMPTS    equ CONFIG_ATA_ATTEMPTS
@@ -190,6 +192,8 @@ ST_RESET        equ 0x05
 ST_PARAMS       equ 0x07        ; drive parameter activity failed
 ST_TIMEOUT      equ 0x80
 ST_NOTREADY     equ 0xAA
+EDD_VERSION     equ 0x30        ; INT 13h AH=41h: EDD 3.0
+EDD_SUBSET_FIXED equ 0x0001     ; 42h, 43h, 44h, 47h, 48h
 
 VGA_SEG         equ 0xB800
 VGA_LINE        equ 160         ; bytes per 80-column text row

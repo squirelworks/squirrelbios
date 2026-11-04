@@ -16,7 +16,7 @@ If the firmware and this file disagree, the firmware has a bug.
 | Console | COM1 `0x3F8`, 115200 8N1 | PL011 `0x09000000` | NS16550A `0x10000000`, 115200 8N1 |
 | Interrupts | `IF = 0`; PIT/PIC programmed, IRQ0 unmasked | `DAIF` masked | `mstatus.MIE`/`SIE` = 0, `mie = 0` |
 | CPUs running | Boot CPU only | Boot CPU only | The boot hart (`fw_dynamic_info.boot_hart`, else hart 0); others through `sbi_hart_start` |
-| Firmware services | `INT 13h` `AH=00/02/03/08/42/43` (diskettes `00/02/03/08/15`), `INT 10h` `AH=02/03/06/07/0E/0F`, `INT 15h` `E820`/`AX=2400..2403`, `INT 16h` `AH=00/01`, `INT 1Ah` `AH=00/02`, PCI BIOS `AX=B101/B102/B103/B108..B10D` | None | SBI from S-mode: base, TIME, IPI, RFENCE, HSM, SRST |
+| Firmware services | `INT 13h` `AH=00/02/03/08/41/42/43/44/47/48` (diskettes `00/02/03/08/15`), `INT 10h` `AH=02/03/06/07/0E/0F`, `INT 15h` `E820`/`AX=2400..2403`, `INT 16h` `AH=00/01`, `INT 1Ah` `AH=00/02`, PCI BIOS `AX=B101/B102/B103/B108..B10D` | None | SBI from S-mode: base, TIME, IPI, RFENCE, HSM, SRST |
 
 ## Rules for every architecture
 
@@ -37,6 +37,8 @@ The OS must not assume:
    `EAX = 0xE820` returns the memory map. `INT 13h` `AH = 0x00`, `0x02`,
    `0x08` and `0x42` read the primary master (`DL = 0x80`) or primary
    slave (`DL = 0x81`); `AH = 0x03` and `0x43` write the same drives.
+   `AH = 0x41`, `0x44`, `0x47` and `0x48` are the rest of EDD 3.0's
+   fixed disk access subset.
    With `DL = 0x00` / `0x01`, `INT 13h` `AH = 0x00`, `0x02`, `0x03`,
    `0x08` and `0x15` work on 1.44 MB diskettes in A: / B:.
    `INT 10h` `AH = 0x0E`
@@ -162,8 +164,11 @@ The boot sector's calls, which the firmware serves on every path:
 
 | Call | Behaviour |
 |------|-----------|
-| `INT 13h` `AH = 0x42` | Extended read. `DS:SI` points at a 16-byte disk address packet (size byte `0x10`, reserved, word count 1–128, word offset, word segment, qword LBA). The buffer must lie entirely below `0xA0000`. The LBA must fit in 28 bits. CF clear and `AH = 0` on success. |
-| `INT 13h` `AH = 0x43` | Extended write. Same packet rules as `AH = 0x42`. CF clear and `AH = 0` on success. |
+| `INT 13h` `AH = 0x42` | Extended read. `DS:SI` points at a 16-byte disk address packet (size byte `0x10` or more, reserved, word count 1–128, word offset, word segment, qword LBA; the 64-bit flat buffer of a larger packet is not used). The buffer must lie entirely below `0xA0000`. The LBA's upper dword must be 0 (disks up to 2 TB). A range that reaches sector 2^28 (128 GiB) or beyond goes to the drive as `READ SECTORS EXT` (LBA48), anything below as LBA28. CF clear and `AH = 0` on success. |
+| `INT 13h` `AH = 0x43` | Extended write. Same packet rules as `AH = 0x42` (`WRITE SECTORS EXT` past 2^28). CF clear and `AH = 0` on success. |
+| `INT 13h` `AH = 0x41` | EDD installation check: with `BX = 0x55AA` and a drive that answered at POST, CF clear, `BX = 0xAA55`, `AH = 0x30` (EDD 3.0), `CX = 0x0001` (fixed disk access subset: `42h`, `43h`, `44h`, `47h`, `48h`). Otherwise CF set, `AH = 0x01`. |
+| `INT 13h` `AH = 0x44` / `0x47` | Verify / seek. Same packet rules as `AH = 0x42`; nothing is transferred or moved. CF clear and `AH = 0` when every sector named is on the disk, CF set and `AH = 0x04` when not. |
+| `INT 13h` `AH = 0x48` | Drive parameters into the buffer at `DS:SI`, whose first word is its size (`0x1A` or more). Fills total sectors (a qword, from `IDENTIFY DEVICE`: words 100–103 with LBA48, else 60–61), 512 bytes per sector, and the INT 13h CHS translation (1024 / 16 / 63, flags `0`: not the drive's own geometry). With `0x1E` or more, the DPTE pointer is `FFFF:FFFF` (none). With `0x42` or more, the EDD 3.0 device path: key `0xBEDD`, length `0x24`, host bus `ISA `, interface `ATA     `, base port `0x1F0`, device 0 (master) or 1 (slave), checksum. The size word is set to `0x1A`, `0x1E` or `0x42` to match. A buffer under `0x1A`: CF set, `AH = 0x01`. |
 | `INT 13h` `AH = 0x08` | Drive parameters for `DL = 0x80` or `0x81`. CF clear, `AH = 0`, `DH = 15` (16 heads), `CL` bits 5–0 `= 63` (sectors per track), `CH = 0xFF` and `CL` bits 7–6 `= 3` (1023 cylinders), `DL` = number of hard disks that answered `IDENTIFY` at POST (1 or 2). `ES:DI` and `BL` are left alone. A drive that did not answer: CF set, `AH = 0x07`. |
 | `INT 13h` `AH = 0x02` | CHS read of `AL` sectors (1–128) to `ES:BX`, using that same geometry. Cylinder is `CH` plus `CL` bits 7–6, sector is `CL` bits 5–0, head is `DH`. CF clear, `AH = 0`, `AL` unchanged on success. |
 | `INT 13h` `AH = 0x03` | CHS write of `AL` sectors from `ES:BX`, same geometry and status rules as `AH = 0x02`. |
