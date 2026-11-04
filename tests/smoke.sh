@@ -118,7 +118,7 @@ run x86-extra "OS-ENTRY x86 extra dl=ok memmap=ok payload=ok" \
     -drive format=raw,file=$TEST_DIR/x86-extra.bin,if=ide
 
 # x86: SQBL loads that would land on the memory map or the boot sector,
-# or run past the EBDA (0x9F000), are refused before anything is read or jumped to
+# or run past the EBDA (0x9B000), are refused before anything is read or jumped to
 run x86-extra-map "disk: load overlaps firmware data|boot halted|!OS-ENTRY" \
     "$QEMU_X86" -bios x86/squirrel-bios.rom \
     -drive format=raw,file=$TEST_DIR/x86-extra-map.bin,if=ide

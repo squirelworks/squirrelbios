@@ -11,7 +11,7 @@
 ;   (none)          3 sectors at 0x1000:0x0010 (linear 0x10010)
 ;   OVERLAP_MAP     1 sector at 0x0000:0x0400, runs into 0x0500
 ;   OVERLAP_BOOT    8 sectors at 0x0700:0x0000, runs into 0x7C00
-;   OUT_OF_RANGE    2 sectors at 0x9000:0xFE00, runs into the EBDA
+;   OUT_OF_RANGE    2 sectors at 0x9000:0xAE00, runs into the EBDA (0x9B000)
 
 BITS 16
 
@@ -29,7 +29,7 @@ LOAD_OFF    equ 0x0000
 COUNT       equ 8
 %elifdef OUT_OF_RANGE
 LOAD_SEG    equ 0x9000
-LOAD_OFF    equ 0xFE00
+LOAD_OFF    equ 0xAE00
 COUNT       equ 2
 %else
 LOAD_SEG    equ 0x1000
