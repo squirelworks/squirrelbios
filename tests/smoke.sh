@@ -236,6 +236,18 @@ run x86-optrom "SquirrelBIOS x86|optrom=ok|OS-ENTRY x86 dl=ok" \
     -device loader,file=$TEST_DIR/x86-optrom.bin,addr=0xD0000,force-raw=on \
     -drive format=raw,file=$TEST_DIR/x86-one-sector.bin,if=ide
 
+# x86: a 1.44 MB diskette in A: boots first, with DL = 0x00, and its boot
+# sector reads, writes and sizes the diskette through INT 13h
+run x86-floppy "SquirrelBIOS x86|booting from floppy A:|OS-ENTRY x86 floppy floppy=ok|!floppy=bad" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -drive format=raw,file=$TEST_DIR/x86-floppy.img,if=floppy
+
+# x86: a diskette without 0xAA55 is reported, then the hard disk boots
+run x86-floppy-nosig "floppy: boot sector has no 0xAA55 signature, trying the hard disk|OS-ENTRY x86 dl=ok memmap=ok flags=ok|!booting from floppy" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -drive format=raw,file=$TEST_DIR/x86-floppy-nosig.img,if=floppy \
+    -drive format=raw,file=$TEST_DIR/x86-boot.bin,if=ide
+
 # x86: a CD-ROM as primary master is rejected, not read
 run x86-atapi "disk: primary master is ATAPI (CD/DVD), not supported|boot halted" \
     "$QEMU_X86" -bios x86/squirrel-bios.rom \

@@ -20,6 +20,9 @@ entry:
     call serial_init
     call vga_init
     call bda_init
+%if CONFIG_FLOPPY
+    call fdc_bda_init
+%endif
 %if CONFIG_SMBIOS
     call smbios_init
 %endif
@@ -33,6 +36,10 @@ entry:
     mov ah, ATTR_NORMAL
     call con_print
     call con_newline
+
+%if CONFIG_FLOPPY
+    call floppy_boot            ; returns only if A: did not boot
+%endif
 
     ; Disk: sector 0 (LBA 0) to 0x7C00. Prefer the primary master; if
     ; nothing answered as master, try the primary slave and keep DL.

@@ -14,6 +14,10 @@ int13_handler:
     mov bp, sp
     push ds
     push es
+%if CONFIG_FLOPPY
+    test dl, 0x80
+    jz fd_int13                 ; DL 0x00 / 0x01: diskettes
+%endif
     cmp ah, 0x00
     je .reset
     cmp ah, 0x02

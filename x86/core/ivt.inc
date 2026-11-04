@@ -24,6 +24,9 @@ install_ivt:
     mov word [es:0x15 * 4], int15_handler
     mov word [es:0x16 * 4], int16_handler
     mov word [es:0x1A * 4], int1a_handler
+%if CONFIG_FLOPPY
+    mov word [es:0x1E * 4], fd_param_table  ; data pointer, segment 0xF000
+%endif
     pop cx
     pop ax
     pop di

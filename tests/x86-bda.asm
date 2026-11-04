@@ -1,8 +1,9 @@
 ; Smoke-test: BIOS data area fields after hand-off.
 ; Original code.
 ;
-; Checks equipment list, conventional memory size (KB), and that the
-; page-0 cursor INT 10h uses is still inside 80x25. Prints bda=ok.
+; Checks equipment list (VGA, 80x25 colour, plus the diskette bits for the
+; drives CMOS register 0x10 reports), conventional memory size (KB), and
+; that the page-0 cursor INT 10h uses is still inside 80x25. Prints bda=ok.
 
 BITS 16
 ORG 0x7C00
@@ -11,7 +12,7 @@ COM1            equ 0x3F8
 BDA_EQUIP       equ 0x0410
 BDA_MEMSIZE     equ 0x0413
 BDA_CURSOR      equ 0x0450
-BDA_EQUIP_VAL   equ 0x0220
+BDA_EQUIP_VAL   equ 0x0220      ; without diskette drives
 BDA_MEM_KB      equ 640
 VGA_COLS        equ 80
 VGA_ROWS        equ 25
@@ -26,8 +27,20 @@ start:
     mov si, msg_entry
     call puts
 
+    ; Expected diskette bits: bit 0 = any drive, bits 6-7 = count - 1
+    mov al, 0x10
+    out 0x70, al
+    in al, 0x71
+    mov bx, BDA_EQUIP_VAL
+    test al, 0xF0
+    jz .no_a
+    or bx, 0x0001
+    test al, 0x0F
+    jz .no_a
+    or bx, 0x0040               ; two drives
+.no_a:
     mov si, msg_bad
-    cmp word [BDA_EQUIP], BDA_EQUIP_VAL
+    cmp [BDA_EQUIP], bx
     jne .done
     cmp word [BDA_MEMSIZE], BDA_MEM_KB
     jne .done

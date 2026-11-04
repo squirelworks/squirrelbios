@@ -67,6 +67,9 @@ BITS 16
 %ifndef CONFIG_OPTROM
 %define CONFIG_OPTROM 1
 %endif
+%ifndef CONFIG_FLOPPY
+%define CONFIG_FLOPPY 1
+%endif
 
 FW_STACK        equ 0x0600
 
@@ -222,6 +225,12 @@ ATTR_ERROR      equ 0x0C
 
 %include "drivers/ata/ata.inc"
 
+%if CONFIG_FLOPPY
+%include "drivers/fdc/fdc.inc"
+%include "drivers/fdc/int13fd.inc"
+%include "boot/floppy.inc"
+%endif
+
 %include "core/console.inc"
 
 %include "core/memmap.inc"
@@ -239,6 +248,10 @@ msg_readerr_extra db 'disk: read of the extra sectors failed', 0
 msg_kernel  db 'disk: read of the kernel image failed', 0
 msg_nosig_os db 'disk: kernel image has no S2OK signature', 0
 msg_kload   db 'kernel loaded at 0x00008000, jumping', 0
+%if CONFIG_FLOPPY
+msg_fdboot  db 'booting from floppy A:', 0
+msg_fdnosig db 'floppy: boot sector has no 0xAA55 signature, trying the hard disk', 0
+%endif
 %if CONFIG_BZIMAGE
 msg_bzload  db 'bzImage loaded at 0x00100000, jumping', 0
 msg_bzbad   db 'disk: bzImage header is invalid', 0
