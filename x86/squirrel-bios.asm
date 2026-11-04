@@ -42,6 +42,19 @@ BITS 16
 ; anywhere outside 0x0500-0x05FF and 0x7C00-0x7DFF cannot overwrite it.
 ; The map ends by 0x0570 (5 entries) and the deepest call chain uses well
 ; under 64 bytes.
+; Build configuration (configs/x86-pc/*.cfg, see configs/README.md).
+; make PLATFORM=x86-pc passes -DSQ_CONFIG and the generated config.inc;
+; plain make uses the defaults below, which are what default.cfg says.
+%ifdef SQ_CONFIG
+%include "config.inc"
+%endif
+%ifndef CONFIG_COM1_BASE
+%define CONFIG_COM1_BASE 0x3F8
+%endif
+%ifndef CONFIG_ATA_ATTEMPTS
+%define CONFIG_ATA_ATTEMPTS 3
+%endif
+
 FW_STACK        equ 0x0600
 
 ; SQBL header at the end of sector 0 (x86-extra-sectors)
@@ -89,7 +102,7 @@ CMD_READ_SECTORS  equ 0x20
 CMD_WRITE_SECTORS equ 0x30
 
 ATA_TIMEOUT     equ 0x00400000  ; status polls before giving up
-ATA_ATTEMPTS    equ 3
+ATA_ATTEMPTS    equ CONFIG_ATA_ATTEMPTS
 ; Drive select base (LBA bit set): master 0xE0, slave 0xF0. Boot DL is
 ; 0x80 or 0x81. Both live in the page below the memory map; 0x04FE is
 ; the ATA retry counter.
@@ -99,7 +112,7 @@ ATA_RETRY_CNT   equ 0x04FE
 ATA_SEL_MASTER  equ 0xE0
 ATA_SEL_SLAVE   equ 0xF0
 
-COM1            equ 0x3F8
+COM1            equ CONFIG_COM1_BASE
 UART_TIMEOUT    equ 0xFFFF      ; THR-empty polls per character
 
 ; Fixed geometry for INT 13h. The boot sector asks AH=08, then turns an

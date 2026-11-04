@@ -1,6 +1,9 @@
 # SquirrelBIOS build
 #
 #   make            build all three firmware images
+#   make PLATFORM=x86-pc CONFIG=default
+#                   build one platform from configs/<platform>/<config>.cfg
+#                   into build/<platform>/<config>/ (see configs/README.md)
 #   make test       build, then boot each one under QEMU (tests/smoke.sh)
 #   make linux-shell  boot a downloaded Linux kernel on riscv to a busybox shell
 #   make linux-big    the same on a large virtual node (64 harts, 64 GB)
@@ -45,10 +48,27 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/riscv-numa.bin $(TEST_DIR)/riscv-aia.bin \
              $(TEST_DIR)/riscv-ras.bin
 
-.PHONY: all x86 arm riscv test linux-shell linux-big linux-stress os-boot clean
+.PHONY: all x86 arm riscv test config-default linux-shell linux-big linux-stress os-boot clean
 .DELETE_ON_ERROR:
 
+PLATFORMS := x86-pc aarch64-virt riscv64-virt
+PLATFORM  ?=
+CONFIG    ?= default
+OUT_x86-pc       := squirrel-bios.rom
+OUT_aarch64-virt := squirrel-bios.bin
+OUT_riscv64-virt := squirrel-bios.bin
+
+ifeq ($(PLATFORM),)
 all: x86 arm riscv
+else
+ifeq ($(filter $(PLATFORM),$(PLATFORMS)),)
+$(error PLATFORM must be one of: $(PLATFORMS))
+endif
+ifeq ($(wildcard configs/$(PLATFORM)/$(CONFIG).cfg),)
+$(error configs/$(PLATFORM)/$(CONFIG).cfg does not exist)
+endif
+all: build/$(PLATFORM)/$(CONFIG)/$(OUT_$(PLATFORM))
+endif
 
 x86: $(X86_ROM)
 arm: $(ARM_BIN)
@@ -78,6 +98,57 @@ $(RISCV_BIN): riscv/squirrel-bios.elf
 	    echo "riscv: image ends at 0x$$end, past the PMP-protected region" >&2; exit 1; \
 	fi
 	$(RISCV64)objcopy -O binary $< $@
+
+# --- configured builds (make PLATFORM=... CONFIG=...) ------------------
+# Same sources as above, plus the config.inc tools/mkconfig.sh makes from
+# configs/<platform>/<config>.cfg. Every key defaults in the source to
+# what default.cfg says, so the default build matches plain make.
+
+.SECONDARY:
+
+build/x86-pc/%/config.inc: configs/x86-pc/%.cfg tools/mkconfig.sh
+	@mkdir -p $(@D)
+	tools/mkconfig.sh nasm $< > $@
+build/aarch64-virt/%/config.inc: configs/aarch64-virt/%.cfg tools/mkconfig.sh
+	@mkdir -p $(@D)
+	tools/mkconfig.sh gas $< > $@
+build/riscv64-virt/%/config.inc: configs/riscv64-virt/%.cfg tools/mkconfig.sh
+	@mkdir -p $(@D)
+	tools/mkconfig.sh gas $< > $@
+build/%/config.h: configs/%.cfg tools/mkconfig.sh
+	@mkdir -p $(@D)
+	tools/mkconfig.sh c $< > $@
+
+build/x86-pc/%/squirrel-bios.rom: x86/squirrel-bios.asm x86/memmap.inc x86/vga.inc x86/font.inc \
+		x86/acpi.inc x86/smbios.inc build/x86-pc/%/config.inc build/x86-pc/%/config.h
+	$(NASM) -f bin -DSQ_CONFIG -i $(@D)/ -i x86/ $< -o $@
+
+build/aarch64-virt/%/squirrel-bios.o: arm/squirrel-bios.S build/aarch64-virt/%/config.inc build/aarch64-virt/%/config.h
+	$(AARCH64)as --defsym SQ_CONFIG=1 -I $(@D) -o $@ $<
+build/aarch64-virt/%/squirrel-bios.elf: build/aarch64-virt/%/squirrel-bios.o
+	$(AARCH64)ld -Ttext=0x0 -o $@ $<
+build/aarch64-virt/%/squirrel-bios.bin: build/aarch64-virt/%/squirrel-bios.elf
+	$(AARCH64)objcopy -O binary $< $@
+
+build/riscv64-virt/%/squirrel-bios.o: riscv/squirrel-bios.S build/riscv64-virt/%/config.inc build/riscv64-virt/%/config.h
+	$(RISCV64)as --defsym SQ_CONFIG=1 -I $(@D) -o $@ $<
+build/riscv64-virt/%/squirrel-bios.elf: build/riscv64-virt/%/squirrel-bios.o
+	$(RISCV64)ld -Ttext=0x80000000 -o $@ $<
+build/riscv64-virt/%/squirrel-bios.bin: build/riscv64-virt/%/squirrel-bios.elf
+	@end=$$($(RISCV64)nm $< | awk '$$3 == "_end" { print $$1 }'); \
+	if [ $$((0x$$end)) -gt $$((0x80200000)) ]; then \
+	    echo "riscv: image ends at 0x$$end, past the PMP-protected region" >&2; exit 1; \
+	fi
+	$(RISCV64)objcopy -O binary $< $@
+
+# Each platform's default.cfg must build the same bytes as plain make
+config-default: x86 arm riscv build/x86-pc/default/squirrel-bios.rom \
+		build/aarch64-virt/default/squirrel-bios.bin build/riscv64-virt/default/squirrel-bios.bin \
+		build/riscv64-virt/small/squirrel-bios.bin
+	cmp $(X86_ROM) build/x86-pc/default/squirrel-bios.rom
+	cmp $(ARM_BIN) build/aarch64-virt/default/squirrel-bios.bin
+	cmp $(RISCV_BIN) build/riscv64-virt/default/squirrel-bios.bin
+	@echo "config-default: default.cfg builds match plain make"
 
 # --- test payloads (stand-ins for the OS) ------------------------------
 
@@ -353,7 +424,7 @@ $(SRST_IMAGES:=.elf): %.elf: %.o
 $(SRST_IMAGES:=.bin): %.bin: %.elf
 	$(RISCV64)objcopy -O binary $< $@
 
-test: all $(TEST_BINS)
+test: x86 arm riscv config-default $(TEST_BINS)
 	tests/smoke.sh
 
 # Optional, not part of make test: downloads an Ubuntu riscv64 kernel and
