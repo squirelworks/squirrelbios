@@ -417,7 +417,9 @@ stub, a 1 MB flash image for `qemu-system-x86_64 -bios`. One PR each.
 - [x] `x86_64-pe` — PE32+ loader, LoadImage/StartImage/Exit/UnloadImage,
   the protocol database and configuration tables, a hand-written test
   app through fw_cfg. Loading from a device path comes with `x86_64-fat`.
-- [ ] `x86_64-console` — Simple Text Input/Output.
+- [x] `x86_64-console` — Simple Text Input/Output on COM1 (UTF-8 and ANSI),
+  events and timers (polled), Stall. No PS/2 or USB keyboard, no VGA
+  text yet.
 - [ ] `x86_64-fat` — Block I/O and a FAT32 Simple File System; boot
   `\EFI\BOOT\BOOTX64.EFI`.
 - [ ] `x86_64-gop` — Graphics Output Protocol, runtime services,

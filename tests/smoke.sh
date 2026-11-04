@@ -9,6 +9,8 @@
 # regular expression instead, and one starting with '!' must not appear.
 # '@exit=N' requires QEMU to have exited by itself with status N; the
 # strings are checked once more after it exits, so a case can pass then.
+# With SERIAL_IN set to a file, the serial port also reads that file as
+# its input.
 
 set -u
 
@@ -31,7 +33,13 @@ run() {
     rm -f "$log"
     : > "$log"
 
-    "$@" -display none -monitor none -serial "file:$log" >/dev/null 2>&1 &
+    if [ -n "${SERIAL_IN:-}" ]; then
+        "$@" -display none -monitor none \
+            -chardev "file,id=smokeser,path=$log,input-path=$SERIAL_IN" \
+            -serial chardev:smokeser >/dev/null 2>&1 &
+    else
+        "$@" -display none -monitor none -serial "file:$log" >/dev/null 2>&1 &
+    fi
     qemu=$!
 
     # kill -0 still succeeds on an exited child that has not been waited
@@ -816,6 +824,14 @@ run x86_64-app-exit "APP x86_64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=o
     "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-app-exit.efi
 run x86_64-app-4g "efi: image of 12288 bytes loaded at 0x0000000010000000|APP x86_64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|efi: image returned 0x1234|!=bad" \
     "$QEMU_X86_64" -M q35 -m 4G -bios x86_64/squirrel-bios.fd -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-app.efi
+# x86-64 firmware console: an app writes through ConOut (UTF-8 and ANSI
+# on COM1), checks its one mode, waits on a timer event and stalls, then
+# reads keys typed on the serial line through WaitForKey and
+# ReadKeyStroke: a, b, up, delete, q
+SERIAL_IN=$TEST_DIR/x86_64-con.keys
+run x86_64-con "efi: TSC at|APP con: hello, ☺|modes=ok|0;1;33;44m|[4;6H cursor=ok|timer=ok|key=0000/0061 key=0000/0062 key=0001/0000 key=0008/0000 key=0000/0071|efi: image returned 0x0|!=bad" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-con.efi
+SERIAL_IN=
 run x86_64-app-junk "efi: LoadImage failed: 0x8000000000000001, halting" \
     "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd -fw_cfg $X64_BOOT,file=$TEST_DIR/x86-boot.bin
 

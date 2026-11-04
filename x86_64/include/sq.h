@@ -8,6 +8,7 @@ typedef unsigned short     u16;
 typedef unsigned int       u32;
 typedef unsigned long long u64;
 typedef signed long long   s64;
+typedef signed int         s32;
 typedef unsigned long      uptr;
 typedef unsigned long      usize;
 
@@ -32,6 +33,13 @@ static inline void cpuid(u32 leaf, u32 *a, u32 *b, u32 *c, u32 *d)
     __asm__ volatile("cpuid" : "=a"(*a), "=b"(*b), "=c"(*c), "=d"(*d) : "a"(leaf), "c"(0));
 }
 
+static inline u64 rdtsc(void)
+{
+    u32 lo, hi;
+    __asm__ volatile("rdtsc" : "=a"(lo), "=d"(hi));
+    return (u64)hi << 32 | lo;
+}
+
 static inline u32 be32(const u8 *p) { return (u32)p[0] << 24 | (u32)p[1] << 16 | (u32)p[2] << 8 | p[3]; }
 static inline u16 be16(const u8 *p) { return (u16)(p[0] << 8 | p[1]); }
 
@@ -45,6 +53,8 @@ int strcmp(const char *a, const char *b);
 /* console.c: COM1, 115200 8N1 */
 void con_init(void);
 void con_putc(char c);
+void con_raw(char c);
+int con_getc(void);
 void con_puts(const char *s);
 void printf(const char *fmt, ...);
 void halt(void) __attribute__((noreturn));

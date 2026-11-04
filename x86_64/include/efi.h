@@ -216,6 +216,72 @@ typedef struct {
 extern const EFI_GUID efi_loaded_image_guid;
 int guid_eq(const EFI_GUID *a, const EFI_GUID *b);
 
+/* Events and timers */
+#define EVT_TIMER                         0x80000000u
+#define EVT_RUNTIME                       0x40000000u
+#define EVT_NOTIFY_WAIT                   0x00000100u
+#define EVT_NOTIFY_SIGNAL                 0x00000200u
+#define EVT_SIGNAL_EXIT_BOOT_SERVICES     0x00000201u
+#define EVT_SIGNAL_VIRTUAL_ADDRESS_CHANGE 0x60000202u
+
+typedef enum { TimerCancel, TimerPeriodic, TimerRelative } EFI_TIMER_DELAY;
+typedef void (EFIAPI *EFI_EVENT_NOTIFY)(EFI_EVENT, void *);
+
+#define TPL_APPLICATION 4
+#define TPL_CALLBACK    8
+#define TPL_NOTIFY      16
+#define TPL_HIGH_LEVEL  31
+
+/* Console */
+typedef struct {
+    u16 scan_code;
+    CHAR16 unicode_char;
+} EFI_INPUT_KEY;
+
+typedef struct EFI_SIMPLE_TEXT_INPUT_PROTOCOL {
+    EFI_STATUS (EFIAPI *reset)(struct EFI_SIMPLE_TEXT_INPUT_PROTOCOL *, BOOLEAN);
+    EFI_STATUS (EFIAPI *read_key_stroke)(struct EFI_SIMPLE_TEXT_INPUT_PROTOCOL *, EFI_INPUT_KEY *);
+    EFI_EVENT wait_for_key;
+} EFI_SIMPLE_TEXT_INPUT_PROTOCOL;
+
+typedef struct {
+    s32 max_mode;
+    s32 mode;
+    s32 attribute;
+    s32 cursor_column;
+    s32 cursor_row;
+    BOOLEAN cursor_visible;
+} SIMPLE_TEXT_OUTPUT_MODE;
+
+typedef struct EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL {
+    EFI_STATUS (EFIAPI *reset)(struct EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL *, BOOLEAN);
+    EFI_STATUS (EFIAPI *output_string)(struct EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL *, CHAR16 *);
+    EFI_STATUS (EFIAPI *test_string)(struct EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL *, CHAR16 *);
+    EFI_STATUS (EFIAPI *query_mode)(struct EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL *, UINTN, UINTN *, UINTN *);
+    EFI_STATUS (EFIAPI *set_mode)(struct EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL *, UINTN);
+    EFI_STATUS (EFIAPI *set_attribute)(struct EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL *, UINTN);
+    EFI_STATUS (EFIAPI *clear_screen)(struct EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL *);
+    EFI_STATUS (EFIAPI *set_cursor_position)(struct EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL *, UINTN, UINTN);
+    EFI_STATUS (EFIAPI *enable_cursor)(struct EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL *, BOOLEAN);
+    SIMPLE_TEXT_OUTPUT_MODE *mode;
+} EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL;
+
+#define EFI_SIMPLE_TEXT_INPUT_PROTOCOL_GUID \
+    { 0x387477c1, 0x69c7, 0x11d2, { 0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b } }
+#define EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL_GUID \
+    { 0x387477c2, 0x69c7, 0x11d2, { 0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b } }
+
+/* event.c */
+void efi_event_init(EFI_BOOT_SERVICES *bs);
+void efi_timers_poll(void);
+u64 efi_tsc_hz(void);
+EFI_STATUS EFIAPI efi_create_event(u32, EFI_TPL, EFI_EVENT_NOTIFY, void *, EFI_EVENT *);
+EFI_STATUS EFIAPI efi_signal_event(EFI_EVENT);
+EFI_STATUS EFIAPI efi_stall(UINTN);
+
+/* textcon.c */
+void efi_console_init(void);
+
 /* protocol.c */
 void efi_protocol_init(EFI_BOOT_SERVICES *bs);
 EFI_STATUS EFIAPI efi_install_protocol_interface(EFI_HANDLE *, EFI_GUID *, u32, void *);

@@ -15,7 +15,9 @@ core/      start.asm (clears .bss, calls fw_main), main.c, console.c
            runtime services tables), memory.c (UEFI memory map,
            AllocatePages/FreePages, AllocatePool/FreePool, GetMemoryMap),
            protocol.c (handles, protocols, configuration tables),
-           image.c (PE32+ loader, LoadImage/StartImage/Exit/UnloadImage)
+           image.c (PE32+ loader, LoadImage/StartImage/Exit/UnloadImage),
+           event.c (events, timers, Stall; the TSC measured against the
+           PIT), textcon.c (Simple Text Input/Output on COM1)
 platform/  fwcfg.c (QEMU fw_cfg over I/O ports), memmap.c (etc/e820,
            CMOS as a fallback)
 include/   sq.h, efi.h (UEFI types and tables, from the specification)
@@ -38,6 +40,16 @@ are unloaded when they return or call `Exit`. Protocols: install,
 reinstall, uninstall, handle/open/close, locate (handle, handle buffer,
 protocol), protocols per handle, and the multiple-interface calls, with
 no notifications. `InstallConfigurationTable` keeps up to 32 entries.
+
+Events: interrupts stay off, so timers are polled by `CheckEvent`,
+`WaitForEvent` and `Stall`. Notify functions run when the event is
+signalled (`NOTIFY_SIGNAL`) or checked (`NOTIFY_WAIT`), not queued by
+TPL. Event groups (`CreateEventEx`) are signalled together.
+
+Console: ConIn, ConOut and StdErr are COM1. Output is UTF-8 with ANSI
+escape sequences for attributes, clearing and the cursor, in one 80x25
+mode. Input turns terminal escape sequences into UEFI scan codes
+(arrows, Home/End, Insert/Delete, Page Up/Down, F1-F12, Esc).
 
 Memory: allocations come from the top of the highest free range below
 4 GB (the limit of the 1:1 mapping). The UEFI memory map keeps page 0 and

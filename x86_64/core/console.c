@@ -15,7 +15,8 @@ void con_init(void)
     outb(COM1 + 0, 0x01);       /* 115200 */
     outb(COM1 + 1, 0x00);
     outb(COM1 + 3, 0x03);       /* 8N1 */
-    outb(COM1 + 2, 0xC7);       /* FIFOs on, cleared */
+    outb(COM1 + 2, 0x00);       /* no FIFO: turning it on would drop a byte
+                                   received before we got here */
     outb(COM1 + 4, 0x03);       /* DTR, RTS */
 }
 
@@ -26,6 +27,20 @@ void con_putc(char c)
     for (int i = 0; i < 100000 && !(inb(COM1 + 5) & 0x20); i++)
         ;
     outb(COM1, (u8)c);
+}
+
+/* A byte as it is, no newline translation */
+void con_raw(char c)
+{
+    for (int i = 0; i < 100000 && !(inb(COM1 + 5) & 0x20); i++)
+        ;
+    outb(COM1, (u8)c);
+}
+
+/* The next received byte, or -1 */
+int con_getc(void)
+{
+    return (inb(COM1 + 5) & 0x01) ? inb(COM1) : -1;
 }
 
 void con_puts(const char *s)
