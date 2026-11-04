@@ -25,7 +25,7 @@
 ;   - On failure: print the reason and the ATA status/error registers, halt
 ;   - Check the 0xAA55 signature in the last word of the sector; halt if absent
 ;   - If the sector carries an SQBL header (offset 0x1F0), read the extra
-;     sectors it asks for (LBA 1 on) to its load address, below 0xA0000
+;     sectors it asks for (LBA 1 on) to its load address, below the EBDA
 ;   - If it does not, but LBA 192 ends in the Squirrel-OS/2 signature
 ;     'S2OK', read sectors 1..192 to 0x8000 and jump there. That boot
 ;     sector is not entered
@@ -84,7 +84,7 @@ BOOT_SECTOR     equ 0x7C00
 SQBL_HDR        equ BOOT_SECTOR + 0x1F0
 SQBL_MAGIC      equ 0x4C425153  ; bytes 53 51 42 4C, 'SQBL'
 SQBL_MAX        equ 128         ; extra sectors
-LOAD_LIMIT      equ 0xA0000     ; first byte that is not conventional RAM
+LOAD_LIMIT      equ EBDA_BASE   ; first byte a load or a buffer may not reach
 
 ; Squirrel-OS/2 hard-disk image: 192 sectors (96 KB) at 0x8000, last
 ; dword 'S2OK' (documentation/kernel/boot-sector.md). LBA 0 is the boot
@@ -173,7 +173,10 @@ BDA_KBD_END     equ 0x043E      ; first byte past the buffer
 ; Equipment: 80x25 colour (bits 4-5 = 10), one serial port (bits 9-11 = 1).
 ; No floppies, no parallel ports. Matches COM1 + VGA text in this firmware.
 BDA_EQUIP_VAL   equ 0x0220
-BDA_MEM_KB      equ 640         ; 0x00000-0x9FFFF, as in the memory map
+BDA_MEM_KB      equ EBDA_BASE >> 10 ; 0x00000-0x9EFFF, as in the memory map
+BDA_EBDA_SEG    equ 0x040E      ; segment of the extended BIOS data area
+EBDA_BASE       equ 0x9F000     ; 4 KB EBDA just below the VGA window
+EBDA_SIZE       equ 0x1000
 ; PIT channel 0: divisor 0 => 65536, ~18.2065 Hz from 1.193182 MHz
 PIT_CMD         equ 0x43
 PIT_CH0         equ 0x40

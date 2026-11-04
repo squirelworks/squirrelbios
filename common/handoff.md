@@ -139,7 +139,7 @@ same registers and memory map as a one-sector boot. The loaded bytes are
 contiguous in linear memory; the firmware normalises the segment per
 sector, so a load may cross 64 KB boundaries.
 
-The load must start below `0xA0000` and end at or before it, and must not
+The load must start below the EBDA (`0x9F000`) and end at or before it, and must not
 touch `0x0500`–`0x05FF` or `0x7C00`–`0x7DFF`. Anything else, including a
 count of 0 or above 128, is refused before the read (see Failures).
 Memory below `0x0500` is allowed. Every path fills the IVT before it
@@ -164,7 +164,7 @@ The boot sector's calls, which the firmware serves on every path:
 
 | Call | Behaviour |
 |------|-----------|
-| `INT 13h` `AH = 0x42` | Extended read. `DS:SI` points at a 16-byte disk address packet (size byte `0x10` or more, reserved, word count 1–128, word offset, word segment, qword LBA; the 64-bit flat buffer of a larger packet is not used). The buffer must lie entirely below `0xA0000`. The LBA's upper dword must be 0 (disks up to 2 TB). A range that reaches sector 2^28 (128 GiB) or beyond goes to the drive as `READ SECTORS EXT` (LBA48), anything below as LBA28. CF clear and `AH = 0` on success. |
+| `INT 13h` `AH = 0x42` | Extended read. `DS:SI` points at a 16-byte disk address packet (size byte `0x10` or more, reserved, word count 1–128, word offset, word segment, qword LBA; the 64-bit flat buffer of a larger packet is not used). The buffer must lie entirely below the EBDA (`0x9F000`). The LBA's upper dword must be 0 (disks up to 2 TB). A range that reaches sector 2^28 (128 GiB) or beyond goes to the drive as `READ SECTORS EXT` (LBA48), anything below as LBA28. CF clear and `AH = 0` on success. |
 | `INT 13h` `AH = 0x43` | Extended write. Same packet rules as `AH = 0x42` (`WRITE SECTORS EXT` past 2^28). CF clear and `AH = 0` on success. |
 | `INT 13h` `AH = 0x41` | EDD installation check: with `BX = 0x55AA` and a drive that answered at POST, CF clear, `BX = 0xAA55`, `AH = 0x30` (EDD 3.0), `CX = 0x0001` (fixed disk access subset: `42h`, `43h`, `44h`, `47h`, `48h`). Otherwise CF set, `AH = 0x01`. |
 | `INT 13h` `AH = 0x44` / `0x47` | Verify / seek. Same packet rules as `AH = 0x42`; nothing is transferred or moved. CF clear and `AH = 0` when every sector named is on the disk, CF set and `AH = 0x04` when not. |
@@ -187,7 +187,7 @@ The boot sector's calls, which the firmware serves on every path:
 
 `DL` must be `0x80` (primary master) or `0x81` (primary slave) for the
 disk calls. Anything else, a packet that is not 16 bytes, a zero count,
-a count above 128, or a buffer that is not entirely below `0xA0000`,
+a count above 128, or a buffer that is not entirely below the EBDA (`0x9F000`),
 returns with CF set and `AH = 0x01`. A sector that is not on the disk
 returns with CF set and `AH = 0x04` (read) or `AH = 0x05` (reset failed)
 or `AH = 0x80` (timeout). `AH = 0x02` reports `AL = 0` when nothing was
@@ -401,7 +401,8 @@ addresses (segment 0):
 | Address | Size | Value |
 |---------|------|-------|
 | `0x0410` | word | Equipment list `0x0220`: 80x25 colour (bits 4–5 = `10`), one serial port (bits 9–11 = 1). No floppies or parallel ports. |
-| `0x0413` | word | Conventional memory size in KB: `640` (`0x00000`–`0x9FFFF`, matching the SQMM usable entry). |
+| `0x040E` | word | Segment of the extended BIOS data area: `0x9F00`. The 4 KB EBDA at `0x9F000`–`0x9FFFF` is the firmware's; its first byte is its size in KB (`4`). |
+| `0x0413` | word | Conventional memory size in KB: `636` (`0x00000`–`0x9EFFF`, matching the SQMM usable entry). |
 | `0x0450` | 2 bytes | Page-0 cursor: column then row. Starts at `(0, 0)`; `INT 10h` `AH=0x0E` keeps both inside 80x25. |
 | `0x046C` | dword | Timer ticks since midnight. IRQ0 (`INT 08h`) increments it; wraps at `0x1800B0` (~24 h at 18.2 Hz) and sets `0x0470` to 1. Starts at 0. |
 | `0x0470` | byte | 24-hour rollover flag for the tick count. Starts at 0. |
@@ -440,7 +441,8 @@ Each entry uses the E820 layout: 64-bit base, 64-bit length, 32-bit type
 
 | Range | Type | Present |
 |-------|------|---------|
-| `0x00000000`–`0x0009FFFF` | usable | always |
+| `0x00000000`–`0x0009EFFF` | usable | always |
+| `0x0009F000`–`0x0009FFFF` | reserved (EBDA) | always |
 | `0x000A0000`–`0x000FFFFF` | reserved (VGA window, ROMs) | always |
 | `0x00100000`–top of low RAM | usable | when RAM > 1 MB |
 | `0xFEC00000`–`0xFFFFFFFF` | reserved (IOAPIC, LAPIC, firmware) | always |
@@ -469,7 +471,7 @@ registers on COM1 (and the VGA text buffer), then halts:
 | `read of LBA 0 failed` | Drive set `ERR`/`DF`, or the transfer ended in a bad state |
 | `boot sector has no 0xAA55 signature` | The read was clean but the last word of the sector is not `0xAA55`. Not retried, and no status or error registers are printed. |
 | `load overlaps firmware data` | The SQBL load would touch the memory map page or the boot sector. Nothing is read. No registers printed. |
-| `load address is out of range` | The SQBL count is not 1–128, the load address is not below `0xA0000`, or the load runs past it. Nothing is read. No registers printed. |
+| `load address is out of range` | The SQBL count is not 1–128, the load address is not below the EBDA (`0x9F000`), or the load runs past it. Nothing is read. No registers printed. |
 | `read of the extra sectors failed` | As `read of LBA 0 failed`, for the SQBL sectors. Retried like the first read. |
 | `read of the kernel image failed` | As `read of LBA 0 failed`, for the `S2OK` sectors after the signature probe. Retried like the first read. |
 | `bzImage header is invalid` | `syssize` is 0. No registers printed. |
@@ -487,8 +489,8 @@ registers on COM1 (and the VGA text buffer), then halts:
 `x86-smbios`, `x86-bzimage`, `x86-bzimage-big`, `x86-bzimage-toobig`,
 `x86-slave-absent`, `x86-params-slave` and `x86-optrom`. In `x86-boot` the boot sector checks
 `DL`, that `IF` and `DF` are clear, and that the memory map has the
-magic, 20-byte entries, ends by `0x0600`, contains the conventional and
-both reserved regions above exactly, requires an entry at `0x00100000`
+magic, 20-byte entries, ends by `0x0600`, contains the conventional,
+EBDA and the other two reserved regions above exactly, requires an entry at `0x00100000`
 to be usable when one is present (its length is not checked), and is
 sorted without overlaps. Its
 SQBL header loads a second sector, which reads the VGA registers and

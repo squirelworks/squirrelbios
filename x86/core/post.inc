@@ -4,6 +4,24 @@
 bda_init:
     mov word [ss:BDA_EQUIP], BDA_EQUIP_VAL
     mov word [ss:BDA_MEMSIZE], BDA_MEM_KB
+    mov word [ss:BDA_EBDA_SEG], EBDA_BASE >> 4
+    ; EBDA: zeroed, its first byte its size in KB
+    push es
+    push di
+    push cx
+    push ax
+    mov ax, EBDA_BASE >> 4
+    mov es, ax
+    xor di, di
+    xor ax, ax
+    mov cx, EBDA_SIZE / 2
+    cld
+    rep stosw
+    mov byte [es:0], EBDA_SIZE >> 10
+    pop ax
+    pop cx
+    pop di
+    pop es
     mov word [ss:BDA_CURSOR], 0
     mov dword [ss:BDA_TICKS], 0
     mov byte [ss:BDA_TICK_OVR], 0

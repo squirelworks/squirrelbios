@@ -33,7 +33,8 @@ qemu-system-i386 -bios squirrel-bios.rom -drive format=raw,file=boot.bin,if=ide 
 - Puts the VGA in 80x25 colour text mode and loads its own 8x16 font
   (`drivers/vga/vga.inc`, `font.inc`); every message goes to the screen and COM1
 - Fills the BIOS data area equipment list (`0x0410` = `0x0220`),
-  conventional memory KB (`0x0413` = 640), and page-0 cursor (`0x0450`)
+  conventional memory KB (`0x0413` = 636, below a 4 KB EBDA at `0x9F000`
+  that `0x040E` points at), and page-0 cursor (`0x0450`)
 - Enables A20 through port `0x92` before the hand-off jump
 - Puts the local APIC in virtual-wire mode (ExtINT) when present, then
   programs the PIT (~18.2 Hz) and both PICs (IRQ0 at `INT 08h`, IRQ1 at
@@ -64,7 +65,7 @@ qemu-system-i386 -bios squirrel-bios.rom -drive format=raw,file=boot.bin,if=ide 
 - On failure prints the reason and the ATA status/error registers, then halts
 - Refuses a sector whose last word is not `0xAA55` (not retried), then halts
 - When the sector has an SQBL header at `0x1F0`, reads the 1–128 sectors
-  after it to the header's `segment:offset` (below `0xA0000`, clear of the
+  after it to the header's `segment:offset` (below the EBDA, clear of the
   memory map and the boot sector) before jumping to `0x7C00`
 - When it does not, and LBA 192 ends in `S2OK`, reads LBAs 1–192 to
   `0x8000` and jumps there. The boot sector is not entered
