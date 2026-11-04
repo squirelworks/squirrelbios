@@ -280,7 +280,8 @@ letters, so `INT 16h` reads it. A mouse report goes to the handler set
 with `INT 15h` `AX = 0xC207` while the mouse is enabled (`AX = 0xC200`),
 called as the PS/2 BIOS calls it: a far call with four words pushed,
 status (buttons in bits 0–2, bit 3 set, the X and Y sign bits in 4 and
-5), X, Y (up is positive) and 0, which the BIOS pops. The handler runs
+5), X, Y (up is positive; a USB report of 128 up is passed as 127) and 0,
+which the BIOS pops. The handler runs
 from IRQ0 with interrupts off. An OS that drives the controller itself
 resets it, and the BIOS then gets nothing from it. An OS that replaces
 the INT 08h vector stops the polling, and one that reads the 8042
