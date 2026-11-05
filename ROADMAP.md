@@ -23,6 +23,20 @@ Nothing in this repo is vendored third-party firmware. A UEFI-class
 interface arrives in Phase C as original code; until then nothing here is
 UEFI.
 
+## Where things are (2026-11-05)
+
+- **Latest release: v1.4.4** (published 2026-11-04, tag on `3388eba`,
+  110 `make test` cases). Phases A and B are finished: the x86 PC BIOS
+  now has floppy, PCI, EDD/LBA48, AHCI, NVMe, USB (UHCI/OHCI/EHCI/xHCI,
+  HID, BOT disk boot), virtio-blk, network boot and VBE 3.0. The table
+  in [What works today](#what-works-today-v100) is the v1.0.0 baseline;
+  the release notes in `release-notes/` list what each version added.
+- **In progress: Phase C1**, `PLATFORM=x86_64-uefi` in `x86_64/`. Step 1
+  is merged (#118); step 2 is PR #119; steps 3 and 4 exist as local work
+  and go up one PR at a time after #119.
+- Release images are attached to GitHub Releases only. Squirrel
+  publishes each release.
+
 ## Goals
 
 ### Done (v0.3.0 — hand-off)
@@ -149,23 +163,25 @@ with its `make test` case and contract update, exactly as in the
 Principles above. Squirrel-OS/2 booting on a target is the primary
 acceptance test; Linux and other OS loaders are secondary.
 
-✅ marks an item whose PRs have all merged. The same progress, item by
-item, is kept as a checklist on #82 (all phases) and #83 (phase B).
+Every item below is a checkbox: tick it (`- [x]`) in the PR that merges
+its last piece, and tick the same line on #82 (all phases; #83 was phase B
+and is closed). Nested boxes are the item's PR-sized steps; they match the
+boxes in [TODO.md](TODO.md).
 
 ### Phase A — v1.1: make the tree modular (no behaviour change)
 
-- ✅ **A1 (v1.1.0) Build system and configs.** `make PLATFORM=<p>
+- [x] **A1 (v1.1.0) Build system and configs.** `make PLATFORM=<p>
   CONFIG=<c>`; `configs/<platform>/<name>.cfg` (key=value) generates
   `build/<p>/config.inc` / `config.h`. Platforms: `x86-pc` (today's ROM),
   `aarch64-virt`, `riscv64-virt`. Default `make` builds all three exactly
   as today. Test: `make test` count unchanged, and the `x86-pc/default`
   ROM is byte-for-byte v1.0.0's ROM (or a documented, intentional diff).
-- ✅ **A2 (v1.1.1) Split x86 into modules.** `x86/core/` (reset, POST,
+- [x] **A2 (v1.1.1) Split x86 into modules.** `x86/core/` (reset, POST,
   IVT), `drivers/ata/`, `drivers/vga/`, `drivers/kbd8042/`,
   `drivers/rtc/`, `tables/acpi/`, `tables/smbios/`, `boot/`, each
   guarded by `CONFIG_*`. Test: a `CONFIG=minimal` ROM boots the
   `x86-boot` test.
-- ✅ **A3 (v1.1.2) v1.0.0 follow-ups (#84).** bzImage loader for kernels
+- [x] **A3 (v1.1.2) v1.0.0 follow-ups (#84).** bzImage loader for kernels
   over 64 KB; `boot_params` gets the E820 table, command line and
   `type_of_loader`; slave detection uses fresh status reads; `INT 13h
   AH=08h` fails for absent drives. Test: an `x86-slave-absent` case and a
@@ -173,81 +189,92 @@ item, is kept as a checklist on #82 (all phases) and #83 (phase B).
 
 ### Phase B — v1.2–v1.4: storage and I/O on x86 legacy (#83)
 
-- ✅ **B1 (v1.2.0) Floppy.** 82077 FDC driver, `INT 13h` `DL=00h/01h`
+- [x] **B1 (v1.2.0) Floppy.** 82077 FDC driver, `INT 13h` `DL=00h/01h`
   read/write, `INT 1Eh` diskette parameter table, boot from `-fda`.
   Test: boot a 1.44 MB Squirrel-OS/2 `floppy.img`; read/write/verify.
-- ✅ **B2 (v1.2.1) PCI enumeration.** Config mechanism #1, bus scan, BAR
+- [x] **B2 (v1.2.1) PCI enumeration.** Config mechanism #1, bus scan, BAR
   sizing, `$PIR` routing table, PCI BIOS `INT 1Ah AX=B1xx`. Test:
   enumerate QEMU `i440fx` and `q35`; `B101h` returns `"PCI "`.
-- ✅ **B3 (v1.2.2) EDD 3.0 and LBA48.** `INT 13h AH=41h/42h/43h/48h`, disks
+- [x] **B3 (v1.2.2) EDD 3.0 and LBA48.** `INT 13h AH=41h/42h/43h/48h`, disks
   over 8 GB, El Torito no-emulation boot over ATAPI. Test: a 16 GB disk;
   an ISO with `-cdrom`.
-- ✅ **B4 (v1.3.0) AHCI/SATA.** HBA init, port reset, READ/WRITE DMA EXT,
+- [x] **B4 (v1.3.0) AHCI/SATA.** HBA init, port reset, READ/WRITE DMA EXT,
   `INT 13h` on top. Test: `-machine q35` AHCI disk boots Squirrel-OS/2.
-- ✅ **B5 (v1.3.1) NVMe.** Admin and one I/O queue pair, Identify,
+- [x] **B5 (v1.3.1) NVMe.** Admin and one I/O queue pair, Identify,
   Read/Write, `INT 13h` on top. Test: `-device nvme` boots.
-- ✅ **B6 (v1.4.0) USB host controllers.** UHCI, OHCI, EHCI, xHCI (in that
+- [x] **B6 (v1.4.0) USB host controllers.** UHCI, OHCI, EHCI, xHCI (in that
   order, one PR each), enumeration, hubs.
-- ✅ **B7 (v1.4.1) USB HID with legacy emulation.** Keyboard feeds
+- [x] **B7 (v1.4.1) USB HID with legacy emulation.** Keyboard feeds
   `INT 16h` and the BDA buffer; mouse feeds `INT 15h C2xx`. Test:
   `-device usb-kbd` with scripted keys.
-- ✅ **B8 (v1.4.2) USB mass storage boot** (BOT, then UAS; BOT on xHCI
-  done, UAS not yet). Test:
-  `-device usb-storage` with `os.img` boots.
-- ✅ **B9 (v1.4.3) virtio-blk / virtio-net and network boot.** Original
+- [x] **B8 (v1.4.2) USB mass storage boot.** Test: `-device usb-storage`
+  with `os.img` boots.
+  - [x] Bulk-only transport on xHCI, `INT 13h` as `DL = 80h` (#114)
+  - [ ] UAS (follow-up; not a v1.4.4 item)
+- [x] **B9 (v1.4.3) virtio-blk / virtio-net and network boot.** Original
   TFTP client; boot `SQBL` over the network. Test: QEMU user-net TFTP.
-- ✅ **B10 (v1.4.4) Video.** VBE 2.0/3.0 linear-framebuffer modes on QEMU
+- [x] **B10 (v1.4.4) Video.** VBE 2.0/3.0 linear-framebuffer modes on QEMU
   std VGA (still not a full SVGA option-ROM replacement). Test: mode
   list, set 800x600x32, read back a pixel.
 
 ### Phase C — v2.0: x86-64 and a UEFI-class interface
 
-- **C1 (v2.0.0-alpha) `PLATFORM=x86_64-uefi`.** Reset to long mode in
+- [ ] **C1 (v2.0.0-alpha) `PLATFORM=x86_64-uefi`.** Reset to long mode in
   firmware, page tables, PE32+ loader. Original boot services subset an
   OS loader needs (memory map, GOP, Simple Text In/Out, Block I/O, Simple
   File System over FAT32, LoadImage/StartImage, ExitBootServices) and
   runtime services (GetTime, ResetSystem, variables). Test: `-machine
   q35 -bios` boots a test PE32+ app; a Squirrel-OS/2 UEFI loader boots.
-- **C2 (v2.0.0) ACPI 2.0+/6.x and SMBIOS 3.x.** MADT, HPET, MCFG, FADT,
+  - [x] Step 1 `x86_64-reset`: reset vector to long mode, COM1 banner,
+    memory map from fw_cfg (#118)
+  - [ ] Step 2 `x86_64-boot-services`: EFI system table, boot services
+    core, memory services (PR #119)
+  - [ ] Step 3 `x86_64-pe`: PE32+ loader, LoadImage/StartImage, a test app
+  - [ ] Step 4 `x86_64-console`: Simple Text Input/Output, events and
+    timers
+  - [ ] Step 5 `x86_64-fat`: Block I/O and FAT32 Simple File System, boot
+    `\EFI\BOOT\BOOTX64.EFI`
+  - [ ] Step 6 `x86_64-gop`: GOP, runtime services, ExitBootServices
+- [ ] **C2 (v2.0.0) ACPI 2.0+/6.x and SMBIOS 3.x.** MADT, HPET, MCFG, FADT,
   DSDT (original, generated AML). Test: Linux x86-64 boots to a shell
   with ACPI; an `acpidump`-style self-check in `make test`.
-- **C3 (v2.0.1) CSM.** Legacy BIOS services kept on the x86-64 build.
-- **C4 (v2.1.x) SMP and Secure Boot.** INIT-SIPI-SIPI, MP table, x2APIC;
+- [ ] **C3 (v2.0.1) CSM.** Legacy BIOS services kept on the x86-64 build.
+- [ ] **C4 (v2.1.x) SMP and Secure Boot.** INIT-SIPI-SIPI, MP table, x2APIC;
   verify-only Secure Boot with our own keys.
-- **C5 (v2.2.x) Real x86 hardware track.** A flashing guide for one
+- [ ] **C5 (v2.2.x) Real x86 hardware track.** A flashing guide for one
   cheap board; DDR training is research under `boards/` and never a
   merge blocker.
 
 ### Phase D — v2.5: ARM and RISC-V as full firmware
 
-- **D1** AArch64 `virt`: UEFI-class interface, device tree and ACPI
+- [ ] **D1** AArch64 `virt`: UEFI-class interface, device tree and ACPI
   (SBBR-like), PSCI, GICv3.
-- **D2** AArch64 boards: Raspberry Pi 4/5 under `boards/rpi4`.
-- **D3** RISC-V `virt`: UEFI-class interface while keeping the SBI;
+- [ ] **D2** AArch64 boards: Raspberry Pi 4/5 under `boards/rpi4`.
+- [ ] **D3** RISC-V `virt`: UEFI-class interface while keeping the SBI;
   `DBCN`, SSE; boards (VisionFive 2, HiFive) under `boards/`.
-- **D4** Shared drivers across architectures (NVMe, xHCI, virtio, FAT,
+- [ ] **D4** Shared drivers across architectures (NVMe, xHCI, virtio, FAT,
   PE/ELF loaders) from the same sources. Test: each QEMU target boots
   Squirrel-OS/2 (once its port exists) and Linux to a shell.
 
 ### Phase E — v3.0: other architectures
 
-- **E1** `PLATFORM=ppc64le-powernv`: OPAL-like runtime interface, device
+- [ ] **E1** `PLATFORM=ppc64le-powernv`: OPAL-like runtime interface, device
   tree, boot Linux on QEMU `powernv`.
-- **E2** `PLATFORM=sparc64-sun4u`: an IEEE 1275-style client interface
+- [ ] **E2** `PLATFORM=sparc64-sun4u`: an IEEE 1275-style client interface
   subset (no Forth), boot on QEMU `sun4u`.
-- **E3** Stretch: `m68k-virt`, `mips-malta`, `loongarch64-virt`, `s390x`
+- [ ] **E3** Stretch: `m68k-virt`, `mips-malta`, `loongarch64-virt`, `s390x`
   (IPL only). Test: each reaches a firmware prompt under QEMU and hands
   off to a test kernel.
 
 ### Phase F — v4.0: large and supercomputer-class nodes
 
-- **F1** NUMA (SRAT/SLIT/HMAT), more than 1000 CPUs, many PCIe root
+- [ ] **F1** NUMA (SRAT/SLIT/HMAT), more than 1000 CPUs, many PCIe root
   complexes and ECAM segments.
-- **F2** RAS: machine-check logging (BERT/HEST/EINJ), corrected-error
+- [ ] **F2** RAS: machine-check logging (BERT/HEST/EINJ), corrected-error
   thresholds, CXL memory enumeration (research).
-- **F3** Management: IPMI/Redfish-style BMC stubs, serial-over-LAN, HTTP
+- [ ] **F3** Management: IPMI/Redfish-style BMC stubs, serial-over-LAN, HTTP
   boot.
-- **F4** Diskless cluster boot of many nodes from one image server.
+- [ ] **F4** Diskless cluster boot of many nodes from one image server.
   Test: QEMU `-smp 256 -numa ...`; `make linux-big` already covers part.
 
 ### Squirrel-OS/2 hand-off on every platform
@@ -261,10 +288,10 @@ on each new platform as soon as its port exists.
 
 The older polish items stay valid and fold into Phase D when it starts:
 
-- RISC-V: `DBCN`, device-tree-derived UART/CLINT addresses, SSE once
+- [ ] RISC-V: `DBCN`, device-tree-derived UART/CLINT addresses, SSE once
   QEMU can inject corrected errors, `aplic-imsic` when the hypervisor
   stack allows a shell.
-- AArch64: firmware PSCI/GIC only if QEMU's built-ins are disabled for a
+- [ ] AArch64: firmware PSCI/GIC only if QEMU's built-ins are disabled for a
   test; otherwise leave them.
 
 ## Out of scope
