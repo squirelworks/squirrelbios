@@ -789,15 +789,17 @@ run riscv-ras "OS-ENTRY riscv ras|hart1=up|~^ras: hart=0000000000000000 mcause=0
 run riscv-no-kernel "boot: no kernel image|boot halted" \
     "$QEMU_RISCV" -M virt -bios riscv/squirrel-bios.bin
 
-# x86-64 UEFI-class firmware (C1, first step): from the reset vector to
-# long mode, the body copied to RAM and run there, and the memory map
-# read from QEMU's fw_cfg (128 MB on q35; 4 GB, split around the PCI
-# hole, with -m 4G; i440fx works the same)
-run x86_64-uefi "SquirrelBIOS 2.0.0-alpha (x86_64-uefi)|~^cpu: .*, long mode, [0-9]+-bit physical addresses|fw: running at 0x0000000000200000-|mem: 0000000000000000-0000000007ffffff usable|mem: 128 MB usable (from fw_cfg)|fw: no boot services yet, halting" \
+# x86-64 UEFI-class firmware (C1): from the reset vector to long mode,
+# the body copied to RAM and run there, and the memory map read from
+# QEMU's fw_cfg (128 MB on q35; 4 GB, split around the PCI hole, with
+# -m 4G; i440fx works the same). Then the EFI system table, the UEFI
+# memory map with the firmware's own areas carved out, and the memory
+# services checked through the boot services table
+run x86_64-uefi "SquirrelBIOS 2.0.0-alpha (x86_64-uefi)|~^cpu: .*, long mode, [0-9]+-bit physical addresses|fw: running at 0x0000000000200000-|mem: 0000000000000000-0000000007ffffff usable|mem: 128 MB usable (from fw_cfg)|~^efi: system table at 0x[0-9a-f]{16}, UEFI 2.70, boot services at|efi: 0000000000000000-0000000000006fff BS data|efi: 00000000000a0000-00000000000fffff reserved|efi: 0000000000200000-|~^efi: [0-9]+ descriptors of 48 bytes|efi: memory services ok|fw: no image loader yet, halting" \
     "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd
-run x86_64-uefi-4g "mem: 0000000000000000-000000007fffffff usable|mem: 0000000100000000-000000017fffffff usable|mem: 4096 MB usable (from fw_cfg)|fw: no boot services yet, halting" \
+run x86_64-uefi-4g "mem: 0000000000000000-000000007fffffff usable|mem: 0000000100000000-000000017fffffff usable|mem: 4096 MB usable (from fw_cfg)|efi: 0000000100000000-000000017fffffff free|efi: memory services ok|fw: no image loader yet, halting" \
     "$QEMU_X86_64" -M q35 -m 4G -bios x86_64/squirrel-bios.fd
-run x86_64-uefi-pc "SquirrelBIOS 2.0.0-alpha (x86_64-uefi)|mem: 128 MB usable (from fw_cfg)|fw: no boot services yet, halting" \
+run x86_64-uefi-pc "SquirrelBIOS 2.0.0-alpha (x86_64-uefi)|mem: 128 MB usable (from fw_cfg)|efi: memory services ok|fw: no image loader yet, halting" \
     "$QEMU_X86_64" -M pc -bios x86_64/squirrel-bios.fd
 
 echo "$pass passed, $fail failed"

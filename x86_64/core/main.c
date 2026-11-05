@@ -1,6 +1,6 @@
 /* SquirrelBIOS x86_64-uefi: firmware main.
  * Original code. */
-#include "sq.h"
+#include "efi.h"
 
 extern char __fw_start[], __fw_end[];
 
@@ -33,6 +33,37 @@ static void cpu_report(void)
     printf("cpu: %s, long mode, %u-bit physical addresses\n", vendor, phys);
 }
 
+static const char *efi_type_name(u32 t)
+{
+    static const char *const names[] = {
+        "reserved", "loader code", "loader data", "BS code", "BS data",
+        "RT code", "RT data", "free", "unusable", "ACPI reclaim", "ACPI NVS",
+        "MMIO", "MMIO port", "PAL code", "persistent",
+    };
+    return t < sizeof names / sizeof names[0] ? names[t] : "other";
+}
+
+/* The UEFI memory map, read through the boot services table */
+static void efi_dump_memory_map(void)
+{
+    static u8 buf[256 * 48];
+    UINTN size = sizeof buf, key, dsize;
+    u32 dver;
+    if (efi_st->boot_services->get_memory_map(&size, (EFI_MEMORY_DESCRIPTOR *)buf, &key, &dsize, &dver)) {
+        printf("efi: GetMemoryMap failed\n");
+        return;
+    }
+    u64 free_pages = 0;
+    for (UINTN off = 0; off < size; off += dsize) {
+        EFI_MEMORY_DESCRIPTOR *d = (EFI_MEMORY_DESCRIPTOR *)(buf + off);
+        printf("efi: %016lx-%016lx %s\n", d->physical_start,
+               d->physical_start + d->number_of_pages * 4096 - 1, efi_type_name(d->type));
+        if (d->type == EfiConventionalMemory)
+            free_pages += d->number_of_pages;
+    }
+    printf("efi: %lu descriptors of %lu bytes, %lu KB free\n", size / dsize, dsize, free_pages * 4);
+}
+
 void fw_main(void)
 {
     con_init();
@@ -50,6 +81,13 @@ void fw_main(void)
     }
     printf("mem: %lu MB usable%s\n", usable >> 20, fwcfg_present() ? " (from fw_cfg)" : " (from CMOS)");
 
-    printf("fw: no boot services yet, halting\n");
+    efi_tables_init();
+    efi_memory_init();
+    printf("efi: system table at %p, UEFI %u.%u, boot services at %p\n", efi_st,
+           efi_st->hdr.revision >> 16, efi_st->hdr.revision & 0xFFFF, efi_st->boot_services);
+    efi_dump_memory_map();
+    printf("efi: memory services %s\n", efi_memory_selftest() ? "ok" : "FAILED");
+
+    printf("fw: no image loader yet, halting\n");
     halt();
 }

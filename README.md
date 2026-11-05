@@ -10,7 +10,7 @@ the v0.3.0 hand-off contract. See [ROADMAP.md](ROADMAP.md),
 x86/        64 KB ROM — PC BIOS: ATA boot, INT 10h/13h/15h/16h/1Ah, ACPI, SMBIOS
             (core/, boot/, drivers/, tables/ modules)
 x86_64/     1 MB flash image — x86-64 UEFI-class firmware in progress (roadmap C1):
-            reset to long mode, memory map from fw_cfg (C and NASM)
+            reset to long mode, memory map, EFI tables and memory services (C and NASM)
 arm/        AArch64 QEMU virt — PL011 banner + fw_cfg kernel load, DTB in x0
 riscv/      RISC-V QEMU virt — UART banner + S-mode entry to -kernel, DTB in a1, SBI
 tests/      stand-in OS images and smoke tests (make test)
@@ -144,7 +144,7 @@ boots each firmware under QEMU with a small stand-in OS image from
 | `config-x86-minimal` | The `x86-pc/minimal` build boots the `x86-boot` image with every hand-off check |
 | `config-x86-minimal-noacpi` | The same build has no RSDP (the `x86-acpi` image prints `acpi=bad`) |
 | `config-riscv-small` | The `riscv64-virt/small` build (8 harts tracked) boots the `riscv-boot` image |
-| `x86_64-uefi` | The x86-64 firmware on q35: from the reset vector to long mode, its body copied to RAM at 2 MB, the CPU named, and the memory map read from QEMU's fw_cfg (128 MB) |
+| `x86_64-uefi` | The x86-64 firmware on q35: from the reset vector to long mode, its body copied to RAM at 2 MB, the CPU named, and the memory map read from QEMU's fw_cfg (128 MB); then the EFI system table, the UEFI memory map with the firmware's areas carved out, and AllocatePages/FreePages/AllocatePool/FreePool/GetMemoryMap checked through the boot services table |
 | `x86_64-uefi-4g` | The same with `-m 4G`: RAM below the PCI hole and above 4 GB, 4096 MB in all |
 | `x86_64-uefi-pc` | The same firmware on i440fx |
 
@@ -239,7 +239,7 @@ qemu-system-i386 -bios x86/squirrel-bios.rom -drive format=raw,file=boot.bin,if=
 qemu-system-i386 -bios x86/squirrel-bios.rom -drive format=raw,file=os.img,if=ide -serial stdio
 tests/os-boot.sh path/to/os.img
 
-# x86-64 UEFI-class firmware (in progress: it stops after the memory map)
+# x86-64 UEFI-class firmware (in progress: it stops before loading an image)
 qemu-system-x86_64 -M q35 -bios x86_64/squirrel-bios.fd -serial stdio
 
 # AArch64 (image linked at 0x40200000)
