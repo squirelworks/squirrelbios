@@ -382,7 +382,7 @@ roadmap item, run under QEMU in `make test`.
     a hub once it is listed; up to 10 scratchpad pages (3 when the
     controller's structures are in the EBDA); hubs are not marked as
     hubs in their slot context (see the handoff notes).
-- [ ] `x86-usb-hid` — USB keyboard/mouse feeding `INT 16h` / `INT 15h
+- [x] `x86-usb-hid` — USB keyboard/mouse feeding `INT 16h` / `INT 15h
   C2xx`.
   - [x] Keyboard on UHCI (boot protocol, polled from IRQ0)
   - [x] Keyboard on OHCI (and on EHCI ports, through the companions)
@@ -391,7 +391,8 @@ roadmap item, run under QEMU in `make test`.
 - [ ] `x86-usb-storage` — Boot from USB mass storage (BOT, then UAS).
   - [x] Bulk-only transport on xHCI: `INT 13h` and booting, as DL 80h
     when no IDE, SATA or NVMe disk answered. No stall recovery yet.
-- [ ] `x86-virtio-net-boot` — virtio-blk/net and an original TFTP boot
+  - [ ] UAS
+- [x] `x86-virtio-net-boot` — virtio-blk/net and an original TFTP boot
   of `SQBL`.
   - [x] virtio-blk (legacy interface) as DL 80h, after NVMe. One
     request at a time; a modern-only device (1042h) is not found.
