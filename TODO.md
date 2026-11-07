@@ -422,7 +422,8 @@ stub, a 1 MB flash image for `qemu-system-x86_64 -bios`. One PR each.
   text yet.
 - [x] `x86_64-fat` — Block I/O (virtio-blk legacy) and a FAT12/16/32
   Simple File System; GPT/MBR partitions; boot `\EFI\BOOT\BOOTX64.EFI`.
-- [ ] `x86_64-gop` — Graphics Output Protocol, runtime services,
+- [x] `x86_64-gop` — Graphics Output Protocol (Bochs DISPI / QEMU std
+  VGA), runtime services (GetTime, ResetSystem, in-RAM variables),
   ExitBootServices.
 
 ## Secondary track

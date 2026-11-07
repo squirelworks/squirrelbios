@@ -239,6 +239,7 @@ EFI_STATUS EFIAPI efi_get_memory_map(UINTN *size, EFI_MEMORY_DESCRIPTOR *buf, UI
     *size = need;
     if (key)
         *key = map_key;
+    efi_note_map_key(map_key);
     return EFI_SUCCESS;
 }
 

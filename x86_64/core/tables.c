@@ -104,12 +104,14 @@ void efi_tables_init(void)
     efi_event_init(&bs);
     efi_protocol_init(&bs);
     efi_image_init(&bs);
+    bs.exit_boot_services = (void *)efi_exit_boot_services;
     seal(&bs.hdr, EFI_BOOT_SERVICES_SIGNATURE, sizeof bs);
 
     slot = (void **)&rt.get_time;
     last = (void **)&rt.query_variable_info;
     for (; slot <= last; slot++)
         *slot = (void *)unsupported;
+    efi_runtime_init(&rt);
     seal(&rt.hdr, EFI_RUNTIME_SERVICES_SIGNATURE, sizeof rt);
 
     st.firmware_vendor = vendor;

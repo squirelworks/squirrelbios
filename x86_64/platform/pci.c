@@ -37,6 +37,14 @@ void pci_write16(u8 bus, u8 dev, u8 fn, u8 off, u16 v)
     pci_write32(bus, dev, fn, off, cur);
 }
 
+void pci_write8(u8 bus, u8 dev, u8 fn, u8 off, u8 v)
+{
+    u32 cur = pci_read32(bus, dev, fn, off);
+    u32 shift = (off & 3) * 8;
+    cur = (cur & ~(0xFFu << shift)) | ((u32)v << shift);
+    pci_write32(bus, dev, fn, off, cur);
+}
+
 /* Assign an I/O BAR that QEMU left floating (all ones). Returns the base
  * or 0 on failure. Uses a bump allocator from 0xC000 upward. */
 static u16 io_bump = 0xC000;
@@ -59,6 +67,31 @@ u16 pci_assign_io_bar(u8 bus, u8 dev, u8 fn, u8 bar_off)
         base = 0xC000;
     io_bump = base + size;
     pci_write32(bus, dev, fn, bar_off, base | 1);
+    return base;
+}
+
+/* 32-bit memory BARs: bump downward from 0xE0000000 so they sit below
+ * the PCI hole. Prefetchable bit is preserved. Returns 0 on failure. */
+static u32 mem_bump = 0xE0000000;
+
+u32 pci_assign_mem_bar(u8 bus, u8 dev, u8 fn, u8 bar_off)
+{
+    u32 bar = pci_read32(bus, dev, fn, bar_off);
+    if (bar & 1)
+        return 0;                               /* I/O BAR */
+    if ((bar & 0x6) == 0x4)
+        return 0;                               /* 64-bit: skip for now */
+    u32 cur = bar & 0xFFFFFFF0;
+    if (cur && cur != 0xFFFFFFF0)
+        return cur;
+    pci_write32(bus, dev, fn, bar_off, 0xFFFFFFFF);
+    u32 mask = pci_read32(bus, dev, fn, bar_off);
+    u32 size = ~(mask & 0xFFFFFFF0) + 1;
+    if (!size || size > 0x10000000)
+        return 0;
+    u32 base = (mem_bump - size) & ~(size - 1);
+    mem_bump = base;
+    pci_write32(bus, dev, fn, bar_off, base | (bar & 0xF));
     return base;
 }
 

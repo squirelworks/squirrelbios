@@ -19,10 +19,11 @@ core/      start.asm (clears .bss, calls fw_main), main.c, console.c
            event.c (events, timers, Stall; the TSC measured against the
            PIT), textcon.c (Simple Text Input/Output on COM1),
            devicepath.c, disk.c (Block I/O, GPT/MBR), fat.c (Simple File
-           System)
+           System), gop.c (Graphics Output Protocol on Bochs DISPI),
+           runtime.c (GetTime, variables, ResetSystem, ExitBootServices)
 platform/  fwcfg.c (QEMU fw_cfg over I/O ports), memmap.c (etc/e820,
-           CMOS as a fallback), pci.c (config space and I/O BAR
-           assignment), virtio_blk.c (legacy virtio-blk)
+           CMOS as a fallback), pci.c (config space, I/O and 32-bit
+           memory BAR assignment), virtio_blk.c (legacy virtio-blk)
 include/   sq.h, efi.h (UEFI types and tables, from the specification)
 link.ld    the body, linked at FW_BASE
 ```
@@ -66,5 +67,13 @@ Memory: allocations come from the top of the highest free range below
 4 GB (the limit of the 1:1 mapping). The UEFI memory map keeps page 0 and
 the page tables (0x0000-0x6FFF), the stack (1-2 MB) and the firmware
 image (from 2 MB) as boot services memory, and 0xA0000-0xFFFFF as
-reserved. Services not written yet answer `EFI_UNSUPPORTED`. GOP,
-runtime services and `ExitBootServices` are next (TODO.md section 15).
+reserved. Services not written yet answer `EFI_UNSUPPORTED`.
+
+GOP: QEMU std VGA (PCI `1234:1111`) through Bochs DISPI (`0x01CE`/
+`0x01CF`) and the linear frame buffer in BAR0. Modes 800×600, 640×480
+and 1024×768 at 32 bpp (BGRX); `QueryMode`/`SetMode`/`Blt` (fill,
+buffer↔video, video↔video). Runtime: `GetTime` from the CMOS RTC,
+in-RAM `Get`/`SetVariable` (no flash store), `ResetSystem` (ACPI
+shutdown or keyboard-controller reset), and `ExitBootServices` (signals
+exit-boot events, nulls `BootServices`, reseals the system table). The
+1:1 map stays; `SetVirtualAddressMap` is a no-op after exit.

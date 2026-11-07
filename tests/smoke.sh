@@ -844,5 +844,11 @@ run x86_64-fat "disk: virtio-blk at PCI|disk: GPT,|fs: FAT32 on partition|efi: b
     -drive if=none,id=esp,format=raw,file=$TEST_DIR/x86_64-esp.img,snapshot=on \
     -device virtio-blk-pci,drive=esp,disable-legacy=off,disable-modern=on
 
+# x86-64 firmware: GOP (Bochs DISPI), GetTime, variables, ExitBootServices.
+# The app shuts the machine down after EBS (it must not return to firmware).
+run x86_64-gop "gop: 800x600x32 at|APP gop mode=ok fb=ok blt=ok time=ok var=ok|efi: ExitBootServices|APP ebs=ok|@exit=0|!=bad" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd \
+    -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-gop.efi
+
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

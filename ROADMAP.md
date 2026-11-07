@@ -32,8 +32,14 @@ UEFI.
   in [What works today](#what-works-today-v100) is the v1.0.0 baseline;
   the release notes in `release-notes/` list what each version added.
 - **Phase C1** (in progress), `PLATFORM=x86_64-uefi` in `x86_64/`. Steps 1–4
+<<<<<<< HEAD
   are merged (#118, #119, #122, #123); step 5 (FAT/Block I/O) is in this
   PR. Step 6 (GOP/runtime/ExitBootServices) remains open.
+=======
+  are merged (#118, #119, #122, #123); step 5 (FAT/Block I/O) is on
+  `cursor/x86-64-fat-ebbc`; step 6 (GOP/runtime/ExitBootServices) is in
+  this PR.
+>>>>>>> 39c78a1 (x86_64: GOP, runtime services, ExitBootServices (C1, step 6))
 - Release images are attached to GitHub Releases only. Squirrel
   publishes each release.
 
@@ -234,8 +240,14 @@ boxes in [TODO.md](TODO.md).
   - [x] Step 4 `x86_64-console`: Simple Text Input/Output, events and
     timers (#123)
   - [x] Step 5 `x86_64-fat`: Block I/O and FAT32 Simple File System, boot
+<<<<<<< HEAD
     `\EFI\BOOT\BOOTX64.EFI` (this PR)
   - [ ] Step 6 `x86_64-gop`: GOP, runtime services, ExitBootServices
+=======
+    `\EFI\BOOT\BOOTX64.EFI` (depends on #122/#123)
+  - [x] Step 6 `x86_64-gop`: GOP, runtime services, ExitBootServices
+    (this PR; depends on step 5)
+>>>>>>> 39c78a1 (x86_64: GOP, runtime services, ExitBootServices (C1, step 6))
 - [ ] **C2 (v2.0.0) ACPI 2.0+/6.x and SMBIOS 3.x.** MADT, HPET, MCFG, FADT,
   DSDT (original, generated AML). Test: Linux x86-64 boots to a shell
   with ACPI; an `acpidump`-style self-check in `make test`.

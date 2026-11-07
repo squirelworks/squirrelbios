@@ -9,6 +9,7 @@ typedef unsigned int       u32;
 typedef unsigned long long u64;
 typedef signed long long   s64;
 typedef signed int         s32;
+typedef signed short       s16;
 typedef unsigned long      uptr;
 typedef unsigned long      usize;
 
@@ -72,7 +73,9 @@ u16 pci_read16(u8 bus, u8 dev, u8 fn, u8 off);
 u8 pci_read8(u8 bus, u8 dev, u8 fn, u8 off);
 void pci_write32(u8 bus, u8 dev, u8 fn, u8 off, u32 v);
 void pci_write16(u8 bus, u8 dev, u8 fn, u8 off, u16 v);
+void pci_write8(u8 bus, u8 dev, u8 fn, u8 off, u8 v);
 u16 pci_assign_io_bar(u8 bus, u8 dev, u8 fn, u8 bar_off);
+u32 pci_assign_mem_bar(u8 bus, u8 dev, u8 fn, u8 bar_off);
 int pci_find(u16 vendor, u16 device, u8 *bus, u8 *dev, u8 *fn);
 
 /* virtio_blk.c: one transitional virtio-blk disk */
