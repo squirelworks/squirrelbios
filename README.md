@@ -154,7 +154,7 @@ boots each firmware under QEMU with a small stand-in OS image from
 | `x86_64-con` | An EFI app writes through ConOut (UTF-8 and ANSI attributes and cursor moves on COM1), checks the 80x25 mode, waits on a 10 ms timer event, stalls, then reads `a`, `b`, up, delete and `q` typed on the serial line through `WaitForKey` and `ReadKeyStroke` |
 | `x86_64-app-junk` | A file that is not PE32+ is refused with `EFI_LOAD_ERROR` |
 | `x86_64-fat` | A GPT disk with a FAT32 ESP on virtio-blk: Block I/O, Simple File System, and boot of `\EFI\BOOT\BOOTX64.EFI` (the PE32+ test app) |
-| `x86_64-gop` | An EFI app sets GOP mode 800×600×32, Blt-fills a rectangle, GetTime and Set/GetVariable, then ExitBootServices and ResetSystem (shutdown); QEMU exits 0 |
+| `x86_64-gop` | An EFI app sets GOP mode 800×600×32, Blt-fills a rectangle, GetTime and Set/GetVariable, then ExitBootServices and ResetSystem (shutdown via isa-debug-exit, QEMU status 1) |
 
 Needs `qemu-system-i386`, `qemu-system-x86_64`, `qemu-system-aarch64` and `qemu-system-riscv64`.
 Serial logs are kept in `build/tests/*.log`. `SMOKE_TIMEOUT` (seconds,

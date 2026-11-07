@@ -262,11 +262,14 @@ static void EFIAPI reset_system(EFI_RESET_TYPE type, EFI_STATUS status, UINTN si
     (void)size;
     (void)data;
     if (type == EfiResetShutdown) {
+        /* isa-debug-exit if the smoke test attached one at 0xF4. */
+        outb(0xF4, 0x00);
         u16 pm1 = acpi_pm1_cnt();
+        /* SLP_EN | SLP_TYP=5 (S5). QEMU accepts this on ICH9/PIIX4. */
         if (pm1)
-            outw(pm1, 0x2000);          /* SLP_EN | SLP_TYP=0 */
-        outw(0x604, 0x2000);
-        outw(0xB004, 0x2000);           /* Bochs/old QEMU */
+            outw(pm1, 0x2000 | (5 << 10));
+        outw(0x604, 0x2000 | (5 << 10));
+        outw(0xB004, 0x2000);
         for (;;)
             __asm__ volatile("cli; hlt");
     }

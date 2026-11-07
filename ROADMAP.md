@@ -31,12 +31,17 @@ UEFI.
   HID, BOT disk boot), virtio-blk, network boot and VBE 3.0. The table
   in [What works today](#what-works-today-v100) is the v1.0.0 baseline;
   the release notes in `release-notes/` list what each version added.
+<<<<<<< HEAD
 - **Phase C1** (in progress), `PLATFORM=x86_64-uefi` in `x86_64/`. Steps 1–4
 <<<<<<< HEAD
   are merged (#118, #119, #122, #123); step 5 (FAT/Block I/O) is in this
   PR. Step 6 (GOP/runtime/ExitBootServices) remains open.
 =======
   are merged (#118, #119, #122, #123); step 5 (FAT/Block I/O) is on
+=======
+- **Phase C1** (in progress), `PLATFORM=x86_64-uefi` in `x86_64/`. Steps 1–2
+  are merged (#118, #119); steps 3–4 are open as #122/#123; step 5 is on
+>>>>>>> 0829fed (x86_64: reliable ResetSystem shutdown for the GOP smoke test)
   `cursor/x86-64-fat-ebbc`; step 6 (GOP/runtime/ExitBootServices) is in
   this PR.
 >>>>>>> 39c78a1 (x86_64: GOP, runtime services, ExitBootServices (C1, step 6))
