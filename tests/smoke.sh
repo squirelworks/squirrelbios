@@ -835,5 +835,14 @@ SERIAL_IN=
 run x86_64-app-junk "efi: LoadImage failed: 0x8000000000000001, halting" \
     "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd -fw_cfg $X64_BOOT,file=$TEST_DIR/x86-boot.bin
 
+# x86-64 firmware: Block I/O on virtio-blk, GPT ESP, FAT32 Simple File
+# System, and boot of \\EFI\\BOOT\\BOOTX64.EFI (the same PE32+ app).
+# q35 defaults disable-legacy=on for virtio; force the transitional I/O BAR
+# our Block I/O driver programs (same interface as the x86 virtio-blk path).
+run x86_64-fat "disk: virtio-blk at PCI|disk: GPT,|fs: FAT32 on partition|efi: booting \\EFI\\BOOT\\BOOTX64.EFI|APP x86_64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|efi: BOOTX64.EFI returned 0x1234|fw: halting|!=bad" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd \
+    -drive if=none,id=esp,format=raw,file=$TEST_DIR/x86_64-esp.img,snapshot=on \
+    -device virtio-blk-pci,drive=esp,disable-legacy=off,disable-modern=on
+
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

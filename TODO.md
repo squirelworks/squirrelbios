@@ -420,8 +420,8 @@ stub, a 1 MB flash image for `qemu-system-x86_64 -bios`. One PR each.
 - [x] `x86_64-console` — Simple Text Input/Output on COM1 (UTF-8 and ANSI),
   events and timers (polled), Stall. No PS/2 or USB keyboard, no VGA
   text yet.
-- [ ] `x86_64-fat` — Block I/O and a FAT32 Simple File System; boot
-  `\EFI\BOOT\BOOTX64.EFI`.
+- [x] `x86_64-fat` — Block I/O (virtio-blk legacy) and a FAT12/16/32
+  Simple File System; GPT/MBR partitions; boot `\EFI\BOOT\BOOTX64.EFI`.
 - [ ] `x86_64-gop` — Graphics Output Protocol, runtime services,
   ExitBootServices.
 

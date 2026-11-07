@@ -25,8 +25,10 @@ typedef unsigned long      usize;
 
 static inline void outb(u16 port, u8 v)  { __asm__ volatile("outb %0, %1" :: "a"(v), "Nd"(port)); }
 static inline void outw(u16 port, u16 v) { __asm__ volatile("outw %0, %1" :: "a"(v), "Nd"(port)); }
+static inline void outl(u16 port, u32 v) { __asm__ volatile("outl %0, %1" :: "a"(v), "Nd"(port)); }
 static inline u8 inb(u16 port)  { u8 v;  __asm__ volatile("inb %1, %0" : "=a"(v) : "Nd"(port)); return v; }
 static inline u16 inw(u16 port) { u16 v; __asm__ volatile("inw %1, %0" : "=a"(v) : "Nd"(port)); return v; }
+static inline u32 inl(u16 port) { u32 v; __asm__ volatile("inl %1, %0" : "=a"(v) : "Nd"(port)); return v; }
 
 static inline void cpuid(u32 leaf, u32 *a, u32 *b, u32 *c, u32 *d)
 {
@@ -63,6 +65,25 @@ void halt(void) __attribute__((noreturn));
 int fwcfg_present(void);
 int fwcfg_find(const char *name, u16 *select, u32 *size);
 void fwcfg_read(u16 select, void *buf, u32 len);
+
+/* pci.c */
+u32 pci_read32(u8 bus, u8 dev, u8 fn, u8 off);
+u16 pci_read16(u8 bus, u8 dev, u8 fn, u8 off);
+u8 pci_read8(u8 bus, u8 dev, u8 fn, u8 off);
+void pci_write32(u8 bus, u8 dev, u8 fn, u8 off, u32 v);
+void pci_write16(u8 bus, u8 dev, u8 fn, u8 off, u16 v);
+u16 pci_assign_io_bar(u8 bus, u8 dev, u8 fn, u8 bar_off);
+int pci_find(u16 vendor, u16 device, u8 *bus, u8 *dev, u8 *fn);
+
+/* virtio_blk.c: one transitional virtio-blk disk */
+int vblk_probe(void);
+int vblk_present(void);
+u64 vblk_sectors(void);
+u8 vblk_bus(void);
+u8 vblk_dev(void);
+u8 vblk_fn(void);
+int vblk_read(u64 lba, void *buf, u32 bytes);
+int vblk_write(u64 lba, void *buf, u32 bytes);
 
 /* memmap.c */
 struct mem_range {

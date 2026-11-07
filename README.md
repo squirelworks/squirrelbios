@@ -10,7 +10,8 @@ the v0.3.0 hand-off contract. See [ROADMAP.md](ROADMAP.md),
 x86/        64 KB ROM — PC BIOS: ATA boot, INT 10h/13h/15h/16h/1Ah, ACPI, SMBIOS
             (core/, boot/, drivers/, tables/ modules)
 x86_64/     1 MB flash image — x86-64 UEFI-class firmware in progress (roadmap C1):
-            reset to long mode, EFI tables, memory, PE32+ images, events, serial console
+            reset to long mode, EFI tables, memory, PE32+ images, events, serial
+            console, virtio-blk Block I/O, FAT Simple File System, ESP boot
 arm/        AArch64 QEMU virt — PL011 banner + fw_cfg kernel load, DTB in x0
 riscv/      RISC-V QEMU virt — UART banner + S-mode entry to -kernel, DTB in a1, SBI
 tests/      stand-in OS images and smoke tests (make test)
@@ -151,6 +152,7 @@ boots each firmware under QEMU with a small stand-in OS image from
 | `x86_64-app-4g` | With 4 GB the same image loads at its preferred base, 256 MB |
 | `x86_64-con` | An EFI app writes through ConOut (UTF-8 and ANSI attributes and cursor moves on COM1), checks the 80x25 mode, waits on a 10 ms timer event, stalls, then reads `a`, `b`, up, delete and `q` typed on the serial line through `WaitForKey` and `ReadKeyStroke` |
 | `x86_64-app-junk` | A file that is not PE32+ is refused with `EFI_LOAD_ERROR` |
+| `x86_64-fat` | A GPT disk with a FAT32 ESP on virtio-blk: Block I/O, Simple File System, and boot of `\EFI\BOOT\BOOTX64.EFI` (the PE32+ test app) |
 
 Needs `qemu-system-i386`, `qemu-system-x86_64`, `qemu-system-aarch64` and `qemu-system-riscv64`.
 Serial logs are kept in `build/tests/*.log`. `SMOKE_TIMEOUT` (seconds,
