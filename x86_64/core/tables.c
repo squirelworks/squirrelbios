@@ -52,13 +52,6 @@ static void EFIAPI restore_tpl(EFI_TPL tpl)
     current_tpl = tpl;
 }
 
-static EFI_STATUS EFIAPI stall(UINTN us)
-{
-    while (us--)
-        inb(0x80);              /* about 1 us each on PC hardware */
-    return EFI_SUCCESS;
-}
-
 static EFI_STATUS EFIAPI calculate_crc32(void *data, UINTN size, u32 *out)
 {
     if (!data || !size || !out)
@@ -104,11 +97,11 @@ void efi_tables_init(void)
     bs.get_memory_map = efi_get_memory_map;
     bs.allocate_pool = efi_allocate_pool;
     bs.free_pool = efi_free_pool;
-    bs.stall = stall;
     bs.calculate_crc32 = calculate_crc32;
     bs.copy_mem = copy_mem;
     bs.set_mem = set_mem;
     bs.reserved = NULL;
+    efi_event_init(&bs);
     efi_protocol_init(&bs);
     efi_image_init(&bs);
     seal(&bs.hdr, EFI_BOOT_SERVICES_SIGNATURE, sizeof bs);

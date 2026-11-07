@@ -123,10 +123,12 @@ void fw_main(void)
 
     efi_memory_init();
     efi_tables_init();
+    efi_console_init();
     printf("efi: system table at %p, UEFI %u.%u, boot services at %p\n", efi_st,
            efi_st->hdr.revision >> 16, efi_st->hdr.revision & 0xFFFF, efi_st->boot_services);
     efi_dump_memory_map();
     printf("efi: memory services %s\n", efi_memory_selftest() ? "ok" : "FAILED");
+    printf("efi: TSC at %lu MHz, console on COM1\n", efi_tsc_hz() / 1000000);
 
     boot_fwcfg_image();
     halt();

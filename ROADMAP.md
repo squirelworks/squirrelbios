@@ -32,8 +32,8 @@ UEFI.
   in [What works today](#what-works-today-v100) is the v1.0.0 baseline;
   the release notes in `release-notes/` list what each version added.
 - **Phase C1** (in progress), `PLATFORM=x86_64-uefi` in `x86_64/`. Steps 1–2
-  are merged (#118, #119); step 3 (PE32+ loader) is in this PR. Step 4
-  (console, events, timers) is next; steps 5–6 remain open.
+  are merged (#118, #119); step 3 (PE32+ loader) is #122; step 4 (console,
+  events, timers) is in this PR. Steps 5–6 (FAT/GOP) remain open.
 - Release images are attached to GitHub Releases only. Squirrel
   publishes each release.
 
@@ -230,9 +230,9 @@ boxes in [TODO.md](TODO.md).
   - [x] Step 2 `x86_64-boot-services`: EFI system table, boot services
     core, memory services (#119)
   - [x] Step 3 `x86_64-pe`: PE32+ loader, LoadImage/StartImage, a test app
-    (this PR)
-  - [ ] Step 4 `x86_64-console`: Simple Text Input/Output, events and
-    timers
+    (#122)
+  - [x] Step 4 `x86_64-console`: Simple Text Input/Output, events and
+    timers (this PR; depends on #122)
   - [ ] Step 5 `x86_64-fat`: Block I/O and FAT32 Simple File System, boot
     `\EFI\BOOT\BOOTX64.EFI`
   - [ ] Step 6 `x86_64-gop`: GOP, runtime services, ExitBootServices
