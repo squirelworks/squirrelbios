@@ -34,7 +34,11 @@ typedef struct {
 #define EFI_BUFFER_TOO_SMALL      EFI_ERR(5)
 #define EFI_NOT_READY             EFI_ERR(6)
 #define EFI_DEVICE_ERROR          EFI_ERR(7)
+#define EFI_WRITE_PROTECTED       EFI_ERR(8)
 #define EFI_OUT_OF_RESOURCES      EFI_ERR(9)
+#define EFI_VOLUME_CORRUPTED      EFI_ERR(10)
+#define EFI_NO_MEDIA              EFI_ERR(12)
+#define EFI_MEDIA_CHANGED         EFI_ERR(13)
 #define EFI_NOT_FOUND             EFI_ERR(14)
 #define EFI_ACCESS_DENIED         EFI_ERR(15)
 
@@ -270,6 +274,114 @@ typedef struct EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL {
     { 0x387477c1, 0x69c7, 0x11d2, { 0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b } }
 #define EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL_GUID \
     { 0x387477c2, 0x69c7, 0x11d2, { 0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b } }
+
+/* Device path */
+typedef struct {
+    u8 type;
+    u8 subtype;
+    u8 length[2];
+} EFI_DEVICE_PATH_PROTOCOL;
+
+#define END_DEVICE_PATH_TYPE            0x7F
+#define END_ENTIRE_DEVICE_PATH_SUBTYPE  0xFF
+#define HARDWARE_DEVICE_PATH            0x01
+#define HW_PCI_DP                       0x01
+#define MESSAGING_DEVICE_PATH           0x03
+#define MSG_SCSI_DP                     0x02
+#define MEDIA_DEVICE_PATH               0x04
+#define MEDIA_HARDDRIVE_DP              0x01
+#define MEDIA_FILEPATH_DP               0x04
+
+#define EFI_DEVICE_PATH_PROTOCOL_GUID \
+    { 0x09576e91, 0x6d3f, 0x11d2, { 0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b } }
+
+/* Block I/O */
+#define EFI_BLOCK_IO_PROTOCOL_GUID \
+    { 0x964e5b21, 0x6459, 0x11d2, { 0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b } }
+#define EFI_BLOCK_IO_PROTOCOL_REVISION  0x00010000
+
+typedef struct {
+    u64 media_id;
+    BOOLEAN removable_media;
+    BOOLEAN media_present;
+    BOOLEAN logical_partition;
+    BOOLEAN read_only;
+    BOOLEAN write_caching;
+    u32 block_size;
+    u32 io_align;
+    u64 last_block;
+} EFI_BLOCK_IO_MEDIA;
+
+typedef struct EFI_BLOCK_IO_PROTOCOL {
+    u64 revision;
+    EFI_BLOCK_IO_MEDIA *media;
+    EFI_STATUS (EFIAPI *reset)(struct EFI_BLOCK_IO_PROTOCOL *, BOOLEAN);
+    EFI_STATUS (EFIAPI *read_blocks)(struct EFI_BLOCK_IO_PROTOCOL *, u64, u64, UINTN, void *);
+    EFI_STATUS (EFIAPI *write_blocks)(struct EFI_BLOCK_IO_PROTOCOL *, u64, u64, UINTN, void *);
+    EFI_STATUS (EFIAPI *flush_blocks)(struct EFI_BLOCK_IO_PROTOCOL *);
+} EFI_BLOCK_IO_PROTOCOL;
+
+/* Simple File System / File */
+#define EFI_SIMPLE_FILE_SYSTEM_PROTOCOL_GUID \
+    { 0x964e5b22, 0x6459, 0x11d2, { 0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b } }
+#define EFI_SIMPLE_FILE_SYSTEM_PROTOCOL_REVISION 0x00010000
+#define EFI_FILE_PROTOCOL_REVISION 0x00010000
+
+#define EFI_FILE_MODE_READ   0x0000000000000001ULL
+#define EFI_FILE_MODE_WRITE  0x0000000000000002ULL
+#define EFI_FILE_MODE_CREATE 0x8000000000000000ULL
+#define EFI_FILE_READ_ONLY   0x0000000000000001ULL
+#define EFI_FILE_DIRECTORY   0x0000000000000010ULL
+
+#define EFI_FILE_INFO_GUID \
+    { 0x09576e92, 0x6d3f, 0x11d2, { 0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b } }
+
+typedef struct {
+    u64 size;
+    u64 file_size;
+    u64 physical_size;
+    u16 create_time[8];
+    u16 last_access_time[8];
+    u16 modification_time[8];
+    u64 attribute;
+    CHAR16 file_name[1];
+} EFI_FILE_INFO;
+
+typedef struct EFI_FILE_PROTOCOL {
+    u64 revision;
+    EFI_STATUS (EFIAPI *open)(struct EFI_FILE_PROTOCOL *, struct EFI_FILE_PROTOCOL **, CHAR16 *, u64, u64);
+    EFI_STATUS (EFIAPI *close)(struct EFI_FILE_PROTOCOL *);
+    EFI_STATUS (EFIAPI *delete)(struct EFI_FILE_PROTOCOL *);
+    EFI_STATUS (EFIAPI *read)(struct EFI_FILE_PROTOCOL *, UINTN *, void *);
+    EFI_STATUS (EFIAPI *write)(struct EFI_FILE_PROTOCOL *, UINTN *, void *);
+    EFI_STATUS (EFIAPI *get_position)(struct EFI_FILE_PROTOCOL *, u64 *);
+    EFI_STATUS (EFIAPI *set_position)(struct EFI_FILE_PROTOCOL *, u64);
+    EFI_STATUS (EFIAPI *get_info)(struct EFI_FILE_PROTOCOL *, EFI_GUID *, UINTN *, void *);
+    EFI_STATUS (EFIAPI *set_info)(struct EFI_FILE_PROTOCOL *, EFI_GUID *, UINTN, void *);
+    EFI_STATUS (EFIAPI *flush)(struct EFI_FILE_PROTOCOL *);
+} EFI_FILE_PROTOCOL;
+
+typedef struct EFI_SIMPLE_FILE_SYSTEM_PROTOCOL {
+    u64 revision;
+    EFI_STATUS (EFIAPI *open_volume)(struct EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *, EFI_FILE_PROTOCOL **);
+} EFI_SIMPLE_FILE_SYSTEM_PROTOCOL;
+
+extern const EFI_GUID efi_device_path_guid;
+extern const EFI_GUID efi_block_io_guid;
+extern const EFI_GUID efi_simple_file_system_guid;
+extern const EFI_GUID efi_file_info_guid;
+
+UINTN efi_dp_size(const EFI_DEVICE_PATH_PROTOCOL *dp);
+EFI_DEVICE_PATH_PROTOCOL *efi_dp_append(const EFI_DEVICE_PATH_PROTOCOL *a,
+                                        const EFI_DEVICE_PATH_PROTOCOL *b);
+EFI_DEVICE_PATH_PROTOCOL *efi_dp_file(const CHAR16 *path);
+EFI_DEVICE_PATH_PROTOCOL *efi_dp_pci(u8 device, u8 function);
+EFI_DEVICE_PATH_PROTOCOL *efi_dp_hd(u32 part, u64 start, u64 size, const u8 uuid[16]);
+
+/* disk.c / fat.c: virtio-blk Block I/O, GPT/MBR partitions, FAT SFS */
+void efi_disk_init(void);
+int efi_boot_esp(void);
+int fat_install(EFI_HANDLE handle, EFI_BLOCK_IO_PROTOCOL *bio);
 
 /* event.c */
 void efi_event_init(EFI_BOOT_SERVICES *bs);

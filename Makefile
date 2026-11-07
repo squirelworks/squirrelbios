@@ -73,7 +73,8 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/riscv-numa.bin $(TEST_DIR)/riscv-aia.bin \
              $(TEST_DIR)/riscv-ras.bin \
              $(TEST_DIR)/x86_64-app.efi $(TEST_DIR)/x86_64-app-exit.efi \
-             $(TEST_DIR)/x86_64-con.efi $(TEST_DIR)/x86_64-con.keys
+             $(TEST_DIR)/x86_64-con.efi $(TEST_DIR)/x86_64-con.keys \
+             $(TEST_DIR)/x86_64-esp.img
 
 .PHONY: all x86 x86_64 arm riscv test linux-shell linux-x86 linux-big linux-stress os-boot clean
 .DELETE_ON_ERROR:
@@ -244,6 +245,10 @@ $(TEST_DIR)/x86_64-con.efi: tests/x86_64-con.asm tests/x86_64-pe.inc | $(TEST_DI
 	$(NASM) -f bin -i tests/ $< -o $@
 $(TEST_DIR)/x86_64-con.keys: | $(TEST_DIR)
 	printf 'ab\033[A\033[3~q' > $@
+
+# GPT disk with a FAT32 ESP holding \\EFI\\BOOT\\BOOTX64.EFI (the app)
+$(TEST_DIR)/x86_64-esp.img: tests/mkesp.py $(TEST_DIR)/x86_64-app.efi | $(TEST_DIR)
+	python3 tests/mkesp.py $(TEST_DIR)/x86_64-app.efi $@
 
 # Boot sector plus a 96 KB 'S2OK' image, the shape of Squirrel-OS/2's disk
 $(TEST_DIR)/x86-osload.bin: tests/x86-osload.asm | $(TEST_DIR)

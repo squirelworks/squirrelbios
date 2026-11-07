@@ -17,9 +17,12 @@ core/      start.asm (clears .bss, calls fw_main), main.c, console.c
            protocol.c (handles, protocols, configuration tables),
            image.c (PE32+ loader, LoadImage/StartImage/Exit/UnloadImage),
            event.c (events, timers, Stall; the TSC measured against the
-           PIT), textcon.c (Simple Text Input/Output on COM1)
+           PIT), textcon.c (Simple Text Input/Output on COM1),
+           devicepath.c, disk.c (Block I/O, GPT/MBR), fat.c (Simple File
+           System)
 platform/  fwcfg.c (QEMU fw_cfg over I/O ports), memmap.c (etc/e820,
-           CMOS as a fallback)
+           CMOS as a fallback), pci.c (config space and I/O BAR
+           assignment), virtio_blk.c (legacy virtio-blk)
 include/   sq.h, efi.h (UEFI types and tables, from the specification)
 link.ld    the body, linked at FW_BASE
 ```
@@ -27,11 +30,13 @@ link.ld    the body, linked at FW_BASE
 Flash layout: the body from offset 0, zero padding, the stub in the
 last 4 KB. The build fails if the body would reach the stub.
 
-So far it reaches long mode, prints the CPU and the memory map on COM1,
-builds the EFI system table and checks its memory services. Then it
-loads and starts an EFI image given to QEMU as
-`-fw_cfg name=opt/org.squirrelworks/boot.efi,file=...`, and halts when
-the image returns. Consoles, FAT32 and GOP come next (TODO.md section 15).
+Boot order: after the EFI tables and console are up, discover a
+virtio-blk disk (legacy I/O BAR; QEMU q35 needs
+`disable-legacy=off,disable-modern=on`), publish Block I/O and a device
+path, walk GPT (or MBR) partitions, mount FAT12/16/32 volumes, and start
+`\EFI\BOOT\BOOTX64.EFI` when present. If nothing on disk boots, fall
+back to an EFI image given as
+`-fw_cfg name=opt/org.squirrelworks/boot.efi,file=...`.
 
 Images: PE32+ for x64, EFI applications and boot or runtime drivers.
 An image goes to its preferred base when that is free and below 4 GB,
@@ -51,8 +56,15 @@ escape sequences for attributes, clearing and the cursor, in one 80x25
 mode. Input turns terminal escape sequences into UEFI scan codes
 (arrows, Home/End, Insert/Delete, Page Up/Down, F1-F12, Esc).
 
+Disk: one transitional virtio-blk function; PCI BARs that QEMU left
+floating are assigned from `0xC000`. GPT ESP partitions and MBR type
+`0xEF`/`0x0C` get child Block I/O handles; a whole-disk FAT volume is
+also tried. The Simple File System is read-only and matches 8.3 names
+(enough for `\EFI\BOOT\BOOTX64.EFI`).
+
 Memory: allocations come from the top of the highest free range below
 4 GB (the limit of the 1:1 mapping). The UEFI memory map keeps page 0 and
 the page tables (0x0000-0x6FFF), the stack (1-2 MB) and the firmware
 image (from 2 MB) as boot services memory, and 0xA0000-0xFFFFF as
-reserved. Services not written yet answer `EFI_UNSUPPORTED`.
+reserved. Services not written yet answer `EFI_UNSUPPORTED`. GOP,
+runtime services and `ExitBootServices` are next (TODO.md section 15).

@@ -32,8 +32,8 @@ UEFI.
   in [What works today](#what-works-today-v100) is the v1.0.0 baseline;
   the release notes in `release-notes/` list what each version added.
 - **Phase C1** (in progress), `PLATFORM=x86_64-uefi` in `x86_64/`. Steps 1–2
-  are merged (#118, #119); step 3 (PE32+ loader) is #122; step 4 (console,
-  events, timers) is in this PR. Steps 5–6 (FAT/GOP) remain open.
+  are merged (#118, #119); steps 3–4 are #122/#123; step 5 (FAT/Block I/O)
+  is in this PR. Step 6 (GOP/runtime/ExitBootServices) remains open.
 - Release images are attached to GitHub Releases only. Squirrel
   publishes each release.
 
@@ -232,9 +232,9 @@ boxes in [TODO.md](TODO.md).
   - [x] Step 3 `x86_64-pe`: PE32+ loader, LoadImage/StartImage, a test app
     (#122)
   - [x] Step 4 `x86_64-console`: Simple Text Input/Output, events and
-    timers (this PR; depends on #122)
-  - [ ] Step 5 `x86_64-fat`: Block I/O and FAT32 Simple File System, boot
-    `\EFI\BOOT\BOOTX64.EFI`
+    timers (#123)
+  - [x] Step 5 `x86_64-fat`: Block I/O and FAT32 Simple File System, boot
+    `\EFI\BOOT\BOOTX64.EFI` (this PR; depends on #122/#123)
   - [ ] Step 6 `x86_64-gop`: GOP, runtime services, ExitBootServices
 - [ ] **C2 (v2.0.0) ACPI 2.0+/6.x and SMBIOS 3.x.** MADT, HPET, MCFG, FADT,
   DSDT (original, generated AML). Test: Linux x86-64 boots to a shell

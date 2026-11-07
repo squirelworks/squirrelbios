@@ -130,6 +130,11 @@ void fw_main(void)
     printf("efi: memory services %s\n", efi_memory_selftest() ? "ok" : "FAILED");
     printf("efi: TSC at %lu MHz, console on COM1\n", efi_tsc_hz() / 1000000);
 
+    efi_disk_init();
+    if (efi_boot_esp()) {
+        printf("fw: halting\n");
+        halt();
+    }
     boot_fwcfg_image();
     halt();
 }
