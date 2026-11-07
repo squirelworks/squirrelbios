@@ -31,10 +31,9 @@ UEFI.
   HID, BOT disk boot), virtio-blk, network boot and VBE 3.0. The table
   in [What works today](#what-works-today-v100) is the v1.0.0 baseline;
   the release notes in `release-notes/` list what each version added.
-- **Phase C1** (on hold), `PLATFORM=x86_64-uefi` in `x86_64/`. Steps 1
-  and 2 are merged (#118, #119). Step 3 (PE32+ loader) is on the branch
-  `claude/x86_64-pe` with no PR yet; step 4 (console, events, timers)
-  exists as unmerged work only.
+- **Phase C1** (in progress), `PLATFORM=x86_64-uefi` in `x86_64/`. Steps 1–2
+  are merged (#118, #119); step 3 (PE32+ loader) is in this PR. Step 4
+  (console, events, timers) is next; steps 5–6 remain open.
 - Release images are attached to GitHub Releases only. Squirrel
   publishes each release.
 
@@ -230,7 +229,8 @@ boxes in [TODO.md](TODO.md).
     memory map from fw_cfg (#118)
   - [x] Step 2 `x86_64-boot-services`: EFI system table, boot services
     core, memory services (#119)
-  - [ ] Step 3 `x86_64-pe`: PE32+ loader, LoadImage/StartImage, a test app
+  - [x] Step 3 `x86_64-pe`: PE32+ loader, LoadImage/StartImage, a test app
+    (this PR)
   - [ ] Step 4 `x86_64-console`: Simple Text Input/Output, events and
     timers
   - [ ] Step 5 `x86_64-fat`: Block I/O and FAT32 Simple File System, boot
