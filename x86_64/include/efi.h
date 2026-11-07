@@ -383,9 +383,89 @@ void efi_disk_init(void);
 int efi_boot_esp(void);
 int fat_install(EFI_HANDLE handle, EFI_BLOCK_IO_PROTOCOL *bio);
 
+/* Graphics Output Protocol (Bochs DISPI / QEMU std VGA) */
+#define EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID \
+    { 0x9042a9de, 0x23dc, 0x4a38, { 0x96, 0xfb, 0x7a, 0xde, 0xd0, 0x80, 0x51, 0x6a } }
+
+typedef enum {
+    PixelRedGreenBlueReserved8BitPerColor,
+    PixelBlueGreenRedReserved8BitPerColor,
+    PixelBitMask,
+    PixelBltOnly,
+    PixelFormatMax
+} EFI_GRAPHICS_PIXEL_FORMAT;
+
+typedef struct {
+    u32 red_mask, green_mask, blue_mask, reserved_mask;
+} EFI_PIXEL_BITMASK;
+
+typedef struct {
+    u32 version;
+    u32 horizontal_resolution;
+    u32 vertical_resolution;
+    EFI_GRAPHICS_PIXEL_FORMAT pixel_format;
+    EFI_PIXEL_BITMASK pixel_information;
+    u32 pixels_per_scan_line;
+} EFI_GRAPHICS_OUTPUT_MODE_INFORMATION;
+
+typedef struct {
+    u32 max_mode;
+    u32 mode;
+    EFI_GRAPHICS_OUTPUT_MODE_INFORMATION *info;
+    UINTN size_of_info;
+    EFI_PHYSICAL_ADDRESS frame_buffer_base;
+    UINTN frame_buffer_size;
+} EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE;
+
+typedef struct {
+    u8 blue, green, red, reserved;
+} EFI_GRAPHICS_OUTPUT_BLT_PIXEL;
+
+typedef enum {
+    EfiBltVideoFill, EfiBltVideoToBltBuffer, EfiBltBufferToVideo,
+    EfiBltVideoToVideo, EfiGraphicsOutputBltOperationMax
+} EFI_GRAPHICS_OUTPUT_BLT_OPERATION;
+
+typedef struct EFI_GRAPHICS_OUTPUT_PROTOCOL {
+    EFI_STATUS (EFIAPI *query_mode)(struct EFI_GRAPHICS_OUTPUT_PROTOCOL *, u32,
+                                    UINTN *, EFI_GRAPHICS_OUTPUT_MODE_INFORMATION **);
+    EFI_STATUS (EFIAPI *set_mode)(struct EFI_GRAPHICS_OUTPUT_PROTOCOL *, u32);
+    EFI_STATUS (EFIAPI *blt)(struct EFI_GRAPHICS_OUTPUT_PROTOCOL *,
+                             EFI_GRAPHICS_OUTPUT_BLT_PIXEL *, EFI_GRAPHICS_OUTPUT_BLT_OPERATION,
+                             UINTN, UINTN, UINTN, UINTN, UINTN, UINTN, UINTN);
+    EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE *mode;
+} EFI_GRAPHICS_OUTPUT_PROTOCOL;
+
+extern const EFI_GUID efi_gop_guid;
+void efi_gop_init(void);
+
+/* Runtime services and ExitBootServices */
+typedef struct {
+    u16 year;
+    u8 month, day, hour, minute, second, pad1;
+    u32 nanosecond;
+    s16 timezone;
+    u8 daylight, pad2;
+} EFI_TIME;
+
+typedef struct {
+    u32 resolution, accuracy;
+    BOOLEAN sets_to_zero;
+} EFI_TIME_CAPABILITIES;
+
+typedef enum {
+    EfiResetCold, EfiResetWarm, EfiResetShutdown, EfiResetPlatformSpecific
+} EFI_RESET_TYPE;
+
+void efi_runtime_init(EFI_RUNTIME_SERVICES *rt);
+void efi_note_map_key(UINTN key);
+EFI_STATUS EFIAPI efi_exit_boot_services(EFI_HANDLE image, UINTN map_key);
+int efi_boot_services_exited(void);
+
 /* event.c */
 void efi_event_init(EFI_BOOT_SERVICES *bs);
 void efi_timers_poll(void);
+void efi_signal_exit_boot_services(void);
 u64 efi_tsc_hz(void);
 EFI_STATUS EFIAPI efi_create_event(u32, EFI_TPL, EFI_EVENT_NOTIFY, void *, EFI_EVENT *);
 EFI_STATUS EFIAPI efi_signal_event(EFI_EVENT);

@@ -231,6 +231,13 @@ static EFI_STATUS EFIAPI set_watchdog_timer(UINTN timeout, u64 code, UINTN size,
     return EFI_SUCCESS;                 /* no watchdog: nothing to arm */
 }
 
+void efi_signal_exit_boot_services(void)
+{
+    for (struct event *e = events; e; e = e->next)
+        if ((e->type & 0xFFFF) == EVT_SIGNAL_EXIT_BOOT_SERVICES)
+            fire(e);
+}
+
 void efi_event_init(EFI_BOOT_SERVICES *bs)
 {
     calibrate();
