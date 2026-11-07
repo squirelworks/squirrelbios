@@ -31,9 +31,9 @@ UEFI.
   HID, BOT disk boot), virtio-blk, network boot and VBE 3.0. The table
   in [What works today](#what-works-today-v100) is the v1.0.0 baseline;
   the release notes in `release-notes/` list what each version added.
-- **Phase C1** (in progress), `PLATFORM=x86_64-uefi` in `x86_64/`. Steps 1–2
-  are merged (#118, #119); steps 3–4 are #122/#123; step 5 (FAT/Block I/O)
-  is in this PR. Step 6 (GOP/runtime/ExitBootServices) remains open.
+- **Phase C1** (in progress), `PLATFORM=x86_64-uefi` in `x86_64/`. Steps 1–4
+  are merged (#118, #119, #122, #123); step 5 (FAT/Block I/O) is in this
+  PR. Step 6 (GOP/runtime/ExitBootServices) remains open.
 - Release images are attached to GitHub Releases only. Squirrel
   publishes each release.
 
@@ -234,7 +234,7 @@ boxes in [TODO.md](TODO.md).
   - [x] Step 4 `x86_64-console`: Simple Text Input/Output, events and
     timers (#123)
   - [x] Step 5 `x86_64-fat`: Block I/O and FAT32 Simple File System, boot
-    `\EFI\BOOT\BOOTX64.EFI` (this PR; depends on #122/#123)
+    `\EFI\BOOT\BOOTX64.EFI` (this PR)
   - [ ] Step 6 `x86_64-gop`: GOP, runtime services, ExitBootServices
 - [ ] **C2 (v2.0.0) ACPI 2.0+/6.x and SMBIOS 3.x.** MADT, HPET, MCFG, FADT,
   DSDT (original, generated AML). Test: Linux x86-64 boots to a shell
