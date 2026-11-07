@@ -10,7 +10,7 @@ the v0.3.0 hand-off contract. See [ROADMAP.md](ROADMAP.md),
 x86/        64 KB ROM — PC BIOS: ATA boot, INT 10h/13h/15h/16h/1Ah, ACPI, SMBIOS
             (core/, boot/, drivers/, tables/ modules)
 x86_64/     1 MB flash image — x86-64 UEFI-class firmware in progress (roadmap C1):
-            reset to long mode, memory map, EFI tables and memory services (C and NASM)
+            reset to long mode, EFI tables, memory services, PE32+ images (C and NASM)
 arm/        AArch64 QEMU virt — PL011 banner + fw_cfg kernel load, DTB in x0
 riscv/      RISC-V QEMU virt — UART banner + S-mode entry to -kernel, DTB in a1, SBI
 tests/      stand-in OS images and smoke tests (make test)
@@ -147,6 +147,9 @@ boots each firmware under QEMU with a small stand-in OS image from
 | `x86_64-uefi` | The x86-64 firmware on q35: from the reset vector to long mode, its body copied to RAM at 2 MB, the CPU named, and the memory map read from QEMU's fw_cfg (128 MB); then the EFI system table, the UEFI memory map with the firmware's areas carved out, and AllocatePages/FreePages/AllocatePool/FreePool/GetMemoryMap checked through the boot services table |
 | `x86_64-uefi-4g` | The same with `-m 4G`: RAM below the PCI hole and above 4 GB, 4096 MB in all |
 | `x86_64-uefi-pc` | The same firmware on i440fx |
+| `x86_64-app`, `x86_64-app-exit` | A hand-written PE32+ EFI application given through fw_cfg (`opt/org.squirrelworks/boot.efi`) is relocated, started, and checks the system table, its loaded image protocol, the relocation and the memory services; it returns `1234h`, then calls `Exit(5678h)`. Either way it is unloaded and its pages come back |
+| `x86_64-app-4g` | With 4 GB the same image loads at its preferred base, 256 MB |
+| `x86_64-app-junk` | A file that is not PE32+ is refused with `EFI_LOAD_ERROR` |
 
 Needs `qemu-system-i386`, `qemu-system-x86_64`, `qemu-system-aarch64` and `qemu-system-riscv64`.
 Serial logs are kept in `build/tests/*.log`. `SMOKE_TIMEOUT` (seconds,
@@ -239,8 +242,9 @@ qemu-system-i386 -bios x86/squirrel-bios.rom -drive format=raw,file=boot.bin,if=
 qemu-system-i386 -bios x86/squirrel-bios.rom -drive format=raw,file=os.img,if=ide -serial stdio
 tests/os-boot.sh path/to/os.img
 
-# x86-64 UEFI-class firmware (in progress: it stops before loading an image)
-qemu-system-x86_64 -M q35 -bios x86_64/squirrel-bios.fd -serial stdio
+# x86-64 UEFI-class firmware (in progress): runs an EFI application given through fw_cfg
+qemu-system-x86_64 -M q35 -bios x86_64/squirrel-bios.fd -serial stdio \
+    -fw_cfg name=opt/org.squirrelworks/boot.efi,file=app.efi
 
 # AArch64 (image linked at 0x40200000)
 qemu-system-aarch64 -M virt -cpu cortex-a57 -nographic -bios arm/squirrel-bios.bin -kernel image.bin
