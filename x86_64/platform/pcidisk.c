@@ -22,8 +22,8 @@ static int function(u8 bus, u8 dev, u8 fn)
     if ((id & 0xFFFF) == 0xFFFF || (pci_read8(bus, dev, fn, CFG_HEADER) & 0x7F) != 0)
         return 0;
     u32 class_rev = pci_read32(bus, dev, fn, CFG_CLASS);
-    if (class_rev >> 24 != 0x01 && class_rev >> 8 != 0x0C0330)
-        return 0;                           /* not mass storage or xHCI */
+    if (class_rev >> 24 != 0x01 && class_rev >> 8 != 0x0C0330 && class_rev >> 16 != 0x0805)
+        return 0;                           /* not mass storage, xHCI or an SD host */
     if ((id & 0xFFFF) == 0x1AF4 && (id >> 16) == 0x1001 && (pci_read32(bus, dev, fn, CFG_BAR0) & 1))
         return 0;                           /* legacy virtio-blk */
 

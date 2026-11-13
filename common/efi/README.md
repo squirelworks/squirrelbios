@@ -30,6 +30,12 @@ ahci.c          SATA disks on AHCI ports (LBA48, 512-byte sectors),
                 polled; ATAPI ports passed over
 xhci.c          USB mass storage (bulk-only SCSI) on xHCI root ports:
                 polled command, event and transfer rings; no hubs, no UAS
+sdhci.c         SD cards (SDSC, SDHC, SDXC) on a standard SD host
+                controller: polled PIO, 1-bit bus at up to 25 MHz, 32-bit
+                register access only (as the Raspberry Pi's need); on PCI
+                (class 08 05) or at an MMIO address; no MMC/eMMC, no DMA
+sdhci_dt.c      SD hosts from the device tree (the Pi 1-3 "bcm2835-sdhci",
+                the Pi 4 "bcm2711-emmc2", plain "sdhci"); not on x86_64
                 (pci_disk_add in disk.c picks the driver; x86_64 finds
                 the functions with platform/pcidisk.c)
 disk.c, fat.c   Block I/O for each disk and its GPT/MBR partitions, a

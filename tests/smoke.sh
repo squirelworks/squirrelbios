@@ -1662,6 +1662,27 @@ run x86_64-csm-usb "disk: USB at PCI 00:03.0 port 1 (46f4:0001, bulk-only), 2 se
     "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd -device qemu-xhci,id=xhci \
     -drive if=none,id=ud,format=raw,file=$TEST_DIR/x86-boot.bin,snapshot=on -device usb-storage,bus=xhci.0,drive=ud
 
+# SD cards on a standard SD host controller (common/efi/sdhci.c), here
+# QEMU's sdhci-pci: the 64 MB ESP is an SDSC card (byte addresses), the
+# FAT write app's ESP grown to a sparse 4 GB an SDHC card (block
+# addresses) that it writes to; without a card the host is reported
+SD_DEV="-device sdhci-pci -device sd-card,drive=sd"
+cp $TEST_DIR/arm-fat.img $TEST_DIR/arm-sdhc.img && truncate -s 4G $TEST_DIR/arm-sdhc.img
+run aarch64-uefi-sd "disk: SD card at PCI 00:02.0 (SDSC v2, RCA 4567), 131072 sectors|disk: partition 1 LBA 2048..131038 (ESP)|APP aarch64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|efi: BOOTAA64.EFI returned 0x1234|!=bad" \
+    "$QEMU_ARM" -M virt -cpu cortex-a57 -bios $ARM_FD \
+    -drive if=none,file=$TEST_DIR/arm-esp.img,format=raw,id=sd,snapshot=on $SD_DEV
+run aarch64-uefi-sdhc-fat-write "disk: SD card at PCI 00:02.0 (SDHC/SDXC, RCA 4567), 8388608 sectors|FAT all ok|efi: BOOTAA64.EFI returned 0x1234|!=bad" \
+    "$QEMU_ARM" -M virt -cpu cortex-a57 -bios $ARM_FD \
+    -drive if=none,file=$TEST_DIR/arm-sdhc.img,format=raw,id=sd,snapshot=on $SD_DEV
+run riscv64-uefi-sd "disk: SD card at PCI 00:01.0 (SDSC v2, RCA 4567), 131072 sectors|APP riscv64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|efi: BOOTRISCV64.EFI returned 0x1234|!=bad" \
+    "$QEMU_RISCV" -M virt -bios $RV_UEFI \
+    -drive if=none,file=$TEST_DIR/riscv-esp.img,format=raw,id=sd,snapshot=on $SD_DEV
+run x86_64-uefi-sd "disk: SD card at PCI 00:03.0 (SDSC v2, RCA 4567), 131072 sectors|APP x86_64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|efi: BOOTX64.EFI returned 0x1234|!=bad" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd \
+    -drive if=none,file=$TEST_DIR/x86_64-esp.img,format=raw,id=sd,snapshot=on $SD_DEV
+run aarch64-uefi-sd-empty "disk: SD host at PCI 00:02.0: no card|disk: no disks" \
+    "$QEMU_ARM" -M virt -cpu cortex-a57 -bios $ARM_FD -device sdhci-pci
+
 # x86-64 firmware: measured boot (C5) with a TPM 2.0 on TIS, from swtpm
 # (skipped without it). The firmware starts the TPM, extends PCR 0 with
 # its flash image, PCR 7 with the Secure Boot variables, PCR 4 with each
