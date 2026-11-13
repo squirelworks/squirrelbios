@@ -379,6 +379,21 @@ run x86-virtio "SquirrelBIOS x86|disk: virtio disk|OS-ENTRY x86 edd edd=ok" \
     "$QEMU_X86" -bios x86/squirrel-bios.rom \
     -drive if=none,id=vd,format=raw,file=$TEST_DIR/x86-virtio.img,snapshot=on \
     -device virtio-blk-pci,drive=vd,addr=5
+# The same disks on the modern interface only (device 1042h, its
+# registers in a memory BAR found through the virtio PCI capabilities):
+# on pc and on q35, and the INT 13h write path
+run x86-virtio-modern "disk: virtio disk (modern interface)|OS-ENTRY x86 edd edd=ok" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -drive if=none,id=vd,format=raw,file=$TEST_DIR/x86-virtio.img,snapshot=on \
+    -device virtio-blk-pci,drive=vd,addr=5,disable-legacy=on,disable-modern=off
+run x86-virtio-modern-q35 "disk: virtio disk (modern interface)|kernel loaded at 0x00008000, jumping|osload=ok dl=ok flags=ok memmap=ok sig=ok e820=ok|!boot halted" \
+    "$QEMU_X86" -M q35 -bios x86/squirrel-bios.rom \
+    -drive if=none,id=vd,format=raw,file=$TEST_DIR/x86-osload.bin,snapshot=on \
+    -device virtio-blk-pci,drive=vd,disable-legacy=on,disable-modern=off
+run x86-virtio-modern-write "disk: virtio disk (modern interface)|OS-ENTRY x86 write=ok" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -drive if=none,id=vd,format=raw,file=$TEST_DIR/x86-write.bin,snapshot=on \
+    -device virtio-blk-pci,drive=vd,disable-legacy=on,disable-modern=off
 run x86-virtio-osload "disk: virtio disk|kernel loaded at 0x00008000, jumping|osload=ok dl=ok flags=ok memmap=ok sig=ok e820=ok|!boot halted" \
     "$QEMU_X86" -M q35 -bios x86/squirrel-bios.rom \
     -drive if=none,id=vd,format=raw,file=$TEST_DIR/x86-osload.bin,snapshot=on \
