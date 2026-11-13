@@ -84,8 +84,8 @@ Disk: one transitional virtio-blk function (legacy I/O BAR, assigned
 from `0xC000`), then every NVMe namespace 1, AHCI SATA disk and modern
 virtio-blk on any bus through the shared drivers. GPT ESP partitions and
 MBR type `0xEF`/`0x0C` get child Block I/O handles; a whole-disk FAT
-volume is also tried. The Simple File System is read-only and matches
-8.3 and long names.
+volume is also tried. The Simple File System matches 8.3 and long
+names, and can write (common/efi/fat.c).
 
 Memory: allocations come from the top of the highest free range below
 4 GB (the limit of the 1:1 mapping). The UEFI memory map keeps page 0 and

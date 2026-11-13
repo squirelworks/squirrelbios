@@ -31,9 +31,10 @@ ahci.c          SATA disks on AHCI ports (LBA48, 512-byte sectors),
                 (pci_disk_add in disk.c picks the driver; x86_64 finds
                 the functions with platform/pcidisk.c)
 disk.c, fat.c   Block I/O for each disk and its GPT/MBR partitions, a
-                read-only FAT12/16/32 Simple File System (8.3 and long
-                names), and the ESP boot with the architecture's boot
-                file name
+                FAT12/16/32 Simple File System (8.3 and long names; read,
+                write, create, mkdir, delete, rename, resize, directory
+                listing; written through to every FAT copy), and the ESP
+                boot with the architecture's boot file name
 fdt.c           read-only flattened device tree walker
 acpi.c, aml.c   ACPI table store (headers, checksums, XSDT, RSDP as the
                 ACPI 2.0 configuration table) and the AML writer every

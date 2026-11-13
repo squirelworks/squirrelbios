@@ -113,6 +113,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/riscv-efi-app.efi $(TEST_DIR)/riscv-efi-app-exit.efi \
              $(TEST_DIR)/riscv-efi-app-ebs.efi \
              $(TEST_DIR)/arm-esp.img $(TEST_DIR)/riscv-esp.img \
+             $(TEST_DIR)/arm-fat.img $(TEST_DIR)/riscv-fat.img \
              $(TEST_DIR)/x86_64-rt.efi
 
 .PHONY: all x86 x86_64 arm arm-uefi riscv riscv-uefi test linux-shell linux-arm linux-arm-acpi linux-riscv-uefi linux-x86 linux-big linux-stress os-boot clean linux-uefi os-boot-csm
@@ -405,6 +406,17 @@ $(TEST_DIR)/riscv-efi-app-exit.efi: tests/efi-app.c tests/efi-app.ld tests/mkpe.
 $(TEST_DIR)/riscv-efi-app-ebs.efi: tests/efi-app.c tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)
 	$(RISCV64_CC) $(RV_APP_CFLAGS) -DEBS $< -o $(@:.efi=.elf)
 	python3 tests/mkpe.py riscv64 $(@:.efi=.elf) $@
+# The FAT write test app (tests/efi-fat.c) on an ESP of its own (D4)
+$(TEST_DIR)/arm-efi-fat.efi: tests/efi-fat.c tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)
+	$(AARCH64_CC) $(ARM_APP_CFLAGS) $< -o $(@:.efi=.elf)
+	python3 tests/mkpe.py aarch64 $(@:.efi=.elf) $@
+$(TEST_DIR)/riscv-efi-fat.efi: tests/efi-fat.c tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)
+	$(RISCV64_CC) $(RV_APP_CFLAGS) $< -o $(@:.efi=.elf)
+	python3 tests/mkpe.py riscv64 $(@:.efi=.elf) $@
+$(TEST_DIR)/arm-fat.img: tests/mkesp.py $(TEST_DIR)/arm-efi-fat.efi | $(TEST_DIR)
+	python3 tests/mkesp.py $(TEST_DIR)/arm-efi-fat.efi $@ BOOTAA64.EFI
+$(TEST_DIR)/riscv-fat.img: tests/mkesp.py $(TEST_DIR)/riscv-efi-fat.efi | $(TEST_DIR)
+	python3 tests/mkesp.py $(TEST_DIR)/riscv-efi-fat.efi $@ BOOTRISCV64.EFI
 # An -initrd for the app started as -kernel: 3000 bytes starting "Sq"
 $(TEST_DIR)/arm-efi-initrd.img: | $(TEST_DIR)
 	python3 -c 'import sys; sys.stdout.buffer.write(b"Sq" + bytes(2998))' > $@

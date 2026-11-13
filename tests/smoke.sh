@@ -1389,5 +1389,15 @@ run x86_64-uefi-virtio-modern "disk: virtio-blk at PCI 00:03.0 (virtio-pci), 131
     "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd \
     -drive if=none,id=esp,format=raw,file=$TEST_DIR/x86_64-esp.img,snapshot=on -device virtio-blk-pci,drive=esp,disable-legacy=on
 
+# FAT write (D4): the app on the ESP makes a directory, writes, appends
+# past the end, truncates, renames, lists, deletes, grows a directory past
+# its first cluster, and leaves a long-named file (tests/efi-fat.c)
+run aarch64-uefi-fat-write "fs: FAT32 on partition|FAT vol=ok mkdir=ok create=ok write=ok read=ok info=ok append=ok gap=ok truncate=ok rename=ok list=ok delete=ok grow=ok rmdir=ok keep=ok|FAT all ok|efi: BOOTAA64.EFI returned 0x1234|!=bad" \
+    "$QEMU_ARM" -M virt -cpu cortex-a57 -bios $ARM_FD \
+    -drive if=none,file=$TEST_DIR/arm-fat.img,format=raw,id=d0,snapshot=on -device virtio-blk-device,drive=d0
+run riscv64-uefi-fat-write "FAT vol=ok mkdir=ok create=ok write=ok read=ok info=ok append=ok gap=ok truncate=ok rename=ok list=ok delete=ok grow=ok rmdir=ok keep=ok|FAT all ok|efi: BOOTRISCV64.EFI returned 0x1234|!=bad" \
+    "$QEMU_RISCV" -M virt -bios $RV_UEFI \
+    -drive if=none,file=$TEST_DIR/riscv-fat.img,format=raw,id=d0,snapshot=on -device nvme,drive=d0,serial=sq1
+
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]
