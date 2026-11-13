@@ -15,7 +15,8 @@ x86_64/     1 MB flash image — x86-64 UEFI-class firmware in progress (roadmap
             runtime services, ExitBootServices
 arm/        AArch64 QEMU virt — PL011 banner + fw_cfg kernel load, DTB in x0;
             arm/uefi: UEFI-class firmware on the shared core (roadmap D1)
-riscv/      RISC-V QEMU virt — UART banner + S-mode entry to -kernel, DTB in a1, SBI
+riscv/      RISC-V QEMU virt — UART banner + S-mode entry to -kernel, DTB in a1, SBI;
+            riscv/uefi: the UEFI core in S-mode on top of the SBI (roadmap D3)
 tests/      stand-in OS images and smoke tests (make test)
 common/     hand-off contract; common/efi: the UEFI core shared by the
             device-tree machines (from x86_64/core)
@@ -35,6 +36,7 @@ make x86_64
 make arm
 make arm-uefi # arm/uefi/squirrel-bios.fd, AArch64 UEFI-class firmware
 make riscv
+make riscv-uefi # riscv/uefi/squirrel-bios.bin, RISC-V UEFI-class firmware
 make clean    # remove all build and test outputs
 
 make PLATFORM=x86-pc CONFIG=default        # build/x86-pc/default/squirrel-bios.rom
@@ -42,12 +44,12 @@ make PLATFORM=riscv64-virt CONFIG=small    # build/riscv64-virt/small/squirrel-b
 make PLATFORM=x86_64-uefi CONFIG=default   # build/x86_64-uefi/default/squirrel-bios.fd
 ```
 
-`PLATFORM` is `x86-pc`, `x86_64-uefi`, `aarch64-virt`, `riscv64-virt` or `aarch64-uefi`, and `CONFIG`
+`PLATFORM` is `x86-pc`, `x86_64-uefi`, `aarch64-virt`, `riscv64-virt`, `aarch64-uefi` or `riscv64-uefi`, and `CONFIG`
 names a file in `configs/<platform>/` (default `default`). Plain `make`
 builds the same bytes as each platform's `default.cfg`; `make test`
 checks that. Keys and format: [configs/README.md](configs/README.md).
 
-Requires: `nasm`, a host `gcc` that targets x86-64 (`CC64`), `aarch64-linux-gnu-as`/`ld`/`objcopy`, `riscv64-linux-gnu-as`/`ld`/`objcopy`, and for `aarch64-uefi` and its test app `aarch64-linux-gnu-gcc` (`AARCH64_CC`) and `python3`.
+Requires: `nasm`, a host `gcc` that targets x86-64 (`CC64`), `aarch64-linux-gnu-as`/`ld`/`objcopy`, `riscv64-linux-gnu-as`/`ld`/`objcopy`, and for the UEFI-class builds and their test app `aarch64-linux-gnu-gcc` and `riscv64-linux-gnu-gcc` (`AARCH64_CC`, `RISCV64_CC`) and `python3`.
 Other cross prefixes work too: `make AARCH64=aarch64-elf- RISCV64=riscv64-elf-`.
 
 ## Test
@@ -125,7 +127,7 @@ boots each firmware under QEMU with a small stand-in OS image from
 | `riscv-boot` | The `-kernel` image runs in S-mode (`next_mode=1`) on hart 0 (with `-smp 2`) with a valid device tree in `a1` and `a2 = 0`, and nothing traps |
 | `riscv-ecall` | An `ecall` from the image reaches the SBI and returns `SBI_ERR_NOT_SUPPORTED` for an extension that does not exist |
 | `riscv-deleg` | An illegal instruction traps to the image's own `stvec` (`deleg=ok`), and its `ecall` still reaches the SBI in M-mode |
-| `riscv-sbi` | The SBI base extension reports spec 1.0 and the SquirrelBIOS implementation ID, probes base, TIME, IPI, RFENCE, HSM and SRST as present, and changes no register but `a0` and `a1` |
+| `riscv-sbi` | The SBI base extension reports spec 2.0 and the SquirrelBIOS implementation ID, probes base, TIME, IPI, RFENCE, HSM, SRST and DBCN as present, and changes no register but `a0` and `a1`; DBCN `console_write` and `console_write_byte` print `dbcn=ok` and a high address half is refused |
 | `riscv-timer` | `sbi_set_timer` raises the supervisor timer interrupt once (`timer=ok`, never `timer=again`) |
 | `riscv-ipi` | `sbi_send_ipi` to the calling hart raises its software interrupt (`ipi=ok`); to the parked (stopped) hart 1 it succeeds and raises nothing on the caller; to hart 2, which does not exist, it returns an error |
 | `riscv-ipi-smp` | With hart 1 started, IPIs reach it by mask bit, base and base `-1` (which also reaches the caller); remote fences on both harts return, also when both harts fence each other at once |
@@ -164,6 +166,11 @@ boots each firmware under QEMU with a small stand-in OS image from
 | `aarch64-uefi-ebs` | ExitBootServices, then ResetSystem(shutdown) through the runtime services: PSCI `SYSTEM_OFF`, QEMU exits 0 |
 | `aarch64-uefi-el2` | The same at EL2 (`virtualization=on`) with GICv3 and 2 GB: PSCI through `smc`, the distributor set up and this CPU's redistributor awake |
 | `aarch64-uefi-wrong-arch` | An x86-64 PE32+ image is refused with `EFI_UNSUPPORTED` |
+| `riscv64-uefi` | The RISC-V UEFI-class firmware: the SBI enters the UEFI core in S-mode at 2 MB; it finds the NS16550A, timebase and goldfish RTC in the device tree, reports SBI 2.0, keeps the SBI's 2 MB reserved, checks the memory services and installs `RISCV_EFI_BOOT_PROTOCOL` |
+| `riscv64-uefi-app`, `riscv64-uefi-app-exit` | The same C stand-in app as on AArch64, built for RISC-V, through fw_cfg |
+| `riscv64-uefi-kernel` | The app as `-kernel` (QEMU puts it at `0x80400000`, the SBI passes it on) with LoadOptions from `/chosen` `bootargs` and the `/chosen` initrd through LoadFile2 |
+| `riscv64-uefi-ebs` | ExitBootServices with 4 harts, then ResetSystem(shutdown) through SBI SRST: QEMU exits 0 |
+| `riscv64-uefi-wrong-arch` | An AArch64 PE32+ image is refused with `EFI_UNSUPPORTED` |
 
 Needs `qemu-system-i386`, `qemu-system-x86_64`, `qemu-system-aarch64` and `qemu-system-riscv64`.
 Serial logs are kept in `build/tests/*.log`. `SMOKE_TIMEOUT` (seconds,
@@ -192,26 +199,29 @@ There is no initrd yet, so it stops short of a shell. The pinned package
 Not part of `make test` or CI. `LINUX_TIMEOUT` and `LINUX_MEM` work as
 below; the log is `build/linux-x86/linux-x86.log`.
 
-### Linux to a shell through UEFI (AArch64, optional)
+### Linux to a shell through UEFI (AArch64 and RISC-V, optional)
 
 ```bash
-make linux-arm                        # prints PASS linux-arm
-tests/arm-linux.sh --interactive      # the same boot, with the shell for you
-LINUX_MACHINE=virt,virtualization=on,gic-version=3 LINUX_CPU=max LINUX_SMP=2 tests/arm-linux.sh
+make linux-arm                        # prints PASS linux-aarch64-uefi
+make linux-riscv-uefi                 # prints PASS linux-riscv64-uefi
+tests/uefi-linux.sh aarch64 --interactive   # the same boot, with the shell for you
+LINUX_MACHINE=virt,virtualization=on,gic-version=3 LINUX_CPU=max LINUX_SMP=2 tests/uefi-linux.sh aarch64
 ```
 
-Boots Ubuntu 24.04's arm64 kernel (6.8) on the AArch64 UEFI-class
-firmware (`arm/uefi/squirrel-bios.fd`) with a busybox initramfs. QEMU's
-`-kernel`, `-initrd` and `-append` reach the firmware through fw_cfg;
+Boots Ubuntu 24.04's 6.8 kernel on the UEFI-class firmware
+(`arm/uefi/squirrel-bios.fd`, `riscv/uefi/squirrel-bios.bin`) with a
+busybox initramfs. QEMU's `-kernel`, `-initrd` and `-append` reach the
+firmware through fw_cfg on AArch64, and in RAM and `/chosen` on RISC-V;
 the kernel's EFI stub runs as an EFI application, gets the initrd
 through LoadFile2, calls ExitBootServices and SetVirtualAddressMap, and
 Linux uses the runtime services afterwards. The check passes when the
 shell prompt appears with `/sys/firmware/efi` present, a typed command
-runs, and `poweroff` makes QEMU exit with status 0 (PSCI). Packages
-(about 20 MB, pinned SHA-256) are kept in `build/linux-arm/`; needs
-`curl`, `cpio` and `qemu-system-aarch64`. Not part of `make test` or CI.
-`LINUX_MACHINE`, `LINUX_CPU`, `LINUX_SMP`, `LINUX_MEM` and
-`LINUX_TIMEOUT` change the run; the log is `build/linux-arm/linux-arm.log`.
+runs, and `poweroff` makes QEMU exit with status 0 (PSCI or SBI SRST).
+Packages (about 20 MB each, pinned SHA-256) are kept in
+`build/linux-<arch>-uefi/`; needs `curl`, `cpio` and the QEMU emulator.
+Not part of `make test` or CI. `LINUX_MACHINE`, `LINUX_CPU` (AArch64),
+`LINUX_SMP`, `LINUX_MEM` and `LINUX_TIMEOUT` change the run; the log is
+`build/linux-<arch>-uefi/linux.log`.
 
 ### Linux to a shell (RISC-V, optional)
 

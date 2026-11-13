@@ -6,9 +6,11 @@
  * From there: the console, the memory map from the device tree, the EFI
  * tables and services, the device tree as a configuration table, then
  * something to boot:
- *   1. a -kernel image QEMU put in fw_cfg (with -initrd and -append), the
- *      way a Linux EFI stub expects it: the command line as LoadOptions,
- *      the initrd through LoadFile2 on the Linux initrd media device path;
+ *   1. a -kernel image QEMU put in fw_cfg (with -initrd and -append), or
+ *      on RISC-V one it put in RAM (arch_kernel; then the command line and
+ *      initrd come from /chosen), the way a Linux EFI stub expects it:
+ *      the command line as LoadOptions, the initrd through LoadFile2 on
+ *      the Linux initrd media device path;
  *   2. an EFI image given as -fw_cfg name=opt/org.squirrelworks/boot.efi.
  * Otherwise it halts. */
 #include "efi.h"
@@ -139,46 +141,81 @@ static void run_image(void *buf, u32 size, CHAR16 *options, u32 options_size)
         printf("efi: %ld pages not given back\n", (s64)(free_before - efi_free_pages_count()));
 }
 
-/* -kernel, -initrd, -append through fw_cfg */
-static int boot_fwcfg_kernel(void)
+/* A command line (ASCII) as UCS-2 LoadOptions */
+static CHAR16 *options_from(const char *c, u32 len, u32 *osize)
 {
-    u32 ksize = fwcfg_present() ? fwcfg_u32(FW_CFG_KERNEL_SIZE) : 0;
-    if (!ksize)
-        return 0;
-    void *kbuf;
-    if (efi_allocate_pool(EfiBootServicesData, ksize, &kbuf) != EFI_SUCCESS) {
-        printf("fw: no memory for a %u-byte kernel\n", ksize);
-        return 1;
-    }
-    fwcfg_read(FW_CFG_KERNEL_DATA, kbuf, ksize);
-    printf("fw: -kernel image, %u bytes\n", ksize);
+    CHAR16 *opts;
+    if (!len || efi_allocate_pool(EfiLoaderData, (len + 1) * 2, (void **)&opts) != EFI_SUCCESS)
+        return NULL;
+    u32 n = 0;
+    for (; n < len && c[n]; n++)
+        opts[n] = (u8)c[n];
+    opts[n] = 0;
+    *osize = (n + 1) * 2;
+    return opts;
+}
 
-    u32 isize = fwcfg_u32(FW_CFG_INITRD_SIZE);
-    if (isize && efi_allocate_pool(EfiLoaderData, isize, &initrd) == EFI_SUCCESS) {
-        fwcfg_read(FW_CFG_INITRD_DATA, initrd, isize);
-        initrd_size = isize;
-        publish_initrd();
-        printf("fw: -initrd, %u bytes, for LoadFile2 on the Linux initrd media path\n", isize);
-    }
+static u64 dt_cell(const u8 *p, u32 len)
+{
+    return len == 8 ? be64(p) : len == 4 ? be32(p) : 0;
+}
 
+/* -kernel, -initrd, -append: through fw_cfg, or (RISC-V) in RAM with
+ * /chosen describing the rest */
+static int boot_kernel(void)
+{
+    void *kbuf = NULL;
+    u32 ksize = 0, osize = 0;
     CHAR16 *opts = NULL;
-    u32 osize = 0, csize = fwcfg_u32(FW_CFG_CMDLINE_SIZE);
-    if (csize > 1) {
+    int from_fwcfg = 0;
+
+    if (fwcfg_present() && (ksize = fwcfg_u32(FW_CFG_KERNEL_SIZE)) != 0) {
+        if (efi_allocate_pool(EfiBootServicesData, ksize, &kbuf) != EFI_SUCCESS) {
+            printf("fw: no memory for a %u-byte kernel\n", ksize);
+            return 1;
+        }
+        fwcfg_read(FW_CFG_KERNEL_DATA, kbuf, ksize);
+        from_fwcfg = 1;
+        printf("fw: -kernel image, %u bytes\n", ksize);
+
+        u32 isize = fwcfg_u32(FW_CFG_INITRD_SIZE);
+        if (isize && efi_allocate_pool(EfiLoaderData, isize, &initrd) == EFI_SUCCESS) {
+            fwcfg_read(FW_CFG_INITRD_DATA, initrd, isize);
+            initrd_size = isize;
+        }
+        u32 csize = fwcfg_u32(FW_CFG_CMDLINE_SIZE);
         char *c;
-        if (efi_allocate_pool(EfiLoaderData, csize * 3, (void **)&c) == EFI_SUCCESS) {
+        if (csize > 1 && efi_allocate_pool(EfiBootServicesData, csize, (void **)&c) == EFI_SUCCESS) {
             fwcfg_read(FW_CFG_CMDLINE_DATA, c, csize);
             c[csize - 1] = 0;
-            opts = (CHAR16 *)(c + csize);
-            u32 n = 0;
-            for (; c[n]; n++)
-                opts[n] = (u8)c[n];
-            opts[n] = 0;
-            osize = (n + 1) * 2;
+            opts = options_from(c, csize, &osize);
             printf("fw: -append \"%s\"\n", c);
+            efi_free_pool(c);
         }
+    } else if (arch_kernel(&kbuf, &ksize)) {
+        int chosen = fdt_path("/chosen");
+        u32 len, elen;
+        const char *args = fdt_prop(chosen, "bootargs", &len);
+        if (args && len > 1) {
+            opts = options_from(args, len, &osize);
+            printf("fw: -append \"%s\" (/chosen bootargs)\n", args);
+        }
+        const u8 *s = fdt_prop(chosen, "linux,initrd-start", &len);
+        const u8 *e = fdt_prop(chosen, "linux,initrd-end", &elen);
+        if (s && e && dt_cell(e, elen) > dt_cell(s, len)) {
+            initrd = (void *)(uptr)dt_cell(s, len);
+            initrd_size = dt_cell(e, elen) - dt_cell(s, len);
+        }
+    } else
+        return 0;
+
+    if (initrd_size) {
+        publish_initrd();
+        printf("fw: -initrd, %lu bytes, for LoadFile2 on the Linux initrd media path\n", (u64)initrd_size);
     }
     run_image(kbuf, ksize, opts, osize);
-    efi_free_pool(kbuf);
+    if (from_fwcfg)
+        efi_free_pool(kbuf);
     return 1;
 }
 
@@ -235,7 +272,7 @@ void efi_main(const void *dtb)
     printf("efi: device tree installed as a configuration table\n");
     arch_efi_init();
 
-    if (boot_fwcfg_kernel() || boot_fwcfg_file()) {
+    if (boot_kernel() || boot_fwcfg_file()) {
         printf("fw: halting\n");
         halt();
     }

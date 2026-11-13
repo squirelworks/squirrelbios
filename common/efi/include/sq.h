@@ -39,9 +39,13 @@ typedef unsigned long      usize;
 static inline u32 be32(const u8 *p) { return (u32)p[0] << 24 | (u32)p[1] << 16 | (u32)p[2] << 8 | p[3]; }
 static inline u16 be16(const u8 *p) { return (u16)(p[0] << 8 | p[1]); }
 static inline u64 be64(const u8 *p) { return (u64)be32(p) << 32 | be32(p + 4); }
-static inline u32 bswap32(u32 v) { return __builtin_bswap32(v); }
-static inline u64 bswap64(u64 v) { return __builtin_bswap64(v); }
-static inline u16 bswap16(u16 v) { return __builtin_bswap16(v); }
+/* By hand: without Zbb, the builtins become libgcc calls on RISC-V */
+static inline u16 bswap16(u16 v) { return (u16)(v << 8 | v >> 8); }
+static inline u32 bswap32(u32 v)
+{
+    return v << 24 | (v & 0xFF00) << 8 | (v >> 8 & 0xFF00) | v >> 24;
+}
+static inline u64 bswap64(u64 v) { return (u64)bswap32((u32)v) << 32 | bswap32((u32)(v >> 32)); }
 
 static inline u8 mmio_read8(uptr a) { return *(volatile u8 *)a; }
 static inline u16 mmio_read16(uptr a) { return *(volatile u16 *)a; }

@@ -28,4 +28,5 @@ runtime.c, devicepath.c, console.c, lib.c
 ```
 
 An architecture provides `arch.h` (the `ARCH_*` constants listed in
-`sq.h`) and the `arch_*` functions: see `arm/uefi/`.
+`sq.h`) and the `arch_*` functions: see `arm/uefi/` (AArch64, at EL1/EL2
+with an identity map) and `riscv/uefi/` (RISC-V, in S-mode on the SBI).

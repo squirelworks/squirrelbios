@@ -669,7 +669,7 @@ run riscv-deleg "OS-ENTRY riscv deleg|deleg=ok|ecall=ok|!trap mcause=" \
     -kernel $TEST_DIR/riscv-deleg.bin
 
 # RISC-V: SBI base extension answers, with only a0 and a1 changed
-run riscv-sbi "OS-ENTRY riscv sbi|sbi=ok|!trap mcause=" \
+run riscv-sbi "OS-ENTRY riscv sbi|dbcn=ok|sbi=ok|!trap mcause=" \
     "$QEMU_RISCV" -M virt -bios riscv/squirrel-bios.bin \
     -kernel $TEST_DIR/riscv-sbi.bin
 
@@ -883,6 +883,32 @@ run aarch64-uefi-el2 "~^cpu: .*, EL2, |psci: v1.1 via smc|gic: v3 (arch 3), dist
 # An x86-64 image is a PE32+ for another machine: refused
 run aarch64-uefi-wrong-arch "efi: LoadImage failed: 0x8000000000000003, halting" \
     "$QEMU_ARM" -M virt -cpu cortex-a57 -bios $ARM_FD -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-app.efi
+
+# RISC-V UEFI-class firmware (roadmap D3, PLATFORM=riscv64-uefi): the SBI
+# in M-mode enters the shared UEFI core in S-mode at 2 MB. The core finds
+# the NS16550A, the timebase and the goldfish RTC in the device tree,
+# talks to the SBI (spec 2.0), keeps the SBI's region reserved, installs
+# RISCV_EFI_BOOT_PROTOCOL, and halts with nothing to boot.
+RV_UEFI=riscv/uefi/squirrel-bios.bin
+run riscv64-uefi "SquirrelBIOS RISC-V|entering the UEFI core at 0x0000000080200000, next_mode=1|dt: firmware region 0x80000000-0x801fffff reserved (no-map)|SquirrelBIOS 2.0.0-alpha (riscv64-uefi)|cpu: hart 0, S-mode, SBI 2.0 implementation 0x5351|uart: NS16550A at 0x0000000010000000|timer: time CSR at 10000000 Hz|rtc: goldfish at 0x0000000000101000|fw: running at 0x0000000080200000-|mem: 128 MB usable (from the device tree)|efi: 0000000080000000-00000000801fffff reserved|~^efi: 0000000080200000-[0-9a-f]{16} RT code|efi: memory services ok|efi: device tree installed as a configuration table|efi: RISCV_EFI_BOOT_PROTOCOL installed (boot hart 0)|fw: nothing to boot (no -kernel, no opt/org.squirrelworks/boot.efi), halting" \
+    "$QEMU_RISCV" -M virt -bios $RV_UEFI
+# The C stand-in app through fw_cfg, returning and calling Exit
+run riscv64-uefi-app "efi: image of 28672 bytes loaded at|APP riscv64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|APP con=ok timer=ok time=ok var=ok dtb=ok|efi: image returned 0x1234|efi: image unloaded, its memory given back|fw: halting|!=bad|!APP opts" \
+    "$QEMU_RISCV" -M virt -bios $RV_UEFI -fw_cfg $X64_BOOT,file=$TEST_DIR/riscv-efi-app.efi
+run riscv64-uefi-app-exit "APP con=ok timer=ok time=ok var=ok dtb=ok|efi: image returned 0x5678|efi: image unloaded, its memory given back|!=bad|!exit=returned" \
+    "$QEMU_RISCV" -M virt -bios $RV_UEFI -fw_cfg $X64_BOOT,file=$TEST_DIR/riscv-efi-app-exit.efi
+# As -kernel: QEMU loads it at the 2 MB boundary after the firmware file
+# and the SBI passes it on; command line and initrd come from /chosen
+run riscv64-uefi-kernel "fw: -kernel PE image at 0x0000000080400000, 28672 bytes|fw: -append \"console=ttyS0 squirrel=1\" (/chosen bootargs)|fw: -initrd, 3000 bytes|APP riscv64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|APP opts=\"console=ttyS0 squirrel=1\" initrd=3000 data=ok|efi: image returned 0x1234|!=bad" \
+    "$QEMU_RISCV" -M virt -bios $RV_UEFI -kernel $TEST_DIR/riscv-efi-app.efi \
+    -initrd $TEST_DIR/arm-efi-initrd.img -append "console=ttyS0 squirrel=1"
+# ExitBootServices, then ResetSystem(shutdown): SBI SRST, QEMU exits 0;
+# with 4 harts, the secondaries stay parked in the SBI
+run riscv64-uefi-ebs "APP con=ok timer=ok time=ok var=ok dtb=ok|efi: ExitBootServices|@exit=0|!=bad" \
+    "$QEMU_RISCV" -M virt -smp 4 -bios $RV_UEFI -fw_cfg $X64_BOOT,file=$TEST_DIR/riscv-efi-app-ebs.efi
+# An AArch64 image is refused
+run riscv64-uefi-wrong-arch "efi: LoadImage failed: 0x8000000000000003, halting" \
+    "$QEMU_RISCV" -M virt -bios $RV_UEFI -fw_cfg $X64_BOOT,file=$TEST_DIR/arm-efi-app.efi
 
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

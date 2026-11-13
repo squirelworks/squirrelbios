@@ -194,7 +194,7 @@ EFI_STATUS EFIAPI efi_allocate_pages(EFI_ALLOCATE_TYPE how, EFI_MEMORY_TYPE type
         return set_type(*addr, pages, type, alloc_attr(type)) ? EFI_SUCCESS : EFI_OUT_OF_RESOURCES;
     }
     u64 limit = ARCH_ALLOC_TOP;
-    if (how == AllocateMaxAddress && *addr + 1 < limit)
+    if (how == AllocateMaxAddress && *addr < limit - 1)    /* *addr + 1 wraps at ~0 */
         limit = (*addr + 1) & ~(PAGE - 1);
     for (int i = nmap - 1; i >= 0; i--) {
         if (!free_type(map[i].type) || map[i].start >= limit)

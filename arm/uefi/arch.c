@@ -378,3 +378,11 @@ void arch_virtual_map(void)
 void arch_efi_init(void)
 {
 }
+
+/* QEMU hands -kernel to firmware through fw_cfg here (main.c reads it) */
+int arch_kernel(void **image, u32 *size)
+{
+    (void)image;
+    (void)size;
+    return 0;
+}

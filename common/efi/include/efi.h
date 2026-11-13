@@ -526,7 +526,9 @@ void efi_main(const void *dtb) __attribute__((noreturn));
 void efi_memory_mark(u64 start, u64 pages, u32 type);
 void arch_init(void);           /* after the console and device tree: CPU, timer, interrupts */
 void arch_efi_init(void);       /* after the EFI tables: arch protocols and tables */
-void arch_virtual_map(void);    /* SetVirtualAddressMap: efi_convert_pointer its own pointers */
+void arch_virtual_map(void);
+/* A -kernel image QEMU already put in RAM (RISC-V), or 0 */
+int arch_kernel(void **image, u32 *size);    /* SetVirtualAddressMap: efi_convert_pointer its own pointers */
 int efi_convert_pointer(void *pp);  /* u64 *: 1 when it moved */
 void efi_memory_mark_attr(u64 start, u64 pages, u32 type, u64 attr);
 
