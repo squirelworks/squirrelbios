@@ -4,7 +4,16 @@
  * variable store, and ExitBootServices which drops boot services. */
 #include "acpi.h"
 
+/* Built into the runtime pages (Makefile, link.ld): everything the
+ * services below call after ExitBootServices must be in this file or
+ * lib.c. Boot-time-only calls are marked. */
 static int exited;
+static u16 rt_pm_base;                  /* chipset()->pm_base, kept for after exit */
+
+static int rt_guid_eq(const EFI_GUID *a, const EFI_GUID *b)
+{
+    return !memcmp(a, b, sizeof *a);
+}
 static u64 mono_high;
 static u64 map_key_shadow;
 
@@ -126,7 +135,7 @@ static int name_eq(const CHAR16 *a, const CHAR16 *b)
 static struct efi_var *find_var(CHAR16 *name, EFI_GUID *vendor)
 {
     for (int i = 0; i < VAR_MAX; i++)
-        if (vars[i].used && name_eq(vars[i].name, name) && guid_eq(&vars[i].vendor, vendor))
+        if (vars[i].used && name_eq(vars[i].name, name) && rt_guid_eq(&vars[i].vendor, vendor))
             return &vars[i];
     return NULL;
 }
@@ -233,7 +242,7 @@ static void EFIAPI reset_system(EFI_RESET_TYPE type, EFI_STATUS status, UINTN si
         outb(0xF4, 0x00);
         /* SLP_EN with the SLP_TYP the DSDT gives \_S5 (0: QEMU's soft
          * off on both PIIX4 and ICH9), on the PM block chipset.c opened. */
-        u16 pm1 = chipset()->pm_base;
+        u16 pm1 = exited ? rt_pm_base : chipset()->pm_base;   /* boot data before exit */
         if (pm1)
             outw((u16)(pm1 + 4), 0x2000 | (ACPI_S5_SLP_TYP << 10));
         outw(0xB004, 0x2000);
@@ -289,6 +298,7 @@ EFI_STATUS EFIAPI efi_exit_boot_services(EFI_HANDLE image, UINTN map_key)
      * efi_note_map_key from GetMemoryMap. */
     if (!map_key || (map_key_shadow && map_key != map_key_shadow))
         return EFI_INVALID_PARAMETER;
+    rt_pm_base = chipset()->pm_base;
     efi_signal_exit_boot_services();
     exited = 1;
     efi_st->boot_services = NULL;

@@ -1002,5 +1002,12 @@ run x86_64-sb-nocsm "secure: Secure Boot on (verify-only)|csm: off while Secure 
 run x86_64-sb-baddb "secure: opt/org.squirrelworks/db is not a list of EFI_SIGNATURE_LISTs|secure: Secure Boot off (bad db)|$SB_APP" \
     "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd -fw_cfg $SB_DB,file=$TEST_DIR/x86-boot.bin -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-app.efi
 
+# x86-64 firmware: only the runtime pages stay the OS's after
+# ExitBootServices (runtime services code, then their data with the
+# system and configuration tables); the rest of the image is boot
+# services code. The GOP case above calls ResetSystem after exit.
+run x86_64-rt-split "efi: 0000000000200000-|~^efi: 0000000000[0-9a-f]{6}-0000000000[0-9a-f]{6} RT code|~^efi: 0000000000[0-9a-f]{6}-0000000000[0-9a-f]{6} RT data|~^efi: 0000000000200000-0000000000[0-9a-f]{6} BS code|efi: memory services ok" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd
+
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]
