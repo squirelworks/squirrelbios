@@ -89,8 +89,20 @@ reloc_entry:
         blt     6b
         sync
         isync
-        /* Tell the waiting threads */
-        LOADADDR(%r5, reloc_done)
+        /* Clear .bss before any other thread can look at it: after a warm
+         * reset the high copy still holds the last boot's cpus_ready */
+        li      %r0, 0
+        LOADADDR(%r5, __bss_start)
+        LOADADDR(%r6, __bss_end)
+8:      cmpld   %r5, %r6
+        bge     9f
+        std     %r0, 0(%r5)
+        addi    %r5, %r5, 8
+        b       8b
+9:      sync
+        /* Tell the waiting threads, in the copy they run from (reset
+         * restores it, so a stale flag from the last boot cannot be seen) */
+        addi    %r5, %r29, (reloc_done - 1b)
         lis     %r6, RELOC_MAGIC@h
         ori     %r6, %r6, RELOC_MAGIC@l
         stw     %r6, 0(%r5)
@@ -101,7 +113,7 @@ reloc_entry:
 
 wait_reloc:
         /* Other threads: wait for the relocated image, then park in it */
-        LOADADDR(%r5, reloc_done)
+        addi    %r5, %r29, (reloc_done - 1b)
         lis     %r6, RELOC_MAGIC@h
         ori     %r6, %r6, RELOC_MAGIC@l
 7:      lwz     %r4, 0(%r5)
@@ -125,15 +137,7 @@ boot_high:
         li      %r0, 0
         stdu    %r0, -64(%r1)
         LOADADDR(%r2, .TOC.)
-        /* Clear .bss */
-        LOADADDR(%r5, __bss_start)
-        LOADADDR(%r6, __bss_end)
-1:      cmpld   %r5, %r6
-        bge     2f
-        std     %r0, 0(%r5)
-        addi    %r5, %r5, 8
-        b       1b
-2:      mr      %r3, %r31
+        mr      %r3, %r31
         mr      %r4, %r30
         bl      fw_main
         b       .

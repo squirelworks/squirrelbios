@@ -273,7 +273,7 @@ boxes in [TODO.md](TODO.md).
 
 ### Phase E — v3.0: other architectures
 
-- [ ] **E1** `PLATFORM=ppc64le-powernv`: OPAL-like runtime interface, device
+- [x] **E1** `PLATFORM=ppc64le-powernv`: OPAL-like runtime interface, device
   tree, boot Linux on QEMU `powernv`.
 - [ ] **E2** `PLATFORM=sparc64-sun4u`: an IEEE 1275-style client interface
   subset (no Forth), boot on QEMU `sun4u`.

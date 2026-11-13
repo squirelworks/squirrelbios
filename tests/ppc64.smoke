@@ -16,22 +16,30 @@ ppc64_case() {
     fi
 }
 
-PPC64_OK="OS-ENTRY ppc64 dtb=ok regs=ok msr=ok le=ok opal-dt=ok console=ok rsv=ok|OPAL token=ok rtc=ok poll=ok space=ok read=ok term=ok"
+PPC64_OK="OS-ENTRY ppc64 dtb=ok regs=ok msr=ok le=ok opal-dt=ok console=ok rsv=ok|OPAL token=ok rtc=ok poll=ok space=ok read=ok term=ok| hile=ok first=ok"
 
 # POWER9: the boot thread copies the firmware to 0x30000000 and parks the
 # other three; the little-endian test kernel (an ELF loaded at 256 MB)
 # checks the hand-off and the /ibm,opal node, calls the OPAL services,
 # starts the other threads, has them return with OPAL_RETURN_CPU, starts
 # them again, and powers off through IPMI (QEMU exits 0)
-ppc64_case ppc64-boot "SquirrelBIOS POWER|cpu: 4 threads, boot PIR 0x|, 3 parked|boot: little-endian ELF kernel, loaded at 0x10000000|$PPC64_OK|SMP cpus=4 started=6 smp=ok return=ok pir=ok self=ok|opal: power down|@exit=0|!=bad|!trap:" \
+ppc64_case ppc64-boot "SquirrelBIOS POWER|cpu: 4 threads, boot PIR 0x|, 3 parked|boot: little-endian ELF kernel, loaded at 0x10000000|$PPC64_OK|SMP cpus=4 started=6 smp=ok return=ok pir=ok self=ok state=ok|opal: power down|@exit=0|!=bad|!trap:" \
     "$QEMU_PPC64" -M powernv9 -smp 4 -bios $PPC64_FW -kernel $TEST_DIR/ppc64-kernel.elf
 
 # POWER10, one thread
-ppc64_case ppc64-p10 "SquirrelBIOS POWER|cpu: 1 threads|$PPC64_OK|SMP cpus=1 started=0 smp=ok return=ok pir=ok self=ok|opal: power down|@exit=0|!=bad|!trap:" \
+ppc64_case ppc64-p10 "SquirrelBIOS POWER|cpu: 1 threads|$PPC64_OK|SMP cpus=1 started=0 smp=ok return=ok pir=ok self=ok state=ok|opal: power down|@exit=0|!=bad|!trap:" \
     "$QEMU_PPC64" -M powernv10 -bios $PPC64_FW -kernel $TEST_DIR/ppc64-kernel.elf
 
+# POWER8: the LPC bus (console, BMC) is reached through XSCOM; OPAL_REINIT_CPUS
+# sets HID0[HILE] on every thread, external interrupts go to the
+# hypervisor, and the boot thread is the first CPU node. Then a warm
+# reset (OPAL_CEC_REBOOT): the parked thread must come back and start
+# again, not run on the last boot's flags
+ppc64_case ppc64-p8 "SquirrelBIOS POWER|cpu: 2 threads|WARM-RESET rebooting|opal: reboot|WARM-RESET again|$PPC64_OK|CPU p8=yes|SMP cpus=2 started=2 smp=ok return=ok pir=ok self=ok state=ok|opal: power down|@exit=0|!=bad|!trap:|!did not check in" \
+    "$QEMU_PPC64" -M powernv8 -smp 2 -bios $PPC64_FW -kernel $TEST_DIR/ppc64-kernel.elf -append warm-reset
+
 # Two threads per core: threads of one core are parked and started too
-ppc64_case ppc64-smt "cpu: 4 threads|$PPC64_OK|SMP cpus=4 started=6 smp=ok return=ok pir=ok self=ok|@exit=0|!=bad|!trap:" \
+ppc64_case ppc64-smt "cpu: 4 threads|$PPC64_OK|SMP cpus=4 started=6 smp=ok return=ok pir=ok self=ok state=ok|@exit=0|!=bad|!trap:" \
     "$QEMU_PPC64" -M powernv9 -smp 4,cores=2,threads=2 -bios $PPC64_FW -kernel $TEST_DIR/ppc64-kernel.elf
 
 # No kernel: the firmware prompt. help, info, date, dt, an unknown

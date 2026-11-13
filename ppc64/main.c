@@ -1,5 +1,5 @@
 /* SquirrelBIOS ppc64le-powernv: firmware for QEMU's powernv machines
- * (POWER9 and POWER10). Console, CPU parking, the OPAL-style runtime
+ * (POWER8, POWER9 and POWER10). Console, CPU parking, the OPAL-style runtime
  * interface, the device tree hand-off and the kernel load.
  * Original code.
  */
@@ -36,16 +36,80 @@ void fw_park(uint64_t stack_top, uint32_t pir) __attribute__((noreturn));
 
 /* --- low-level ------------------------------------------------------- */
 
-static inline uint8_t in8(uint64_t a)
+static inline uint8_t mmio_in8(uint64_t a)
 {
     uint8_t v;
     __asm__ volatile("lbzcix %0,0,%1" : "=r"(v) : "r"(a) : "memory");
     return v;
 }
 
-static inline void out8(uint64_t a, uint8_t v)
+static inline void mmio_out8(uint64_t a, uint8_t v)
 {
     __asm__ volatile("stbcix %0,0,%1" : : "r"(v), "r"(a) : "memory");
+}
+
+/* --- LPC I/O ------------------------------------------------------------
+ * POWER9 and POWER10 map the LPC bus into MMIO, so a device's address is
+ * a CPU address. POWER8 reaches it only through XSCOM, the SCOM bus of
+ * the chip: the LPC controller's ECCB registers take an OPB address and
+ * move one byte at a time. Then a device's "address" is its LPC I/O
+ * port. */
+static uint64_t xscom_base;     /* non-zero: LPC through XSCOM (POWER8) */
+
+#define LPC_IO_OPB      0xd0010000u     /* LPC I/O space on the OPB */
+#define ECCB_CTL        0xb0020u        /* PCB addresses of the ECCB registers */
+#define ECCB_STAT       0xb0022u
+#define ECCB_DATA       0xb0023u
+#define ECCB_CTL_READ   (1ull << 48)
+#define ECCB_CTL_SZ1    (1ull << 56)
+#define ECCB_STAT_DONE  (1ull << 11)
+
+static uint64_t xscom_addr(uint32_t pcba)
+{
+    /* POWER8 interleaving of the PCB address into the MMIO window */
+    return xscom_base | (((uint64_t)pcba << 4) & ~0xffull) | (((uint64_t)pcba << 3) & 0x78);
+}
+
+static void xscom_write(uint32_t pcba, uint64_t v)
+{
+    __asm__ volatile("sync; stdcix %0,0,%1; sync" : : "r"(v), "r"(xscom_addr(pcba)) : "memory");
+}
+
+static uint64_t xscom_read(uint32_t pcba)
+{
+    uint64_t v;
+    __asm__ volatile("sync; ldcix %0,0,%1; sync" : "=r"(v) : "r"(xscom_addr(pcba)) : "memory");
+    return v;
+}
+
+static uint64_t eccb(uint64_t ctl)
+{
+    xscom_write(ECCB_CTL, ctl);
+    for (int i = 0; i < 1000; i++) {
+        uint64_t st = xscom_read(ECCB_STAT);
+        if (st & ECCB_STAT_DONE)
+            return st;
+    }
+    return 0;
+}
+
+static inline uint8_t in8(uint64_t a)
+{
+    if (!xscom_base)
+        return mmio_in8(a);
+    uint64_t st = eccb(ECCB_CTL_READ | ECCB_CTL_SZ1 | (LPC_IO_OPB + (uint32_t)a));
+    return (uint8_t)(((st >> 26) & 0xffffffffull) >> 24);
+}
+
+static inline void out8(uint64_t a, uint8_t v)
+{
+    if (!xscom_base) {
+        mmio_out8(a, v);
+        return;
+    }
+    /* The data word sits in the upper half of the register */
+    xscom_write(ECCB_DATA, (uint64_t)v << 56);
+    eccb(ECCB_CTL_SZ1 | (LPC_IO_OPB + (uint32_t)a));
 }
 
 static inline uint64_t mftb(void)
@@ -273,6 +337,48 @@ uint64_t cpu_stack_for(uint32_t pir)
     return c ? stack_top(c) : 0;
 }
 
+/* --- interrupt endianness (OPAL_REINIT_CPUS) ----------------------------
+ * POWER8 takes interrupts little-endian when HID0[HILE] is set; the OS
+ * asks for it once and every thread must follow, including the ones it
+ * starts later. POWER9 and later keep the bit in LPCR, which the OS sets
+ * itself. */
+#define OPAL_REINIT_CPUS_HILE_BE   (1u << 0)
+#define OPAL_REINIT_CPUS_HILE_LE   (1u << 1)
+#define HID0_HILE                  (1ull << (63 - 19))
+
+static volatile int hile_le;
+
+static int is_power8(void)
+{
+    uint32_t pvr;
+    __asm__ volatile("mfpvr %0" : "=r"(pvr));
+    pvr >>= 16;
+    return pvr == 0x004b || pvr == 0x004c || pvr == 0x004d;
+}
+
+static void apply_hile(void)
+{
+    if (!is_power8())
+        return;
+    uint64_t hid0;
+    __asm__ volatile("mfspr %0,1008" : "=r"(hid0));
+    hid0 = hile_le ? hid0 | HID0_HILE : hid0 & ~HID0_HILE;
+    __asm__ volatile("sync; mtspr 1008,%0; isync" : : "r"(hid0) : "memory");
+}
+
+/* The thread state an OS expects on entry. LPCR[LPES0] clear sends
+ * external interrupts to the hypervisor (HSRR0/1), which is what an OS
+ * running in hypervisor mode handles; QEMU's POWER8 resets with it set. */
+#define LPCR_LPES0                 (1ull << (63 - 60))
+
+static void thread_to_os(void)
+{
+    uint64_t lpcr;
+    __asm__ volatile("mfspr %0,318" : "=r"(lpcr));
+    __asm__ volatile("mtspr 318,%0; isync" : : "r"(lpcr & ~LPCR_LPES0) : "memory");
+    apply_hile();
+}
+
 void fw_secondary(uint32_t pir) __attribute__((noreturn));
 void fw_secondary(uint32_t pir)
 {
@@ -284,6 +390,7 @@ void fw_secondary(uint32_t pir)
         relax();
     sync();
     __asm__ volatile("or 2,2,2");       /* back to medium priority */
+    thread_to_os();
     fw_enter(c->start, pir, 0, 0, 0, 0);
 }
 
@@ -416,6 +523,12 @@ int64_t opal_dispatch(uint64_t *r)
         fw_park(stack_top(c), c->pir);
     }
     case OPAL_REINIT_CPUS:
+        if (a0 & OPAL_REINIT_CPUS_HILE_LE)
+            hile_le = 1;
+        else if (a0 & OPAL_REINIT_CPUS_HILE_BE)
+            hile_le = 0;
+        /* Parked threads pick it up when started; the caller now */
+        apply_hile();
         return OPAL_SUCCESS;
     case OPAL_CHECK_TOKEN:
         return token_present(a0) ? OPAL_TOKEN_PRESENT : OPAL_TOKEN_ABSENT;
@@ -469,6 +582,37 @@ static int is_root_child(const void *fdt, int node, const char *name)
     return !strcmp(dtb_name(fdt, node), name) && dtb_parent(fdt, node) == dtb_root(fdt);
 }
 
+static int is_cpu(const void *fdt, int node)
+{
+    const char *t = dtb_prop(fdt, node, "device_type", 0);
+    return t && !strcmp(t, "cpu");
+}
+
+/* ibm,pa-features: QEMU's attribute string stops at byte 24. POWER9 and
+ * later have the radix MMU (byte 40 bit 0) and guest translation
+ * shootdown (byte 42 bit 0); without them an OS falls back to the hash
+ * MMU. Bytes are counted after the 2-byte header (length, type). */
+static void pa_features(struct fdt_writer *w, const void *src, int node)
+{
+    int len;
+    const uint8_t *p = dtb_prop(src, node, "ibm,pa-features", &len);
+    uint8_t buf[2 + 72];
+    if (!p || len < 2)
+        return;
+    int n = len > (int)sizeof(buf) ? (int)sizeof(buf) : len;
+    memset(buf, 0, sizeof(buf));
+    memcpy(buf, p, n);
+    uint32_t pvr = dtb_prop_u32(src, node, "cpu-version", 0);
+    int p9_or_later = (pvr >> 16) >= 0x004e;
+    if (p9_or_later) {
+        if (buf[0] < 64)
+            buf[0] = 64;
+        buf[2 + 40] |= 0x80;
+        buf[2 + 42] |= 0x80;
+    }
+    fdtw_prop(w, "ibm,pa-features", buf, 2 + buf[0] > n ? 2 + buf[0] : n);
+}
+
 static int dt_skip(const void *src, int node, const char *prop, void *vctx)
 {
     (void)vctx;
@@ -476,6 +620,8 @@ static int dt_skip(const void *src, int node, const char *prop, void *vctx)
         return !strcmp(prop, "compatible") || !strncmp(prop, "opal-", 5);
     if (is_root_child(src, node, "chosen"))
         return !strcmp(prop, "linux,stdout-path") || !strcmp(prop, "stdout-path");
+    if (is_cpu(src, node))
+        return !strcmp(prop, "ibm,pa-features");
     return 0;
 }
 
@@ -485,6 +631,8 @@ static void dt_hook(struct fdt_writer *w, const void *src, int node, void *vctx)
     if (is_root_child(src, node, "ibm,opal")) {
         ctx->saw_opal = 1;
         opal_props(w);
+    } else if (is_cpu(src, node)) {
+        pa_features(w, src, node);
     } else if (is_root_child(src, node, "chosen")) {
         fdtw_prop_str(w, "linux,stdout-path", "/ibm,opal/consoles/serial@0");
         fdtw_prop_str(w, "stdout-path", "/ibm,opal/consoles/serial@0");
@@ -504,6 +652,46 @@ static void dt_hook(struct fdt_writer *w, const void *src, int node, void *vctx)
     }
 }
 
+/* Is node the CPU the firmware booted on? */
+static int is_boot_cpu(const void *src, int node)
+{
+    if (!is_cpu(src, node))
+        return 0;
+    int len;
+    const uint8_t *s = dtb_prop(src, node, "ibm,ppc-interrupt-server#s", &len);
+    if (!s) {
+        s = dtb_prop(src, node, "reg", &len);
+        len = s ? 4 : 0;
+    }
+    for (int i = 0; i + 4 <= len; i += 4)
+        if (dtb_be32(s + i) == boot_pir)
+            return 1;
+    return 0;
+}
+
+/* fdtw_copy, except that the boot CPU comes first among its siblings:
+ * Linux makes the first CPU node it meets logical CPU 0 and wants that
+ * to be the CPU it is running on */
+static void dt_copy(struct fdt_writer *w, const void *src, int node, struct dt_ctx *ctx)
+{
+    const char *name;
+    const void *data;
+    int len;
+    fdtw_begin(w, dtb_name(src, node));
+    for (int p = dtb_next_prop(src, node, -1, &name, &data, &len); p >= 0;
+         p = dtb_next_prop(src, node, p, &name, &data, &len))
+        if (!dt_skip(src, node, name, ctx))
+            fdtw_prop(w, name, data, len);
+    dt_hook(w, src, node, ctx);
+    for (int c = dtb_first_child(src, node); c >= 0; c = dtb_next_sibling(src, c))
+        if (is_boot_cpu(src, c))
+            dt_copy(w, src, c, ctx);
+    for (int c = dtb_first_child(src, node); c >= 0; c = dtb_next_sibling(src, c))
+        if (!is_boot_cpu(src, c))
+            dt_copy(w, src, c, ctx);
+    fdtw_end(w);
+}
+
 static void *build_dt(void)
 {
     struct fdt_writer w;
@@ -514,7 +702,7 @@ static void *build_dt(void)
     for (; fw_get_be64(rsv + 8); rsv += 16)
         fdtw_reserve(&w, fw_get_be64(rsv), fw_get_be64(rsv + 8));
     fdtw_reserve(&w, FW_BASE, FW_SIZE);
-    fdtw_copy(&w, fdt_in, dtb_root(fdt_in), dt_hook, dt_skip, &ctx);
+    dt_copy(&w, fdt_in, dtb_root(fdt_in), &ctx);
     uint32_t size = fdtw_finish(&w, boot_pir);
     if (!size) {
         fw_puts("dt: device tree does not fit in 256 KB\n");
@@ -567,6 +755,7 @@ static void boot_kernel(void)
     for (uint64_t a = img.low & ~127ull; a < img.high; a += 128)
         __asm__ volatile("icbi 0,%0" : : "r"(a) : "memory");
     __asm__ volatile("sync; isync" : : : "memory");
+    thread_to_os();
     fw_enter(img.entry_phys, (uint64_t)(uintptr_t)dt, img.in_place ? img.low : 0, 0, FW_BASE,
              (uint64_t)(uintptr_t)opal_entry);
 }
@@ -642,11 +831,33 @@ static const struct fw_cmd commands[] = {
 
 /* --- main ------------------------------------------------------------------ */
 
+/* Where an LPC device is: its CPU address when the bus is memory-mapped,
+ * otherwise (POWER8: the LPC node hangs off the XSCOM node) its I/O port,
+ * with xscom_base set */
+static int lpc_addr(const void *fdt, int n, uint64_t *addr)
+{
+    if (n < 0)
+        return -1;
+    if (!dtb_reg(fdt, n, 0, addr, 0))
+        return 0;
+    int lpc = dtb_parent(fdt, n), xscom = lpc >= 0 ? dtb_parent(fdt, lpc) : -1;
+    int len;
+    const uint8_t *r = dtb_prop(fdt, n, "reg", &len);
+    if (xscom < 0 || !dtb_compatible(fdt, xscom, "ibm,xscom") || !r || len < 8 ||
+        dtb_be32(r) != 1 /* I/O space */)
+        return -1;
+    uint64_t base;
+    if (dtb_reg(fdt, xscom, 0, &base, 0))
+        return -1;
+    xscom_base = base;
+    *addr = dtb_be32(r + 4);
+    return 0;
+}
+
 static uint64_t node_addr(const void *fdt, const char *compat)
 {
     uint64_t a;
-    int n = dtb_find_compatible(fdt, -1, compat);
-    if (n < 0 || dtb_reg(fdt, n, 0, &a, 0))
+    if (lpc_addr(fdt, dtb_find_compatible(fdt, -1, compat), &a))
         return 0;
     return a;
 }
@@ -660,7 +871,7 @@ void fw_main(const void *fdt, uint32_t pir)
             relax();        /* no tree: no console either */
 
     int serial = dtb_find_compatible(fdt, -1, "ns16550");
-    if (serial >= 0 && !dtb_reg(fdt, serial, 0, &uart, 0))
+    if (serial >= 0 && !lpc_addr(fdt, serial, &uart))
         uart_init(dtb_prop_u32(fdt, serial, "clock-frequency", 1843200));
     fw_printf("\nSquirrelBIOS POWER %s (ppc64le-powernv)\n", SQ_VERSION);
     fw_printf("model: %s\n", (const char *)dtb_prop(fdt, dtb_root(fdt), "model", 0));
