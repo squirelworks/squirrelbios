@@ -22,7 +22,7 @@ typedef unsigned long      usize;
 #define CONFIG_COM1_BASE 0x3F8
 #endif
 
-#define SQ_VERSION "2.0.0-alpha"
+#define SQ_VERSION "2.1.0"
 
 static inline void outb(u16 port, u8 v)  { __asm__ volatile("outb %0, %1" :: "a"(v), "Nd"(port)); }
 static inline void outw(u16 port, u16 v) { __asm__ volatile("outw %0, %1" :: "a"(v), "Nd"(port)); }
