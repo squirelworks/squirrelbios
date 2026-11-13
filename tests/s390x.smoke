@@ -1,0 +1,47 @@
+# SquirrelBIOS s390x (roadmap E3, IPL only) cases, sourced by
+# tests/smoke.sh. Needs qemu-system-s390x (Ubuntu: qemu-system-s390x) and
+# the firmware, which needs an s390x cross gcc (gcc-s390x-linux-gnu);
+# without either the cases are skipped.
+
+QEMU_S390X=${QEMU_S390X:-qemu-system-s390x}
+S390X_FW=s390x/squirrel-bios.elf
+
+s390x_case() {
+    if ! command -v "$QEMU_S390X" >/dev/null 2>&1; then
+        skip "$1" "no $QEMU_S390X"
+    elif [ ! -f "$S390X_FW" ] || [ ! -f "$TEST_DIR/s390x-disk.img" ]; then
+        skip "$1" "s390x firmware not built (no s390x cross gcc)"
+    else
+        run "$@"
+    fi
+}
+
+S390X_OK="OS-ENTRY s390x state=ok|schid=ok data=ok bss=ok|OS-DONE s390x|@exit=0|!=bad|!trap:"
+
+# The firmware (a position-independent ELF that QEMU puts near the top of
+# RAM) talks to the SCLP console, finds the virtio-blk-ccw disk on the
+# channel subsystem and IPLs the test kernel from it: an ELF linked at
+# 0x10000, bigger than one read request. The kernel checks the PSW, r2 =
+# the RAM size and the IPL subchannel id at 0xb8, then shuts QEMU down
+s390x_case s390x-boot "SquirrelBIOS s390x|mem: 128 MB, firmware at 0x|boot: virtio-blk 0.0.0001, 430 sectors|boot: ELF at 0x10000-|$S390X_OK|mem=128MB" \
+    "$QEMU_S390X" -M s390-ccw-virtio -m 128 -bios $S390X_FW \
+    -drive file=$TEST_DIR/s390x-disk.img,if=none,format=raw,id=d0 -device virtio-blk-ccw,drive=d0
+
+# More RAM, and the disk at another device number, after the network
+# card: the firmware moves up and still finds the disk
+s390x_case s390x-1g "mem: 1024 MB, firmware at 0x3fd00000|css: 2 subchannels|boot: virtio-blk 0.0.0005|$S390X_OK|mem=1024MB" \
+    "$QEMU_S390X" -M s390-ccw-virtio -m 1024 -bios $S390X_FW \
+    -drive file=$TEST_DIR/s390x-disk.img,if=none,format=raw,id=d0 -device virtio-blk-ccw,drive=d0,devno=fe.0.0005
+
+# No disk: the prompt. help, info, devices, an unknown command, then
+# poweroff (QEMU exits)
+SERIAL_IN=$TEST_DIR/s390x-prompt.keys
+s390x_case s390x-prompt "boot: no disk (add -device virtio-blk-ccw)|sq> |commands:|  devices |console: SCLP VT220, 0 failed requests|schid 0x00010000  cu 3832/01  virtio-net|unknown command 'bogus'|powering off|@exit=0|!trap:" \
+    "$QEMU_S390X" -M s390-ccw-virtio -bios $S390X_FW
+SERIAL_IN=
+
+# Not an s390x ELF on the disk (two sectors, less than the first read
+# wants): refused, and the prompt instead
+s390x_case s390x-not-elf "boot: virtio-blk 0.0.0000, 2 sectors|boot: not an s390x ELF image|sq> |!jumping" \
+    "$QEMU_S390X" -M s390-ccw-virtio -bios $S390X_FW -nic none \
+    -drive file=$TEST_DIR/x86-boot.bin,if=none,format=raw,id=d0 -device virtio-blk-ccw,drive=d0
