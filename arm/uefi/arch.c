@@ -9,6 +9,7 @@
  * names. Memory: an identity map with 1 GB blocks (Device below 1 GB and
  * from 256 GB, Normal write-back for RAM), caches on, at EL1 or EL2. */
 #include "efi.h"
+#include "../../common/fw/fdt.h"
 
 extern char __fw_start[], __fw_end[];
 
@@ -18,6 +19,8 @@ static uptr gicd, gicr;
 static u32 gic_version;
 static int psci_smc = -1;               /* -1: no PSCI, 0: hvc, 1: smc */
 static u32 el;
+extern int el3_active;                  /* el3.c: started at EL3, the monitor runs */
+void el3_report(void);
 
 #define PL011_DR   0x00
 #define PL011_FR   0x18
@@ -34,8 +37,12 @@ static u32 el;
 
 /* ------------------------------------------------------------ console */
 
+/* A PL011 a boot loader already enabled (the Pi's firmware, with its own
+ * clock and baud rate) is used as it is */
 void arch_con_init(void)
 {
+    if (mmio_read32(uart + PL011_CR) & 1)
+        return;
     mmio_write32(uart + PL011_CR, 0);
     mmio_write32(uart + PL011_IMSC, 0);
     mmio_write32(uart + PL011_IBRD, 13);        /* 115200 from a 24 MHz clock */
@@ -122,13 +129,41 @@ static u64 psci(u64 fn, u64 a1, u64 a2, u64 a3)
     return x0;
 }
 
+/* Without PSCI (the Raspberry Pi's stock boot stub): the BCM2835 power
+ * manager's watchdog. A reset is a full reset after a few watchdog ticks;
+ * for a shutdown the reset status first names partition 63, which the
+ * Pi's boot ROM and firmware take as "halt". */
+#define PM_RSTC     0x1C
+#define PM_RSTS     0x20
+#define PM_WDOG     0x24
+#define PM_PASSWORD 0x5A000000u
+#define PM_RSTC_WRCFG_FULL 0x20u
+
+static uptr pm_wdog;
+
+static void pm_reset(int shutdown)
+{
+    if (!pm_wdog)
+        return;
+    if (shutdown) {
+        u32 rsts = mmio_read32(pm_wdog + PM_RSTS) & ~0xFAAu;
+        mmio_write32(pm_wdog + PM_RSTS, PM_PASSWORD | rsts | 0x555);    /* partition 63 */
+    }
+    mmio_write32(pm_wdog + PM_WDOG, PM_PASSWORD | 10);
+    u32 rstc = mmio_read32(pm_wdog + PM_RSTC) & ~0x30u;
+    mmio_write32(pm_wdog + PM_RSTC, PM_PASSWORD | rstc | PM_RSTC_WRCFG_FULL);
+    for (int i = 0; i < 1000000; i++)
+        arch_relax();
+}
+
 void arch_reset(int type, u64 status)
 {
     (void)status;
     if (psci_smc >= 0)
         psci(type == EfiResetShutdown ? PSCI_SYSTEM_OFF : PSCI_SYSTEM_RESET, 0, 0, 0);
+    pm_reset(type == EfiResetShutdown);
     if (!efi_boot_services_exited())
-        printf("fw: no PSCI to %s with, halting\n", type == EfiResetShutdown ? "power off" : "reset");
+        printf("fw: no PSCI or watchdog to %s with, halting\n", type == EfiResetShutdown ? "power off" : "reset");
     arch_halt();
 }
 
@@ -153,23 +188,85 @@ static u32 current_el(void)
     return (u32)(read_sysreg(CurrentEL) >> 2) & 3;
 }
 
-/* Called from start.S with the MMU off. Identity-maps 0-1 TB with 1 GB
- * blocks: Device for 0-1 GB (flash, MMIO) and from 256 GB (high PCIe),
- * Normal memory for 1-256 GB (where virt puts RAM). */
-void arch_mmu_init(void)
+/* RAM ranges from the device tree's /memory nodes, read with the MMU
+ * off before anything else: the map below is made from them */
+#define RAM_MAX 16
+static u64 ram_base[RAM_MAX], ram_end[RAM_MAX];
+static int ram_count;
+
+static void ram_ranges(const void *dt)
+{
+    ram_count = 0;
+    if (!dt || dtb_check(dt))
+        return;
+    int root = dtb_root(dt);
+    int ac = dtb_addr_cells(dt, root), sc = dtb_size_cells(dt, root);
+    for (int n = dtb_first_child(dt, root); n >= 0; n = dtb_next_sibling(dt, n)) {
+        int len;
+        const char *t = dtb_prop(dt, n, "device_type", &len);
+        const char *st = dtb_prop(dt, n, "status", &len);
+        if (!t || strcmp(t, "memory") || (st && strcmp(st, "okay") && strcmp(st, "ok")))
+            continue;
+        const u8 *r = dtb_prop(dt, n, "reg", &len);
+        for (int o = 0; r && ac && o + 4 * (ac + sc) <= len && ram_count < RAM_MAX; o += 4 * (ac + sc)) {
+            u64 b = dtb_cells(r + o, ac), sz = sc ? dtb_cells(r + o + 4 * ac, sc) : 0;
+            if (sz) {
+                ram_base[ram_count] = b;
+                ram_end[ram_count++] = b + sz;
+            }
+        }
+    }
+}
+
+/* 1: [a, a + n) is all RAM; 0: none of it is; -1: some of it */
+static int ram_cover(u64 a, u64 n)
+{
+    u64 in = 0;
+    for (int i = 0; i < ram_count; i++) {
+        u64 lo = ram_base[i] > a ? ram_base[i] : a;
+        u64 hi = ram_end[i] < a + n ? ram_end[i] : a + n;
+        if (hi > lo)
+            in += hi - lo;
+    }
+    return in == n ? 1 : in ? -1 : 0;
+}
+
+#define L2_TABLES 8
+static u64 l2[L2_TABLES][PAGE_TABLE_ENTRIES] __attribute__((aligned(4096)));
+
+/* Called from start.S with the MMU off and the device tree. Identity-maps
+ * 0-1 TB: Normal write-back memory where the tree's /memory nodes say
+ * there is RAM, Device memory everywhere else (MMIO, flash). 1 GB blocks,
+ * or 2 MB blocks where a gigabyte holds both (the Raspberry Pi has RAM
+ * from 0 and its peripherals just below 1 GB or 4 GB). Without a usable
+ * tree, the QEMU virt layout: RAM from 1 GB to 256 GB. */
+void arch_mmu_init(const void *dt)
 {
     el = current_el();
     if (el != 1 && el != 2)
         return;                         /* EL3: arch_init reports it */
+    ram_ranges(dt);
+    if (!ram_count) {
+        ram_base[0] = 1ULL << 30;
+        ram_end[0] = 256ULL << 30;
+        ram_count = 1;
+    }
     u64 xn = el == 1 ? (XN | PXN) : XN;
     u64 ap = el == 2 ? AP_EL2_RES1 : 0;
+    u64 normal = ATTR_NORMAL | SH_INNER | AF | ap, device = ATTR_DEVICE | xn | AF | ap;
+    int tables = 0;
     for (u64 i = 0; i < 2 * PAGE_TABLE_ENTRIES; i++) {
-        u64 pa = i << 30;
-        u64 d = pa | DESC_BLOCK | AF | ap;
-        if (i >= 1 && i < 256)
-            d |= ATTR_NORMAL | SH_INNER;
-        else
-            d |= ATTR_DEVICE | xn;
+        u64 pa = i << 30, d;
+        int c = ram_cover(pa, 1ULL << 30);
+        if (c < 0 && tables < L2_TABLES) {
+            u64 *t = l2[tables++];
+            for (u64 j = 0; j < PAGE_TABLE_ENTRIES; j++) {
+                u64 b = pa + (j << 21);
+                t[j] = b | DESC_BLOCK | (ram_cover(b, 1ULL << 21) == 1 ? normal : device);
+            }
+            d = (u64)(uptr)t | DESC_TABLE;
+        } else
+            d = pa | DESC_BLOCK | (c == 1 ? normal : device);
         l1[i / PAGE_TABLE_ENTRIES][i % PAGE_TABLE_ENTRIES] = d;
     }
     l0[0] = (u64)(uptr)l1[0] | DESC_TABLE;
@@ -224,6 +321,17 @@ void arch_exception(u64 entry)
 
 /* ------------------------------------------------------------ platform */
 
+/* reg entry i of node n as a CPU address, through the parents' ranges
+ * (the Pi's peripherals are described at bus address 0x7E000000) */
+static int reg(int n, int i, u64 *b)
+{
+    uint64_t a;
+    if (n < 0 || dtb_reg(fdt_blob(), n, i, &a, NULL))
+        return 0;
+    *b = a;
+    return 1;
+}
+
 static const char *implementer(u32 id)
 {
     switch (id) {
@@ -238,27 +346,32 @@ static const char *implementer(u32 id)
 static void find_devices(void)
 {
     u64 b;
-    int n = fdt_find_compatible("arm,pl011", -1);
-    if (n >= 0 && fdt_reg(n, 0, &b, NULL) && b != uart) {
+    int n = fdt_find_enabled("arm,pl011", -1);
+    if (n >= 0 && reg(n, 0, &b) && b != uart) {
         uart = (uptr)b;
         arch_con_init();
     }
-    n = fdt_find_compatible("arm,pl031", -1);
-    if (n >= 0 && fdt_reg(n, 0, &b, NULL))
+    n = fdt_find_enabled("arm,pl031", -1);
+    if (n >= 0 && reg(n, 0, &b))
         rtc = (uptr)b;
     if ((n = fdt_find_compatible("arm,gic-v3", -1)) >= 0) {
         gic_version = 3;
-        if (fdt_reg(n, 0, &b, NULL))
+        if (reg(n, 0, &b))
             gicd = (uptr)b;
-        if (fdt_reg(n, 1, &b, NULL))
+        if (reg(n, 1, &b))
             gicr = (uptr)b;
     } else if ((n = fdt_find_compatible("arm,cortex-a15-gic", -1)) >= 0 ||
                (n = fdt_find_compatible("arm,gic-400", -1)) >= 0) {
         gic_version = 2;
-        if (fdt_reg(n, 0, &b, NULL))
+        if (reg(n, 0, &b))
             gicd = (uptr)b;
-        if (fdt_reg(n, 1, &b, NULL))
+        if (reg(n, 1, &b))
             gicr = (uptr)b;             /* the CPU interface on v2 */
+    }
+    if ((n = fdt_find_compatible("brcm,bcm2835-pm-wdt", -1)) >= 0 ||
+        (n = fdt_find_compatible("brcm,bcm2835-pm", -1)) >= 0) {
+        if (reg(n, 0, &b))
+            pm_wdog = (uptr)b;
     }
     n = fdt_find_compatible("arm,psci-1.0", -1);
     if (n < 0)
@@ -295,6 +408,21 @@ static void gic_init(void)
     u32 lines = ((mmio_read32(gicd + GICD_TYPER) & 0x1F) + 1) * 32;
     if (lines > 1020)
         lines = 1020;
+    if (el3_active) {
+        /* el3.c put every interrupt in non-secure group 1, enabled the
+         * distributor and woke the redistributor: only the system
+         * register interface is left at this EL */
+        if (gic_version == 3) {
+            if (el == 2)
+                write_sysreg(S3_4_C12_C9_5, read_sysreg(S3_4_C12_C9_5) | 0x9);
+            else
+                write_sysreg(S3_0_C12_C12_5, read_sysreg(S3_0_C12_C12_5) | 0x1);
+            __asm__ volatile("isb");
+        }
+        printf("gic: v%u, distributor at %p, %u interrupt lines, secure side set up at EL3\n",
+               gic_version, (void *)gicd, lines);
+        return;
+    }
     if (gic_version == 3) {
         u32 arch = (mmio_read32(gicd + GICD_PIDR2) >> 4) & 0xF;   /* v2's 4 KB frame has none */
         mmio_write32(gicd + GICD_CTLR, 0);
@@ -349,12 +477,16 @@ void arch_init(void)
         arch_halt();
     }
     printf("mmu: identity map, caches on\n");
+    if (el3_active)
+        el3_report();
     find_devices();
     printf("uart: PL011 at %p\n", (void *)uart);
     if (psci_smc >= 0) {
         u64 v = psci(PSCI_VERSION, 0, 0, 0);
         printf("psci: v%lu.%lu via %s\n", (v >> 16) & 0xFFFF, v & 0xFFFF, psci_smc ? "smc" : "hvc");
-    } else
+    } else if (pm_wdog)
+        printf("psci: none; reset and power-off through the watchdog at %p\n", (void *)pm_wdog);
+    else
         printf("psci: none in the device tree\n");
     if (rtc)
         printf("rtc: PL031 at %p\n", (void *)rtc);
@@ -363,8 +495,21 @@ void arch_init(void)
 
 void arch_memory_reserve(void)
 {
-    u64 dt = ARCH_DTB_ADDR, size = fdt_size();
+    u64 dt = (uptr)fdt_blob(), size = fdt_size();
     efi_memory_mark(dt & ~0xFFFULL, ((dt & 0xFFF) + size + 0xFFF) / 0x1000, EfiBootServicesData);
+    /* the tree's /memreserve/ entries (a boot stub, spin tables) */
+    const u8 *h = fdt_blob();
+    const u8 *r = h ? h + dtb_be32(h + 16) : NULL;
+    for (int i = 0; r && i < 32; i++, r += 16) {
+        u64 a = dtb_be64(r), n = dtb_be64(r + 8);
+        if (!a && !n)
+            break;
+        efi_memory_mark(a & ~0xFFFULL, ((a & 0xFFF) + n + 0xFFF) / 0x1000, EfiReservedMemoryType);
+    }
+    /* RAM from 0 (the Pi): page 0 holds the boot stub and the other
+     * CPUs' spin table, and must not become a null pointer anyway */
+    if (ram_count && !ram_base[0])
+        efi_memory_mark(0, 1, EfiReservedMemoryType);
     /* GetTime reads the RTC after ExitBootServices: the OS maps it */
     if (rtc)
         efi_memory_mark_attr(rtc & ~0xFFFULL, 1, EfiMemoryMappedIO, EFI_MEMORY_UC | EFI_MEMORY_RUNTIME);
@@ -380,6 +525,15 @@ void arch_efi_init(void)
     arm_acpi_init();
 }
 
+/* For the memory self-test: 16 MB into the first RAM range */
+unsigned long long arch_test_addr(void)
+{
+    for (int i = 0; i < mem_count; i++)
+        if (mem_map[i].type == 1)
+            return mem_map[i].base + 0x1000000;
+    return 0x41000000ULL;
+}
+
 /* QEMU hands -kernel to firmware through fw_cfg here (main.c reads it) */
 int arch_kernel(void **image, u32 *size)
 {
@@ -391,5 +545,5 @@ int arch_kernel(void **image, u32 *size)
 /* Disks: virtio-mmio transports and the PCIe host bridge in the device tree */
 int arch_disk_probe(void)
 {
-    return virtio_mmio_probe() + pci_probe();
+    return virtio_mmio_probe() + pci_probe() + sdhci_probe_dt();
 }

@@ -1,8 +1,10 @@
 # Real boards (research)
 
-Notes on taking the QEMU firmware to real boards. They are research:
-nothing here is built, nothing in `make test` depends on it, and
-real-hardware checks are never a merge blocker (ROADMAP D2, D3, C5).
+Notes on taking the QEMU firmware to real boards. They are research,
+and real-hardware checks are never a merge blocker (ROADMAP D2, D3, C5).
+The Raspberry Pi is the first with a build of its own
+(`make PLATFORM=aarch64-uefi CONFIG=rpi4`, and `rpi3`), which `make test`
+runs on QEMU's `raspi3b`; the others are notes only.
 
 | Directory | Board | Firmware it would build on |
 |---|---|---|

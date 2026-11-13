@@ -67,9 +67,19 @@ From the JH7110 device tree (*verify* against the board's own):
   already probes `menvcfg` and leaves them off, and `sbi_time` falls back
   to the CLINT. Good as is.
 - **The UEFI core.** It finds RAM, the UART and the timebase in the
-  tree; it needs the same `reg-shift` UART support, a disk (SDHCI/DW
-  MMC for SD and eMMC, or NVMe on the M.2 slot over PCIe) and an RTC
-  fallback (`GetTime` without the goldfish RTC).
+  tree, and since D4 has NVMe, AHCI, xHCI and SDHCI drivers shared with
+  the other architectures. It still needs the same `reg-shift` UART
+  support, a disk this board has and an RTC fallback (`GetTime` without
+  the goldfish RTC). The SD and eMMC controllers are Synopsys
+  DesignWare MSHC (`snps,dw-mshc`), not SDHCI, so `common/efi/sdhci.c`
+  does not drive them: they need a driver of their own. NVMe on the M.2
+  slot needs the PCIe host (PLDA, `starfive,jh7110-pcie`) brought up
+  and its configuration window walked; `common/efi/pci.c` only knows
+  `pci-host-ecam-generic` (*verify* whether the window is ECAM-shaped).
+- **Memory map from the tree.** The AArch64 side now maps Normal memory
+  from `/memory` and runs in place where a loader put it (`boards/rpi4`);
+  the RISC-V UEFI core uses Sv39 only for the OS, but the SBI's
+  `FW_BASE` and PMP region still need the same treatment (above).
 
 ## A first milestone
 

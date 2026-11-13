@@ -120,6 +120,7 @@ u32 fdt_size(void);
 /* The first node after start (-1: from the root) whose compatible list
  * holds compat, or -1 */
 int fdt_find_compatible(const char *compat, int start);
+int fdt_find_enabled(const char *compat, int start);   /* status "okay" (or none) only */
 int fdt_path(const char *path);     /* node offset of "/a/b", or -1 */
 const void *fdt_prop(int node, const char *name, u32 *len);
 int fdt_reg(int node, int index, u64 *base, u64 *size);

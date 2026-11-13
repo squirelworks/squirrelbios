@@ -449,6 +449,9 @@ int virtio_pci_add(struct sq_pci *p);   /* virtio_pci.c */
 int nvme_add(struct sq_pci *p);         /* nvme.c */
 int ahci_add(struct sq_pci *p);         /* ahci.c */
 int xhci_add(struct sq_pci *p);         /* xhci.c: USB mass storage */
+int sdhci_add(struct sq_pci *p);        /* sdhci.c: SD cards (PCI class 08 05) */
+int sdhci_add_mmio(uptr regs, u32 base_mhz, EFI_DEVICE_PATH_PROTOCOL *path, const char *where);
+int sdhci_probe_dt(void);               /* sdhci_dt.c: SD hosts in the device tree */
 int pci_disk_add(struct sq_pci *p);     /* pci.c: whichever fits */
 int efi_boot_esp(void);
 int fat_install(EFI_HANDLE handle, EFI_BLOCK_IO_PROTOCOL *bio);

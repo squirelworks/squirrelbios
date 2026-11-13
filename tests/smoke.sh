@@ -1291,6 +1291,19 @@ run aarch64-uefi-el2 "~^cpu: .*, EL2, |psci: v1.1 via smc|gic: v3 (arch 3), dist
 run aarch64-uefi-acpi "~^acpi: RSDP at 0x[0-9a-f]{16}: FACP APIC GTDT SPCR DBG2 MCFG IORT, DSDT of [0-9]+ bytes; 4 CPUs, GICv3|APP con=ok timer=ok time=ok var=ok dtb=ok acpi=ok FACP,APIC,GTDT,SPCR,DBG2,MCFG,IORT|efi: image returned 0x1234|!=bad" \
     "$QEMU_ARM" -M virt,gic-version=3 -cpu max -smp 4 -bios $ARM_FD \
     -fw_cfg $X64_BOOT,file=$TEST_DIR/arm-efi-app.efi
+# Started at EL3 (secure=on), where QEMU leaves PSCI and the GIC's secure
+# side to the firmware: the monitor in arm/uefi/el3.c holds the other CPUs
+# in a pen, adds /psci to the device tree and drops to non-secure EL1 or
+# EL2. tests/efi-psci.c starts and stops the other three CPUs through
+# smc, then powers off through ResetSystem (PSCI SYSTEM_OFF, the secure
+# GPIO), so QEMU exits 0. The secure-only PL011 and RAM are left alone.
+PSCI_OK="PSCI version=ok features=ok migrate=ok self=ok bad=ok on=ok cpus=3 off=ok again=ok|PSCI all ok|@exit=0|!=bad|!el3: unexpected"
+run aarch64-uefi-el3 "~^cpu: Arm part d07 .*, EL1, |el3: PSCI 1.1 monitor, 4 CPUs, GICv2 secure side set up, power by GPIO, reset by GPIO, /psci added to the device tree|uart: PL011 at 0x0000000009000000|psci: v1.1 via smc|gic: v2, distributor at 0x0000000008000000, 288 interrupt lines, secure side set up at EL3|mem: 128 MB usable (from the device tree)|$PSCI_OK" \
+    "$QEMU_ARM" -M virt,secure=on -cpu cortex-a57 -smp 4 -bios $ARM_FD \
+    -fw_cfg $X64_BOOT,file=$TEST_DIR/arm-efi-psci.efi
+run aarch64-uefi-el3-el2 "~^cpu: .*, EL2, |el3: PSCI 1.1 monitor, 4 CPUs, GICv3 secure side set up|psci: v1.1 via smc|gic: v3, distributor at 0x0000000008000000, 288 interrupt lines, secure side set up at EL3|~^acpi: RSDP at 0x[0-9a-f]{16}: FACP APIC GTDT SPCR DBG2 MCFG IORT, .* 4 CPUs, GICv3|$PSCI_OK" \
+    "$QEMU_ARM" -M virt,secure=on,virtualization=on,gic-version=3 -cpu max -smp 4 -bios $ARM_FD \
+    -fw_cfg $X64_BOOT,file=$TEST_DIR/arm-efi-psci.efi
 # An x86-64 image is a PE32+ for another machine: refused
 run aarch64-uefi-wrong-arch "efi: LoadImage failed: 0x8000000000000003, halting" \
     "$QEMU_ARM" -M virt -cpu cortex-a57 -bios $ARM_FD -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-app.efi
@@ -1648,6 +1661,39 @@ run x86_64-uefi-usb "disk: USB at PCI 00:03.0 port 1 (46f4:0001, bulk-only), 131
 run x86_64-csm-usb "disk: USB at PCI 00:03.0 port 1 (46f4:0001, bulk-only), 2 sectors|csm: leaving long mode for F000:FFF0|usb: disk is device 1|OS-ENTRY x86 dl=ok memmap=ok flags=ok vga=ok" \
     "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd -device qemu-xhci,id=xhci \
     -drive if=none,id=ud,format=raw,file=$TEST_DIR/x86-boot.bin,snapshot=on -device usb-storage,bus=xhci.0,drive=ud
+
+# SD cards on a standard SD host controller (common/efi/sdhci.c), here
+# QEMU's sdhci-pci: the 64 MB ESP is an SDSC card (byte addresses), the
+# FAT write app's ESP grown to a sparse 4 GB an SDHC card (block
+# addresses) that it writes to; without a card the host is reported
+SD_DEV="-device sdhci-pci -device sd-card,drive=sd"
+cp $TEST_DIR/arm-fat.img $TEST_DIR/arm-sdhc.img && truncate -s 4G $TEST_DIR/arm-sdhc.img
+run aarch64-uefi-sd "disk: SD card at PCI 00:02.0 (SDSC v2, RCA 4567), 131072 sectors|disk: partition 1 LBA 2048..131038 (ESP)|APP aarch64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|efi: BOOTAA64.EFI returned 0x1234|!=bad" \
+    "$QEMU_ARM" -M virt -cpu cortex-a57 -bios $ARM_FD \
+    -drive if=none,file=$TEST_DIR/arm-esp.img,format=raw,id=sd,snapshot=on $SD_DEV
+run aarch64-uefi-sdhc-fat-write "disk: SD card at PCI 00:02.0 (SDHC/SDXC, RCA 4567), 8388608 sectors|FAT all ok|efi: BOOTAA64.EFI returned 0x1234|!=bad" \
+    "$QEMU_ARM" -M virt -cpu cortex-a57 -bios $ARM_FD \
+    -drive if=none,file=$TEST_DIR/arm-sdhc.img,format=raw,id=sd,snapshot=on $SD_DEV
+run riscv64-uefi-sd "disk: SD card at PCI 00:01.0 (SDSC v2, RCA 4567), 131072 sectors|APP riscv64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|efi: BOOTRISCV64.EFI returned 0x1234|!=bad" \
+    "$QEMU_RISCV" -M virt -bios $RV_UEFI \
+    -drive if=none,file=$TEST_DIR/riscv-esp.img,format=raw,id=sd,snapshot=on $SD_DEV
+run x86_64-uefi-sd "disk: SD card at PCI 00:03.0 (SDSC v2, RCA 4567), 131072 sectors|APP x86_64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|efi: BOOTX64.EFI returned 0x1234|!=bad" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd \
+    -drive if=none,file=$TEST_DIR/x86_64-esp.img,format=raw,id=sd,snapshot=on $SD_DEV
+run aarch64-uefi-sd-empty "disk: SD host at PCI 00:02.0: no card|disk: no disks" \
+    "$QEMU_ARM" -M virt -cpu cortex-a57 -bios $ARM_FD -device sdhci-pci
+
+# Raspberry Pi bring-up (D2, boards/rpi4) on QEMU's raspi3b, the closest
+# machine QEMU 8 has: the rpi3 build (configs/aarch64-uefi/rpi3.cfg),
+# loaded like kernel8.img at 0x80000 at EL2 with the device tree in x0
+# (tests/mkrpidtb.py). It runs in place, maps RAM from 0 and the
+# peripherals at 0x3F000000 from the tree, boots the app from the SD card
+# on the BCM2835 SDHCI, and with no PSCI powers off through the PM
+# watchdog (reset status partition 63), so QEMU exits 0. No RTC: time=bad.
+RPI_FD=build/aarch64-uefi/rpi3/squirrel-bios.fd
+run rpi3-uefi-sd "SquirrelBIOS 2.1.0 (aarch64-uefi)|~^cpu: Arm part d03 .*, EL2, |uart: PL011 at 0x000000003f201000|psci: none; reset and power-off through the watchdog at 0x000000003f100000|gic: none in the device tree|fw: running at 0x0000000000080000-|mem: 0000000000000000-000000003bffffff usable|efi: 0000000000000000-0000000000000fff reserved|efi: memory services ok|disk: SD card at MMIO 0x003f300000 (SDSC v2, RCA 4567), 131072 sectors|APP aarch64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|APP con=ok timer=ok time=bad var=ok dtb=ok acpi=none|efi: ExitBootServices|@exit=0" \
+    "$QEMU_ARM" -M raspi3b -kernel $RPI_FD -dtb $TEST_DIR/rpi3b.dtb \
+    -drive if=sd,format=raw,file=$TEST_DIR/arm-esp-ebs.img,snapshot=on
 
 # x86-64 firmware: measured boot (C5) with a TPM 2.0 on TIS, from swtpm
 # (skipped without it). The firmware starts the TPM, extends PCR 0 with

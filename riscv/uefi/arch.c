@@ -266,5 +266,5 @@ void arch_efi_init(void)
 /* Disks: virtio-mmio transports and the PCIe host bridge in the device tree */
 int arch_disk_probe(void)
 {
-    return virtio_mmio_probe() + pci_probe();
+    return virtio_mmio_probe() + pci_probe() + sdhci_probe_dt();
 }
