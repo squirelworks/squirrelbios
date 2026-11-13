@@ -78,6 +78,11 @@ jobs:
           cp src/x86/squirrel-bios.rom   "out/SquirrelBIOS-$VERSION-x86-pc.rom"
           cp src/arm/squirrel-bios.bin   "out/SquirrelBIOS-$VERSION-aarch64-virt.bin"
           cp src/riscv/squirrel-bios.bin "out/SquirrelBIOS-$VERSION-riscv64-virt.bin"
+          # UEFI-class builds (v2.1.0 on): present only when the tree has them
+          for f in "x86_64/squirrel-bios.fd:x86_64-uefi.fd" "arm/uefi/squirrel-bios.fd:aarch64-uefi.fd" \
+                   "riscv/uefi/squirrel-bios.bin:riscv64-uefi.bin"; do
+            [ -f "src/${f%%:*}" ] && cp "src/${f%%:*}" "out/SquirrelBIOS-$VERSION-${f#*:}"
+          done
           cd out
           sha256sum SquirrelBIOS-* > SHA256SUMS.txt
           {
