@@ -110,21 +110,21 @@ static int rsv_covers(const void *fdt, uint64_t addr)
 
 void kmain(const void *fdt, uint64_t r4, uint64_t r5, uint64_t r8, uint64_t r9, uint64_t msr)
 {
-    int dtb = fdt && !fdt_check(fdt);
+    int dtb = fdt && !dtb_check(fdt);
     int regs = r4 == 0 && r5 == 0;
     int msr_ok = (msr & (MSR_SF | MSR_HV)) == (MSR_SF | MSR_HV) &&
                  !(msr & (MSR_EE | MSR_IR | MSR_DR));
     int le = (get_msr() & MSR_LE) != 0;
 
-    int opal = dtb ? fdt_path(fdt, "/ibm,opal") : -1;
+    int opal = dtb ? dtb_path(fdt, "/ibm,opal") : -1;
     int len;
-    const void *base_p = fdt_prop(fdt, opal, "opal-base-address", &len);
-    const void *entry_p = fdt_prop(fdt, opal, "opal-entry-address", 0);
-    int opal_dt = opal >= 0 && fdt_compatible(fdt, opal, "ibm,opal-v3") && base_p && entry_p &&
+    const void *base_p = dtb_prop(fdt, opal, "opal-base-address", &len);
+    const void *entry_p = dtb_prop(fdt, opal, "opal-entry-address", 0);
+    int opal_dt = opal >= 0 && dtb_compatible(fdt, opal, "ibm,opal-v3") && base_p && entry_p &&
                   len == 8 && fw_get_be64(base_p) == r8 && fw_get_be64(entry_p) == r9;
     opal_base_addr = r8;
     opal_entry_addr = r9;
-    int con = dtb && fdt_compatible(fdt, fdt_path(fdt, "/ibm,opal/consoles/serial@0"),
+    int con = dtb && dtb_compatible(fdt, dtb_path(fdt, "/ibm,opal/consoles/serial@0"),
                                     "ibm,opal-console-raw");
     int rsv = dtb && rsv_covers(fdt, r8);
 
@@ -163,9 +163,9 @@ void kmain(const void *fdt, uint64_t r4, uint64_t r5, uint64_t r8, uint64_t r9, 
     uint32_t pirs[64] = { 0 };
     int n = 0, total = 0;
     uint32_t me = get_pir();
-    for (int c = fdt_find_device_type(fdt, -1, "cpu"); c >= 0;
-         c = fdt_find_device_type(fdt, c, "cpu")) {
-        const uint8_t *s = fdt_prop(fdt, c, "ibm,ppc-interrupt-server#s", &len);
+    for (int c = dtb_find_device_type(fdt, -1, "cpu"); c >= 0;
+         c = dtb_find_device_type(fdt, c, "cpu")) {
+        const uint8_t *s = dtb_prop(fdt, c, "ibm,ppc-interrupt-server#s", &len);
         for (int i = 0; s && i + 4 <= len; i += 4) {
             total++;
             if (fw_get_be32(s + i) != me && n < 64)

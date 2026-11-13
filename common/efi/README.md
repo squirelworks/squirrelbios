@@ -37,7 +37,7 @@ disk.c, fat.c   Block I/O for each disk and its GPT/MBR partitions, a
                 write, create, mkdir, delete, rename, resize, directory
                 listing; written through to every FAT copy), and the ESP
                 boot with the architecture's boot file name
-fdt.c           read-only flattened device tree walker
+fdt.c           the tree QEMU hands over, read with the shared reader in common/fw/fdt.c
 acpi.c, aml.c   ACPI table store (headers, checksums, XSDT, RSDP as the
                 ACPI 2.0 configuration table) and the AML writer every
                 architecture's DSDT is written with; the architecture
