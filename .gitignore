@@ -11,3 +11,4 @@ riscv/*.bin
 riscv/uefi/*.bin
 build/
 ppc64/*.bin
+sparc64/*.bin
