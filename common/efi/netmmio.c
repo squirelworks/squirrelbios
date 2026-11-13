@@ -4,8 +4,7 @@
  *
  * Every "virtio,mmio" transport with a network device (ID 1) behind it
  * is handed to net_virtio.c; version 1 (QEMU's default, legacy) and
- * version 2 registers both work. Time comes from the architecture's
- * counter. Named netmmio.c, not net_*.c, so the x86_64 build, which takes
+ * version 2 registers both work. Named netmmio.c, not net_*.c, so the x86_64 build, which takes
  * common/efi/net_*.c, leaves it out. */
 #include "net.h"
 
@@ -42,12 +41,6 @@ const u16 net_client_arch = 11;     /* arm64 UEFI */
 #else
 const u16 net_client_arch = 27;     /* riscv64 UEFI */
 #endif
-
-u64 net_ms(void)
-{
-    u64 hz = arch_counter_hz();
-    return arch_counter() / (hz >= 1000 ? hz / 1000 : 1);
-}
 
 struct vio_mmio {
     struct vnet_transport t;

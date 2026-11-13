@@ -4,7 +4,7 @@
  * virtio-net on PCI through the legacy interface (I/O BAR0, VIRTIO 1.1
  * section 4.1.4.8): every transitional virtio-net (1af4:1000) on bus 0 is
  * handed to net_virtio.c. MSI-X stays off, so the MAC address sits at
- * offset 20 of the BAR. Time comes from the TSC. */
+ * offset 20 of the BAR. */
 #include "../../common/efi/net.h"
 
 #define VNET_VENDOR 0x1AF4
@@ -20,14 +20,6 @@
 #define VIO_CONFIG   0x14
 
 const u16 net_client_arch = 7;      /* x64 UEFI */
-
-u64 net_ms(void)
-{
-    static u64 per_ms;
-    if (!per_ms)
-        per_ms = efi_tsc_hz() / 1000 ? efi_tsc_hz() / 1000 : 1000000;
-    return rdtsc() / per_ms;
-}
 
 struct vio_pci {
     struct vnet_transport t;

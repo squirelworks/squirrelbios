@@ -6,6 +6,14 @@
 #include "efi.h"
 
 static int exited;
+
+/* Everything the services call after ExitBootServices is in this file,
+ * lib.c or the architecture's runtime code: on x86-64 only those stay
+ * (Makefile, x86_64/link.ld) */
+static int rt_guid_eq(const EFI_GUID *a, const EFI_GUID *b)
+{
+    return !memcmp(a, b, sizeof *a);
+}
 static u64 mono_high;
 static u64 map_key_shadow;
 
@@ -167,7 +175,7 @@ static int name_eq(const CHAR16 *a, const CHAR16 *b)
 static struct efi_var *find_var(CHAR16 *name, EFI_GUID *vendor)
 {
     for (int i = 0; i < VAR_MAX; i++)
-        if (vars[i].used && name_eq(vars[i].name, name) && guid_eq(&vars[i].vendor, vendor))
+        if (vars[i].used && name_eq(vars[i].name, name) && rt_guid_eq(&vars[i].vendor, vendor))
             return &vars[i];
     return NULL;
 }

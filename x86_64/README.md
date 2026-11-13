@@ -5,28 +5,29 @@ as a 1 MB flash image (`squirrel-bios.fd`, for
 `qemu-system-x86_64 -bios`). Original code: freestanding C (gcc) and
 NASM. The legacy 16-bit BIOS in `x86/` is separate and unchanged.
 
+The UEFI services (memory, protocols, images, events, the text console,
+tables, runtime services, Block I/O, GPT and FAT) are the shared core in
+`common/efi`, built with `include/arch.h` (roadmap D4).
+
 ```
 reset/     reset.asm: the last 4 KB of flash. Reset vector, 32-bit
            protected mode, copies the body to RAM at FW_BASE (2 MB),
            maps the first 4 GB 1:1 with 2 MB pages (tables at
            0x1000-0x6FFF), enters long mode, jumps to the body
-core/      start.asm (clears .bss, calls fw_main), main.c, console.c
-           (COM1, printf), lib.c, tables.c (EFI system, boot and
-           runtime services tables), memory.c (UEFI memory map,
-           AllocatePages/FreePages, AllocatePool/FreePool, GetMemoryMap),
-           protocol.c (handles, protocols, configuration tables),
-           image.c (PE32+ loader, LoadImage/StartImage/Exit/UnloadImage),
-           event.c (events, timers, Stall; the TSC measured against the
-           PIT), textcon.c (Simple Text Input/Output on COM1),
-           devicepath.c, disk.c (Block I/O, GPT/MBR), fat.c (Simple File
-           System), gop.c (Graphics Output Protocol on Bochs DISPI),
-           runtime.c (GetTime, variables, ResetSystem, ExitBootServices),
-           acpi.c (ACPI 6.x tables), aml.c (the AML writer the DSDT is
-           generated with), smbios.c (SMBIOS 3.x), bootopt.c (command
-           line and initrd for the booted image)
+core/      start.asm (clears .bss, calls fw_main), main.c, arch.c (the
+           shared core's architecture interface: COM1, the TSC measured
+           against the PIT, the firmware's memory, PE entry calls with
+           the Microsoft x64 convention, Secure Boot's image check),
+           rt.c (its runtime part: the CMOS clock, ResetSystem),
+           gop.c (Graphics Output Protocol on Bochs DISPI), acpi.c
+           (ACPI 6.x tables, the DSDT through common/efi/aml.c),
+           smbios.c (SMBIOS 3.x), bootopt.c (command line and initrd
+           for the booted image)
 platform/  fwcfg.c (QEMU fw_cfg over I/O ports), memmap.c (etc/e820,
-           CMOS as a fallback), pci.c (config space, I/O and 32-bit
-           memory BAR assignment), virtio_blk.c (legacy virtio-blk),
+           CMOS as a fallback), pci.c (config space, I/O and memory
+           BAR assignment below 4 GB), virtio_blk.c (legacy
+           virtio-blk), pcidisk.c (NVMe, AHCI and modern virtio-blk
+           through common/efi's drivers),
            chipset.c (PIIX4 / ICH9 PM block, q35 ECAM, PCI interrupt
            routing)
 csm/       csm.c, csm.asm: the CSM (roadmap C3), the legacy x86-pc ROM
@@ -39,9 +40,11 @@ acpi/      numa.c (SRAT and SLIT from QEMU -numa), ras.c (BERT and
 secure/    secure.c (Secure Boot policy, db/dbx, the Authenticode PE
            hash), sha256.c, rsa.c (RSASSA-PKCS1-v1_5 verify), der.c
            (X.509 keys, Authenticode PKCS#7), roadmap C4
-include/   sq.h, efi.h (UEFI types and tables, from the specification),
-           acpi.h
-link.ld    the body, linked at FW_BASE; core/runtime.c and core/lib.c
+include/   arch.h (what the shared core needs to know about x86-64, and
+           the x86-only helpers), acpi.h; sq.h and efi.h are
+           common/efi's
+link.ld    the body, linked at FW_BASE; common/efi/runtime.c, lib.c and
+           core/rt.c
            (built apart, sections renamed .rt.*) go in page-aligned
            runtime code and data, the only part of the image the OS
            keeps after ExitBootServices, with the system, runtime
@@ -77,11 +80,12 @@ escape sequences for attributes, clearing and the cursor, in one 80x25
 mode. Input turns terminal escape sequences into UEFI scan codes
 (arrows, Home/End, Insert/Delete, Page Up/Down, F1-F12, Esc).
 
-Disk: one transitional virtio-blk function; PCI BARs that QEMU left
-floating are assigned from `0xC000`. GPT ESP partitions and MBR type
-`0xEF`/`0x0C` get child Block I/O handles; a whole-disk FAT volume is
-also tried. The Simple File System is read-only and matches 8.3 names
-(enough for `\EFI\BOOT\BOOTX64.EFI`).
+Disk: one transitional virtio-blk function (legacy I/O BAR, assigned
+from `0xC000`), then every NVMe namespace 1, AHCI SATA disk and modern
+virtio-blk on any bus through the shared drivers. GPT ESP partitions and
+MBR type `0xEF`/`0x0C` get child Block I/O handles; a whole-disk FAT
+volume is also tried. The Simple File System is read-only and matches
+8.3 and long names.
 
 Memory: allocations come from the top of the highest free range below
 4 GB (the limit of the 1:1 mapping). The UEFI memory map keeps page 0 and

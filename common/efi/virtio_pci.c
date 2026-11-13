@@ -49,26 +49,26 @@ int virtio_pci_add(struct sq_pci *p)
 {
     if (p->device != DEV_BLK_LEGACY && p->device != DEV_BLK_MODERN)
         return 0;
-    if (!(mmio_read16(p->cfg + CFG_STATUS) & STATUS_CAPS))
+    if (!(pci_cfg16(p, CFG_STATUS) & STATUS_CAPS))
         return 0;
 
     uptr common = 0, notify = 0, device = 0;
     u32 mult = 0;
-    u8 at = mmio_read8(p->cfg + CFG_CAP_PTR) & ~3;
+    u8 at = pci_cfg8(p, CFG_CAP_PTR) & ~3;
     for (int guard = 0; at && guard < 48; guard++) {
-        uptr c = p->cfg + at;
-        if (mmio_read8(c) == CAP_VENDOR) {
-            u8 type = mmio_read8(c + 3), b = mmio_read8(c + 4);
-            uptr where = b < 6 && p->bar[b] ? (uptr)p->bar[b] + mmio_read32(c + 8) : 0;
+        u32 c = at;
+        if (pci_cfg8(p, c) == CAP_VENDOR) {
+            u8 type = pci_cfg8(p, c + 3), b = pci_cfg8(p, c + 4);
+            uptr where = b < 6 && p->bar[b] ? (uptr)p->bar[b] + p->read32(p, c + 8) : 0;
             if (type == CAP_COMMON && !common)
                 common = where;
             else if (type == CAP_NOTIFY && !notify) {
                 notify = where;
-                mult = mmio_read32(c + 16);
+                mult = p->read32(p, c + 16);
             } else if (type == CAP_DEVICE && !device)
                 device = where;
         }
-        at = mmio_read8(c + 1) & ~3;
+        at = pci_cfg8(p, c + 1) & ~3;
     }
     if (!common || !notify || !device)
         return 0;
@@ -105,8 +105,8 @@ int virtio_pci_add(struct sq_pci *p)
     mmio_write8(common + CC_STATUS, st | ST_DRIVER_OK);
 
     u64 sectors = (u64)mmio_read32(device) | (u64)mmio_read32(device + 4) << 32;
-    printf("disk: virtio-blk at PCI 00:%02x.%x (virtio-pci), %lu sectors\n",
-           p->dev, p->fn, sectors);
+    printf("disk: virtio-blk at PCI %02x:%02x.%x (virtio-pci), %lu sectors\n",
+           p->bus, p->dev, p->fn, sectors);
     return virtio_blk_add(q, sectors, p->path);
 fail:
     mmio_write8(common + CC_STATUS, ST_FAILED);

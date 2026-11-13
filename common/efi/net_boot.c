@@ -27,6 +27,16 @@ static void EFIAPI net_exit_boot_services(EFI_EVENT ev, void *ctx)
         nics[i].nd->stop(nics[i].nd);
 }
 
+u64 net_ms(void)
+{
+    static u64 per_ms;
+    if (!per_ms) {
+        u64 hz = efi_counter_hz();
+        per_ms = hz >= 1000 ? hz / 1000 : 1;
+    }
+    return arch_counter() / per_ms;
+}
+
 void net_add(struct net_dev *nd, EFI_DEVICE_PATH_PROTOCOL *dp, const char *what)
 {
     if (nnics == NET_MAX)

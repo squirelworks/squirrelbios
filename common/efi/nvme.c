@@ -196,7 +196,7 @@ int nvme_add(struct sq_pci *p)
     mmio_write64(regs + REG_ACQ, (uptr)n->admin.cq);
     mmio_write32(regs + REG_CC, CC_EN | CC_IOSQES | CC_IOCQES);
     if (!wait_ready(regs, 1)) {
-        printf("disk: NVMe at PCI 00:%02x.%x did not start\n", p->dev, p->fn);
+        printf("disk: NVMe at PCI %02x:%02x.%x did not start\n", p->bus, p->dev, p->fn);
         return 0;
     }
 
@@ -219,7 +219,7 @@ int nvme_add(struct sq_pci *p)
     u8 fmt = n->page[26] & 0xF;
     u8 lbads = n->page[128 + 4 * fmt + 2];
     if (!nsze || lbads != 9) {
-        printf("disk: NVMe at PCI 00:%02x.%x: namespace 1 unusable\n", p->dev, p->fn);
+        printf("disk: NVMe at PCI %02x:%02x.%x: namespace 1 unusable\n", p->bus, p->dev, p->fn);
         return 0;
     }
 
@@ -238,7 +238,7 @@ int nvme_add(struct sq_pci *p)
     n->blk.path = ns_path(p->path);
     n->blk.read = nvme_read;
     n->blk.write = nvme_write;
-    printf("disk: NVMe at PCI 00:%02x.%x, %lu sectors\n", p->dev, p->fn, nsze);
+    printf("disk: NVMe at PCI %02x:%02x.%x, %lu sectors\n", p->bus, p->dev, p->fn, nsze);
     efi_disk_add(&n->blk);
     return 1;
 }

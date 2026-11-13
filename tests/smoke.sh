@@ -1366,6 +1366,28 @@ run riscv64-uefi-virtio-pci "disk: virtio-blk at PCI 00:01.0 (virtio-pci), 13107
     "$QEMU_RISCV" -M virt -bios $RV_UEFI \
     -drive if=none,file=$TEST_DIR/riscv-esp.img,format=raw,id=d0 -device virtio-blk-pci,drive=d0
 
+# AHCI SATA disks (D4) on every architecture, and the shared NVMe and
+# modern virtio-blk-pci drivers on x86-64 (q35's own ICH9 AHCI; a CD on
+# AHCI port 0 is passed over)
+run aarch64-uefi-ahci "disk: AHCI at PCI 00:02.0 port 2, 131072 sectors|disk: partition 1 LBA 2048..131038 (ESP)|APP aarch64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|efi: BOOTAA64.EFI returned 0x1234|!=bad|!port 0" \
+    "$QEMU_ARM" -M virt -cpu cortex-a57 -bios $ARM_FD -device ahci,id=ahci \
+    -drive if=none,id=cd,media=cdrom -device ide-cd,drive=cd,bus=ahci.0 \
+    -drive if=none,file=$TEST_DIR/arm-esp.img,format=raw,id=d0 -device ide-hd,drive=d0,bus=ahci.2
+run riscv64-uefi-ahci "disk: AHCI at PCI 00:01.0 port 0, 131072 sectors|APP riscv64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|efi: BOOTRISCV64.EFI returned 0x1234|!=bad" \
+    "$QEMU_RISCV" -M virt -bios $RV_UEFI -device ahci,id=ahci \
+    -drive if=none,file=$TEST_DIR/riscv-esp.img,format=raw,id=d0 -device ide-hd,drive=d0,bus=ahci.0
+run x86_64-uefi-ahci-q35 "disk: AHCI at PCI 00:1f.2 port 1, 131072 sectors|disk: partition 1 LBA 2048..131038 (ESP)|APP x86_64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|efi: BOOTX64.EFI returned 0x1234|!=bad" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd \
+    -drive if=none,id=esp,format=raw,file=$TEST_DIR/x86_64-esp.img,snapshot=on -device ide-hd,drive=esp,bus=ide.1
+run x86_64-uefi-nvme-q35 "disk: NVMe at PCI 00:03.0, 131072 sectors|APP x86_64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|efi: BOOTX64.EFI returned 0x1234|!=bad" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd \
+    -drive if=none,id=esp,format=raw,file=$TEST_DIR/x86_64-esp.img,snapshot=on -device nvme,drive=esp,serial=sq1
+run x86_64-uefi-nvme-pc "disk: NVMe at PCI 00:04.0, 131072 sectors|APP x86_64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|efi: BOOTX64.EFI returned 0x1234|!=bad" \
+    "$QEMU_X86_64" -M pc -bios x86_64/squirrel-bios.fd \
+    -drive if=none,id=esp,format=raw,file=$TEST_DIR/x86_64-esp.img,snapshot=on -device nvme,drive=esp,serial=sq1
+run x86_64-uefi-virtio-modern "disk: virtio-blk at PCI 00:03.0 (virtio-pci), 131072 sectors|APP x86_64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|efi: BOOTX64.EFI returned 0x1234|!=bad" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd \
+    -drive if=none,id=esp,format=raw,file=$TEST_DIR/x86_64-esp.img,snapshot=on -device virtio-blk-pci,drive=esp,disable-legacy=on
 # UEFI network boot (roadmap F3): virtio-net with a Simple Network
 # Protocol handle each, then DHCP and the boot file over TFTP from QEMU's
 # user network, started as an EFI image. tests/efi-snp.c drives the SNP
@@ -1413,6 +1435,36 @@ run x86_64-uefi-netboot-norouter "net: the boot server is on another network and
     -netdev socket,id=n0,udp=127.0.0.1:$NETSIM_PORT,localaddr=127.0.0.1:$((NETSIM_PORT + 1)) \
     -device virtio-net-pci,netdev=n0
 kill $netsim 2>/dev/null; wait $netsim 2>/dev/null
+
+# UEFI HTTP boot (roadmap F3): DHCP's boot file is an http:// URL, read
+# over the firmware's TCP and HTTP/1.1 client from tests/httpd.py (the
+# host's 127.0.0.1 is 10.0.2.2 to the guest): with Content-Length,
+# chunked, ended by the connection closing, and through a 302 redirect;
+# a 240000-byte file (many segments; not an EFI image), and a 404
+HTTPD_PORT=$((NETSIM_PORT + 2))
+python3 tests/httpd.py $HTTPD_PORT $TEST_DIR/tftp &
+httpd=$!
+sleep 0.3
+HTTP_URL=http://10.0.2.2:$HTTPD_PORT
+run x86_64-uefi-httpboot "net: address 10.0.2.15 from 10.0.2.2, boot file $HTTP_URL/snp-x64.efi|net: loaded 16384 bytes over HTTP|$SNP_OK|efi: $HTTP_URL/snp-x64.efi returned 0x1234|!=bad" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd \
+    -netdev user,id=n0,bootfile=$HTTP_URL/snp-x64.efi -device virtio-net-pci,netdev=n0
+run x86_64-uefi-httpboot-chunked "net: loaded 16384 bytes over HTTP|$SNP_OK|!=bad" \
+    "$QEMU_X86_64" -M pc -bios x86_64/squirrel-bios.fd \
+    -netdev user,id=n0,bootfile=$HTTP_URL/chunked/snp-x64.efi -device virtio-net-pci,netdev=n0
+run aarch64-uefi-httpboot-redirect "net: HTTP 302, to $HTTP_URL/chunked/snp-aa64.efi|net: loaded 16384 bytes over HTTP|$SNP_OK|efi: $HTTP_URL/redirect/snp-aa64.efi returned 0x1234|!=bad" \
+    "$QEMU_ARM" -M virt -cpu cortex-a57 -bios $ARM_FD \
+    -netdev user,id=n0,bootfile=$HTTP_URL/redirect/snp-aa64.efi -device virtio-net-device,netdev=n0
+run riscv64-uefi-httpboot-close "net: loaded 16384 bytes over HTTP|$SNP_OK|!=bad" \
+    "$QEMU_RISCV" -M virt -bios $RV_UEFI \
+    -netdev user,id=n0,bootfile=$HTTP_URL/close/snp-rv64.efi -device virtio-net-device,netdev=n0
+run x86_64-uefi-httpboot-big "net: loaded 240000 bytes over HTTP|efi: LoadImage failed" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd \
+    -netdev user,id=n0,bootfile=$HTTP_URL/chunked/x86-netboot-huge.bin -device virtio-net-pci,netdev=n0
+run x86_64-uefi-httpboot-404 "net: HTTP 404 for $HTTP_URL/no-such-file.efi|trying the CSM" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd \
+    -netdev user,id=n0,bootfile=$HTTP_URL/no-such-file.efi -device virtio-net-pci,netdev=n0
+kill $httpd 2>/dev/null; wait $httpd 2>/dev/null
 
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

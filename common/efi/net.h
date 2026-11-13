@@ -4,7 +4,7 @@
  * here are built into both, against whichever sq.h and efi.h the build
  * puts on the include path, and use only what the two cores have in
  * common (memset/memcpy/printf, the boot services by their efi_* names).
- * Each platform supplies net_ms(), net_client_arch and net_platform_probe(),
+ * Each platform supplies net_client_arch and net_platform_probe(),
  * which finds its NICs: x86_64/platform/net_pci.c (virtio-net on PCI,
  * legacy interface), common/efi/netmmio.c (virtio-net on virtio-mmio).
  *
@@ -40,7 +40,7 @@ struct net_dev {
     EFI_DEVICE_PATH_PROTOCOL *dp;   /* the platform's path to it, or NULL */
 };
 
-/* Platform: milliseconds since some fixed point */
+/* Milliseconds since some fixed point (the architecture's counter) */
 u64 net_ms(void);
 /* Platform: the DHCP client architecture (RFC 4578: 7 x64 UEFI, 11 arm64
  * UEFI, 27 riscv64 UEFI) */

@@ -146,10 +146,11 @@ void efi_memory_init(void)
         if (e > b)
             set_type(b, (e - b) / PAGE, t, t == EfiReservedMemoryType ? 0 : EFI_MEMORY_WB);
     }
-    /* The firmware's own memory */
-    arch_memory_reserve();
+    /* The firmware's own memory, then the architecture's areas (which
+     * may refine the image's, as x86-64's runtime pages do) */
     u64 fs = (u64)(uptr)__fw_start, fe = ((u64)(uptr)__fw_end + PAGE - 1) & ~(PAGE - 1);
     set_type(fs, (fe - fs) / PAGE, ARCH_FW_MEMORY_TYPE, EFI_MEMORY_WB | ARCH_FW_MEMORY_ATTR);
+    arch_memory_reserve();
 }
 
 /* For arch_memory_reserve: give [start, start + pages) type t. Reserved
@@ -174,7 +175,7 @@ static u64 alloc_attr(EFI_MEMORY_TYPE t)
 
 static int valid_alloc_type(EFI_MEMORY_TYPE t)
 {
-    return (t >= EfiLoaderCode && t <= EfiRuntimeServicesData) ||
+    return (t >= EfiReservedMemoryType && t <= EfiRuntimeServicesData) ||
            t == EfiACPIReclaimMemory || t == EfiACPIMemoryNVS ||
            (u32)t >= 0x80000000u;
 }

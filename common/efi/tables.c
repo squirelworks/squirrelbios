@@ -5,25 +5,15 @@
  * are filled in as later steps of roadmap C1 add them. */
 #include "efi.h"
 
-static EFI_SYSTEM_TABLE st;
+/* The system table, the runtime services table and the vendor string
+ * stay valid after ExitBootServices (on x86-64 in the runtime pages) */
+static EFI_SYSTEM_TABLE st ARCH_RT_DATA("tables");
 static EFI_BOOT_SERVICES bs;
-static EFI_RUNTIME_SERVICES rt;
-static CHAR16 vendor[] = u"SquirrelBIOS";
+static EFI_RUNTIME_SERVICES rt ARCH_RT_DATA("tables");
+static CHAR16 vendor[] ARCH_RT_DATA("tables") = u"SquirrelBIOS";
 static EFI_TPL current_tpl = 4;         /* TPL_APPLICATION */
 
-EFI_SYSTEM_TABLE *efi_st;
-
-u32 crc32(const void *buf, usize len)
-{
-    const u8 *p = buf;
-    u32 c = 0xFFFFFFFF;
-    while (len--) {
-        c ^= *p++;
-        for (int k = 0; k < 8; k++)
-            c = (c >> 1) ^ (0xEDB88320 & -(c & 1));
-    }
-    return ~c;
-}
+EFI_SYSTEM_TABLE *efi_st ARCH_RT_DATA("tables");
 
 static void seal(EFI_TABLE_HEADER *h, u64 sig, u32 size)
 {
@@ -75,12 +65,6 @@ static void EFIAPI copy_mem(void *d, void *s, UINTN n)
 static void EFIAPI set_mem(void *d, UINTN n, u8 v)
 {
     memset(d, v, n);
-}
-
-void efi_reseal(EFI_TABLE_HEADER *h)
-{
-    h->crc32 = 0;
-    h->crc32 = crc32(h, h->header_size);
 }
 
 void efi_tables_init(void)

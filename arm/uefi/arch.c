@@ -387,3 +387,9 @@ int arch_kernel(void **image, u32 *size)
     (void)size;
     return 0;
 }
+
+/* Disks: virtio-mmio transports and the PCIe host bridge in the device tree */
+int arch_disk_probe(void)
+{
+    return virtio_mmio_probe() + pci_probe();
+}
