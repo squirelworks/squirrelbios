@@ -297,6 +297,8 @@ typedef struct {
 #define END_ENTIRE_DEVICE_PATH_SUBTYPE  0xFF
 #define HARDWARE_DEVICE_PATH            0x01
 #define HW_PCI_DP                       0x01
+#define ACPI_DEVICE_PATH                0x02
+#define ACPI_DP                         0x01
 #define MESSAGING_DEVICE_PATH           0x03
 #define MSG_SCSI_DP                     0x02
 #define MEDIA_DEVICE_PATH               0x04
@@ -391,13 +393,49 @@ EFI_DEVICE_PATH_PROTOCOL *efi_dp_hd(u32 part, u64 start, u64 size, const u8 uuid
 
 /* disk.c / fat.c: virtio-blk Block I/O, GPT/MBR partitions, FAT SFS */
 void efi_disk_init(void);
-/* virtio_mmio.c: the virtio-blk disk disk.c serves */
-int vblk_probe(void);
-int vblk_present(void);
-u64 vblk_sectors(void);
-EFI_DEVICE_PATH_PROTOCOL *vblk_path(void);
-int vblk_read(u64 lba, void *buf, u32 bytes);
-int vblk_write(u64 lba, void *buf, u32 bytes);
+/* A disk a driver found, in 512-byte sectors; read and write take whole
+ * sectors, return 1 on success. disk.c publishes it (efi_disk_add). */
+struct sq_blk {
+    u64 sectors;
+    EFI_DEVICE_PATH_PROTOCOL *path;
+    int (*read)(struct sq_blk *, u64 lba, void *buf, u32 bytes);
+    int (*write)(struct sq_blk *, u64 lba, void *buf, u32 bytes);
+};
+void efi_disk_add(struct sq_blk *dev);
+
+/* virtio.c: virtqueue and virtio-blk requests, any transport */
+struct vq {
+    u8 *mem;                    /* descriptors + avail, then used 4 KB on */
+    u8 *req;                    /* 16-byte request header, status byte */
+    u16 last_used;
+    uptr notify;                /* written with the queue index (0) */
+    int notify16;               /* a 16-bit write (PCI), else 32-bit */
+};
+#define VQ_SIZE     8
+#define VQ_USED_OFF 4096
+int vq_alloc(struct vq *q);
+uptr vq_desc(struct vq *q);
+uptr vq_avail(struct vq *q);
+uptr vq_used(struct vq *q);
+int virtio_blk_add(struct vq *q, u64 sectors, EFI_DEVICE_PATH_PROTOCOL *path);
+
+/* virtio_mmio.c, pci.c (virtio_pci.c, nvme.c): disks found, each passed
+ * to efi_disk_add; the count */
+int virtio_mmio_probe(void);
+int pci_probe(void);
+
+/* pci.c: a function on the ECAM host bridge's bus 0, its memory BARs
+ * assigned (CPU addresses, 0 if unused) and decoding enabled */
+struct sq_pci {
+    u8 dev, fn;
+    u16 vendor, device;
+    u32 class_rev;              /* class code << 8 | revision */
+    uptr cfg;                   /* its 4 KB of ECAM configuration space */
+    u64 bar[6];                 /* a 64-bit BAR's address sits in its low slot */
+    EFI_DEVICE_PATH_PROTOCOL *path;
+};
+int virtio_pci_add(struct sq_pci *p);   /* virtio_pci.c */
+int nvme_add(struct sq_pci *p);         /* nvme.c */
 int efi_boot_esp(void);
 int fat_install(EFI_HANDLE handle, EFI_BLOCK_IO_PROTOCOL *bio);
 

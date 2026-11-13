@@ -347,8 +347,7 @@ else
 fi
 # A UAS disk (USB Attached SCSI) on EHCI: command, status, data-in and
 # data-out pipes found by their pipe usage descriptors, a READ READY or
-# WRITE READY IU before the data and a SENSE IU after it. On xHCI (super
-# speed, streams) it is listed and left alone
+# WRITE READY IU before the data and a SENSE IU after it
 run x86-usbdisk-uas "usb: disk is device 1|disk: USB disk (UAS)|OS-ENTRY x86 dl=ok memmap=ok flags=ok vga=ok" \
     "$QEMU_X86" -bios x86/squirrel-bios.rom \
     -device usb-ehci,id=ehci,addr=5 \
@@ -364,12 +363,36 @@ run x86-usbdisk-uas-edd "disk: USB disk (UAS)|OS-ENTRY x86 edd edd=ok" \
     -device usb-ehci,id=ehci,addr=5 \
     -drive if=none,id=ud,format=raw,file=$TEST_DIR/x86-usbdisk.img,snapshot=on \
     -device usb-uas,id=uas,bus=ehci.0 -device scsi-hd,bus=uas.0,drive=ud
-run x86-usbdisk-uas-xhci "usb: device 1 on root port 1: 46F4:0003, mass storage|OS-ENTRY x86 dl=ok memmap=ok flags=ok vga=ok|!disk: USB disk" \
+# The same at super speed on xHCI, with streams: the status and data
+# pipes each get a stream context array whose stream 1 is their ring, and
+# every command is tag 1, so no READY IU comes before the data
+run x86-usbdisk-uas-xhci "usb: device 1 on root port 1: 46F4:0003, mass storage|usb: disk is device 1|disk: USB disk (UAS)|OS-ENTRY x86 dl=ok memmap=ok flags=ok vga=ok" \
     "$QEMU_X86" -bios x86/squirrel-bios.rom \
-    -drive format=raw,file=$TEST_DIR/x86-boot.bin,if=ide,snapshot=on \
     -device qemu-xhci,id=xhci,addr=5 \
-    -drive if=none,id=ud,format=raw,file=$TEST_DIR/x86-one-sector.bin,snapshot=on \
+    -drive if=none,id=ud,format=raw,file=$TEST_DIR/x86-boot.bin,snapshot=on \
     -device usb-uas,id=uas,bus=xhci.0 -device scsi-hd,bus=uas.0,drive=ud
+run x86-usbdisk-uas-xhci-int13 "disk: USB disk (UAS)|via-boot-sector|int13=ok tty=ok|!boot halted" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -device qemu-xhci,id=xhci,addr=5 \
+    -drive if=none,id=ud,format=raw,file=$TEST_DIR/x86-int13.bin,snapshot=on \
+    -device usb-uas,id=uas,bus=xhci.0 -device scsi-hd,bus=uas.0,drive=ud
+run x86-usbdisk-uas-xhci-edd "disk: USB disk (UAS)|OS-ENTRY x86 edd edd=ok" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -device qemu-xhci,id=xhci,addr=5 \
+    -drive if=none,id=ud,format=raw,file=$TEST_DIR/x86-usbdisk.img,snapshot=on \
+    -device usb-uas,id=uas,bus=xhci.0 -device scsi-hd,bus=uas.0,drive=ud
+# Stall recovery: a test build sends one command with a bad CBW
+# signature, which the disk stalls. Reset recovery (Bulk-Only Mass
+# Storage Reset, CLEAR_FEATURE(ENDPOINT_HALT) on both bulk endpoints, the
+# host side reset too) and one retry keep INT 13h working, on each of the
+# four controllers
+for hc in xhci:qemu-xhci ehci:usb-ehci ohci:pci-ohci uhci:piix3-usb-uhci; do
+    run x86-usbdisk-stall-${hc%%:*} "disk: USB disk (bulk-only)|via-boot-sector|int13=ok tty=ok|!boot halted" \
+        "$QEMU_X86" -bios $TEST_DIR/x86-usbfault.rom \
+        -device ${hc#*:},id=hc,addr=5 \
+        -drive if=none,id=ud,format=raw,file=$TEST_DIR/x86-int13.bin,snapshot=on \
+        -device usb-storage,bus=hc.0,drive=ud
+done
 # The disk behind a hub, with a keyboard and a mouse on the same xHCI:
 # all three are kept, and twenty keys still arrive after the boot
 if KBD_NAME=x86-usbdisk-kbd KBD_IMG=$TEST_DIR/x86-kbd-many.bin KBD_KEYS=20 KBD_USBDISK=xhci.0,port=2.3 \
@@ -1192,6 +1215,12 @@ run x86_64-numa-initiator "numa: HMAT with the initiator of each node|APP numa s
     -bios x86_64/squirrel-bios.fd $NUMA_APP
 run x86_64-numa-none "APP numa sums=ok madt=2/0 srat=none slit=none hmat=none|APP numa bert=0 hest=2/10|!=bad" \
     "$QEMU_X86_64" -M q35 -smp 2 -bios x86_64/squirrel-bios.fd $NUMA_APP
+# With NUMA, an expander's numa_node becomes its _PXM, read from QEMU's
+# own DSDT
+run x86_64-pxb-numa "pci: root bus 40-7f (PC40), I/O|pci: root bus 80-ff (PC80), node 1, I/O 7000-7fff|APP numa sums=ok|!=bad" \
+    "$QEMU_X86_64" -M q35 -m 256 -smp 2 $(numa_nodes 2 128 1) -bios x86_64/squirrel-bios.fd $NUMA_APP \
+    -device pxb-pcie,id=pxb1,bus_nr=0x80,numa_node=1,bus=pcie.0 -device pcie-root-port,id=rp1,bus=pxb1,chassis=1 \
+    -device pxb-pcie,id=pxb2,bus_nr=0x40,bus=pcie.0 -device pcie-root-port,id=rp2,bus=pxb2,chassis=2
 
 # x86-64 firmware: machine checks left in the banks survive a reset and
 # become BERT records on the next boot (F2). Once the app has seen an
@@ -1305,6 +1334,26 @@ run x86_64-rt-after-exit-$m "efi: ExitBootServices|APP rt pages=ok time=ok var=o
     -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
     -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-rt.efi
 done
+
+# PCI disks (roadmap D4): the core walks the device tree's ECAM host
+# bridge, places BARs, and boots from NVMe or virtio-blk-pci; with two
+# disks it takes the ESP that has this architecture's boot file.
+run aarch64-uefi-nvme "disk: NVMe at PCI 00:02.0, 131072 sectors|disk: partition 1 LBA 2048..131038 (ESP)|efi: booting \\EFI\\BOOT\\BOOTAA64.EFI|APP aarch64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|efi: BOOTAA64.EFI returned 0x1234|!=bad" \
+    "$QEMU_ARM" -M virt -cpu cortex-a57 -bios $ARM_FD \
+    -drive if=none,file=$TEST_DIR/arm-esp.img,format=raw,id=d0 -device nvme,drive=d0,serial=sq1
+run aarch64-uefi-virtio-pci "disk: virtio-blk at PCI 00:02.0 (virtio-pci), 131072 sectors|disk: partition 1 LBA 2048..131038 (ESP)|APP aarch64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|efi: BOOTAA64.EFI returned 0x1234|!=bad" \
+    "$QEMU_ARM" -M virt -cpu cortex-a57 -bios $ARM_FD \
+    -drive if=none,file=$TEST_DIR/arm-esp.img,format=raw,id=d0 -device virtio-blk-pci,drive=d0
+run aarch64-uefi-two-disks "disk: NVMe at PCI 00:02.0, 131072 sectors|disk: virtio-blk at PCI 00:03.0 (virtio-pci), 131072 sectors|APP aarch64 st=ok|efi: BOOTAA64.EFI returned 0x1234|!APP riscv64" \
+    "$QEMU_ARM" -M virt -cpu cortex-a57 -bios $ARM_FD \
+    -drive if=none,file=$TEST_DIR/riscv-esp.img,format=raw,id=d1 -device nvme,drive=d1,serial=sq1 \
+    -drive if=none,file=$TEST_DIR/arm-esp.img,format=raw,id=d0 -device virtio-blk-pci,drive=d0
+run riscv64-uefi-nvme "disk: NVMe at PCI 00:01.0, 131072 sectors|disk: partition 1 LBA 2048..131038 (ESP)|efi: booting \\EFI\\BOOT\\BOOTRISCV64.EFI|APP riscv64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|efi: BOOTRISCV64.EFI returned 0x1234|!=bad" \
+    "$QEMU_RISCV" -M virt -bios $RV_UEFI \
+    -drive if=none,file=$TEST_DIR/riscv-esp.img,format=raw,id=d0 -device nvme,drive=d0,serial=sq1
+run riscv64-uefi-virtio-pci "disk: virtio-blk at PCI 00:01.0 (virtio-pci), 131072 sectors|disk: partition 1 LBA 2048..131038 (ESP)|APP riscv64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|efi: BOOTRISCV64.EFI returned 0x1234|!=bad" \
+    "$QEMU_RISCV" -M virt -bios $RV_UEFI \
+    -drive if=none,file=$TEST_DIR/riscv-esp.img,format=raw,id=d0 -device virtio-blk-pci,drive=d0
 
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

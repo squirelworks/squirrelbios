@@ -19,7 +19,9 @@
 ; schedule on only until it is done (usbd_ehci_xfer). A high-speed UAS
 ; interface (USB Attached SCSI, protocol 62h) is taken on EHCI too: its
 ; four pipes are four bulk endpoints, used one at a time without streams
-; (usbd_uas_scsi). That
+; (usbd_uas_scsi). So is one at super speed on xHCI, where the status and
+; data pipes use streams: each has a stream context array whose stream 1
+; is its ring, and every command is tag 1 (xhci_msd_config). That
 ; controller then keeps running after POST, alongside a USB keyboard or
 ; mouse on the same controller, and its state that the transfers need
 ; (registers, event ring position, the disk's rings or data toggles) is
@@ -36,8 +38,11 @@
 ; (if any) straight to or from the caller's buffer, then the 13-byte
 ; status wrapper (CSW) on bulk IN. Each waits for its own transfer event,
 ; told apart by its TRB pointer: the keyboard's and mouse's transfers
-; post none (UHCI: polled TD by TD). A stalled endpoint is not recovered
-; yet: the command fails.
+; post none (UHCI: polled TD by TD). A command that fails (a stalled
+; endpoint, a stray status wrapper, a phase error) gets bulk-only reset
+; recovery and one retry (usbd_recover): written from the BOT spec and
+; tested in QEMU by a build that sends a bad command block (USBD_FAULT),
+; not yet on real hardware.
 ;
 ; Runtime code reaches the copy with FS = USBD_FSEG, a segment whose
 ; offsets 1F00h-1F7Fh are the copy, so xhci.inc's xhci_put and
@@ -56,11 +61,17 @@ USBD_SECTORS    equ 0x1F70          ; dword: capacity (usbd_detect)
 USBD_BUFS       equ 0x1F74          ; dword: linear CBW; CSW and SCSI data after
 USBD_BDF        equ 0x1F78          ; word: its controller
 USBD_HC         equ 0x1F7A          ; byte: and that controller's type
-USBD_UAS        equ 0x1F63          ; byte: 1 if it speaks UAS, not bulk-only
+USBD_EP0ST      equ 0x1F5A          ; word: xHCI, its endpoint 0 ring state
+USBD_IFACE      equ 0x1F5C          ; byte: its interface (Bulk-Only Reset)
+USBD_MPS0       equ 0x1F5D          ; byte: endpoint 0 max packet
+USBD_FAULTN     equ 0x1F5E          ; byte: commands so far (USBD_FAULT builds)
+USBD_SETUP      equ 0x38            ; from USBD_BUFS: a control request's 8 bytes
+USBD_UAS        equ 0x1F63          ; byte: 1 if it speaks UAS, not bulk-only;
+                                    ; 2 UAS with streams (xHCI, super speed)
 USBD_EPDIN      equ 0x1F7B          ; byte: UAS data-in pipe's endpoint
 USBD_EPDOUT     equ 0x1F7C          ; byte: UAS data-out pipe's endpoint
-USBD_DINST      equ 0x1F7D          ; byte: data-in pipe's data toggle
-USBD_DOUTST     equ 0x1F7E          ; byte: data-out pipe's data toggle
+USBD_DINST      equ 0x1F56          ; data-in pipe: ring state or data toggle
+USBD_DOUTST     equ 0x1F58          ; data-out pipe: the same
 ; On UAS, USBD_EPOUT is the command pipe and USBD_EPIN the status pipe
 ; On UHCI and EHCI, USBD_OUTST and USBD_INST hold each endpoint's next
 ; data toggle
@@ -148,7 +159,14 @@ usb_disk_claim:
     jmp .usb_bufs               ; on its own: no keyboard shares it
 .hc:
     cmp byte [bp - 17], 1
-    jne .out                    ; UAS on EHCI only
+    je .hc_bot
+    cmp byte [fs:USB_HC], USB_HC_XHCI
+    jne .out                    ; UAS on EHCI and xHCI only
+    cmp byte [bp - 18], 0       ; all four pipes
+    je .out
+    cmp byte [bp - 19], 0
+    je .out
+.hc_bot:
     cmp byte [fs:USBD_ADDR], 0
     jne .out
     cmp byte [bp - 13], 0
@@ -172,10 +190,12 @@ usb_disk_claim:
     mov word [fs:USBD_OUTST], 0         ; DATA0 on both after configuring
     mov word [fs:USBD_INST], 0
     mov word [fs:USBD_DINST], 0
+    mov word [fs:USBD_DOUTST], 0
     jmp .config
 .xhci:
     cmp dword [fs:XHCI_BASE], XHCI_EBDA
     jne .out                    ; its block will not survive POST
+    call .uas_vars
     mov al, [bp - 1]
     mov cl, [bp - 13]
     mov ch, [bp - 14]
@@ -201,13 +221,11 @@ usb_disk_claim:
     mov [fs:USBD_EPOUT], al
     mov ax, [bp - 16]
     mov [fs:USBD_MPS], ax
-    mov al, [bp - 17]
-    dec al
-    mov [fs:USBD_UAS], al
-    mov al, [bp - 18]
-    mov [fs:USBD_EPDIN], al
-    mov al, [bp - 19]
-    mov [fs:USBD_EPDOUT], al
+    mov al, [bp - 21]
+    mov [fs:USBD_IFACE], al
+    mov al, [bp - 3]
+    mov [fs:USBD_MPS0], al
+    call .uas_vars
     mov dword [fs:USBD_TAG], 0
     mov dword [fs:USBD_SECTORS], 0
     mov ax, [fs:USB_BDF]
@@ -221,6 +239,28 @@ usb_disk_claim:
     popad
     ret
 
+; USBD_UAS (0 bulk-only, 1 UAS, 2 UAS with streams: on xHCI at super
+; speed), USBD_EPDIN and USBD_EPDOUT from usb_enum's frame. Keeps every
+; register.
+.uas_vars:
+    push ax
+    mov al, [bp - 17]
+    dec al
+    jz .uas_kind
+    cmp byte [bp - 2], 3
+    jne .uas_kind
+    cmp byte [fs:USB_HC], USB_HC_XHCI
+    jne .uas_kind
+    inc al
+.uas_kind:
+    mov [fs:USBD_UAS], al
+    mov al, [bp - 18]
+    mov [fs:USBD_EPDIN], al
+    mov al, [bp - 19]
+    mov [fs:USBD_EPDOUT], al
+    pop ax
+    ret
+
 ; The controller with the disk keeps running (xhci_bus, FS = USB_SEG):
 ; copy its state for the runtime code. Keeps every register.
 usbd_keep:
@@ -232,6 +272,14 @@ usbd_keep:
     pop ax
     jne .ret                    ; the disk is on another controller
     pushad
+    ; xHCI: endpoint 0's ring state too, for stall recovery's requests
+    cmp byte [fs:USB_HC], USB_HC_XHCI
+    jne .snap
+    mov di, [fs:USBD_SLOT]
+    shl di, 1
+    mov ax, [fs:XHCI_RSTATE + di]
+    mov [fs:USBD_EP0ST], ax
+.snap:
     push es
     push word EBDA_BASE >> 4
     pop es
@@ -430,12 +478,46 @@ usbd_cdb:
 ; interrupts off. CF set if a transfer failed or the status wrapper is
 ; not this command's; otherwise AL = its status (0 passed, 1 failed, 2
 ; phase error). Keeps every other register.
+;
+; Bulk-only: when a transfer fails (a stall, say), the status wrapper is
+; not this command's, or the device reports a phase error, reset
+; recovery (usbd_recover) and one more try.
 usbd_scsi:
     cmp byte [fs:USBD_UAS], 0
     jne usbd_uas_scsi
+    push eax
+    call usbd_scsi_once
+    jc .again
+    cmp al, 2
+    je .again
+    clc                         ; (the compare left CF set for 0 and 1)
+    jmp .done
+.again:
+    pop eax
+    push eax
+    call usbd_recover
+    call usbd_scsi_once
+.done:
+    inc sp                      ; drop the saved EAX, keeping CF
+    inc sp
+    inc sp
+    inc sp
+    ret
+
+; One try of usbd_scsi on bulk-only.
+usbd_scsi_once:
     pushad
     mov ebx, [fs:USBD_BUFS]
     mov dword [gs:ebx + USBD_CBW], USBD_CBW_SIG
+%ifdef USBD_FAULT
+    ; Test builds: the USBD_FAULT'th command goes out with a bad
+    ; signature, which the device must stall
+    inc byte [fs:USBD_FAULTN]
+    cmp byte [fs:USBD_FAULTN], USBD_FAULT
+    jne .sig
+    mov byte [gs:ebx + USBD_CBW], 'X'
+.sig:
+%endif
     mov edx, [fs:USBD_TAG]
     inc edx
     mov [fs:USBD_TAG], edx
@@ -572,8 +654,20 @@ usbd_xfer:
     shl eax, 1
     cmp di, USBD_OUTST
     je .door
+    movzx eax, byte [fs:USBD_EPDOUT]
+    shl eax, 1
+    cmp di, USBD_DOUTST
+    je .stream
+    movzx eax, byte [fs:USBD_EPDIN]
+    lea eax, [eax * 2 + 1]
+    cmp di, USBD_DINST
+    je .stream
     movzx eax, byte [fs:USBD_EPIN]
     lea eax, [eax * 2 + 1]
+.stream:
+    cmp byte [fs:USBD_UAS], 2
+    jne .door
+    or eax, 1 << 16             ; UAS with streams: stream 1, the tag
 .door:
     mov ecx, [fs:XHCI_EV0]      ; ECX = the last TRB
     movzx ebx, word [fs:USBD_SLOT]
@@ -1291,24 +1385,28 @@ usbd_ehci_xfer:
     stc
     ret
 
-; usbd_scsi for a UAS disk (on EHCI, without streams): the command IU on
-; the command pipe; with data, the device's READ READY or WRITE READY IU
-; on the status pipe, then the data on the data-in or data-out pipe; then
-; the SENSE IU on the status pipe. The IUs use the block's CBW and CSW
+; usbd_scsi for a UAS disk: the command IU on the command pipe; with
+; data, the device's READ READY or WRITE READY IU on the status pipe
+; (not with streams, where the data and status transfers wait on stream
+; 1, the tag), then the data on the data-in or data-out pipe; then the
+; SENSE IU on the status pipe. The IUs use the block's CBW and CSW
 ; space: the command at +40h (its CDB taken from usbd_cdb's block), what
 ; the status pipe sends at +0. Same registers and results as usbd_scsi.
 usbd_uas_scsi:
     pushad
     mov ebx, [fs:USBD_BUFS]
-    ; A new tag, never 0; SI = it big-endian, as the IUs carry it
+    ; A new tag, never 0; with streams always 1, the stream
     mov edx, [fs:USBD_TAG]
     inc dx
     jnz .tag
     inc dx
 .tag:
+    cmp byte [fs:USBD_UAS], 2
+    jne .tag_set
+    mov dx, 1
+.tag_set:
     mov [fs:USBD_TAG], edx
-    xchg dl, dh
-    mov si, dx
+    xchg dl, dh                 ; big-endian, as the IUs carry it
     ; The command IU: ID 1, the tag, a simple task, LUN 0, the CDB
     movzx edx, dx
     shl edx, 16
@@ -1331,12 +1429,20 @@ usbd_uas_scsi:
     lea eax, [ebx + 0x40]
     mov ecx, 32
     mov di, USBD_OUTST
+    call .ring
     call usbd_xfer
     pop ecx
     pop eax
     jc .fail
     test ecx, ecx
     jz .status
+    mov di, USBD_DINST
+    test al, USBD_IN
+    jnz .pipe
+    mov di, USBD_DOUTST
+.pipe:
+    cmp byte [fs:USBD_UAS], 2
+    je .data
     ; READ READY (6) or WRITE READY (7); a SENSE IU instead means the
     ; command ended before any data
     call .iu
@@ -1345,15 +1451,15 @@ usbd_uas_scsi:
     cmp dl, 3
     je .sense
     mov dh, 6
-    mov di, USBD_DINST
-    test al, USBD_IN
-    jnz .ready
+    cmp di, USBD_DINST
+    je .ready
     mov dh, 7
-    mov di, USBD_DOUTST
 .ready:
     cmp dl, dh
     jne .fail
+.data:
     mov eax, ebp
+    call .ring
     call usbd_xfer
     jc .fail
 .status:
@@ -1388,15 +1494,35 @@ usbd_uas_scsi:
     mov eax, ebx
     mov ecx, 0x40
     mov di, USBD_INST
+    call .ring
     call usbd_xfer
     jc .iu_out
-    cmp [gs:ebx + 2], si
+    mov cx, [fs:USBD_TAG]
+    xchg cl, ch
+    cmp [gs:ebx + 2], cx
     je .iu_out                  ; CF clear
     stc
 .iu_out:
     pop di
     pop ecx
     pop eax
+    ret
+
+; On xHCI, ESI = the ring of the pipe whose state is at FS:DI (the other
+; controllers ignore ESI). Keeps every other register.
+.ring:
+    mov esi, [fs:XHCI_BASE]
+    add esi, XHCI_BOUT
+    cmp di, USBD_OUTST
+    je .ring_ok
+    add esi, XHCI_BIN - XHCI_BOUT
+    cmp di, USBD_INST
+    je .ring_ok
+    add esi, XHCI_DIN - XHCI_BIN
+    cmp di, USBD_DINST
+    je .ring_ok
+    add esi, XHCI_DOUT - XHCI_DIN
+.ring_ok:
     ret
 
 ; The POST line for the USB disk: SI = it. Keeps every other register.
@@ -1410,4 +1536,355 @@ usbd_banner:
     mov si, msg_usbd_uas
 .out:
     pop es
+    ret
+
+; Stall recovery (bulk-only reset recovery, BOT 5.3.4): a Bulk-Only Mass
+; Storage Reset to the disk's interface, then CLEAR_FEATURE(ENDPOINT_HALT)
+; to bulk IN and to bulk OUT; on the host side both endpoints start over
+; at DATA0 and un-halted (usbd_host_reset). Errors are ignored: the retry
+; tells. FS = USBD_FSEG, GS flat. Keeps every register.
+usbd_recover:
+    pushad
+    mov eax, 0x0000FF21         ; class, to the interface: reset (FFh)
+    movzx ebx, byte [fs:USBD_IFACE]
+    call usbd_ctl
+    mov eax, 0x00000102         ; to an endpoint: CLEAR_FEATURE, ENDPOINT_HALT
+    movzx ebx, byte [fs:USBD_EPIN]
+    or bl, 0x80
+    call usbd_ctl
+    movzx ebx, byte [fs:USBD_EPOUT]
+    call usbd_ctl
+    call usbd_host_reset
+    popad
+    ret
+
+; A control request without a data stage to the disk's endpoint 0: EAX
+; the setup packet's first four bytes, EBX its last four. CF set on
+; failure. FS = USBD_FSEG, GS flat. Keeps every register.
+usbd_ctl:
+    pushad
+    mov edi, [fs:USBD_BUFS]
+    add edi, USBD_SETUP
+    mov [gs:edi], eax
+    mov [gs:edi + 4], ebx
+    cmp byte [fs:USB_HC], USB_HC_UHCI
+    je .uhci
+    cmp byte [fs:USB_HC], USB_HC_OHCI
+    je .ohci
+    cmp byte [fs:USB_HC], USB_HC_EHCI
+    je .ehci
+    call usbd_xhci_ctl
+    jmp .out
+.uhci:
+    call usbd_uhci_ctl
+    jmp .out
+.ohci:
+    call usbd_ohci_ctl
+    jmp .out
+.ehci:
+    call usbd_ehci_ctl
+.out:
+    popad                       ; CF as it was
+    ret
+
+; UHCI: the SETUP TD (DATA0, 8 bytes at linear EDI) and the status TD (IN,
+; DATA1, no data) hung from the disk's queue head, up to 1 s. CF set on
+; failure. Clobbers EAX, EBX, ECX, EDX, ESI.
+usbd_uhci_ctl:
+    mov esi, EBDA_BASE + USBD_UTD
+    movzx ebx, byte [fs:USBD_ADDR]
+    shl ebx, 8                  ; endpoint 0
+    lea eax, [esi + 16]
+    or eax, TD_VF
+    mov [gs:esi], eax
+    mov dword [gs:esi + 4], TD_ACTIVE | TD_CERR3
+    mov eax, ebx
+    or eax, (7 << 21) | PID_SETUP
+    mov [gs:esi + 8], eax
+    mov [gs:esi + 12], edi
+    mov dword [gs:esi + 16], TD_T
+    mov dword [gs:esi + 20], TD_ACTIVE | TD_CERR3
+    mov eax, ebx
+    or eax, (0x7FF << 21) | (1 << 19) | PID_IN
+    mov [gs:esi + 24], eax
+    mov dword [gs:esi + 28], 0
+    mov edx, EBDA_BASE + USBD_UQH
+    mov [gs:edx + 4], esi
+    mov ecx, 1000
+.poll:
+    test dword [gs:esi + 20], TD_ACTIVE
+    jz .end
+    test dword [gs:esi + 4], TD_ACTIVE
+    jnz .wait
+    test dword [gs:esi + 4], TD_ERRORS
+    jnz .end                    ; the SETUP failed
+.wait:
+    push cx
+    mov cx, 1
+    call delay_ms
+    pop cx
+    dec ecx
+    jnz .poll
+.end:
+    mov dword [gs:edx + 4], TD_T
+    push cx
+    mov cx, 2                   ; let the controller leave the TDs
+    call delay_ms
+    pop cx
+    test dword [gs:esi + 20], TD_ACTIVE | TD_ERRORS
+    jnz .fail
+    clc
+    ret
+.fail:
+    stc
+    ret
+
+; OHCI: the SETUP TD (DATA0, 8 bytes at linear EDI), the status TD (IN,
+; DATA1) and an empty tail on an endpoint descriptor of its own after
+; the disk's two, alone on the control list, up to 1 s; the control list
+; is off again after. CF set on failure. Clobbers EAX, EBX, ECX, EDX,
+; ESI.
+usbd_ohci_ctl:
+    mov edx, EBDA_BASE + USBD_UQH + 32
+    mov esi, EBDA_BASE + USBD_UTD
+    mov dword [gs:esi], GTD_CC_NEW | GTD_NOINT | (2 << 24)     ; SETUP, DATA0
+    mov [gs:esi + 4], edi
+    lea eax, [esi + 16]
+    mov [gs:esi + 8], eax
+    lea eax, [edi + 7]
+    mov [gs:esi + 12], eax
+    mov dword [gs:esi + 16], GTD_CC_NEW | GTD_NOINT | GTD_IN | (3 << 24)  ; DATA1
+    xor eax, eax
+    mov [gs:esi + 20], eax
+    mov [gs:esi + 28], eax
+    mov [gs:esi + 32], eax      ; the tail
+    mov [gs:esi + 36], eax
+    mov [gs:esi + 40], eax
+    mov [gs:esi + 44], eax
+    lea eax, [esi + 32]
+    mov [gs:esi + 24], eax
+    ; The descriptor: address, endpoint 0, direction from the TDs, full
+    ; speed, endpoint 0's max packet
+    movzx eax, byte [fs:USBD_MPS0]
+    shl eax, 16
+    or al, [fs:USBD_ADDR]
+    mov [gs:edx], eax
+    lea eax, [esi + 32]
+    mov [gs:edx + 4], eax       ; TailP
+    mov [gs:edx + 8], esi       ; HeadP, toggle carry 0
+    mov dword [gs:edx + 12], 0
+    mov ebx, [fs:USB_MMIO]
+    mov [gs:ebx + OHCI_CTRLHEAD], edx
+    mov dword [gs:ebx + OHCI_CTRLCUR], 0
+    or dword [gs:ebx + OHCI_CONTROL], OCTL_CLE
+    mov dword [gs:ebx + OHCI_CMDSTATUS], OCS_CLF
+    mov ecx, 1000
+.poll:
+    call .state
+    jc .end
+    jz .end
+    push cx
+    mov cx, 1
+    call delay_ms
+    pop cx
+    dec ecx
+    jnz .poll
+.end:
+    or dword [gs:edx], ED_SKIP
+    and dword [gs:ebx + OHCI_CONTROL], ~OCTL_CLE
+    push cx
+    mov cx, 2
+    call delay_ms
+    pop cx
+    call .state
+    jc .fail
+    jnz .fail
+    clc
+    ret
+.fail:
+    stc
+    ret
+; CF set if the descriptor at GS:EDX halted, else ZF set once its TDs
+; are all done. Clobbers EAX.
+.state:
+    mov eax, [gs:edx + 8]
+    test al, ED_HALTED
+    jnz .halted
+    and eax, ~0x0F
+    cmp eax, [gs:edx + 4]       ; CF clear when equal
+    clc
+    ret
+.halted:
+    stc
+    ret
+
+; EHCI: a queue head for endpoint 0 (toggles from the qTDs) alone on the
+; asynchronous list, with the SETUP qTD (DATA0, 8 bytes at linear EDI)
+; and the status qTD (IN, DATA1), up to 1 s; the schedule is off again
+; after. CF set on failure. Clobbers EAX, EBX, ECX, EDX, ESI.
+usbd_ehci_ctl:
+    mov edx, EBDA_BASE + USBD_EQH
+    lea eax, [edx + QH_TYPE]
+    mov [gs:edx], eax
+    movzx eax, byte [fs:USBD_MPS0]
+    shl eax, 16
+    or eax, QH_EPS_HIGH | QH_DTC | QH_HEAD
+    or al, [fs:USBD_ADDR]       ; endpoint 0
+    mov [gs:edx + 4], eax
+    mov dword [gs:edx + 8], QH_MULT1
+    xor eax, eax
+    mov [gs:edx + 12], eax
+    mov dword [gs:edx + 16], EBDA_BASE + USBD_ETD
+    mov dword [gs:edx + 20], QH_T
+    mov ecx, 24
+.qh:
+    mov [gs:edx + ecx], eax     ; the overlay: inactive
+    add ecx, 4
+    cmp ecx, 48
+    jb .qh
+    mov ebx, EBDA_BASE + USBD_ETD
+    xor ecx, ecx
+.zero:
+    mov [gs:ebx + ecx], eax
+    add ecx, 4
+    cmp ecx, 64
+    jb .zero
+    lea eax, [ebx + 32]
+    mov [gs:ebx], eax
+    mov dword [gs:ebx + 4], QH_T
+    mov dword [gs:ebx + 8], (8 << 16) | QTD_SETUP | QTD_ACTIVE | QTD_CERR3
+    mov [gs:ebx + 12], edi
+    mov dword [gs:ebx + 32], QH_T
+    mov dword [gs:ebx + 36], QH_T
+    mov dword [gs:ebx + 40], QTD_DATA1 | QTD_IN | QTD_ACTIVE | QTD_CERR3
+    mov esi, [fs:USB_MMIO]
+    mov [gs:esi + EHCI_ASYNCLIST], edx
+    clc
+    call ehci_async
+    mov ecx, 1000
+.poll:
+    test dword [gs:ebx + 40], QTD_ACTIVE
+    jz .end
+    test dword [gs:ebx + 8], QTD_HALTED
+    jnz .end
+    push cx
+    mov cx, 1
+    call delay_ms
+    pop cx
+    dec ecx
+    jnz .poll
+.end:
+    stc
+    call ehci_async
+    test dword [gs:ebx + 8], QTD_ACTIVE | QTD_HALTED
+    jnz .fail
+    test dword [gs:ebx + 40], QTD_ACTIVE | QTD_HALTED
+    jnz .fail
+    clc
+    ret
+.fail:
+    stc
+    ret
+
+; xHCI: a Setup TRB (the 8 bytes inside it) and an IN Status TRB on the
+; slot's endpoint 0 ring, state USBD_EP0ST; wait for endpoint 0's event.
+; CF set unless it succeeded. EAX, EBX: the setup packet. Clobbers ECX,
+; EDX, ESI, EDI, EBP.
+usbd_xhci_ctl:
+    movzx ebp, word [fs:USBD_SLOT]
+    lea esi, [ebp - 1]
+    shl esi, 8
+    add esi, [fs:XHCI_BASE]
+    add esi, XHCI_RINGS
+    mov di, USBD_EP0ST
+    mov ecx, 8
+    mov edx, (TRB_SETUP << 10) | (1 << 6)       ; immediate data
+    call xhci_put
+    xor eax, eax
+    xor ebx, ebx
+    xor ecx, ecx
+    mov edx, (TRB_STATUS << 10) | (1 << 5) | (1 << 16)  ; IN, an event
+    call xhci_put
+    mov edx, [fs:XHCI_DB]
+    mov dword [gs:edx + ebp * 4], 1             ; endpoint 0
+.wait:
+    mov al, TRB_EV_TRANSFER
+    call xhci_event
+    jc .fail
+    mov eax, ebp
+    cmp [fs:XHCI_EV3 + 3], al
+    jne .wait                   ; another slot's
+    mov al, [fs:XHCI_EV3 + 2]
+    and al, 0x1F
+    cmp al, 1
+    jne .wait                   ; another endpoint's
+    cmp byte [fs:XHCI_EV2 + 3], CC_SUCCESS
+    jne .fail
+    clc
+    ret
+.fail:
+    stc
+    ret
+
+; The host side of reset recovery: both bulk endpoints at DATA0 with no
+; halt. UHCI, EHCI: the toggles. OHCI: each endpoint descriptor's halt
+; and toggle carry. xHCI: Reset Endpoint, Stop Endpoint and Set TR
+; Dequeue Pointer on each (usbd_xhci_ep_reset). Keeps every register.
+usbd_host_reset:
+    pushad
+    cmp byte [fs:USB_HC], USB_HC_OHCI
+    je .ohci
+    cmp byte [fs:USB_HC], USB_HC_XHCI
+    je .xhci
+    mov byte [fs:USBD_INST], 0
+    mov byte [fs:USBD_OUTST], 0
+    jmp .out
+.ohci:
+    mov edx, EBDA_BASE + USBD_UQH
+    and dword [gs:edx + 8], ~3
+    and dword [gs:edx + 16 + 8], ~3
+    jmp .out
+.xhci:
+    movzx eax, byte [fs:USBD_EPOUT]
+    shl eax, 1
+    mov esi, [fs:XHCI_BASE]
+    add esi, XHCI_BOUT
+    mov di, USBD_OUTST
+    call usbd_xhci_ep_reset
+    movzx eax, byte [fs:USBD_EPIN]
+    lea eax, [eax * 2 + 1]
+    mov esi, [fs:XHCI_BASE]
+    add esi, XHCI_BIN
+    mov di, USBD_INST
+    call usbd_xhci_ep_reset
+.out:
+    popad
+    ret
+
+; xHCI: the disk's endpoint context EAX starts over at the next TRB of
+; its ring (linear ESI, state FS:DI): Reset Endpoint (a halted one stops),
+; Stop Endpoint (a running one stops), then Set TR Dequeue Pointer there,
+; which also resets its data toggle. A command that does not apply to
+; the endpoint's state fails, harmlessly. Keeps every register.
+usbd_xhci_ep_reset:
+    pushad
+    mov edx, eax
+    shl edx, 16
+    movzx ebx, word [fs:USBD_SLOT]
+    shl ebx, 24
+    or edx, ebx
+    xor eax, eax
+    xor ebx, ebx
+    push edx
+    or edx, TRB_RESET_EP << 10
+    call xhci_cmd
+    pop edx
+    push edx
+    or edx, TRB_STOP_EP << 10
+    call xhci_cmd
+    pop edx
+    or edx, TRB_SET_DEQ << 10
+    call xhci_ring_ptr          ; EAX = there, with its cycle bit (DCS)
+    call xhci_cmd
+    popad
     ret

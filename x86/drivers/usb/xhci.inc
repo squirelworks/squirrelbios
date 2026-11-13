@@ -119,6 +119,14 @@ XHCI_BIN        equ 0x1C00
 XHCI_CBW        equ 0x1D00
 XHCI_CSW        equ 0x1D40
 XHCI_SCSIBUF    equ 0x1D80
+XHCI_DIN        equ 0x1E00              ; a UAS disk's data-in ring
+XHCI_DOUT       equ 0x1F00              ; and data-out ring
+; With streams, the UAS status and data pipes' stream context arrays, four
+; entries each: in the gap after the input context, and in the one after
+; the scratchpad array (a block in the EBDA has XHCI_EBDA_SP pages)
+XHCI_SSTAT      equ 0x1840
+XHCI_SDIN       equ 0x0160
+XHCI_SDOUT      equ 0x01A0
 XHCI_INT_TRBS   equ 16                  ; 15 reports, then the link
 XHCI_RINGS      equ 0x0800
 XHCI_RING_TRBS  equ 16
@@ -128,6 +136,9 @@ XHCI_SPPAGES    equ 0x6000
 XHCI_SLOTS      equ 8
 XHCI_EBDA       equ EBDA_BASE + 0x5000  ; the block, kept after POST
 XHCI_EBDA_SP    equ 3                   ; scratchpad pages that fit there
+%if XHCI_SPARRAY + XHCI_EBDA_SP * 8 > XHCI_SDIN || XHCI_SDOUT + 64 > XHCI_CMDRING
+%error "the UAS stream context arrays overlap the block's scratchpad array or command ring"
+%endif
 XHCI_ALT        equ 0x40000             ; the block, POST only
 XHCI_ALT_SP     equ 10
 ; In USB_SEG
@@ -1109,8 +1120,10 @@ xhci_hid_config:
 ; The disk at address AL, bulk IN endpoint CL, bulk OUT endpoint CH, max
 ; packet DX, is being claimed on this xHCI, whose block is in the EBDA:
 ; give each bulk endpoint an empty ring (state at USBD_INST, USBD_OUTST)
-; and add both to its slot (Configure Endpoint). USBD_SLOT = its slot. CF
-; set on failure. Keeps every register.
+; and add both to its slot (Configure Endpoint). For a UAS disk
+; (USBD_UAS, USBD_EPDIN, USBD_EPDOUT already set) CL is the status pipe
+; and CH the command pipe, and the data pipes are added too (.uas).
+; USBD_SLOT = its slot. CF set on failure. Keeps every register.
 xhci_msd_config:
     pushad
     push gs
@@ -1176,8 +1189,15 @@ xhci_msd_config:
     movzx eax, cl
     lea eax, [eax * 2 + 1]
     lea esi, [ebx + XHCI_BIN + 1]
+    push ecx
     mov cl, 6
     call .ep
+    pop ecx                                 ; CL = the IN endpoint, for .uas
+    ; A UAS disk: its data pipes too, and streams
+    cmp byte [fs:USBD_UAS], 0
+    je .cmd
+    call .uas
+.cmd:
     ; The command
     mov eax, edi
     xor ebx, ebx
@@ -1194,6 +1214,107 @@ xhci_msd_config:
     pop gs
     popad
     stc
+    ret
+
+; UAS (input context at EDI, block at EBX, status pipe CL, max packet
+; DX): the data-in and data-out pipes get rings (XHCI_DIN, XHCI_DOUT) and
+; endpoint contexts too, and the slot context counts up to the highest.
+; With streams (USBD_UAS = 2), the status and both data pipes each get a
+; stream context array whose stream 1 is their ring: every command uses
+; tag 1 (a controller without streams fails the Configure Endpoint).
+; Keeps every register.
+.uas:
+    pushad
+    push edi
+    lea esi, [ebx + XHCI_DIN]
+    mov di, USBD_DINST
+    call xhci_ring_init
+    lea esi, [ebx + XHCI_DOUT]
+    mov di, USBD_DOUTST
+    call xhci_ring_init
+    pop edi
+    ; Their contexts: add flags, then the slot's last context index
+    movzx eax, byte [fs:USBD_EPDIN]
+    lea eax, [eax * 2 + 1]
+    bts dword [gs:edi + 4], eax
+    call .uas_last
+    push ecx
+    lea esi, [ebx + XHCI_DIN + 1]
+    mov cl, 6
+    call .ep
+    pop ecx
+    movzx eax, byte [fs:USBD_EPDOUT]
+    shl eax, 1
+    bts dword [gs:edi + 4], eax
+    call .uas_last
+    push ecx
+    lea esi, [ebx + XHCI_DOUT + 1]
+    mov cl, 2
+    call .ep
+    pop ecx
+    cmp byte [fs:USBD_UAS], 2
+    jne .uas_ok
+    ; Streams on the status pipe and both data pipes
+    movzx eax, cl
+    lea eax, [eax * 2 + 1]
+    lea esi, [ebx + XHCI_BIN]
+    lea edx, [ebx + XHCI_SSTAT]
+    call .streams
+    movzx eax, byte [fs:USBD_EPDIN]
+    lea eax, [eax * 2 + 1]
+    lea esi, [ebx + XHCI_DIN]
+    lea edx, [ebx + XHCI_SDIN]
+    call .streams
+    movzx eax, byte [fs:USBD_EPDOUT]
+    shl eax, 1
+    lea esi, [ebx + XHCI_DOUT]
+    lea edx, [ebx + XHCI_SDOUT]
+    call .streams
+.uas_ok:
+    popad
+    clc
+    ret
+
+; The input slot context (after the control context at EDI) counts at
+; least up to context index EAX. Keeps every register.
+.uas_last:
+    push ebx
+    push ecx
+    movzx ebx, byte [fs:XHCI_CTXSZ]
+    mov ecx, [gs:edi + ebx]
+    shr ecx, 27
+    cmp ecx, eax
+    jae .uas_last_out
+    mov ecx, eax
+    shl ecx, 27
+    and dword [gs:edi + ebx], ~(0x1F << 27)
+    or [gs:edi + ebx], ecx
+.uas_last_out:
+    pop ecx
+    pop ebx
+    ret
+
+; Endpoint context EAX of the input context at EDI takes the stream
+; context array at linear EDX (four entries: MaxPStreams 1, linear), whose
+; stream 1 is the ring at linear ESI (cycle 1, a primary ring). Keeps
+; every register.
+.streams:
+    pushad
+    push edi
+    mov edi, edx
+    mov cx, 64 / 4
+    call xhci_zero
+    pop edi
+    or esi, 3                   ; DCS 1, SCT 1: a primary transfer ring
+    mov [gs:edx + 16], esi
+    inc eax
+    movzx ebx, byte [fs:XHCI_CTXSZ]
+    imul eax, ebx
+    add edi, eax
+    or dword [gs:edi], (1 << 10) | (1 << 15)    ; MaxPStreams 1, LSA
+    mov [gs:edi + 8], edx       ; the array, not a ring: no cycle bit
+    mov dword [gs:edi + 12], 0
+    popad
     ret
 ; Endpoint context EAX of the input context at EDI: type CL, max packet
 ; DX, 3 retries, dequeue pointer ESI. Keeps EBX, EDI, EDX.
