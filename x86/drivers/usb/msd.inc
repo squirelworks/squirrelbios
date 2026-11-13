@@ -12,7 +12,11 @@
 ; and each transfer is a chain of TDs hung from it (usbd_uhci_xfer). On
 ; OHCI each bulk endpoint gets an endpoint descriptor on the bulk list,
 ; skipped except while a chain of general TDs runs on it
-; (usbd_ohci_xfer). That
+; (usbd_ohci_xfer). On EHCI (high speed) the disk can share no schedule
+; with a keyboard or mouse, which go to the companion controllers: the
+; asynchronous list is one queue head for the endpoint in use, built in
+; the EBDA for each transfer with the qTDs after it and run with the
+; schedule on only until it is done (usbd_ehci_xfer). That
 ; controller then keeps running after POST, alongside a USB keyboard or
 ; mouse on the same controller, and its state that the transfers need
 ; (registers, event ring position, the disk's rings or data toggles) is
@@ -47,7 +51,10 @@ USBD_INST       equ 0x1F6A          ; bulk IN ring: index, cycle bit
 USBD_TAG        equ 0x1F6C          ; dword: last CBW tag
 USBD_SECTORS    equ 0x1F70          ; dword: capacity (usbd_detect)
 USBD_BUFS       equ 0x1F74          ; dword: linear CBW; CSW and SCSI data after
-; On UHCI, USBD_OUTST and USBD_INST hold each endpoint's next data toggle
+USBD_BDF        equ 0x1F78          ; word: its controller
+USBD_HC         equ 0x1F7A          ; byte: and that controller's type
+; On UHCI and EHCI, USBD_OUTST and USBD_INST hold each endpoint's next
+; data toggle
 
 ; Offsets from USBD_BUFS: on xHCI they are the block's XHCI_CBW, XHCI_CSW
 ; and XHCI_SCSIBUF; on UHCI they are in the EBDA (USBD_UBUF), followed by
@@ -101,6 +108,8 @@ usb_disk_claim:
     pushad
     cmp byte [fs:USB_HC], USB_HC_XHCI
     je .hc
+    cmp byte [fs:USB_HC], USB_HC_EHCI
+    je .ehci
     cmp byte [fs:USB_HC], USB_HC_UHCI
     je .usb11
     cmp byte [fs:USB_HC], USB_HC_OHCI
@@ -108,6 +117,19 @@ usb_disk_claim:
 .usb11:
     cmp byte [bp - 2], 0
     jne .out                    ; USB 1.1: full speed only (no bulk at low)
+    jmp .hc
+.ehci:
+    cmp byte [bp - 2], 2
+    jne .out                    ; high speed only (no split transactions)
+    cmp byte [fs:USBD_ADDR], 0
+    jne .out
+    cmp byte [bp - 13], 0
+    je .out
+    cmp byte [bp - 14], 0
+    je .out
+    cmp word [bp - 16], 0
+    je .out
+    jmp .usb_bufs               ; on its own: no keyboard shares it
 .hc:
     cmp byte [fs:USBD_ADDR], 0
     jne .out
@@ -127,6 +149,7 @@ usb_disk_claim:
 .first:
     cmp byte [fs:USB_HC], USB_HC_XHCI
     je .xhci
+.usb_bufs:
     mov dword [fs:USBD_BUFS], EBDA_BASE + USBD_UBUF
     mov word [fs:USBD_OUTST], 0         ; DATA0 on both after configuring
     mov word [fs:USBD_INST], 0
@@ -162,7 +185,12 @@ usb_disk_claim:
     mov dword [fs:USBD_TAG], 0
     mov dword [fs:USBD_SECTORS], 0
     mov ax, [fs:USB_BDF]
-    mov [fs:USB_KBD_BDF], ax
+    mov [fs:USBD_BDF], ax
+    mov cl, [fs:USB_HC]
+    mov [fs:USBD_HC], cl
+    cmp cl, USB_HC_EHCI
+    je .out
+    mov [fs:USB_KBD_BDF], ax    ; the keyboard and mouse must join it
 .out:
     popad
     ret
@@ -172,6 +200,11 @@ usb_disk_claim:
 usbd_keep:
     cmp byte [fs:USBD_ADDR], 0
     je .ret
+    push ax
+    mov ax, [fs:USB_BDF]
+    cmp ax, [fs:USBD_BDF]
+    pop ax
+    jne .ret                    ; the disk is on another controller
     pushad
     push es
     push word EBDA_BASE >> 4
@@ -446,6 +479,8 @@ usbd_xfer:
     je usbd_uhci_xfer
     cmp byte [fs:USB_HC], USB_HC_OHCI
     je usbd_ohci_xfer
+    cmp byte [fs:USB_HC], USB_HC_EHCI
+    je usbd_ehci_xfer
     pushad
     ; EBP = the first TRB, its cycle bit cleared
     xchg eax, ebp
@@ -661,7 +696,7 @@ usbd_reset:
     cmp byte [fs:USB_HC], USB_HC_OHCI
     je .ohci
     cmp byte [fs:USB_HC], USB_HC_UHCI
-    jne .xhci
+    jne .ehci
     push dx
     mov dx, [fs:USB_IOBASE]
     add dx, UHCI_STS
@@ -679,6 +714,13 @@ usbd_reset:
     and eax, 0xC0
     cmp eax, OCTL_HCFS_OPER
     je .ok
+    jmp .bad
+.ehci:
+    cmp byte [fs:USB_HC], USB_HC_EHCI
+    jne .xhci
+    mov eax, [fs:USB_MMIO]
+    test dword [gs:eax + EHCI_USBSTS], ESTS_HALTED | 0x10
+    jz .ok
     jmp .bad
 .xhci:
     mov eax, [fs:USB_MMIO]
@@ -710,11 +752,11 @@ usbd_edd_path:
     mov dword [si + 0x24], 'PCI '
     mov dword [si + 0x28], 'USB '
     mov dword [si + 0x2C], '    '
-    mov ax, [es:USBD_SNAP + USB_KBD_BDF - 0x1F00]
+    mov ax, [es:USBD_SNAP + USBD_BDF - 0x1F00]
     mov [si + 0x30], ah             ; bus
     shr al, 3
     mov [si + 0x31], al             ; device
-    mov al, [es:USBD_SNAP + USB_KBD_BDF - 0x1F00]
+    mov al, [es:USBD_SNAP + USBD_BDF - 0x1F00]
     and al, 7
     mov [si + 0x32], al             ; function
     mov byte [si + 0x33], 0
@@ -1059,4 +1101,158 @@ usbd_ohci_xfer:
     or eax, edi
     mov [gs:edx + 8], eax
     pop eax
+    ret
+
+; EHCI layout in the EBDA (USBD_UTD on): the queue head, the terminator
+; every qTD's alternate pointer names (a short IN packet stops there),
+; then the qTDs, 32 bytes each, up to 16 KB of data each
+USBD_EQH        equ USBD_UTD
+USBD_EDUMMY     equ USBD_UTD + 0x40
+USBD_ETD        equ USBD_UTD + 0x60
+USBD_ETD_BYTES  equ 0x4000
+
+; usbd_xfer on EHCI: ECX bytes (1 to 64 KB) at linear EAX, IN when DI =
+; USBD_INST, else OUT; FS:DI holds that endpoint's data toggle, which the
+; queue head carries while the transfer runs. CF set on a halt, an error
+; or a 5 s timeout. Keeps every register.
+usbd_ehci_xfer:
+    pushad
+    ; The queue head: alone on the asynchronous list, the head of
+    ; reclamation; address, endpoint, high speed, max packet; the toggle
+    ; from the queue head
+    mov esi, EBDA_BASE + USBD_EQH
+    lea edx, [esi + QH_TYPE]
+    mov [gs:esi], edx
+    movzx edx, word [fs:USBD_MPS]
+    shl edx, 16
+    or edx, QH_EPS_HIGH | QH_HEAD
+    or dl, [fs:USBD_ADDR]
+    movzx ebx, byte [fs:USBD_EPOUT]
+    mov ebp, QTD_OUT
+    cmp di, USBD_INST
+    jne .ep
+    movzx ebx, byte [fs:USBD_EPIN]
+    mov ebp, QTD_IN
+.ep:
+    shl ebx, 8
+    or edx, ebx
+    mov [gs:esi + 4], edx
+    mov dword [gs:esi + 8], QH_MULT1
+    mov dword [gs:esi + 12], 0                  ; current qTD
+    mov dword [gs:esi + 16], EBDA_BASE + USBD_ETD
+    mov dword [gs:esi + 20], QH_T
+    xor edx, edx
+    test byte [fs:di], 1
+    jz .tog
+    mov edx, QTD_DATA1
+.tog:
+    mov [gs:esi + 24], edx                      ; inactive, the toggle
+    xor edx, edx
+    mov [gs:esi + 28], edx
+    mov [gs:esi + 32], edx
+    mov [gs:esi + 36], edx
+    mov [gs:esi + 40], edx
+    mov [gs:esi + 44], edx
+    ; The terminator: inactive, nothing after it
+    mov dword [gs:esi + 0x40], QH_T
+    mov dword [gs:esi + 0x40 + 4], QH_T
+    mov [gs:esi + 0x40 + 8], edx
+    ; The qTDs
+    mov edi, EBDA_BASE + USBD_ETD
+.td:
+    mov ebx, ecx
+    cmp ebx, USBD_ETD_BYTES
+    jbe .len
+    mov ebx, USBD_ETD_BYTES
+.len:
+    lea edx, [edi + 32]
+    mov [gs:edi], edx                           ; next
+    mov dword [gs:edi + 4], EBDA_BASE + USBD_EDUMMY
+    mov edx, ebx
+    shl edx, 16
+    or edx, ebp
+    or edx, QTD_ACTIVE | QTD_CERR3
+    mov [gs:edi + 8], edx
+    mov [gs:edi + 12], eax                      ; buffer 0
+    mov edx, eax
+    and edx, 0xFFFFF000
+    add edx, 0x1000
+    mov [gs:edi + 16], edx                      ; buffers 1-4: the next pages
+    add edx, 0x1000
+    mov [gs:edi + 20], edx
+    add edx, 0x1000
+    mov [gs:edi + 24], edx
+    add edx, 0x1000
+    mov [gs:edi + 28], edx
+    add eax, ebx
+    sub ecx, ebx
+    add edi, 32
+    test ecx, ecx
+    jnz .td
+    mov dword [gs:edi - 32], QH_T               ; the last one's next
+    ; Run it
+    mov edx, edi                                ; EDX = past the last qTD
+    mov esi, [fs:USB_MMIO]
+    mov dword [gs:esi + EHCI_ASYNCLIST], EBDA_BASE + USBD_EQH
+    clc
+    call ehci_async
+    mov ecx, 5000
+.poll:
+    test dword [gs:edx - 32 + 8], QTD_ACTIVE
+    jz .stop
+    ; a halt or a short IN packet ends it early
+    mov edi, EBDA_BASE + USBD_ETD
+.peek:
+    cmp edi, edx
+    jae .wait
+    mov ebx, [gs:edi + 8]
+    test ebx, QTD_ACTIVE
+    jnz .wait
+    test ebx, QTD_HALTED
+    jnz .stop
+    test ebx, 0x7FFF0000                        ; bytes left: short
+    jnz .stop
+    add edi, 32
+    jmp .peek
+.wait:
+    push cx
+    mov cx, 1
+    call delay_ms
+    pop cx
+    dec ecx
+    jnz .poll
+    stc
+    call ehci_async
+    jmp .fail
+.stop:
+    stc
+    call ehci_async
+    ; The toggle for next time, from the overlay
+    mov ebx, EBDA_BASE + USBD_EQH
+    mov ebx, [gs:ebx + 24]
+    shr ebx, 31
+    mov bp, sp
+    mov di, [bp]                ; the caller's DI, in the PUSHAD frame
+    mov [fs:di], bl
+    ; Every qTD done without a halt, or stopped by a short packet
+    mov edi, EBDA_BASE + USBD_ETD
+.check:
+    cmp edi, edx
+    jae .ok
+    mov ebx, [gs:edi + 8]
+    test ebx, QTD_HALTED | 0x78                 ; halted, buffer, babble, transaction
+    jnz .fail
+    test ebx, QTD_ACTIVE
+    jnz .fail
+    test ebx, 0x7FFF0000
+    jnz .ok                                     ; short: the end
+    add edi, 32
+    jmp .check
+.ok:
+    popad
+    clc
+    ret
+.fail:
+    popad
+    stc
     ret

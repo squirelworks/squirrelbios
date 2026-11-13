@@ -99,7 +99,11 @@ usb_hid_claim:
     jne .out
     mov al, [fs:USB_KBD_ADDR]
     or al, [fs:USB_MOU_ADDR]
+    cmp byte [fs:USBD_HC], USB_HC_EHCI
+    je .kbd_mouse               ; a disk on EHCI runs on its own
     or al, [fs:USBD_ADDR]
+.kbd_mouse:
+    test al, al
     jz .first
     mov ax, [fs:USB_BDF]
     cmp ax, [fs:USB_KBD_BDF]
@@ -166,7 +170,11 @@ usb_hid_here:
     push ax
     mov al, [fs:USB_KBD_ADDR]
     or al, [fs:USB_MOU_ADDR]
+    cmp byte [fs:USBD_HC], USB_HC_EHCI
+    je .kbd_mouse               ; a disk on EHCI runs on its own
     or al, [fs:USBD_ADDR]
+.kbd_mouse:
+    test al, al
     jz .no
     push es
     push word USBK_SEG
@@ -209,6 +217,9 @@ usb_hid_announce:
     mov al, [fs:USBD_ADDR]
     test al, al
     jz .out
+    mov si, [fs:USB_BDF]
+    cmp si, [fs:USBD_BDF]
+    jne .out                    ; announced with its own controller
     mov si, msg_usb_disk
     call usb_puts_head
     call usb_dec
@@ -287,8 +298,8 @@ uhci_hid_start:
     ; A USB disk (msd.inc) gets the last queue head, with no work until a
     ; command hangs its TDs there
     mov ebp, TD_T               ; EBP = the next queue head's link
-    cmp byte [fs:USBD_ADDR], 0
-    je .devices
+    cmp byte [fs:USBD_HC], USB_HC_UHCI
+    jne .devices
     mov dword [es:USBD_UQH], TD_T
     mov dword [es:USBD_UQH + 4], TD_T
     mov ebp, (EBDA_BASE + USBD_UQH) | TD_Q
@@ -440,8 +451,8 @@ ohci_hid_start:
     jb .zero
     mov dword [gs:esi + OHCI_HCCA], EBDA_BASE + USBK_FL
     mov eax, OCTL_HCFS_OPER | OCTL_PLE
-    cmp byte [fs:USBD_ADDR], 0
-    je .run
+    cmp byte [fs:USBD_HC], USB_HC_OHCI
+    jne .run
     call usbd_ohci_eds          ; the USB disk's, on the bulk list
     or eax, OCTL_BLE
 .run:

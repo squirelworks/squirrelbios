@@ -320,6 +320,31 @@ if KBD_NAME=x86-usbdisk-kbd-ohci KBD_IMG=$TEST_DIR/x86-kbd-many.bin KBD_KEYS=20 
 else
     fail=$((fail + 1))
 fi
+# The same on an EHCI at high speed: a queue head on the asynchronous
+# list, run only while a transfer is, and qTDs of up to 16 KB. On q35's
+# ICH9 the full-speed keyboard goes to a UHCI companion, which keeps it
+run x86-usbdisk-ehci "usb: EHCI at 00:05.0|usb: disk is device 1|disk: USB disk (bulk-only)|OS-ENTRY x86 dl=ok memmap=ok flags=ok vga=ok" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -device usb-ehci,id=ehci,addr=5 \
+    -drive if=none,id=ud,format=raw,file=$TEST_DIR/x86-boot.bin,snapshot=on \
+    -device usb-storage,bus=ehci.0,drive=ud
+run x86-usbdisk-ehci-int13 "disk: USB disk (bulk-only)|via-boot-sector|int13=ok tty=ok|!boot halted" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -device usb-ehci,id=ehci,addr=5 \
+    -drive if=none,id=ud,format=raw,file=$TEST_DIR/x86-int13.bin,snapshot=on \
+    -device usb-storage,bus=ehci.0,drive=ud
+run x86-usbdisk-ehci-edd "disk: USB disk (bulk-only)|OS-ENTRY x86 edd edd=ok" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -device usb-ehci,id=ehci,addr=5 \
+    -drive if=none,id=ud,format=raw,file=$TEST_DIR/x86-usbdisk.img,snapshot=on \
+    -device usb-storage,bus=ehci.0,drive=ud
+if KBD_NAME=x86-usbdisk-kbd-ehci KBD_IMG=$TEST_DIR/x86-kbd-many.bin KBD_KEYS=20 KBD_USBDISK=ehci.0,port=1 \
+   KBD_ARGS="-M q35 -device ich9-usb-ehci1,id=ehci,addr=1d.7,multifunction=on -device ich9-usb-uhci1,masterbus=ehci.0,firstport=0,addr=1d.0,multifunction=on -device ich9-usb-uhci2,masterbus=ehci.0,firstport=2,addr=1d.1,multifunction=on -device ich9-usb-uhci3,masterbus=ehci.0,firstport=4,addr=1d.2,multifunction=on -device usb-kbd,bus=ehci.0,port=3,usb_version=1" \
+   KBD_EXPECT="usb: EHCI at 00:1D.7|usb: disk is device 1|disk: USB disk (bulk-only)|usb: keyboard is device 2" tests/x86-kbd-run.sh; then
+    pass=$((pass + 1))
+else
+    fail=$((fail + 1))
+fi
 # The disk behind a hub, with a keyboard and a mouse on the same xHCI:
 # all three are kept, and twenty keys still arrive after the boot
 if KBD_NAME=x86-usbdisk-kbd KBD_IMG=$TEST_DIR/x86-kbd-many.bin KBD_KEYS=20 KBD_USBDISK=xhci.0,port=2.3 \
