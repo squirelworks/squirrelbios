@@ -86,7 +86,6 @@ int csm_boot(void)
     u8 f_was = pci_read8(0, 0, 0, pam_base);
     u16 e_was = (u16)(pci_read8(0, 0, 0, (u8)(pam_base + 5)) |
                       pci_read8(0, 0, 0, (u8)(pam_base + 6)) << 8);
-    chipset_legacy_handoff();
     pam_set_e(PAM_RW);
     memset((void *)0xE0000, 0, 0x10000);
     pam_set_f(PAM_RW);
@@ -108,6 +107,9 @@ int csm_boot(void)
     }
     printf("csm: legacy BIOS (%lu KB) in shadow RAM at F0000, PAM at 0x%02x\n",
            (u64)(LEGACY_SIZE >> 10), pam_base);
+    /* Past every failure path: a CSM that gives up leaves the UEFI side
+     * its ACPI mode and ECAM window */
+    chipset_legacy_handoff();
     dispi_off();
     printf("csm: leaving long mode for F000:FFF0\n");
     smp_park_aps();     /* APs back to wait-for-SIPI for the legacy OS */

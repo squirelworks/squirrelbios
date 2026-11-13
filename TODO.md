@@ -394,6 +394,9 @@ roadmap item, run under QEMU in `make test`.
 - [ ] `x86-usb-storage` — Boot from USB mass storage (BOT, then UAS).
   - [x] Bulk-only transport on xHCI: `INT 13h` and booting, as DL 80h
     when no IDE, SATA or NVMe disk answered. No stall recovery yet.
+  - [x] Bulk-only transport on UHCI and OHCI (full speed) and EHCI (high
+    speed): `INT 13h`, EDD and booting as DL 80h; a full-speed keyboard on
+    an ICH9 UHCI companion keeps working while the disk is on EHCI.
   - [ ] UAS
 - [x] `x86-virtio-net-boot` — virtio-blk/net and an original TFTP boot
   of `SQBL`.

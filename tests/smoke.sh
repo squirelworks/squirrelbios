@@ -269,6 +269,82 @@ run x86-usbdisk-edd "disk: USB disk (bulk-only)|OS-ENTRY x86 edd edd=ok" \
     -device qemu-xhci,id=xhci,addr=5 \
     -drive if=none,id=ud,format=raw,file=$TEST_DIR/x86-usbdisk.img,snapshot=on \
     -device usb-storage,bus=xhci.0,drive=ud
+# The same on a UHCI (USB 1.1, full speed): the disk's TDs hang from its
+# own queue head in the frame list the controller keeps after POST. The
+# x86-boot sector, the INT 13h calls and the EDD disk (64 KB transfers in
+# 16 KB passes)
+run x86-usbdisk-uhci "usb: UHCI at 00:05.0|usb: device 1 on root port 1: 46F4:0001, mass storage|usb: disk is device 1|disk: USB disk (bulk-only)|OS-ENTRY x86 dl=ok memmap=ok flags=ok vga=ok" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -device piix3-usb-uhci,id=uhci,addr=5 \
+    -drive if=none,id=ud,format=raw,file=$TEST_DIR/x86-boot.bin,snapshot=on \
+    -device usb-storage,bus=uhci.0,drive=ud
+run x86-usbdisk-uhci-int13 "disk: USB disk (bulk-only)|via-boot-sector|int13=ok tty=ok|!boot halted" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -device piix3-usb-uhci,id=uhci,addr=5 \
+    -drive if=none,id=ud,format=raw,file=$TEST_DIR/x86-int13.bin,snapshot=on \
+    -device usb-storage,bus=uhci.0,drive=ud
+run x86-usbdisk-uhci-edd "disk: USB disk (bulk-only)|OS-ENTRY x86 edd edd=ok" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -device piix3-usb-uhci,id=uhci,addr=5 \
+    -drive if=none,id=ud,format=raw,file=$TEST_DIR/x86-usbdisk.img,snapshot=on \
+    -device usb-storage,bus=uhci.0,drive=ud
+# A keyboard and the disk on one UHCI: twenty keys still arrive
+if KBD_NAME=x86-usbdisk-kbd-uhci KBD_IMG=$TEST_DIR/x86-kbd-many.bin KBD_KEYS=20 KBD_USBDISK=uhci.0,port=2 \
+   KBD_ARGS="-device piix3-usb-uhci,id=uhci,addr=5 -device usb-kbd,bus=uhci.0,port=1" \
+   KBD_EXPECT="usb: keyboard is device 1|usb: disk is device 2|disk: USB disk (bulk-only)" tests/x86-kbd-run.sh; then
+    pass=$((pass + 1))
+else
+    fail=$((fail + 1))
+fi
+# The same on an OHCI: the disk's two bulk endpoint descriptors on the
+# bulk list, general TDs of up to 8 KB, and a keyboard alongside
+run x86-usbdisk-ohci "usb: OHCI at 00:05.0|usb: disk is device 1|disk: USB disk (bulk-only)|OS-ENTRY x86 dl=ok memmap=ok flags=ok vga=ok" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -device pci-ohci,id=ohci,addr=5 \
+    -drive if=none,id=ud,format=raw,file=$TEST_DIR/x86-boot.bin,snapshot=on \
+    -device usb-storage,bus=ohci.0,drive=ud
+run x86-usbdisk-ohci-int13 "disk: USB disk (bulk-only)|via-boot-sector|int13=ok tty=ok|!boot halted" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -device pci-ohci,id=ohci,addr=5 \
+    -drive if=none,id=ud,format=raw,file=$TEST_DIR/x86-int13.bin,snapshot=on \
+    -device usb-storage,bus=ohci.0,drive=ud
+run x86-usbdisk-ohci-edd "disk: USB disk (bulk-only)|OS-ENTRY x86 edd edd=ok" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -device pci-ohci,id=ohci,addr=5 \
+    -drive if=none,id=ud,format=raw,file=$TEST_DIR/x86-usbdisk.img,snapshot=on \
+    -device usb-storage,bus=ohci.0,drive=ud
+if KBD_NAME=x86-usbdisk-kbd-ohci KBD_IMG=$TEST_DIR/x86-kbd-many.bin KBD_KEYS=20 KBD_USBDISK=ohci.0,port=2 \
+   KBD_ARGS="-device pci-ohci,id=ohci,addr=5 -device usb-kbd,bus=ohci.0,port=1" \
+   KBD_EXPECT="usb: keyboard is device 1|usb: disk is device 2|disk: USB disk (bulk-only)" tests/x86-kbd-run.sh; then
+    pass=$((pass + 1))
+else
+    fail=$((fail + 1))
+fi
+# The same on an EHCI at high speed: a queue head on the asynchronous
+# list, run only while a transfer is, and qTDs of up to 16 KB. On q35's
+# ICH9 the full-speed keyboard goes to a UHCI companion, which keeps it
+run x86-usbdisk-ehci "usb: EHCI at 00:05.0|usb: disk is device 1|disk: USB disk (bulk-only)|OS-ENTRY x86 dl=ok memmap=ok flags=ok vga=ok" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -device usb-ehci,id=ehci,addr=5 \
+    -drive if=none,id=ud,format=raw,file=$TEST_DIR/x86-boot.bin,snapshot=on \
+    -device usb-storage,bus=ehci.0,drive=ud
+run x86-usbdisk-ehci-int13 "disk: USB disk (bulk-only)|via-boot-sector|int13=ok tty=ok|!boot halted" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -device usb-ehci,id=ehci,addr=5 \
+    -drive if=none,id=ud,format=raw,file=$TEST_DIR/x86-int13.bin,snapshot=on \
+    -device usb-storage,bus=ehci.0,drive=ud
+run x86-usbdisk-ehci-edd "disk: USB disk (bulk-only)|OS-ENTRY x86 edd edd=ok" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -device usb-ehci,id=ehci,addr=5 \
+    -drive if=none,id=ud,format=raw,file=$TEST_DIR/x86-usbdisk.img,snapshot=on \
+    -device usb-storage,bus=ehci.0,drive=ud
+if KBD_NAME=x86-usbdisk-kbd-ehci KBD_IMG=$TEST_DIR/x86-kbd-many.bin KBD_KEYS=20 KBD_USBDISK=ehci.0,port=1 \
+   KBD_ARGS="-M q35 -device ich9-usb-ehci1,id=ehci,addr=1d.7,multifunction=on -device ich9-usb-uhci1,masterbus=ehci.0,firstport=0,addr=1d.0,multifunction=on -device ich9-usb-uhci2,masterbus=ehci.0,firstport=2,addr=1d.1,multifunction=on -device ich9-usb-uhci3,masterbus=ehci.0,firstport=4,addr=1d.2,multifunction=on -device usb-kbd,bus=ehci.0,port=3,usb_version=1" \
+   KBD_EXPECT="usb: EHCI at 00:1D.7|usb: disk is device 1|disk: USB disk (bulk-only)|usb: keyboard is device 2" tests/x86-kbd-run.sh; then
+    pass=$((pass + 1))
+else
+    fail=$((fail + 1))
+fi
 # The disk behind a hub, with a keyboard and a mouse on the same xHCI:
 # all three are kept, and twenty keys still arrive after the boot
 if KBD_NAME=x86-usbdisk-kbd KBD_IMG=$TEST_DIR/x86-kbd-many.bin KBD_KEYS=20 KBD_USBDISK=xhci.0,port=2.3 \
