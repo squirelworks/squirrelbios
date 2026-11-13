@@ -57,5 +57,13 @@ void res_dword_mem(struct res *r, u32 min, u32 max, int cacheable);
 void acpi_init(void);
 void smbios_init(void);
 u8 acpi_checksum(const void *p, u32 len);
+void acpi_header(u8 *t, const char *sig, u32 len, u8 rev);
+void acpi_seal(u8 *t);
+
+/* x86_64/acpi/: each adds its tables to out[] (space from take) and
+ * returns how many */
+typedef void *(*acpi_take_fn)(u32 len);
+int acpi_numa_tables(u8 **out, acpi_take_fn take);     /* SRAT, SLIT */
+int acpi_ras_tables(u8 **out, acpi_take_fn take);      /* BERT, HEST */
 
 #endif

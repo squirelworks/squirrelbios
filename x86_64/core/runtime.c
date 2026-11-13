@@ -236,6 +236,8 @@ static void EFIAPI reset_system(EFI_RESET_TYPE type, EFI_STATUS status, UINTN si
         u16 pm1 = chipset()->pm_base;
         if (pm1)
             outw((u16)(pm1 + 4), 0x2000 | (ACPI_S5_SLP_TYP << 10));
+        else
+            outw(0x604, 0x2000 | (ACPI_S5_SLP_TYP << 10));  /* QEMU's default PM block */
         outw(0xB004, 0x2000);
         for (;;)
             __asm__ volatile("cli; hlt");

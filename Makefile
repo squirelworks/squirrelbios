@@ -77,7 +77,8 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/x86_64-esp.img $(TEST_DIR)/x86_64-gop.efi \
              $(TEST_DIR)/x86_64-mp.efi \
              $(TEST_DIR)/x86_64-acpi.efi \
-             $(TEST_DIR)/sb/sb-signed.efi $(TEST_DIR)/x86_64-sb-esp.img
+             $(TEST_DIR)/sb/sb-signed.efi $(TEST_DIR)/x86_64-sb-esp.img \
+             $(TEST_DIR)/x86_64-numa.efi $(TEST_DIR)/x86_64-numa-dist.bin
 
 .PHONY: all x86 x86_64 arm riscv test linux-shell linux-x86 linux-uefi linux-big linux-stress os-boot os-boot-csm clean
 .DELETE_ON_ERROR:
@@ -259,6 +260,11 @@ $(TEST_DIR)/x86_64-mp.efi: tests/x86_64-mp.asm tests/x86_64-pe.inc | $(TEST_DIR)
 # acpidump-style self-check of the ACPI and SMBIOS tables (C2)
 $(TEST_DIR)/x86_64-acpi.efi: tests/x86_64-acpi.asm tests/x86_64-pe.inc | $(TEST_DIR)
 	$(NASM) -f bin -i tests/ $< -o $@
+# SRAT/SLIT/MADT/BERT/HEST self-check (F1/F2), and a 2x2 SLIT override
+$(TEST_DIR)/x86_64-numa.efi: tests/x86_64-numa.asm tests/x86_64-pe.inc | $(TEST_DIR)
+	$(NASM) -f bin -i tests/ $< -o $@
+$(TEST_DIR)/x86_64-numa-dist.bin: | $(TEST_DIR)
+	printf '\012\037\037\012' > $@
 
 # Secure Boot (C4): the app signed with test keys made from fixed seeds,
 # and db/dbx signature lists (tests/mksigned.py, plain Python); a GPT ESP

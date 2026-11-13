@@ -23,7 +23,9 @@
 # and no ACPI errors ("ACPI Error", "ACPI BIOS Error", "Firmware Bug").
 #
 # LINUX_TIMEOUT (seconds, default 300) bounds each run, LINUX_MEM
-# (default 512M) and LINUX_SMP (default 2) set the guest. Logs are
+# (default 512M) and LINUX_SMP (default 2) set the guest. LINUX_NUMA=N
+# (F1) splits the CPUs and memory into N QEMU -numa nodes; the runs then
+# also need the kernel to find N nodes through the SRAT and its SLIT. Logs are
 # build/linux-uefi/linux-uefi-<machine>.log.
 
 set -eu
@@ -34,6 +36,7 @@ WORK=${LINUX_WORK:-build/linux-uefi}
 TIMEOUT=${LINUX_TIMEOUT:-300}
 MEM=${LINUX_MEM:-512M}
 SMP=${LINUX_SMP:-2}
+NUMA=${LINUX_NUMA:-0}
 MIRROR=${UBUNTU_ARCHIVE:-http://archive.ubuntu.com/ubuntu}
 OLD_MIRROR=${UBUNTU_OLD_RELEASES:-http://old-releases.ubuntu.com/ubuntu}
 
@@ -103,6 +106,7 @@ mount -t proc proc /proc
 mount -t sysfs sysfs /sys
 echo "squirrel: busybox shell on $(uname -sr), $(grep -c ^processor /proc/cpuinfo) CPU(s)"
 echo "squirrel: acpi tables: $(ls /sys/firmware/acpi/tables | tr '\n' ' ')"
+echo "squirrel: numa nodes: $(ls -d /sys/devices/system/node/node* 2>/dev/null | wc -l)"
 echo "squirrel: dmi: $(cat /sys/class/dmi/id/bios_vendor) / $(cat /sys/class/dmi/id/product_name)"
 poweroff -f
 INIT
@@ -110,11 +114,29 @@ chmod 755 "$root/init"
 initrd=$WORK/initramfs.cpio.gz
 (cd "$root" && find . | cpio -o -H newc -R 0:0 --quiet) | gzip -9 > "$initrd"
 
+# -numa: N memory backends and nodes, CPUs dealt out in equal runs
+numa_args=
+if [ "$NUMA" -gt 0 ]; then
+    mb=$(echo "$MEM" | sed 's/M$//')
+    per=$((mb / NUMA))
+    cpn=$(( (SMP + NUMA - 1) / NUMA ))
+    MEM=$((per * NUMA))M
+    n=0
+    while [ "$n" -lt "$NUMA" ]; do
+        first=$((n * cpn))
+        last=$((first + cpn - 1))
+        [ "$last" -lt "$SMP" ] || last=$((SMP - 1))
+        numa_args="$numa_args -object memory-backend-ram,id=nm$n,size=${per}M"
+        numa_args="$numa_args -numa node,nodeid=$n,cpus=$first-$last,memdev=nm$n"
+        n=$((n + 1))
+    done
+fi
+
 fail=0
 for machine in q35 pc; do
     log=$WORK/linux-uefi-$machine.log
     : > "$log"
-    "$QEMU_X86" -M "$machine" -bios "$FIRMWARE" -m "$MEM" -smp "$SMP" -no-reboot \
+    "$QEMU_X86" -M "$machine" -bios "$FIRMWARE" -m "$MEM" -smp "$SMP" $numa_args -no-reboot \
         -fw_cfg name=opt/org.squirrelworks/boot.efi,file="$kernel" \
         -fw_cfg name=opt/org.squirrelworks/initrd,file="$initrd" \
         -fw_cfg "name=opt/org.squirrelworks/cmdline,string=console=ttyS0 panic=-1" \
@@ -138,6 +160,11 @@ for machine in q35 pc; do
     grep -qF "squirrel: dmi: SquirrelWorks" "$log" || ok=0
     grep -qF "ACPI: PM: Preparing to enter system sleep state S5" "$log" || ok=0
     [ "$exited" = 1 ] || ok=0
+    if [ "$NUMA" -gt 0 ]; then
+        grep -qF "squirrel: numa nodes: $NUMA" "$log" || ok=0
+        grep -qE "ACPI: SRAT 0x[0-9A-F]+ [0-9A-F]+ \(v03 SQRLWK" "$log" || ok=0
+        grep -qE "ACPI: SLIT 0x" "$log" || ok=0
+    fi
     grep -qE "ACPI Error|ACPI BIOS Error|Firmware Bug" "$log" && ok=0
     if [ "$ok" = 1 ]; then
         echo "PASS  linux-uefi-$machine ($KERNEL_VER to a shell with ACPI, powered off through S5)"
