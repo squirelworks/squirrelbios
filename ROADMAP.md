@@ -285,6 +285,10 @@ boxes in [TODO.md](TODO.md).
   thresholds, CXL memory enumeration (research).
   - [x] `f2-x86-stubs`: x86_64 BERT and HEST stubs (MCE logging, EINJ and
     thresholds still open)
+  - [ ] `f2-x86-mce`: x86_64 machine-check banks read at boot, errors
+    from before a reset as CPER records in the BERT, HEST IA-32 MCE and
+    corrected machine check sources with CMCI or polling and thresholds
+    (EINJ still open)
 - [ ] **F3** Management: IPMI/Redfish-style BMC stubs, serial-over-LAN, HTTP
   boot.
 - [ ] **F4** Diskless cluster boot of many nodes from one image server.

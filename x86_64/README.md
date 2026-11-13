@@ -156,6 +156,25 @@ affinity entries laid over guest RAM in node order, split around the PCI
 hole. The SLIT is 10/20 unless `opt/org.squirrelworks/numa-distance`
 gives the N x N bytes (QEMU keeps `-numa dist` to its own ACPI). The
 MADT lists the same CPUs in processor-number order, with x2APIC entries
-past APIC ID 254. BERT (an empty boot error region) and HEST (no error
-sources) are stubs. `LINUX_SMP=4 LINUX_NUMA=2 make linux-uefi` boots
+past APIC ID 254. `LINUX_SMP=4 LINUX_NUMA=2 make linux-uefi` boots
 Linux on two nodes.
+
+Machine checks (F2): at boot every CPU reads its MCA banks. A valid
+MCi_STATUS is an error left from before the reset; it becomes a CPER
+IA32/X64 processor error section (APIC ID, CPUID, the bank's CTL,
+STATUS, ADDR and MISC) in the BERT's boot error region, which has
+reserved pages of its own so the OS can map it. The banks are then
+cleared and enabled and CR4.MCE is set, so a fatal machine check resets
+the machine and shows up on the next boot (`x86_64-mce` injects one with
+the QEMU monitor; Linux prints it as "BERT: Error records from previous
+boot"). The HEST has the IA-32 machine check source and the corrected
+machine check source, with every bank: CMCI when MCG_CAP has it, else
+polled every second, 10 errors a minute before switching to polling.
+The OS owns the banks (no firmware first) and there is no EINJ.
+
+Runtime pages: only `runtime.c`, `lib.c` and the system, runtime and
+configuration tables stay the OS's after ExitBootServices (link.ld puts
+them in `.rt.*` pages); the rest of the image is boot services code.
+`x86_64-rt-after-exit` overwrites every boot services page after
+ExitBootServices, on its own page tables and stack, then calls GetTime,
+the variable services and ResetSystem.
