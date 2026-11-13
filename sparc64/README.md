@@ -45,8 +45,15 @@ qemu-system-sparc64 -M sun4u -nographic -bios sparc64/squirrel-bios.bin -kernel 
   mapping in `/virtual-memory` `translations`. Only the firmware's own
   page is locked: the 1:1 entries are global, and an OS that runs
   processes flushes them once it has its own trap table and mappings.
+- Without `-kernel`, boots from the IDE disk: an ATA PIO driver on the
+  CMD646's assigned BARs (primary channel, polled, LBA28) reads a sparc64
+  ELF (such as Linux's `vmlinux`) stored from sector 0, puts its
+  `PT_LOAD` segments at their physical addresses and enters it as it
+  would a `-kernel`. The slave disk, if any, is the initrd (all of it),
+  placed after the kernel. A key already waiting at start keeps the
+  firmware at the prompt, where `boot <args>` gives a command line.
 - Without a kernel, and after the OS calls `exit`, the `sq>` prompt:
-  `info`, `dt [path]`, `boot`, `help`.
+  `info`, `dt [path]`, `pci`, `boot [command line]`, `help`.
 
 ## Hand-off
 
@@ -92,7 +99,15 @@ bridges and the EBus, and its `su` driver takes the console with its
 interrupt (`ttyS0 at MMIO 0x1fe020003f8 (irq = 4 ...)`), so processes can
 write to the console. `pata_cmd64x` drives the IDE controller (QEMU's
 DVD-ROM appears as `sr0`), `hme` brings up `eth0` with the ID PROM's MAC
-address, and the VGA is the boot VGA device:
+address, and the VGA is the boot VGA device. It boots the same way from
+an IDE disk:
+
+    truncate -s %512 vmlinux initrd.cpio      # whole sectors
+    qemu-system-sparc64 -M sun4u -nographic -bios sparc64/squirrel-bios.bin \
+        -drive file=vmlinux,if=ide,index=0,format=raw \
+        -drive file=initrd.cpio,if=ide,index=1,format=raw
+
+or from `-kernel`:
 
     qemu-system-sparc64 -M sun4u -nographic -bios sparc64/squirrel-bios.bin \
         -kernel vmlinux -initrd initrd.cpio -append console=ttyS0
@@ -103,8 +118,9 @@ address, and the VGA is the boot VGA device:
   floppy or parallel port. Bus 2 (behind `00:01.0`, where `-device`
   cards go) is not scanned, and the VGA's ROM BAR is left off.
 - One CPU is started; others stay in reset.
-- The firmware itself boots only from `-kernel`, not from the IDE disk or
-  the network.
+- No boot from a partitioned disk, a CD (ISO 9660) or the network: the
+  IDE disk holds the ELF itself. The IDE driver is polled PIO on the
+  primary channel only.
 - `claim` with a virtual address outside the 1:1 region and `map` /
   `unmap` are not done.
 
@@ -126,7 +142,10 @@ transmitter-empty interrupt reaches the CPU as that vector; and the PCI
 devices: their `assigned-addresses` match their BARs in configuration
 space, the NIC's MAC is the ID PROM's, and an IDENTIFY PACKET DEVICE sent
 through the IDE's assigned I/O BARs comes back from QEMU's DVD-ROM with
-an interrupt on the IDE's INO; the prompt and the `default.cfg`
+an interrupt on the IDE's INO. The same kernel boots from an IDE disk
+(with an initrd disk, and with a command line from `boot` after a key
+stops the automatic boot), and a disk without a sparc64 ELF is refused;
+the prompt and the `default.cfg`
 build are checked too.
 
 Original code, written from IEEE Std 1275-1994, its 64-bit SPARC binding

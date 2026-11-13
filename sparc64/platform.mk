@@ -12,7 +12,7 @@ SPARC64      ?= sparc64-linux-gnu-
 HAVE_SPARC64 := $(shell command -v $(SPARC64)gcc >/dev/null 2>&1 && echo y)
 SPARC64_BIN  := sparc64/squirrel-bios.bin
 SPARC64_SRCS := sparc64/start.S sparc64/main.c common/fw/string.c common/fw/printf.c \
-                common/fw/fdt.c common/fw/fdt_print.c common/fw/prompt.c
+                common/fw/fdt.c common/fw/fdt_print.c common/fw/prompt.c common/fw/elf.c
 SPARC64_DEPS := $(SPARC64_SRCS) sparc64/link.ld common/fw/fwlib.h common/fw/fdt.h sparc64/platform.mk
 # Medium-low code model (everything below 4 GB: the firmware runs at
 # 0xf0000000), no FPU (the OS owns it), static, no PIC
@@ -26,7 +26,7 @@ SPARC64_LDFLAGS := -no-pie -Wl,--build-id=none -Wl,--no-warn-rwx-segments \
 define SPARC64_BUILD
 	@mkdir -p $(1)
 	$(SPARC64)gcc $(SPARC64_CFLAGS) $(2) $(SPARC64_LDFLAGS) -Wl,-T,sparc64/link.ld \
-	    $(SPARC64_SRCS) -o $(1)/squirrel-bios.elf
+	    $(SPARC64_SRCS) -lgcc -o $(1)/squirrel-bios.elf
 	$(SPARC64)objcopy -O binary $(1)/squirrel-bios.elf $@
 endef
 
@@ -44,12 +44,19 @@ $(TEST_DIR)/sparc64-kernel.elf: tests/sparc64-kernel.c tests/sparc64-start.S \
 		common/fw/string.c common/fw/printf.c common/fw/fwlib.h | $(TEST_DIR)
 	$(SPARC64)gcc $(SPARC64_CFLAGS) $(SPARC64_LDFLAGS) -Wl,-Ttext=0x404000 -Wl,-e,_start \
 	    tests/sparc64-start.S tests/sparc64-kernel.c common/fw/string.c common/fw/printf.c -o $@
+# The test kernel on an IDE disk image (from sector 0, whole sectors)
+$(TEST_DIR)/sparc64-disk.img: $(TEST_DIR)/sparc64-kernel.elf
+	cp $< $@
+	truncate -s %512 $@
+$(TEST_DIR)/sparc64-ide.keys: sparc64/platform.mk | $(TEST_DIR)
+	printf '\rboot squirrel disk\r' > $@
 $(TEST_DIR)/sparc64-prompt.keys: sparc64/platform.mk | $(TEST_DIR)
 	printf 'help\rinfo\rdt /chosen\rpci\rbogus\r' > $@
 
 .PHONY: sparc64-test-files config-default-sparc64
 sparc64-test-files: $(SPARC64_BIN) $(TEST_DIR)/sparc64-kernel.elf \
-                    $(TEST_DIR)/sparc64-prompt.keys config-default-sparc64
+                    $(TEST_DIR)/sparc64-prompt.keys config-default-sparc64 \
+                    $(TEST_DIR)/sparc64-disk.img $(TEST_DIR)/sparc64-ide.keys
 config-default-sparc64: $(SPARC64_BIN) build/sparc64-sun4u/default/squirrel-bios.bin
 	cmp $(SPARC64_BIN) build/sparc64-sun4u/default/squirrel-bios.bin
 	@echo "config-default: sparc64-sun4u default.cfg build matches plain make"

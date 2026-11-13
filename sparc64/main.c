@@ -1123,11 +1123,291 @@ static int set_hdrs_initrd(void)
     return 0;
 }
 
+/* --- IDE: ATA PIO on the CMD646's assigned BARs ------------------------------ */
+
+#define ATA_DATA    0
+#define ATA_COUNT   2
+#define ATA_LBA0    3
+#define ATA_LBA1    4
+#define ATA_LBA2    5
+#define ATA_DEVICE  6
+#define ATA_STATUS  7       /* read */
+#define ATA_CMD     7       /* write */
+#define ATA_BSY     0x80
+#define ATA_DRQ     0x08
+#define ATA_ERR     0x01
+
+struct ata_disk {
+    uint64_t cmd, ctl;      /* physical addresses of the register blocks */
+    int slave;
+    uint64_t sectors;
+    char model[41];
+};
+static struct ata_disk disks[2];    /* the primary channel's master and slave */
+static int ndisks;
+
+static inline uint16_t in16le(uint64_t a)
+{
+    uint16_t v;
+    __asm__ volatile("lduha [%1] 0x1d, %0" : "=r"(v) : "r"(a) : "memory");
+    return v;
+}
+
+/* Physical RAM, through the bypass ASI: the image may lie outside the
+ * firmware's own mappings */
+static inline void phys_store8(uint64_t a, uint8_t v)
+{
+    __asm__ volatile("stba %0, [%1] 0x14" : : "r"(v), "r"(a) : "memory");
+}
+
+static inline void phys_store64(uint64_t a, uint64_t v)
+{
+    __asm__ volatile("stxa %0, [%1] 0x14" : : "r"(v), "r"(a) : "memory");
+}
+
+static void phys_copy(uint64_t dst, const uint8_t *src, uint64_t n)
+{
+    uint64_t i = 0;
+    for (; i < n && ((dst + i) & 7); i++)
+        phys_store8(dst + i, src[i]);
+    if (!(((uintptr_t)src + i) & 7))
+        for (; i + 8 <= n; i += 8)
+            phys_store64(dst + i, *(const uint64_t *)(src + i));
+    for (; i < n; i++)
+        phys_store8(dst + i, src[i]);
+}
+
+static void phys_zero(uint64_t dst, uint64_t n)
+{
+    uint64_t i = 0;
+    for (; i < n && ((dst + i) & 7); i++)
+        phys_store8(dst + i, 0);
+    for (; i + 8 <= n; i += 8)
+        phys_store64(dst + i, 0);
+    for (; i < n; i++)
+        phys_store8(dst + i, 0);
+}
+
+static int ata_wait(const struct ata_disk *d, int drq)
+{
+    for (long i = 0; i < 20000000; i++) {
+        uint8_t st = in8(d->cmd + ATA_STATUS);
+        if (st == 0xff || st == 0x7f)
+            return -1;                  /* nothing there */
+        if (st & ATA_BSY)
+            continue;
+        if (st & ATA_ERR)
+            return -1;
+        if (!drq || (st & ATA_DRQ))
+            return 0;
+        if (!drq)
+            return 0;
+    }
+    return -1;
+}
+
+/* IDENTIFY data is little-endian words; sector data is bytes in order,
+ * which a big-endian read of the data port keeps */
+static void ata_read_words(const struct ata_disk *d, uint16_t *buf, int n)
+{
+    for (int i = 0; i < n; i++)
+        buf[i] = in16le(d->cmd + ATA_DATA);
+}
+
+static inline uint16_t in16be(uint64_t a)
+{
+    uint16_t v;
+    __asm__ volatile("lduha [%1] 0x15, %0" : "=r"(v) : "r"(a) : "memory");
+    return v;
+}
+
+static void ata_read_bytes(const struct ata_disk *d, uint8_t *buf)
+{
+    uint16_t *w = (uint16_t *)buf;
+    for (int i = 0; i < 256; i++)
+        w[i] = in16be(d->cmd + ATA_DATA);
+}
+
+static int ata_identify(struct ata_disk *d)
+{
+    static uint16_t id[256];
+    out8(d->ctl + 2, 0x02);                 /* nIEN: polled */
+    out8(d->cmd + ATA_DEVICE, d->slave ? 0xb0 : 0xa0);
+    uint8_t st = in8(d->cmd + ATA_STATUS);
+    if (st == 0xff || st == 0x7f || st == 0)
+        return -1;
+    out8(d->cmd + ATA_CMD, 0xec);           /* IDENTIFY DEVICE */
+    if (in8(d->cmd + ATA_STATUS) == 0 || ata_wait(d, 1))
+        return -1;                          /* none, or an ATAPI device */
+    ata_read_words(d, id, 256);
+    d->sectors = (uint64_t)id[61] << 16 | id[60];
+    for (int i = 0; i < 20; i++) {
+        d->model[2 * i] = (char)(id[27 + i] >> 8);
+        d->model[2 * i + 1] = (char)id[27 + i];
+    }
+    d->model[40] = 0;
+    for (int i = 39; i >= 0 && d->model[i] == ' '; i--)
+        d->model[i] = 0;
+    return d->sectors ? 0 : -1;
+}
+
+/* Reads 'count' sectors (at most 256) from 'lba' into 'buf' */
+static int ata_read(const struct ata_disk *d, uint64_t lba, uint32_t count, uint8_t *buf)
+{
+    if (!count || count > 256 || lba + count > d->sectors || lba + count > (1u << 28))
+        return -1;
+    if (ata_wait(d, 0))
+        return -1;
+    out8(d->cmd + ATA_DEVICE, (uint8_t)(0xe0 | (d->slave ? 0x10 : 0) | ((lba >> 24) & 0x0f)));
+    out8(d->cmd + ATA_COUNT, (uint8_t)count);   /* 256 is written as 0 */
+    out8(d->cmd + ATA_LBA0, (uint8_t)lba);
+    out8(d->cmd + ATA_LBA1, (uint8_t)(lba >> 8));
+    out8(d->cmd + ATA_LBA2, (uint8_t)(lba >> 16));
+    out8(d->cmd + ATA_CMD, 0x20);               /* READ SECTORS */
+    for (uint32_t s = 0; s < count; s++) {
+        if (ata_wait(d, 1))
+            return -1;
+        ata_read_bytes(d, buf + 512 * s);
+    }
+    return 0;
+}
+
+static void ide_scan(void)
+{
+    ndisks = 0;
+    for (int i = 0; i < npdevs; i++) {
+        const struct pci_dev *p = &pdevs[i];
+        if (p->cls >> 16 != 0x0101 || p->nbars < 2 || !p->bar[0].io || !p->bar[1].io)
+            continue;
+        for (int slave = 0; slave < 2; slave++) {
+            struct ata_disk *d = &disks[ndisks];
+            memset(d, 0, sizeof(*d));
+            d->cmd = IO_BASE + p->bar[0].addr;
+            d->ctl = IO_BASE + p->bar[1].addr;
+            d->slave = slave;
+            if (ata_identify(d) == 0) {
+                fw_printf("ide: %s %s, %lu sectors\n", slave ? "slave" : "master",
+                          d->model, d->sectors);
+                ndisks++;
+            }
+        }
+        break;
+    }
+}
+
+/* Reads sectors [first, first+count) of a disk to physical 'dst' */
+static uint8_t ata_buf[128 * 512] __attribute__((aligned(64)));
+
+static int disk_to_phys(const struct ata_disk *d, uint64_t byte_off, uint64_t len, uint64_t dst)
+{
+    while (len) {
+        uint64_t lba = byte_off / 512, skip = byte_off % 512;
+        uint64_t n = (skip + len + 511) / 512;
+        if (n > 128)
+            n = 128;
+        if (ata_read(d, lba, (uint32_t)n, ata_buf))
+            return -1;
+        uint64_t chunk = n * 512 - skip;
+        if (chunk > len)
+            chunk = len;
+        phys_copy(dst, ata_buf + skip, chunk);
+        dst += chunk;
+        byte_off += chunk;
+        len -= chunk;
+    }
+    return 0;
+}
+
+/* The first disk holds a sparc64 ELF (such as Linux's vmlinux) from
+ * sector 0: its PT_LOAD segments go to their physical addresses, as QEMU
+ * places a -kernel. A second disk, if any, is the initrd (all of it),
+ * placed after the kernel. Returns 0 with kernel_* and initrd_* set. */
+static int disk_load(void)
+{
+    static uint8_t hdr[4096];
+    const struct ata_disk *d = &disks[0];
+    if (!ndisks)
+        return -1;
+    memset(hdr, 0, sizeof(hdr));
+    if (ata_read(d, 0, d->sectors < 8 ? (uint32_t)d->sectors : 8, hdr)) {
+        fw_puts("boot: read error on the IDE disk\n");
+        return -1;
+    }
+    struct elf_image img;
+    int err = elf_probe(hdr, 0, EM_SPARCV9, &img);
+    if (err) {
+        fw_printf("boot: the IDE disk holds no sparc64 ELF (%s)\n", elf_error(err));
+        return -1;
+    }
+    uint64_t phoff = fw_get_be64(hdr + 32);
+    unsigned phentsize = (unsigned)(hdr[54] << 8 | hdr[55]), phnum = (unsigned)(hdr[56] << 8 | hdr[57]);
+    if (phoff + (uint64_t)phentsize * phnum > sizeof(hdr)) {
+        fw_puts("boot: program headers past the first 4 KB\n");
+        return -1;
+    }
+    uint64_t low = ~0ull, high = 0, limit = (uint64_t)CONFIG_IDENTITY_MB << 20;
+    for (int pass = 0; pass < 2; pass++) {
+        for (unsigned i = 0; i < phnum; i++) {
+            const uint8_t *ph = hdr + phoff + i * phentsize;
+            if (fw_get_be32(ph) != 1)           /* PT_LOAD */
+                continue;
+            uint64_t off = fw_get_be64(ph + 8), pa = fw_get_be64(ph + 24);
+            uint64_t filesz = fw_get_be64(ph + 32), memsz = fw_get_be64(ph + 40);
+            if (!pa)
+                pa = fw_get_be64(ph + 16);      /* no physical address: the virtual one */
+            if (pass == 0) {
+                if (off + filesz > d->sectors * 512 || filesz > memsz) {
+                    fw_puts("boot: a segment runs past the disk\n");
+                    return -1;
+                }
+                if (pa < low)
+                    low = pa;
+                if (pa + memsz > high)
+                    high = pa + memsz;
+                continue;
+            }
+            if (disk_to_phys(d, off, filesz, pa)) {
+                fw_puts("boot: read error on the IDE disk\n");
+                return -1;
+            }
+            phys_zero(pa + filesz, memsz - filesz);
+        }
+        if (pass == 0 && (low < 0x4000 || high > limit || high > fw_pbase)) {
+            fw_printf("boot: ELF at 0x%lx-0x%lx is outside the mapped RAM below %u MB\n", low,
+                      high, CONFIG_IDENTITY_MB);
+            return -1;
+        }
+    }
+    kernel_addr = img.entry;
+    kernel_size = high - img.entry;
+    fw_printf("boot: ELF from the IDE disk at 0x%lx-0x%lx, entry 0x%lx\n", low, high, img.entry);
+    initrd_addr = initrd_size = 0;
+    if (ndisks > 1) {
+        const struct ata_disk *r = &disks[1];
+        uint64_t at = (high + 0x1fff) & ~0x1fffull, size = r->sectors * 512;
+        if (at + size > fw_pbase) {
+            fw_puts("boot: the initrd disk does not fit below the firmware\n");
+            return -1;
+        }
+        if (disk_to_phys(r, 0, size, at)) {
+            fw_puts("boot: read error on the initrd disk\n");
+            return -1;
+        }
+        initrd_addr = at;
+        initrd_size = size;
+    }
+    return 0;
+}
+
 static void boot_kernel(void)
 {
     if (!kernel_addr || !kernel_size) {
-        fw_puts("boot: no kernel (-kernel)\n");
-        return;
+        if (!ndisks) {
+            fw_puts("boot: no kernel (-kernel) and no IDE disk\n");
+            return;
+        }
+        if (disk_load())
+            return;
     }
     uint64_t limit = (uint64_t)CONFIG_IDENTITY_MB << 20;
     if (kernel_addr < 0x4000 || kernel_addr + kernel_size > limit) {
@@ -1190,7 +1470,17 @@ static void cmd_pci(int argc, char **argv)
 
 static void cmd_boot(int argc, char **argv)
 {
-    (void)argc, (void)argv;
+    if (argc > 1) {                     /* a new command line */
+        cmdline[0] = 0;
+        for (int i = 1; i < argc; i++) {
+            size_t n = strlen(cmdline), m = strlen(argv[i]);
+            if (n + m + 2 > sizeof(cmdline))
+                break;
+            if (n)
+                cmdline[n++] = ' ';
+            memcpy(cmdline + n, argv[i], m + 1);
+        }
+    }
     if (exit_requested)
         fw_puts("boot: the kernel has already run; reset to boot it again\n");
     else
@@ -1201,7 +1491,7 @@ static const struct fw_cmd commands[] = {
     { "info", "firmware, memory and CPUs", cmd_info },
     { "dt", "print the device tree (or one node: dt /chosen)", cmd_dt },
     { "pci", "the PCI devices on bus 1 and their BARs", cmd_pci },
-    { "boot", "boot the -kernel image", cmd_boot },
+    { "boot", "boot the -kernel image or the IDE disk (boot <command line>)", cmd_boot },
     { 0, 0, 0 },
 };
 
@@ -1256,9 +1546,15 @@ void fw_main(uint64_t pbase, uint64_t ram)
               pci_ok ? "on bus 1" : "missing", INO_SERIAL, in64(PBM_OBIO_IMAP(INO_SERIAL)));
     build_dt();
 
+    ide_scan();
     if (cmdline[0])
         fw_printf("bootargs: %s\n", cmdline);
-    boot_kernel();
+    /* A key already waiting stops a boot from the disk (so that "boot"
+     * at the prompt can give it a command line) */
+    if (!kernel_size && ndisks && fw_getc() >= 0)
+        fw_puts("boot: key pressed, staying at the prompt\n");
+    else
+        boot_kernel();
     fw_puts("type help for commands\n");
     fw_prompt(commands);
 }

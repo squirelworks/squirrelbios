@@ -399,6 +399,10 @@ void kmain(uint64_t cif_entry, uint64_t initrd, uint64_t initrd_size)
     fw_printf("PCI bars=%s ide-ino=0x%x net-ino=0x%x mac=%s atapi=%s ide-irq=%s\n", ok(bars),
               ide_ino, net_ino, ok(mac_ok), ok(atapi), ok(ide_irq));
 
+    char bootargs[64] = "";
+    cif1("getprop", 4, chosen, U("bootargs"), U(bootargs), sizeof(bootargs) - 1);
+    fw_printf("ARGS \"%s\"\n", bootargs);
+
     fw_printf("OS-DONE sparc64, exiting to the firmware\n");
     cif("exit", 0, 0, a, o);
     for (;;)
