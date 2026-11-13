@@ -1,18 +1,26 @@
-/* SquirrelBIOS x86_64-uefi: verify-only Secure Boot (roadmap C4).
+/* SquirrelBIOS x86_64-uefi: Secure Boot (roadmap C4/C5).
  * Original code, written from the UEFI specification's description of
- * image verification and signature databases and the published
- * Authenticode PE hash rules.
+ * image verification, signature databases and the setup and user modes,
+ * and the published Authenticode PE hash rules.
  *
- * Keys are ours, given to QEMU as fw_cfg files: opt/org.squirrelworks/db
- * (allowed) and opt/org.squirrelworks/dbx (forbidden), each a list of
- * EFI_SIGNATURE_LISTs with SHA-256 hashes, RSA-2048 keys or X.509
- * certificates (their RSA key is used). With a db, Secure Boot is on:
- * LoadImage refuses (EFI_SECURITY_VIOLATION) every image whose
+ * The keys come from one of two places.
+ *
+ * Fixed keys: QEMU fw_cfg files opt/org.squirrelworks/db (allowed) and
+ * opt/org.squirrelworks/dbx (forbidden), lists of EFI_SIGNATURE_LISTs
+ * with SHA-256 hashes, RSA-2048 keys or X.509 certificates (their RSA key
+ * is used). With a db, Secure Boot is on and nothing can be enrolled.
+ *
+ * Enrolled keys: otherwise the PK, KEK, db and dbx variables, written
+ * with authenticated writes (authvar.c) and kept in the flash store when
+ * there is one. With a PK the machine is in user mode and Secure Boot is
+ * on; without one it is in setup mode and every image runs. At boot,
+ * fw_cfg files opt/org.squirrelworks/enroll/{db,dbx,KEK,PK} (each an
+ * EFI_VARIABLE_AUTHENTICATION_2 followed by the data, as an OS tool would
+ * pass to SetVariable) are written in that order, under the same rules.
+ *
+ * When on, LoadImage refuses (EFI_SECURITY_VIOLATION) every image whose
  * Authenticode hash is in dbx or signed by a dbx key, and accepts one
- * whose PKCS#7 signature a db key verifies or whose hash is in db.
- * Nothing is enrolled at run time: SetVariable cannot change the
- * databases the firmware checks against (verify-only, no PK/KEK
- * authenticated writes). */
+ * whose PKCS#7 signature a db key verifies or whose hash is in db. */
 #include "secure.h"
 
 #define FWCFG_DB  "opt/org.squirrelworks/db"
@@ -22,12 +30,6 @@
 #ifndef CONFIG_SECURE_BOOT
 #define CONFIG_SECURE_BOOT 1
 #endif
-
-static const EFI_GUID cert_sha256 = { 0xc1c41626, 0x504c, 0x4092, { 0xac, 0xa9, 0x41, 0xf9, 0x36, 0x93, 0x43, 0x28 } };
-static const EFI_GUID cert_rsa2048 = { 0x3c5766e8, 0x269c, 0x4e34, { 0xaa, 0x14, 0xed, 0x77, 0x6e, 0x85, 0xb3, 0xb6 } };
-static const EFI_GUID cert_x509 = { 0xa5c059a1, 0x94e4, 0x4aa7, { 0x87, 0xb5, 0xab, 0x15, 0x5c, 0x2b, 0xf0, 0x72 } };
-static const EFI_GUID image_security = { 0xd719b2cb, 0x3d3a, 0x4596, { 0xa3, 0xbc, 0xda, 0xd0, 0x0e, 0x67, 0x65, 0x6f } };
-static const EFI_GUID global_var = { 0x8be4df61, 0x93ca, 0x11d2, { 0xaa, 0x0d, 0x00, 0xe0, 0x98, 0x03, 0x2b, 0x8c } };
 
 struct sigdb {
     u8 *data;
@@ -43,47 +45,17 @@ int secure_boot_on(void) { return on; }
 static u16 rd16(const u8 *p) { return (u16)(p[0] | p[1] << 8); }
 static u32 rd32(const u8 *p) { return (u32)rd16(p) | (u32)rd16(p + 2) << 16; }
 
-/* Walk a database: calls fn(type, data, size, ctx) for every signature
- * until fn returns nonzero; returns that, or -1 when the lists are
- * malformed, 0 at the end */
-typedef int (*sig_fn)(const EFI_GUID *type, const u8 *data, u32 size, void *ctx);
-
-static int db_walk(const struct sigdb *d, sig_fn fn, void *ctx)
+static int db_walk(const struct sigdb *d, sb_sig_fn fn, void *ctx)
 {
-    u32 off = 0;
-    while (off < d->len) {
-        if (d->len - off < 28)
-            return -1;
-        const u8 *l = d->data + off;
-        u32 list = rd32(l + 16), hdr = rd32(l + 20), sz = rd32(l + 24);
-        if (list < 28 || list > d->len - off || sz <= 16 || hdr > list - 28 ||
-            (list - 28 - hdr) % sz)
-            return -1;
-        for (u32 at = 28 + hdr; at < list; at += sz) {
-            int r = fn((const EFI_GUID *)l, l + at + 16, sz - 16, ctx);
-            if (r)
-                return r;
-        }
-        off += list;
-    }
-    return 0;
+    return sb_db_walk(d->data, d->len, fn, ctx);
 }
 
 static int guid_is(const EFI_GUID *a, const EFI_GUID *b) { return !memcmp(a, b, sizeof *a); }
-
-/* The key in an RSA-2048 or X.509 entry */
-static int entry_key(const EFI_GUID *type, const u8 *data, u32 size, struct rsa_key *k)
-{
-    if (guid_is(type, &cert_rsa2048) && size == 256) {
-        k->n = data;
-        k->n_len = 256;
-        k->e = 65537;
-        return 1;
-    }
-    if (guid_is(type, &cert_x509))
-        return x509_rsa_key(data, size, k);
-    return 0;
-}
+#define entry_key sb_entry_key
+#define cert_sha256 sb_cert_sha256
+#define cert_x509 sb_cert_x509
+#define image_security sb_image_security
+#define global_var sb_global
 
 static int has_hash(const EFI_GUID *type, const u8 *data, u32 size, void *ctx)
 {
@@ -234,16 +206,7 @@ EFI_STATUS secure_check_image(const u8 *img, UINTN size)
                 why = "a signature for another image (hash mismatch)";
             } else {
                 u8 sh[32];
-                struct sha256 c;
-                sha256_init(&c);
-                if (a.attrs_set) {
-                    u8 set = 0x31;
-                    sha256_update(&c, &set, 1);
-                    sha256_update(&c, a.signed_data + 1, a.signed_len - 1);
-                } else {
-                    sha256_update(&c, a.signed_data, a.signed_len);
-                }
-                sha256_final(&c, sh);
+                sb_signed_hash(&a, sh);
                 struct sig_check chk = { sh, &a, 0, NULL };
                 if (db_walk(&dbx, verifies, &chk) > 0) {
                     say_refused("signed by a key in dbx");
@@ -297,35 +260,108 @@ static void describe(const char *name, const struct sigdb *d)
     printf("\n");
 }
 
+/* A variable into a buffer of its own: 1, 0 when missing, -1 when it
+ * cannot be read */
+static int load_var(const CHAR16 *name, const EFI_GUID *vendor, struct sigdb *d)
+{
+    UINTN size = 0;
+    EFI_STATUS st = vars_get((CHAR16 *)name, (EFI_GUID *)vendor, NULL, &size, NULL);
+    if (st == EFI_NOT_FOUND)
+        return 0;
+    if (st != EFI_BUFFER_TOO_SMALL || !size || size > DB_MAX ||
+        efi_allocate_pool(EfiBootServicesData, size, (void **)&d->data) != EFI_SUCCESS ||
+        vars_get((CHAR16 *)name, (EFI_GUID *)vendor, NULL, &size, d->data) != EFI_SUCCESS)
+        return -1;
+    d->len = (u32)size;
+    return db_walk(d, count_entry, &(struct count){ 0 }) < 0 ? -1 : 1;
+}
+
+static const char *status_text(EFI_STATUS st)
+{
+    if (st == EFI_SUCCESS)
+        return "enrolled";
+    if (st == EFI_SECURITY_VIOLATION)
+        return "refused: not signed by a key that may change it, or not newer";
+    if (st == EFI_WRITE_PROTECTED)
+        return "refused: the keys are fixed";
+    if (st == EFI_INVALID_PARAMETER)
+        return "refused: not a signature list";
+    return "refused";
+}
+
+/* fw_cfg enroll/<name>: an authenticated write, as an OS would make */
+static void enroll(const char *file, const CHAR16 *name, const EFI_GUID *vendor)
+{
+    u16 sel;
+    u32 size;
+    char path[48] = "opt/org.squirrelworks/enroll/";
+    u32 n = 0;
+    while (path[n])
+        n++;
+    for (u32 i = 0; file[i] && n < sizeof path - 1; i++)
+        path[n++] = file[i];
+    path[n] = 0;
+    if (!fwcfg_find(path, &sel, &size) || !size)
+        return;
+    u8 *buf;
+    if (size > DB_MAX || efi_allocate_pool(EfiBootServicesData, size, (void **)&buf) != EFI_SUCCESS) {
+        printf("secure: enroll %s: too big\n", file);
+        return;
+    }
+    fwcfg_read(sel, buf, size);
+    EFI_STATUS st = vars_set((CHAR16 *)name, (EFI_GUID *)vendor, 0x27, size, buf);
+    printf("secure: enroll %s: %s\n", file, status_text(st));
+    efi_free_pool(buf);
+}
+
 void secure_init(void)
 {
     if (!CONFIG_SECURE_BOOT)
         return;
     int r = load_db(FWCFG_DB, &db);
-    if (r == 0)
-        return;                         /* no db: Secure Boot off */
-    int rx = load_db(FWCFG_DBX, &dbx);
+    if (r != 0) {
+        /* Fixed keys */
+        int rx = load_db(FWCFG_DBX, &dbx);
+        authvar_init(1);
+        on = 1;
+        /* Fail closed: keys were meant to be enforced, so a db or dbx that
+         * does not parse refuses every image rather than allowing all */
+        broken = r < 0 || rx < 0;
+        printf("secure: Secure Boot on (fixed keys)%s\n",
+               broken ? ", but a key database is unreadable: every image is refused" : "");
+        describe("db", &db);
+        describe("dbx", &dbx);
+        authvar_set_mode(1, 0);
+        if (db.len && authvar_publish(u"db", &image_security, db.data, db.len) != EFI_SUCCESS)
+            printf("secure: db (%u bytes) not published as a variable\n", db.len);
+        if (dbx.len && authvar_publish(u"dbx", &image_security, dbx.data, dbx.len) != EFI_SUCCESS)
+            printf("secure: dbx (%u bytes) not published as a variable\n", dbx.len);
+        return;
+    }
+
+    /* Enrolled keys */
+    authvar_init(0);
+    authvar_set_mode(0, sb_setup_mode());
+    enroll("db", u"db", &image_security);
+    enroll("dbx", u"dbx", &image_security);
+    enroll("KEK", u"KEK", &global_var);
+    enroll("PK", u"PK", &global_var);
+    if (sb_setup_mode()) {
+        printf("secure: setup mode (no PK): Secure Boot off\n");
+        authvar_set_mode(0, 1);
+        return;
+    }
+    int rd = load_var(u"db", &image_security, &db);
+    int rx = load_var(u"dbx", &image_security, &dbx);
     on = 1;
-    /* Fail closed: keys were meant to be enforced, so a db or dbx that
-     * does not parse refuses every image rather than allowing all */
-    broken = r < 0 || rx < 0;
-    printf("secure: Secure Boot on (verify-only)%s\n",
-           broken ? ", but a key database is unreadable: every image is refused" : "");
+    broken = rd < 0 || rx < 0;
+    struct sigdb kek = { 0 };
+    load_var(u"KEK", &global_var, &kek);
+    struct count kc = { 0 };
+    db_walk(&kek, count_entry, &kc);
+    printf("secure: Secure Boot on (user mode: PK and %d KEK key%s enrolled)%s\n", kc.rsa + kc.x509,
+           kc.rsa + kc.x509 == 1 ? "" : "s", broken ? ", but db or dbx is unreadable: every image is refused" : "");
     describe("db", &db);
     describe("dbx", &dbx);
-
-    /* What an OS reads: SecureBoot = 1, SetupMode = 0, and db/dbx when
-     * the variable store has room for them */
-    typedef EFI_STATUS (EFIAPI *set_var_fn)(CHAR16 *, EFI_GUID *, u32, UINTN, void *);
-    set_var_fn set = (set_var_fn)efi_st->runtime_services->set_variable;
-    u8 one = 1, zero = 0;
-    EFI_STATUS st;
-    if ((st = set(u"SecureBoot", (EFI_GUID *)&global_var, 6, 1, &one)) != EFI_SUCCESS)
-        printf("secure: SecureBoot variable not set (0x%lx): the OS will not see Secure Boot on\n", st);
-    if ((st = set(u"SetupMode", (EFI_GUID *)&global_var, 6, 1, &zero)) != EFI_SUCCESS)
-        printf("secure: SetupMode variable not set (0x%lx)\n", st);
-    if (db.len && set(u"db", (EFI_GUID *)&image_security, 7, db.len, db.data) != EFI_SUCCESS)
-        printf("secure: db (%u bytes) not published as a variable\n", db.len);
-    if (dbx.len && set(u"dbx", (EFI_GUID *)&image_security, 7, dbx.len, dbx.data) != EFI_SUCCESS)
-        printf("secure: dbx (%u bytes) not published as a variable\n", dbx.len);
+    authvar_set_mode(1, 0);
 }

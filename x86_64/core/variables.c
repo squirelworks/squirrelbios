@@ -351,8 +351,9 @@ EFI_STATUS EFIAPI vars_next(UINTN *size, CHAR16 *name, EFI_GUID *vendor)
 /* The authenticated-variable check, when Secure Boot's variable code is
  * linked in (authvar.c): EFI_SUCCESS to go on with the plain write */
 vars_auth_fn vars_auth_hook;
+void (*vars_after_hook)(const CHAR16 *name, const EFI_GUID *vendor);
 
-EFI_STATUS EFIAPI vars_set(CHAR16 *name, EFI_GUID *vendor, u32 attr, UINTN size, void *data)
+static EFI_STATUS set(CHAR16 *name, EFI_GUID *vendor, u32 attr, UINTN size, void *data)
 {
     if (!name || !vendor || !name[0] || (size && !data))
         return EFI_INVALID_PARAMETER;
@@ -425,6 +426,14 @@ EFI_STATUS EFIAPI vars_set(CHAR16 *name, EFI_GUID *vendor, u32 attr, UINTN size,
             fl_program((u32)old_flash, &st, 1);
     }
     return EFI_SUCCESS;
+}
+
+EFI_STATUS EFIAPI vars_set(CHAR16 *name, EFI_GUID *vendor, u32 attr, UINTN size, void *data)
+{
+    EFI_STATUS st = set(name, vendor, attr, size, data);
+    if (st == EFI_SUCCESS && vars_after_hook)
+        vars_after_hook(name, vendor);
+    return st;
 }
 
 EFI_STATUS EFIAPI vars_query(u32 attr, u64 *max, u64 *rem, u64 *maxsz)

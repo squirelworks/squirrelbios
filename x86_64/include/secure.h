@@ -3,7 +3,7 @@
 #ifndef SECURE_H
 #define SECURE_H
 
-#include "efi.h"
+#include "vars.h"
 
 #define EFI_SECURITY_VIOLATION EFI_ERR(26)
 
@@ -52,6 +52,19 @@ struct authenticode {
     u32 sig_len;
 };
 int pkcs7_authenticode(const u8 *p, u32 len, struct authenticode *a);
+
+int pkcs7_detached(const u8 *p, u32 len, const u8 content_hash[32], struct authenticode *a);
+
+/* authvar.c: signature lists and authenticated writes to PK, KEK, db, dbx */
+extern const EFI_GUID sb_cert_sha256, sb_cert_rsa2048, sb_cert_x509, sb_image_security, sb_global;
+typedef int (*sb_sig_fn)(const EFI_GUID *type, const u8 *data, u32 size, void *ctx);
+int sb_db_walk(const u8 *data, u32 len, sb_sig_fn fn, void *ctx);   /* -1 malformed */
+int sb_entry_key(const EFI_GUID *type, const u8 *data, u32 size, struct rsa_key *k);
+void sb_signed_hash(const struct authenticode *a, u8 out[32]);
+int sb_setup_mode(void);
+void authvar_init(int fixed_keys);
+void authvar_set_mode(int secure_boot, int setup);
+EFI_STATUS authvar_publish(const CHAR16 *name, const EFI_GUID *vendor, const void *data, u32 size);
 
 /* pe hash and policy: secure.c */
 int pe_authenticode_hash(const u8 *img, UINTN size, u8 out[32]);
