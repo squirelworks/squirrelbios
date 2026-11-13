@@ -273,6 +273,19 @@ ehci_bus:
     jmp .port
 
 .stop:
+    ; A USB disk claimed here (msd.inc): keep it running, its schedules
+    ; off until a transfer
+    cmp byte [fs:USBD_HC], USB_HC_EHCI
+    jne .halt_it
+    mov ax, [fs:USB_BDF]
+    cmp ax, [fs:USBD_BDF]
+    jne .halt_it
+    stc
+    call ehci_async
+    call usbd_keep
+    call usb_hid_announce       ; "usb: disk is device N"
+    jmp .out
+.halt_it:
     ; Halt it, no schedules: no DMA after POST. No reset, which would
     ; clear CONFIGFLAG and give the high-speed devices to the companions
     mov dword [gs:esi + EHCI_USBCMD], 0
