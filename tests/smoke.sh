@@ -1291,6 +1291,19 @@ run aarch64-uefi-el2 "~^cpu: .*, EL2, |psci: v1.1 via smc|gic: v3 (arch 3), dist
 run aarch64-uefi-acpi "~^acpi: RSDP at 0x[0-9a-f]{16}: FACP APIC GTDT SPCR DBG2 MCFG IORT, DSDT of [0-9]+ bytes; 4 CPUs, GICv3|APP con=ok timer=ok time=ok var=ok dtb=ok acpi=ok FACP,APIC,GTDT,SPCR,DBG2,MCFG,IORT|efi: image returned 0x1234|!=bad" \
     "$QEMU_ARM" -M virt,gic-version=3 -cpu max -smp 4 -bios $ARM_FD \
     -fw_cfg $X64_BOOT,file=$TEST_DIR/arm-efi-app.efi
+# Started at EL3 (secure=on), where QEMU leaves PSCI and the GIC's secure
+# side to the firmware: the monitor in arm/uefi/el3.c holds the other CPUs
+# in a pen, adds /psci to the device tree and drops to non-secure EL1 or
+# EL2. tests/efi-psci.c starts and stops the other three CPUs through
+# smc, then powers off through ResetSystem (PSCI SYSTEM_OFF, the secure
+# GPIO), so QEMU exits 0. The secure-only PL011 and RAM are left alone.
+PSCI_OK="PSCI version=ok features=ok migrate=ok self=ok bad=ok on=ok cpus=3 off=ok again=ok|PSCI all ok|@exit=0|!=bad|!el3: unexpected"
+run aarch64-uefi-el3 "~^cpu: Arm part d07 .*, EL1, |el3: PSCI 1.1 monitor, 4 CPUs, GICv2 secure side set up, power by GPIO, reset by GPIO, /psci added to the device tree|uart: PL011 at 0x0000000009000000|psci: v1.1 via smc|gic: v2, distributor at 0x0000000008000000, 288 interrupt lines, secure side set up at EL3|mem: 128 MB usable (from the device tree)|$PSCI_OK" \
+    "$QEMU_ARM" -M virt,secure=on -cpu cortex-a57 -smp 4 -bios $ARM_FD \
+    -fw_cfg $X64_BOOT,file=$TEST_DIR/arm-efi-psci.efi
+run aarch64-uefi-el3-el2 "~^cpu: .*, EL2, |el3: PSCI 1.1 monitor, 4 CPUs, GICv3 secure side set up|psci: v1.1 via smc|gic: v3, distributor at 0x0000000008000000, 288 interrupt lines, secure side set up at EL3|~^acpi: RSDP at 0x[0-9a-f]{16}: FACP APIC GTDT SPCR DBG2 MCFG IORT, .* 4 CPUs, GICv3|$PSCI_OK" \
+    "$QEMU_ARM" -M virt,secure=on,virtualization=on,gic-version=3 -cpu max -smp 4 -bios $ARM_FD \
+    -fw_cfg $X64_BOOT,file=$TEST_DIR/arm-efi-psci.efi
 # An x86-64 image is a PE32+ for another machine: refused
 run aarch64-uefi-wrong-arch "efi: LoadImage failed: 0x8000000000000003, halting" \
     "$QEMU_ARM" -M virt -cpu cortex-a57 -bios $ARM_FD -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-app.efi

@@ -58,6 +58,19 @@ int fdt_find_compatible(const char *compat, int start)
     return blob ? dtb_find_compatible(blob, start, compat) : -1;
 }
 
+/* The same, skipping nodes whose status is not "okay": with secure=on
+ * QEMU adds secure-only devices (a second PL011) as "disabled" */
+int fdt_find_enabled(const char *compat, int start)
+{
+    int n = start;
+    while ((n = fdt_find_compatible(compat, n)) >= 0) {
+        const char *st = fdt_prop(n, "status", NULL);
+        if (!st || !strcmp(st, "okay") || !strcmp(st, "ok"))
+            return n;
+    }
+    return -1;
+}
+
 /* reg entry index as written (#address-cells and #size-cells of the
  * parent, at most 2 each), not translated through ranges: the UEFI
  * ports' devices sit on buses that map 1:1 */

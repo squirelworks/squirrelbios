@@ -1,6 +1,7 @@
 /* SquirrelBIOS UEFI core (common/efi): the machine's memory, from the
  * device tree. Original code. Every node with device_type "memory"
- * gives usable ranges (all its reg entries); the children of
+ * gives usable ranges (all its reg entries), unless its status is
+ * "disabled" (QEMU's secure-only RAM with secure=on); the children of
  * /reserved-memory are marked reserved on top of them. */
 #include "sq.h"
 
@@ -28,6 +29,9 @@ void memmap_init(void)
         u32 len;
         const char *t = fdt_prop(n, "device_type", &len);
         if (!t || strcmp(t, "memory"))
+            continue;
+        const char *st = fdt_prop(n, "status", &len);
+        if (st && strcmp(st, "okay") && strcmp(st, "ok"))
             continue;
         u64 b, s;
         for (int i = 0; fdt_reg(n, i, &b, &s); i++)

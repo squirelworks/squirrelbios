@@ -34,6 +34,12 @@ acpi.c    the ACPI tables (the SBBR set) from the device tree: FACP
           PL011, MCFG and IORT for the PCIe host, and a DSDT with the
           CPUs, PL011, fw_cfg, virtio-mmio transports and the PCIe host
           bridge (windows, _PRT, ECAM reserved)
+el3.c     the EL3 monitor, used only when the firmware starts at EL3
+          (secure=on): SCR_EL3 and trap set-up, the GIC's secure side
+          (every interrupt non-secure group 1, redistributors awake),
+          /psci and enable-method added to the device tree, and PSCI 1.1
+          over smc (CPU_ON/OFF with a holding pen, AFFINITY_INFO,
+          SYSTEM_OFF/RESET through the secure GPIO, FEATURES)
 arch.h    ARCH_* constants for the core
 link.ld   linked at FW_BASE (0x40100000), right after the 1 MB device
           tree QEMU puts at the start of RAM
@@ -42,7 +48,14 @@ link.ld   linked at FW_BASE (0x40100000), right after the 1 MB device
 - **Exception level.** EL1 (QEMU's default) or EL2
   (`-M virt,virtualization=on`), where the firmware runs in the EL2
   regime and hands EL2 to the OS (Linux reports `CPU: All CPU(s)
-  started at EL2`). EL3 (`secure=on`) is reported and halts.
+  started at EL2`). With `secure=on` QEMU starts every CPU at EL3 and
+  provides no PSCI: the boot CPU sets up the monitor in `el3.c` and
+  drops to non-secure EL2 (with `virtualization=on`) or EL1, the others
+  wait in a holding pen for PSCI `CPU_ON`. Linux brings up all CPUs
+  through it, from the device tree or ACPI (`make linux-arm-el3`). The
+  monitor's code and data are part of the runtime services image, not
+  secure-only memory: it provides PSCI, it does not isolate anything.
+  The secure-only PL011, RAM and GPIO (status `disabled`) are skipped.
 - **Memory.** An identity map of the first 1 TB, made from the device
   tree's `/memory` before the MMU is on: Normal write-back where there is
   RAM, Device memory everywhere else, with 1 GB blocks and 2 MB blocks in

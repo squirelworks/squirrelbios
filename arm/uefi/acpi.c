@@ -451,7 +451,7 @@ void arm_acpi_init(void)
     u32 len;
     const u8 *ac = fdt_prop(gic, "#address-cells", &len);
     int gic_ac = ac && len == 4 ? (int)be32(ac) : 0;
-    int uart = fdt_find_compatible("arm,pl011", -1);
+    int uart = fdt_find_enabled("arm,pl011", -1);   /* not the secure one */
     struct pci_host pci;
     int have_pci = find_pci(&pci);
 
