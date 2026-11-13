@@ -76,6 +76,10 @@ static void boot_fwcfg_image(void)
     u16 sel;
     u32 size;
     if (!fwcfg_find(FWCFG_BOOT, &sel, &size)) {
+        if (efi_net_boot()) {
+            printf("fw: halting\n");
+            return;
+        }
         printf("fw: nothing to boot (no %s), trying the CSM\n", FWCFG_BOOT);
         csm_boot();
         printf("fw: halting\n");
@@ -145,6 +149,7 @@ void fw_main(void)
     efi_initrd_init();
     secure_init();
     efi_disk_init();
+    efi_net_init();
     if (efi_boot_esp()) {
         printf("fw: halting\n");
         halt();

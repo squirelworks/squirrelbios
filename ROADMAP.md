@@ -299,6 +299,10 @@ boxes in [TODO.md](TODO.md).
     (EINJ still open)
 - [ ] **F3** Management: IPMI/Redfish-style BMC stubs, serial-over-LAN, HTTP
   boot.
+  - [x] `f3-uefi-net`: UEFI Simple Network Protocol on virtio-net and a
+    PXE-style DHCP+TFTP boot on x86_64, aarch64 and riscv64 UEFI
+  - [x] `f3-http-boot`: HTTP boot (own TCP, HTTP/1.1 with Content-Length,
+    chunked, close-delimited bodies and redirects; IPv4 hosts, no DNS yet)
 - [ ] **F4** Diskless cluster boot of many nodes from one image server.
   Test: QEMU `-smp 256 -numa ...`; `make linux-big` already covers part.
 
