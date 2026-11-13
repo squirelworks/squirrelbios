@@ -214,13 +214,18 @@ void kmain(const void *fdt, uint64_t r4, uint64_t r5, uint64_t r8, uint64_t r9, 
     fw_printf("OPAL token=%s rtc=%s poll=%s space=%s read=%s term=%s\n", ok(token), ok(rtc),
               ok(poll), ok(sp), ok(rd), ok(bad_term));
 
-    /* Interrupt endianness, and the boot thread is the first CPU node
+    /* Interrupt endianness, and the boot thread is in the first CPU node
      * (Linux makes the first one logical CPU 0) */
     int hile = opal_call(OPAL_REINIT_CPUS, OPAL_REINIT_CPUS_HILE_LE, 0, 0, 0) == 0 &&
                thread_state_ok();
     int first_cpu = dtb_find_device_type(fdt, -1, "cpu");
     const uint8_t *fs = dtb_prop(fdt, first_cpu, "ibm,ppc-interrupt-server#s", &len);
-    int first = fs && len >= 4 && fw_get_be32(fs) == get_pir();
+    /* With SMT the node is a core listing all its threads, and the boot
+     * thread need not be the core's first one */
+    int first = 0;
+    for (int i = 0; fs && i + 4 <= len; i += 4)
+        if (fw_get_be32(fs + i) == get_pir())
+            first = 1;
     fw_printf("CPU p8=%s hile=%s first=%s\n", is_power8() ? "yes" : "no", ok(hile), ok(first));
 
     /* Other threads: every server number in the device tree but ours */
