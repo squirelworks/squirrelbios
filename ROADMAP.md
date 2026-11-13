@@ -305,6 +305,8 @@ The older polish items stay valid and fold into Phase D when it starts:
   QEMU can inject corrected errors, `aplic-imsic` when the hypervisor
   stack allows a shell.
   - [x] `DBCN` (SBI 2.0 debug console; Linux `earlycon=sbi`)
+  - [x] UART and CLINT/ACLINT addresses taken from the device tree in the
+    M-mode SBI (`CONFIG_UART_BASE`/`CONFIG_CLINT_BASE` as fallbacks)
 - [ ] AArch64: firmware PSCI/GIC only if QEMU's built-ins are disabled for a
   test; otherwise leave them.
 
