@@ -1,0 +1,55 @@
+# SquirrelBIOS ppc64le-powernv (roadmap E1) cases, sourced by tests/smoke.sh.
+# Needs qemu-system-ppc64 (Ubuntu: qemu-system-ppc) and the firmware,
+# which needs a powerpc64le cross gcc; without either the cases are
+# skipped. CI installs both (.github/workflows).
+
+QEMU_PPC64=${QEMU_PPC64:-qemu-system-ppc64}
+PPC64_FW=ppc64/squirrel-bios.bin
+
+ppc64_case() {
+    if ! command -v "$QEMU_PPC64" >/dev/null 2>&1; then
+        skip "$1" "no $QEMU_PPC64"
+    elif [ ! -f "$PPC64_FW" ] || [ ! -f "$TEST_DIR/ppc64-kernel.elf" ]; then
+        skip "$1" "ppc64 firmware not built (no powerpc64le cross gcc)"
+    else
+        run "$@"
+    fi
+}
+
+PPC64_OK="OS-ENTRY ppc64 dtb=ok regs=ok msr=ok le=ok opal-dt=ok console=ok rsv=ok|OPAL token=ok rtc=ok poll=ok space=ok read=ok term=ok"
+
+# POWER9: the boot thread copies the firmware to 0x30000000 and parks the
+# other three; the little-endian test kernel (an ELF loaded at 256 MB)
+# checks the hand-off and the /ibm,opal node, calls the OPAL services,
+# starts the other threads, has them return with OPAL_RETURN_CPU, starts
+# them again, and powers off through IPMI (QEMU exits 0)
+ppc64_case ppc64-boot "SquirrelBIOS POWER|cpu: 4 threads, boot PIR 0x|, 3 parked|boot: little-endian ELF kernel, loaded at 0x10000000|$PPC64_OK|SMP cpus=4 started=6 smp=ok return=ok pir=ok self=ok|opal: power down|@exit=0|!=bad|!trap:" \
+    "$QEMU_PPC64" -M powernv9 -smp 4 -bios $PPC64_FW -kernel $TEST_DIR/ppc64-kernel.elf
+
+# POWER10, one thread
+ppc64_case ppc64-p10 "SquirrelBIOS POWER|cpu: 1 threads|$PPC64_OK|SMP cpus=1 started=0 smp=ok return=ok pir=ok self=ok|opal: power down|@exit=0|!=bad|!trap:" \
+    "$QEMU_PPC64" -M powernv10 -bios $PPC64_FW -kernel $TEST_DIR/ppc64-kernel.elf
+
+# Two threads per core: threads of one core are parked and started too
+ppc64_case ppc64-smt "cpu: 4 threads|$PPC64_OK|SMP cpus=4 started=6 smp=ok return=ok pir=ok self=ok|@exit=0|!=bad|!trap:" \
+    "$QEMU_PPC64" -M powernv9 -smp 4,cores=2,threads=2 -bios $PPC64_FW -kernel $TEST_DIR/ppc64-kernel.elf
+
+# No kernel: the firmware prompt. help, info, date, dt, an unknown
+# command, then poweroff through the BMC
+SERIAL_IN=$TEST_DIR/ppc64-prompt.keys
+ppc64_case ppc64-prompt "boot: no kernel at 0x20000000|sq> |commands:|  poweroff|cpus: 2 threads, boot PIR|parked|~20[0-9]{2}-[01][0-9]-[0-3][0-9] [0-2][0-9]:|chosen {|bootargs|unknown command 'bogus'|powering off|@exit=0|!trap:" \
+    "$QEMU_PPC64" -M powernv9 -smp 2 -bios $PPC64_FW
+SERIAL_IN=
+
+# A kernel linked over the firmware's region, and a file that is not ELF,
+# are refused at the prompt instead of being jumped to
+ppc64_case ppc64-overlap "boot: kernel at 0x30100000-|overlaps the firmware|sq> |!OS-ENTRY|!jumping" \
+    "$QEMU_PPC64" -M powernv9 -bios $PPC64_FW -kernel $TEST_DIR/ppc64-overlap.elf
+ppc64_case ppc64-not-elf "boot: kernel at 0x20000000: not an ELF file|sq> |!jumping" \
+    "$QEMU_PPC64" -M powernv9 -bios $PPC64_FW -kernel $TEST_DIR/x86-boot.bin
+
+# Build configs: configs/ppc64le-powernv/default.cfg boots the same way
+PPC64_FW=build/ppc64le-powernv/default/squirrel-bios.bin
+ppc64_case config-ppc64-default "SquirrelBIOS POWER|$PPC64_OK|@exit=0" \
+    "$QEMU_PPC64" -M powernv9 -bios $PPC64_FW -kernel $TEST_DIR/ppc64-kernel.elf
+PPC64_FW=ppc64/squirrel-bios.bin

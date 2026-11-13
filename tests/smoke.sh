@@ -1714,5 +1714,16 @@ run x86_64-smmlock "smm: SMRAM locked|APP smmlock dlck=ok open=refused tseg=clos
 run x86_64-smmlock-pc "APP smmlock none|!smm:" \
     "$QEMU_X86_64" -M pc -bios x86_64/squirrel-bios.fd -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-smmlock.efi
 
+# Phase E platforms (ppc64le-powernv, ...) keep their cases in
+# tests/<arch>.smoke; a case whose QEMU or firmware is missing is skipped
+skipped=0
+skip() {
+    echo "SKIP  $1 ($2)"
+    skipped=$((skipped + 1))
+}
+for smoke in tests/*.smoke; do
+    [ -f "$smoke" ] && . "./$smoke"
+done
+[ "$skipped" -eq 0 ] || echo "$skipped skipped"
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

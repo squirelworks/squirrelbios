@@ -10,3 +10,4 @@ riscv/*.elf
 riscv/*.bin
 riscv/uefi/*.bin
 build/
+ppc64/*.bin

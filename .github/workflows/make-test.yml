@@ -15,7 +15,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             make nasm gcc-aarch64-linux-gnu gcc-riscv64-linux-gnu \
-            qemu-system-x86 qemu-system-arm qemu-system-misc swtpm swtpm-tools
+            qemu-system-x86 qemu-system-arm qemu-system-misc swtpm swtpm-tools \
+            gcc-powerpc64le-linux-gnu qemu-system-ppc
 
       - name: make test
         run: make test
