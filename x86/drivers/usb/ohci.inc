@@ -20,6 +20,7 @@ OHCI_INTDISABLE equ 0x14
 OHCI_HCCA       equ 0x18
 OHCI_CTRLHEAD   equ 0x20
 OHCI_CTRLCUR    equ 0x24
+OHCI_BULKHEAD   equ 0x28
 OHCI_FMINTERVAL equ 0x34
 OHCI_PERSTART   equ 0x40
 OHCI_RHDESCA    equ 0x48
@@ -28,10 +29,12 @@ OHCI_RHPORT     equ 0x54            ; + 4 * (port - 1)
 
 OCTL_PLE        equ 0x00000004      ; periodic list enable
 OCTL_CLE        equ 0x00000010      ; control list enable
+OCTL_BLE        equ 0x00000020      ; bulk list enable
 OCTL_HCFS_OPER  equ 0x00000080      ; functional state: operational
 OCTL_IR         equ 0x00000100      ; interrupts routed to SMM
 OCS_HCR         equ 0x00000001      ; controller reset
 OCS_CLF         equ 0x00000002      ; control list filled
+OCS_BLF         equ 0x00000004      ; bulk list filled
 OCS_OCR         equ 0x00000008      ; ownership change request
 OHCI_FI         equ 11999           ; frame interval: 1 ms of 12 MHz bits
 OHCI_FMI        equ (((OHCI_FI - 210) * 6 / 7) << 16) | OHCI_FI
@@ -220,6 +223,7 @@ ohci_bus:
     call usb_hid_here
     jc .halt_it
     call ohci_hid_start
+    call usbd_keep              ; the disk's copy of the controller's state
     call usb_hid_announce       ; after: it needs ES:DI, the console cursor
     jmp .out
 .halt_it:
