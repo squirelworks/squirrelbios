@@ -11,3 +11,9 @@ riscv/*.bin
 riscv/uefi/*.bin
 build/
 ppc64/*.bin
+loongarch/*.o
+loongarch/*.elf
+loongarch/*.bin
+mips/*.o
+mips/*.elf
+mips/*.bin
