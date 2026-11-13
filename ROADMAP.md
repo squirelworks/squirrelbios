@@ -281,6 +281,10 @@ boxes in [TODO.md](TODO.md).
   - [x] `f1-x86-numa`: x86_64 SRAT (CPU and memory affinity) and SLIT
     from QEMU `-numa`, MADT from the SMP list with x2APIC entries past
     APIC ID 254 (HMAT, more than 1000 CPUs and ECAM segments still open)
+  - [ ] `f1-x86-roots`: x86_64 extra PCI root buses (QEMU pxb and
+    pxb-pcie) as DSDT host bridges with their own buses and windows, and
+    ACPI table room that grows with the CPU count (more than one ECAM
+    segment and >255 CPUs untestable on QEMU x86 TCG)
 - [ ] **F2** RAS: machine-check logging (BERT/HEST/EINJ), corrected-error
   thresholds, CXL memory enumeration (research).
   - [x] `f2-x86-stubs`: x86_64 BERT and HEST stubs (MCE logging, EINJ and

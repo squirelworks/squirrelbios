@@ -159,3 +159,17 @@ MADT lists the same CPUs in processor-number order, with x2APIC entries
 past APIC ID 254. BERT (an empty boot error region) and HEST (no error
 sources) are stubs. `LINUX_SMP=4 LINUX_NUMA=2 make linux-uefi` boots
 Linux on two nodes.
+
+Extra PCI root buses (F1): QEMU's `pxb` (pc) and `pxb-pcie` (q35)
+expanders add root buses that only ACPI describes. fw_cfg
+`etc/extra-pci-roots` counts them, and their bus numbers are the
+populated buses past 0 that no bridge leads to. Each becomes a DSDT host
+bridge `PCxx` with `_BBN`, the buses up to the next root, and the first
+six get a 4 KB I/O window from 0x6000 and a 64 MB memory window from
+0xE0000000, cut out of PCI0's. On pc their `_PRT` follows QEMU's pxb
+routing; on q35 devices behind an expander use MSI. All roots share ECAM
+segment 0 (QEMU x86 has one). `LINUX_PXB=1 make linux-uefi` adds one
+expander at bus 0x40 with a device behind it. The ACPI table area grows
+with the CPU count, for the MADT and SRAT entries of up to 1024 CPUs
+(SMP_MAX_CPUS); QEMU's TCG has no x2APIC, so more than 255 CPUs are not
+tested here.
