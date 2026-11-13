@@ -16,7 +16,7 @@ qemu-system-riscv64 -M virt -nographic -bios riscv/squirrel-bios.bin -kernel ima
 - Adds the firmware region to the device tree's `/reserved-memory` (`no-map`), so Linux does not use it
 - Lets S-mode use the cache-block instructions (Zicbom, Zicboz) and its own timer compare (Sstc) when the hart has them, as Linux expects
 - In S-mode, supervisor faults and interrupts are delegated to the image; `ecall` from S-mode stays in M-mode
-- Provides an SBI to S-mode through `ecall`: base, TIME, IPI, RFENCE, HSM, SRST and DBCN (spec 2.0, implementation ID `0x5351`); `sbi_set_timer` uses the CLINT, `sbi_send_ipi` and the remote fences reach every started hart through the CLINT software interrupt; `sbi_system_reset` powers off or resets through QEMU's test device at `0x100000`
+- Provides an SBI to S-mode through `ecall`: base, TIME, IPI, RFENCE, HSM, SRST, DBCN and SSE (spec 2.0, with SSE from 3.0, implementation ID `0x5351`); `sbi_set_timer` uses the CLINT, `sbi_send_ipi` and the remote fences reach every started hart through the CLINT software interrupt; `sbi_system_reset` powers off or resets through QEMU's test device at `0x100000`
 - Any other trap that reaches M-mode prints `ras: hart=<16 hex> mcause=<16 hex> mepc=<16 hex> mtval=<16 hex> fatal`, parks every other started hart, prints `boot halted`, then shuts the machine down as an SRST system failure (QEMU exit status 1)
 - Without `-kernel`, prints the reason and halts
 
@@ -119,4 +119,4 @@ and:
   `-global virtio-mmio.force-legacy=false`).
 
 Linux uses the runtime services after `SetVirtualAddressMap` (`GetTime`
-from the goldfish RTC, variables, reset). Not yet: ACPI (RHCT) and SSE.
+from the goldfish RTC, variables, reset). Not yet: ACPI (RHCT); SSE has only the software-injected local event.

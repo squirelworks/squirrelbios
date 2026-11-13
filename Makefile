@@ -87,7 +87,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/riscv-ecall.bin $(TEST_DIR)/riscv-deleg.bin \
              $(TEST_DIR)/riscv-sbi.bin $(TEST_DIR)/riscv-timer.bin \
              $(TEST_DIR)/riscv-ipi.bin $(TEST_DIR)/riscv-rfence.bin \
-             $(TEST_DIR)/riscv-hsm.bin $(TEST_DIR)/riscv-hsm-stop.bin \
+             $(TEST_DIR)/riscv-hsm.bin $(TEST_DIR)/riscv-hsm-stop.bin $(TEST_DIR)/riscv-sse.bin \
              $(TEST_DIR)/riscv-srst.bin $(TEST_DIR)/riscv-srst-reboot.bin \
              $(TEST_DIR)/riscv-srst-fail.bin $(TEST_DIR)/riscv-pmp.bin \
              $(TEST_DIR)/riscv-dt.bin $(TEST_DIR)/riscv-envcfg.bin \
@@ -654,6 +654,13 @@ $(TEST_DIR)/riscv-rfence.o: tests/riscv-rfence.S | $(TEST_DIR)
 $(TEST_DIR)/riscv-rfence.elf: $(TEST_DIR)/riscv-rfence.o
 	$(RISCV64)ld -Ttext=0x80200000 -o $@ $<
 $(TEST_DIR)/riscv-rfence.bin: $(TEST_DIR)/riscv-rfence.elf
+	$(RISCV64)objcopy -O binary $< $@
+
+$(TEST_DIR)/riscv-sse.o: tests/riscv-sse.S | $(TEST_DIR)
+	$(RISCV64)as -o $@ $<
+$(TEST_DIR)/riscv-sse.elf: $(TEST_DIR)/riscv-sse.o
+	$(RISCV64)ld -Ttext=0x80200000 -o $@ $<
+$(TEST_DIR)/riscv-sse.bin: $(TEST_DIR)/riscv-sse.elf
 	$(RISCV64)objcopy -O binary $< $@
 
 $(TEST_DIR)/riscv-hsm.o: tests/riscv-hsm.S | $(TEST_DIR)

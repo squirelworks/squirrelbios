@@ -134,6 +134,7 @@ boots each firmware under QEMU with a small stand-in OS image from
 | `riscv-boot` | The `-kernel` image runs in S-mode (`next_mode=1`) on hart 0 (with `-smp 2`) with a valid device tree in `a1` and `a2 = 0`, and nothing traps |
 | `riscv-ecall` | An `ecall` from the image reaches the SBI and returns `SBI_ERR_NOT_SUPPORTED` for an extension that does not exist |
 | `riscv-deleg` | An illegal instruction traps to the image's own `stvec` (`deleg=ok`), and its `ecall` still reaches the SBI in M-mode |
+| `riscv-sse` | SSE for the software-injected local event: registration, attribute reads and writes with their errors, a masked inject that waits, unmask taking it, the handler's `a6`/`a7` and saved state, `complete` resuming the interrupted code, one-shot, and an inject on hart 1 taken on the IPI; DBCN refuses a buffer in firmware memory |
 | `riscv-sbi` | The SBI base extension reports spec 2.0 and the SquirrelBIOS implementation ID, probes base, TIME, IPI, RFENCE, HSM, SRST and DBCN as present, and changes no register but `a0` and `a1`; DBCN `console_write` and `console_write_byte` print `dbcn=ok` and a high address half is refused |
 | `riscv-timer` | `sbi_set_timer` raises the supervisor timer interrupt once (`timer=ok`, never `timer=again`) |
 | `riscv-ipi` | `sbi_send_ipi` to the calling hart raises its software interrupt (`ipi=ok`); to the parked (stopped) hart 1 it succeeds and raises nothing on the caller; to hart 2, which does not exist, it returns an error |

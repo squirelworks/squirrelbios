@@ -816,6 +816,15 @@ run riscv-sbi "OS-ENTRY riscv sbi|dbcn=ok|sbi=ok|!trap mcause=" \
     "$QEMU_RISCV" -M virt -bios riscv/squirrel-bios.bin \
     -kernel $TEST_DIR/riscv-sbi.bin
 
+# RISC-V: SSE (SBI 3.0 supervisor software events) for the software-
+# injected local event: register, attributes and their errors, a masked
+# inject that waits, unmask taking it, the handler's a6/a7 and saved
+# state, complete resuming a0/a6/a7/sepc, one-shot; then hart 0 injects
+# on hart 1, which takes it on the IPI. DBCN refuses firmware memory.
+run riscv-sse "OS-ENTRY riscv sse|sse=ok|!sse=bad|!trap mcause=|!ras:" \
+    "$QEMU_RISCV" -M virt -smp 2 -bios riscv/squirrel-bios.bin \
+    -kernel $TEST_DIR/riscv-sse.bin
+
 # RISC-V: sbi_set_timer raises the supervisor timer interrupt once
 run riscv-timer "OS-ENTRY riscv timer|timer=ok|!timer=again|!timer=bad|!trap mcause=" \
     "$QEMU_RISCV" -M virt -bios riscv/squirrel-bios.bin \
