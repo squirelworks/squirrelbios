@@ -7,7 +7,10 @@
  * _start copies the image to RAM at FW_BASE (where it is linked), jumps
  * there, clears .bss, sets the stack and the vector base for the current
  * EL, lets FP/SIMD run, then calls arch_mmu_init (identity map, caches
- * on) and efi_main with the device tree QEMU placed at the start of RAM.
+ * on) and efi_main with the device tree: the one x0 held at entry (a
+ * boot loader's, such as the Raspberry Pi's, which loads this image to
+ * RAM at its link address so nothing is copied), else the one QEMU virt
+ * places at the start of RAM for -bios.
  *
  * Started at EL3 (virt with secure=on), every CPU runs from 0: the boot
  * CPU (affinity 0) copies the image, sets up the EL3 monitor (el3.c) and
@@ -18,6 +21,7 @@
         .globl _start
 _start:
         msr     daifset, #0xf
+        mov     x21, x0                 // a device tree from a boot loader, or 0
         mrs     x0, CurrentEL
         cmp     x0, #(3 << 2)
         b.ne    .Lcopy
@@ -67,7 +71,9 @@ _start:
         ldr     x1, =el3_vectors
         msr     vbar_el3, x1
         isb
-        mov     x0, #0x40000000         // ARCH_DTB_ADDR
+        cbnz    x21, 9f
+        mov     x21, #0x40000000        // QEMU virt: at the start of RAM
+9:      mov     x0, x21
         bl      el3_init                // returns the SPSR for the drop
         msr     spsr_el3, x0
         ldr     x0, =el3_stacks + 2048  // CPU 0's monitor stack
@@ -94,11 +100,14 @@ _start:
         b       6f
 5:      msr     vbar_el3, x1            // EL3: arch_mmu_init reports it
 6:      isb
+        cbnz    x21, 7f
+        mov     x21, #0x40000000        // QEMU virt: at the start of RAM
+7:      mov     x0, x21
         bl      arch_mmu_init
-        mov     x0, #0x40000000         // ARCH_DTB_ADDR
+        mov     x0, x21
         bl      efi_main
-7:      wfi
-        b       7b
+9:      wfi
+        b       9b
         .ltorg
 
 /* The holding pen: x19 is the CPU's index into el3_cpus (32 bytes each),

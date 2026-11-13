@@ -24,7 +24,7 @@ own tree):
 | CLINT | `0x02000000` | taken from the tree |
 | Timer | `timebase-frequency` 1 MHz | timeouts assume 10 MHz |
 | Power off / reset | the DA9063 PMIC over I2C; no test finisher | the QEMU test finisher |
-| Storage | SD over SPI (`mmc-spi-slot`), NVMe on M.2 over PCIe (FU740's DesignWare PCIe) | virtio-blk only |
+| Storage | SD over SPI (`mmc-spi-slot`), NVMe on M.2 over PCIe (FU740's DesignWare PCIe) | NVMe, AHCI, xHCI, SDHCI behind an ECAM host (D4); no SPI, no DesignWare PCIe |
 
 ## Gaps beyond the VisionFive 2 list
 
@@ -35,8 +35,11 @@ own tree):
   `putc` would branch on it; the UEFI core's `arch.c` likewise.
 - **SD over SPI.** The boot SD sits on an SPI controller (`sifive,spi0`)
   in MMC-over-SPI mode: a small SPI driver plus the SD SPI-mode command
-  set would give Block I/O for `\EFI\BOOT\BOOTRISCV64.EFI`. NVMe needs
-  the PCIe host (DesignWare, not ECAM-generic) first.
+  set would give Block I/O for `\EFI\BOOT\BOOTRISCV64.EFI`; the SD
+  card commands and the CSD decoding in `common/efi/sdhci.c` carry over,
+  the transport (SPI mode, CRC7/CRC16 on the wire) is new. The shared
+  NVMe driver is ready; it needs the PCIe host (DesignWare, not
+  ECAM-generic: an iATU window for configuration cycles) first.
 
 QEMU's `sifive_u` machine models an FU540 (the predecessor: same UART
 kind, same CLINT, hart 0 = E51 monitor core), so the monitor-hart
