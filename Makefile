@@ -47,6 +47,7 @@ EFI_H       := $(wildcard common/efi/include/*.h)
 EFI_CFLAGS  := -std=gnu11 -O2 -Wall -Wextra -Werror -ffreestanding -fno-builtin \
                -fno-pic -fno-pie -no-pie -fno-stack-protector -fno-asynchronous-unwind-tables \
                -nostdlib -static -Icommon/efi/include
+ARM_EFI_C   := $(wildcard arm/uefi/*.c)
 ARM_EFI_CFLAGS := $(EFI_CFLAGS) -mgeneral-regs-only -mstrict-align -mno-outline-atomics -Iarm/uefi
 # RISC-V UEFI-class firmware (roadmap D3): the SBI (riscv/squirrel-bios.S
 # with UEFI=1) padded to 2 MB, then the shared UEFI core plus riscv/uefi,
@@ -87,7 +88,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/riscv-ecall.bin $(TEST_DIR)/riscv-deleg.bin \
              $(TEST_DIR)/riscv-sbi.bin $(TEST_DIR)/riscv-timer.bin \
              $(TEST_DIR)/riscv-ipi.bin $(TEST_DIR)/riscv-rfence.bin \
-             $(TEST_DIR)/riscv-hsm.bin $(TEST_DIR)/riscv-hsm-stop.bin \
+             $(TEST_DIR)/riscv-hsm.bin $(TEST_DIR)/riscv-hsm-stop.bin $(TEST_DIR)/riscv-sse.bin \
              $(TEST_DIR)/riscv-srst.bin $(TEST_DIR)/riscv-srst-reboot.bin \
              $(TEST_DIR)/riscv-srst-fail.bin $(TEST_DIR)/riscv-pmp.bin \
              $(TEST_DIR)/riscv-dt.bin $(TEST_DIR)/riscv-envcfg.bin \
@@ -110,7 +111,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/arm-esp.img $(TEST_DIR)/riscv-esp.img \
              $(TEST_DIR)/x86_64-rt.efi
 
-.PHONY: all x86 x86_64 arm arm-uefi riscv riscv-uefi test linux-shell linux-arm linux-riscv-uefi linux-x86 linux-big linux-stress os-boot clean linux-uefi os-boot-csm
+.PHONY: all x86 x86_64 arm arm-uefi riscv riscv-uefi test linux-shell linux-arm linux-arm-acpi linux-riscv-uefi linux-x86 linux-big linux-stress os-boot clean linux-uefi os-boot-csm
 .DELETE_ON_ERROR:
 
 PLATFORMS := x86-pc x86_64-uefi aarch64-virt riscv64-virt aarch64-uefi riscv64-uefi
@@ -187,11 +188,11 @@ define ARM_EFI_BUILD
 	@mkdir -p $(1)
 	$(AARCH64_CC) $(ARM_EFI_CFLAGS) $(2) -c arm/uefi/start.S -o $(1)/start.o
 	$(AARCH64_CC) $(ARM_EFI_CFLAGS) $(2) -Wl,-T,arm/uefi/link.ld -Wl,--defsym,FW_BASE=$(ARM_FW_BASE) \
-	    -Wl,--build-id=none -Wl,--no-warn-rwx-segments $(1)/start.o arm/uefi/arch.c $(EFI_C) -o $(1)/body.elf
+	    -Wl,--build-id=none -Wl,--no-warn-rwx-segments $(1)/start.o $(ARM_EFI_C) $(EFI_C) -o $(1)/body.elf
 	$(AARCH64)objcopy -O binary $(1)/body.elf $@
 endef
 
-$(ARM_FD): arm/uefi/start.S arm/uefi/arch.c arm/uefi/arch.h arm/uefi/link.ld $(EFI_C) $(EFI_H)
+$(ARM_FD): arm/uefi/start.S $(ARM_EFI_C) arm/uefi/arch.h arm/uefi/link.ld $(EFI_C) $(EFI_H)
 	$(call ARM_EFI_BUILD,build/aarch64-uefi,)
 
 riscv/squirrel-bios.o: riscv/squirrel-bios.S
@@ -273,7 +274,7 @@ build/aarch64-virt/%/squirrel-bios.elf: build/aarch64-virt/%/squirrel-bios.o
 build/aarch64-virt/%/squirrel-bios.bin: build/aarch64-virt/%/squirrel-bios.elf
 	$(AARCH64)objcopy -O binary $< $@
 
-build/aarch64-uefi/%/squirrel-bios.fd: arm/uefi/start.S arm/uefi/arch.c arm/uefi/arch.h \
+build/aarch64-uefi/%/squirrel-bios.fd: arm/uefi/start.S $(ARM_EFI_C) arm/uefi/arch.h \
 		arm/uefi/link.ld $(EFI_C) $(EFI_H) build/aarch64-uefi/%/config.h
 	$(call ARM_EFI_BUILD,$(@D)/obj,-DSQ_CONFIG -I$(@D))
 
@@ -302,7 +303,8 @@ config-default: x86 x86_64 arm riscv arm-uefi riscv-uefi build/x86-pc/default/sq
 		build/aarch64-uefi/default/squirrel-bios.fd build/riscv64-uefi/default/squirrel-bios.bin \
 		build/x86_64-uefi/default/squirrel-bios.fd \
 		build/aarch64-virt/default/squirrel-bios.bin build/riscv64-virt/default/squirrel-bios.bin \
-		build/riscv64-virt/small/squirrel-bios.bin build/x86-pc/minimal/squirrel-bios.rom
+		build/riscv64-virt/small/squirrel-bios.bin build/riscv64-virt/dt/squirrel-bios.bin \
+		build/x86-pc/minimal/squirrel-bios.rom
 	cmp $(X86_ROM) build/x86-pc/default/squirrel-bios.rom
 	cmp $(X64_FD) build/x86_64-uefi/default/squirrel-bios.fd
 	cmp $(ARM_BIN) build/aarch64-virt/default/squirrel-bios.bin
@@ -659,6 +661,13 @@ $(TEST_DIR)/riscv-rfence.elf: $(TEST_DIR)/riscv-rfence.o
 $(TEST_DIR)/riscv-rfence.bin: $(TEST_DIR)/riscv-rfence.elf
 	$(RISCV64)objcopy -O binary $< $@
 
+$(TEST_DIR)/riscv-sse.o: tests/riscv-sse.S | $(TEST_DIR)
+	$(RISCV64)as -o $@ $<
+$(TEST_DIR)/riscv-sse.elf: $(TEST_DIR)/riscv-sse.o
+	$(RISCV64)ld -Ttext=0x80200000 -o $@ $<
+$(TEST_DIR)/riscv-sse.bin: $(TEST_DIR)/riscv-sse.elf
+	$(RISCV64)objcopy -O binary $< $@
+
 $(TEST_DIR)/riscv-hsm.o: tests/riscv-hsm.S | $(TEST_DIR)
 	$(RISCV64)as -o $@ $<
 $(TEST_DIR)/riscv-hsm.elf: $(TEST_DIR)/riscv-hsm.o
@@ -773,6 +782,12 @@ test: x86 x86_64 arm riscv arm-uefi riscv-uefi config-default $(TEST_BINS) build
 # stub on the aarch64-uefi firmware to a busybox shell
 linux-arm: arm-uefi
 	tests/uefi-linux.sh aarch64
+
+# Optional, not part of make test: the same kernel with acpi=force on a
+# GICv3 + ITS machine with 4 CPUs, so Linux takes the machine from the
+# firmware's ACPI tables (SBBR) instead of the device tree
+linux-arm-acpi: arm-uefi
+	LINUX_ACPI=1 LINUX_MACHINE=virt,gic-version=3 LINUX_CPU=max LINUX_SMP=4 tests/uefi-linux.sh aarch64
 
 # Optional, not part of make test: the same with Ubuntu 24.04's riscv64
 # kernel (the package make linux-shell uses) on the riscv64-uefi firmware

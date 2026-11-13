@@ -255,10 +255,10 @@ boxes in [TODO.md](TODO.md).
 
 ### Phase D — v2.5: ARM and RISC-V as full firmware
 
-- [ ] **D1** AArch64 `virt`: UEFI-class interface, device tree and ACPI
+- [x] **D1** AArch64 `virt`: UEFI-class interface, device tree and ACPI
   (SBBR-like), PSCI, GICv3.
 - [ ] **D2** AArch64 boards: Raspberry Pi 4/5 under `boards/rpi4`.
-- [ ] **D3** RISC-V `virt`: UEFI-class interface while keeping the SBI;
+- [x] **D3** RISC-V `virt`: UEFI-class interface while keeping the SBI;
   `DBCN`, SSE; boards (VisionFive 2, HiFive) under `boards/`.
 - [ ] **D4** Shared drivers across architectures (NVMe, xHCI, virtio, FAT,
   PE/ELF loaders) from the same sources. Test: each QEMU target boots
@@ -312,6 +312,8 @@ The older polish items stay valid and fold into Phase D when it starts:
   QEMU can inject corrected errors, `aplic-imsic` when the hypervisor
   stack allows a shell.
   - [x] `DBCN` (SBI 2.0 debug console; Linux `earlycon=sbi`)
+  - [x] UART and CLINT/ACLINT addresses taken from the device tree in the
+    M-mode SBI (`CONFIG_UART_BASE`/`CONFIG_CLINT_BASE` as fallbacks)
 - [ ] AArch64: firmware PSCI/GIC only if QEMU's built-ins are disabled for a
   test; otherwise leave them.
 

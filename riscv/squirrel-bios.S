@@ -31,6 +31,9 @@
         .ifndef CONFIG_MAX_HARTS
         .equ CONFIG_MAX_HARTS, 512
         .endif
+        .ifndef CONFIG_CLINT_BASE
+        .equ CONFIG_CLINT_BASE, 0x02000000
+        .endif
 
         .equ UART_BASE,     CONFIG_UART_BASE /* NS16550A */
         .equ UART_THR,      0
@@ -127,10 +130,12 @@
         .equ MENVCFG_STCE,      (1 << 63)   /* Sstc: stimecmp */
         .equ MENVCFG_S,         MENVCFG_CBIE_FLUSH | MENVCFG_CBCFE | MENVCFG_CBZE | MENVCFG_STCE
 
-        /* CLINT: one msip and one mtimecmp per hart, one mtime */
-        .equ CLINT_MSIP,        0x02000000
-        .equ CLINT_MTIMECMP,    0x02004000
-        .equ CLINT_MTIME,       0x0200bff8
+        /* CLINT: one msip and one mtimecmp per hart, one mtime. These and
+         * UART_BASE are where the SBI looks when the device tree does not
+         * say (dt_devices); the tree's nodes win. */
+        .equ CLINT_MSIP,        CONFIG_CLINT_BASE
+        .equ CLINT_MTIMECMP,    CONFIG_CLINT_BASE + 0x4000
+        .equ CLINT_MTIME,       CONFIG_CLINT_BASE + 0xbff8
         /* With -numa, QEMU virt makes each NUMA node a socket with its own
          * CLINT, CLINT_SOCKET bytes after the previous one, whose msip and
          * mtimecmp slots count from the lowest hart ID in that socket. */
@@ -192,6 +197,7 @@
         .equ SBI_EXT_HSM,       0x48534d
         .equ SBI_EXT_SRST,      0x53525354
         .equ SBI_EXT_DBCN,      0x4442434e
+        .equ SBI_EXT_SSE,       0x535345    /* SBI 3.0 */
         /* Not an SBI extension: probe_extension never reports it. The
          * riscv-ras smoke case ecalls it so the SBI path faults in M-mode. */
         .equ SBI_EXT_TEST_FAULT, 0x53515241 /* "SQRA" */
@@ -201,7 +207,42 @@
         .equ SBI_ERR_FAILED,    -1
         .equ SBI_ERR_NOT_SUPPORTED, -2
         .equ SBI_ERR_INVALID_PARAM, -3
+        .equ SBI_ERR_DENIED,    -4
+        .equ SBI_ERR_INVALID_ADDRESS, -5
         .equ SBI_ERR_ALREADY_AVAILABLE, -6
+        .equ SBI_ERR_ALREADY_STARTED, -7
+        .equ SBI_ERR_ALREADY_STOPPED, -8
+        .equ SBI_ERR_INVALID_STATE, -10
+        .equ SBI_ERR_BAD_RANGE, -11
+
+        /* SSE: one event, the software-injected local event; per hart,
+         * an sse_table entry of 128 bytes whose first ten dwords are the
+         * event's attributes by ID (STATUS holds only the state; reading
+         * it adds the pending and injectable bits) */
+        .equ SSE_EVENT_LOCAL_SW, 0xffff0000
+        .equ SSE_ATTRS,         10
+        .equ SSE_ENTRY_SHIFT,   7
+        .equ SSE_STATUS,        0
+        .equ SSE_PRIORITY,      8
+        .equ SSE_CONFIG,        16
+        .equ SSE_PREF_HART,     24
+        .equ SSE_ENTRY_PC,      32
+        .equ SSE_ENTRY_ARG,     40
+        .equ SSE_INT_SEPC,      48
+        .equ SSE_INT_FLAGS,     56
+        .equ SSE_INT_A6,        64
+        .equ SSE_INT_A7,        72
+        .equ SSE_UNMASKED,      80          /* 1 after hart_unmask */
+        .equ SSE_PEND,          88          /* 1 once injected, until taken */
+        .equ SSE_UNUSED,        0
+        .equ SSE_REGISTERED,    1
+        .equ SSE_ENABLED,       2
+        .equ SSE_RUNNING,       3
+        .equ SSE_ST_PENDING,    4
+        .equ SSE_ST_INJECTABLE, 8
+        .equ SSTATUS_SIE,       (1 << 1)
+        .equ SSTATUS_SPIE,      (1 << 5)
+        .equ SSTATUS_SPP,       (1 << 8)
 
 .global _start
 _start:
@@ -245,11 +286,27 @@ _start:
         add t0, t0, t1
         sd zero, HART_STATE(t0)
 
+        mv a0, s1                           /* UART and CLINT addresses */
+        call dt_devices
         call uart_init
         mv a0, s1                           /* per-socket CLINTs (-numa) */
         call clint_layout
         la a0, banner
         call puts
+        la a0, msg_dt_uart
+        call puts
+        ld a0, uart_base
+        call puthex
+        la a0, msg_dt_msip
+        call puts
+        ld a0, clint_msip
+        call puthex
+        la a0, msg_dt_mtime
+        call puts
+        ld a0, clint_mtime
+        call puthex
+        li a0, '\n'
+        call putc
 
         .ifdef UEFI
         /* The UEFI core, in S-mode; s6 = the -kernel image for it, or 0 */
@@ -463,6 +520,8 @@ sbi_call:
         beq a7, t0, sbi_srst
         li t0, SBI_EXT_DBCN
         beq a7, t0, sbi_dbcn
+        li t0, SBI_EXT_SSE
+        beq a7, t0, sbi_sse
 sbi_not_supported:
         li a0, SBI_ERR_NOT_SUPPORTED
         j sbi_ret
@@ -614,14 +673,14 @@ sbi_hsm:
          * can be after the OS is already running. Give a hart that has not
          * checked in HSM_CHECKIN_WAIT to do so; after that it does not
          * exist. */
-        li t2, CLINT_MTIME
+        ld t2, clint_mtime
         ld t3, 0(t2)
         li t2, HSM_CHECKIN_WAIT
         add t3, t3, t2                      /* t3 = deadline */
 1:      ld t1, HART_STATE(t0)
         li t2, HSM_ABSENT
         bne t1, t2, 2f
-        li t2, CLINT_MTIME
+        ld t2, clint_mtime
         ld t2, 0(t2)
         bltu t2, t3, 1b
         j sbi_invalid_param
@@ -743,7 +802,7 @@ check_mask:
 6:      ld t5, HART_STATE(t3)
         li t6, HSM_ABSENT
         bne t5, t6, 4f
-        li t6, CLINT_MTIME                  /* not at park yet: wait, as sbi_hsm does */
+        ld t6, clint_mtime                  /* not at park yet: wait, as sbi_hsm does */
         ld t5, 0(t6)
         bnez a2, 7f
         li t6, HSM_CHECKIN_WAIT
@@ -848,7 +907,7 @@ m_soft:
         sw zero, 0(t0)                      /* before reading the work */
         fence rw, rw
         jal t2, take_work
-        j trap_ret
+        j sse_exit                          /* an SSE event injected from another hart */
 
 /* SRST extension: system_reset (0, a0 = type, a1 = reason).  Types:
  * shutdown (0), cold reboot (1), warm reboot (2), all through the QEMU
@@ -870,7 +929,7 @@ sbi_srst:
         bgtu a0, t1, sbi_invalid_param
 2:      li t1, TEST_FINISHER
         sw t0, 0(t1)
-        li t1, CLINT_MTIME
+        ld t1, clint_mtime
         ld t2, 0(t1)
         li t0, SRST_WAIT
         add t2, t2, t0
@@ -896,20 +955,38 @@ sbi_probe_extension:
         beq a0, t0, sbi_ok
         li t0, SBI_EXT_DBCN
         beq a0, t0, sbi_ok
+        li t0, SBI_EXT_SSE
+        beq a0, t0, sbi_ok
         li a1, 0
         j sbi_ok
+
+/* Fail to bad unless [addr, addr + len) is clear of the firmware region:
+ * memory S-mode hands the SBI is read and written from M-mode, where PMP
+ * does not apply, so it must never reach the SBI's own 2 MB. */
+.macro shmem_ok addr, len, t_a, t_b, bad
+        add \t_a, \addr, \len
+        bltu \t_a, \addr, \bad              /* wraps */
+        li \t_b, FW_BASE
+        bleu \t_a, \t_b, sok\@              /* ends below the firmware */
+        li \t_b, FW_BASE + FW_SIZE
+        bgeu \addr, \t_b, sok\@             /* starts above it */
+        j \bad
+sok\@:
+.endm
 
 /* Debug console extension (SBI 2.0), on the UART:
  *   console_write (0): a0 = bytes, a1/a2 = physical address low/high
  *   console_read (1): the same; takes what the UART has, maybe nothing
  *   console_write_byte (2): a0 = the byte
  * Write and read return a1 = the number of bytes done. On RV64 the high
- * half of the address must be 0. a2 and a3 are restored by trap_ret. */
+ * half of the address must be 0, and the buffer must not touch the
+ * firmware region. a2 and a3 are restored by trap_ret. */
 sbi_dbcn:
         li t0, 2
         beq a6, t0, 3f
         bgtu a6, t0, sbi_not_supported
         bnez a2, sbi_invalid_param
+        shmem_ok a1, a0, t0, t1, sbi_invalid_param
         mv a2, a1                           /* a2 = address */
         mv a3, a0                           /* a3 = bytes asked for */
         li a1, 0                            /* a1 = bytes done */
@@ -921,7 +998,7 @@ sbi_dbcn:
         addi a1, a1, 1
         j 1b
 2:      beq a1, a3, sbi_ok
-        li t0, UART_BASE
+        ld t0, uart_base
         lbu t1, UART_LSR(t0)
         andi t1, t1, 1                      /* data ready */
         beqz t1, sbi_ok
@@ -934,6 +1011,345 @@ sbi_dbcn:
         call putc
         li a1, 0
         j sbi_ok
+
+/* Supervisor Software Events (SSE, SBI 3.0), function in a6:
+ *   read_attrs (0), write_attrs (1): a0 = event, a1 = first attribute,
+ *     a2 = count, a3/a4 = shared memory low/high (8-byte aligned, count
+ *     dwords, value i at 8 * i, clear of the firmware region)
+ *   register (2): a0 = event, a1 = entry pc, a2 = entry argument
+ *   unregister (3), enable (4), disable (5): a0 = event
+ *   complete (6)
+ *   inject (7): a0 = event, a1 = hart
+ *   hart_unmask (8), hart_mask (9)
+ * The one event is the software-injected local event (0xffff0000); any
+ * other ID is not supported. Events start masked on every hart.
+ *
+ * An event is taken on the way back to S-mode (sse_exit, after an SSE
+ * call or an IPI) once it is enabled, pending and unmasked: sstatus.SPP,
+ * SPIE, sepc, a6 and a7 are saved in its attributes, a6 = hart ID, a7 =
+ * entry argument, sepc = where S-mode was going, SPP = its mode, SPIE =
+ * SIE, SIE = 0, and S-mode continues at the entry pc. complete undoes
+ * that and resumes at sepc; it returns no sbiret, so a0 and a1 come back
+ * as the handler left them, which lets it restore the interrupted
+ * context's. Injecting on another hart marks the event pending there and
+ * sends that hart an IPI. Uses t0-t6 only: a4 and a5 are not saved. */
+
+/* t3 = this hart's sse_table entry; uses t6 */
+.macro sse_entry
+        csrr t3, mhartid
+        slli t3, t3, SSE_ENTRY_SHIFT
+        la t6, sse_table
+        add t3, t3, t6
+.endm
+
+/* t0 = attribute k of the event at t3 (k < SSE_ATTRS); uses t6 */
+.macro sse_attr k
+        slli t6, \k, 3
+        add t6, t6, t3
+        ld t0, 0(t6)
+        bnez \k, sa\@
+        ld t6, SSE_PEND(t3)
+        slli t6, t6, 2                      /* SSE_ST_PENDING */
+        or t0, t0, t6
+        ori t0, t0, SSE_ST_INJECTABLE
+sa\@:
+.endm
+
+sbi_sse:
+        li t0, 9
+        bgtu a6, t0, sbi_not_supported
+        sse_entry
+        li t0, 6
+        beq a6, t0, sse_complete
+        li t0, 8
+        beq a6, t0, sse_unmask
+        li t0, 9
+        beq a6, t0, sse_mask
+        slli t0, a0, 32                     /* the rest name an event */
+        srli t0, t0, 32
+        li t1, SSE_EVENT_LOCAL_SW
+        bne t0, t1, sbi_not_supported
+        beqz a6, sse_read
+        li t0, 1
+        beq a6, t0, sse_write
+        li t0, 2
+        beq a6, t0, sse_register
+        li t0, 3
+        beq a6, t0, sse_unregister
+        li t0, 4
+        beq a6, t0, sse_enable
+        li t0, 5
+        beq a6, t0, sse_disable
+        j sse_inject
+
+sse_ok:
+        li a0, 0
+        li a1, 0
+        csrr t0, mepc
+        addi t0, t0, 4
+        csrw mepc, t0
+        j sse_exit
+sse_invalid_state:
+        li a0, SBI_ERR_INVALID_STATE
+        j sbi_ret
+sse_bad_range:
+        li a0, SBI_ERR_BAD_RANGE
+        j sbi_ret
+sse_invalid_address:
+        li a0, SBI_ERR_INVALID_ADDRESS
+        j sbi_ret
+sse_denied:
+        li a0, SBI_ERR_DENIED
+        j sbi_ret
+
+/* t1 = first attribute, t2 = count, both checked; the shared memory at
+ * a3 (a4 = 0) checked for count dwords.  Returns through t4. */
+sse_range:
+        slli t1, a1, 32
+        srli t1, t1, 32
+        slli t2, a2, 32
+        srli t2, t2, 32
+        beqz t2, sbi_invalid_param
+        li t0, SSE_ATTRS
+        bgeu t1, t0, sse_bad_range
+        sub t0, t0, t1
+        bgtu t2, t0, sse_bad_range
+        bnez a4, sse_invalid_address
+        andi t0, a3, 7
+        bnez t0, sse_invalid_address
+        slli t5, t2, 3
+        shmem_ok a3, t5, t0, t6, sse_invalid_address
+        jr t4
+
+sse_read:
+        jal t4, sse_range
+        li t5, 0                            /* t5 = i */
+1:      add t2, t1, t5                      /* attribute t1 + i */
+        sse_attr t2
+        slli t6, t5, 3
+        add t6, t6, a3
+        sd t0, 0(t6)
+        addi t5, t5, 1
+        slli t2, a2, 32
+        srli t2, t2, 32
+        bltu t5, t2, 1b
+        j sse_ok
+
+/* Two passes: every value is checked before any is stored, and the
+ * first bad one (in attribute order) gives the error */
+sse_write:
+        jal t4, sse_range
+        ld t4, SSE_STATUS(t3)               /* t4 = state */
+        li t5, 0
+1:      add t2, t1, t5
+        slli t6, t5, 3
+        add t6, t6, a3
+        ld t0, 0(t6)                        /* t0 = the value */
+        beqz t2, sse_denied                 /* STATUS */
+        li t6, 3
+        beq t2, t6, sse_denied              /* PREFERRED_HART: local event */
+        li t6, 4
+        beq t2, t6, sse_denied              /* ENTRY_PC */
+        li t6, 5
+        beq t2, t6, sse_denied              /* ENTRY_ARG */
+        li t6, 3
+        bltu t2, t6, 2f
+        li t6, SSE_RUNNING                  /* the INTERRUPTED_* ones */
+        bne t4, t6, sse_invalid_state
+        li t6, 7
+        bne t2, t6, 3f
+        andi t6, t0, -4                     /* FLAGS: only SPP and SPIE here */
+        bnez t6, sbi_invalid_param
+        j 3f
+2:      li t6, SSE_REGISTERED               /* PRIORITY, CONFIG */
+        bgtu t4, t6, sse_invalid_state
+        li t6, 2
+        bne t2, t6, 3f
+        andi t6, t0, -2                     /* CONFIG: only one-shot */
+        bnez t6, sbi_invalid_param
+3:      addi t5, t5, 1
+        slli t6, a2, 32
+        srli t6, t6, 32
+        bltu t5, t6, 1b
+
+        li t5, 0
+4:      add t2, t1, t5
+        slli t6, t5, 3
+        add t6, t6, a3
+        ld t0, 0(t6)
+        li t6, 1
+        bne t2, t6, 5f
+        slli t0, t0, 32                     /* PRIORITY: the low 32 bits */
+        srli t0, t0, 32
+5:      slli t6, t2, 3
+        add t6, t6, t3
+        sd t0, 0(t6)
+        addi t5, t5, 1
+        slli t6, a2, 32
+        srli t6, t6, 32
+        bltu t5, t6, 4b
+        j sse_ok
+
+sse_register:
+        andi t0, a1, 1
+        bnez t0, sbi_invalid_param
+        ld t0, SSE_STATUS(t3)
+        bnez t0, sse_invalid_state          /* not UNUSED */
+        sd a1, SSE_ENTRY_PC(t3)
+        sd a2, SSE_ENTRY_ARG(t3)
+        csrr t0, mhartid
+        sd t0, SSE_PREF_HART(t3)
+        li t0, SSE_REGISTERED
+        sd t0, SSE_STATUS(t3)
+        j sse_ok
+
+sse_unregister:
+        li t1, SSE_REGISTERED
+        li t2, SSE_UNUSED
+        j 1f
+sse_enable:
+        li t1, SSE_REGISTERED
+        li t2, SSE_ENABLED
+        j 1f
+sse_disable:
+        li t1, SSE_ENABLED
+        li t2, SSE_REGISTERED
+1:      ld t0, SSE_STATUS(t3)               /* t1 -> t2 */
+        bne t0, t1, sse_invalid_state
+        sd t2, SSE_STATUS(t3)
+        j sse_ok
+
+sse_inject:
+        li t0, MAX_HARTS
+        bgeu a1, t0, sbi_invalid_param
+        slli t0, a1, HART_ENTRY_SHIFT
+        la t1, hart_table
+        add t1, t1, t0                      /* t1 = its hart_table entry */
+        ld t0, HART_STATE(t1)
+        li t2, HSM_ABSENT
+        beq t0, t2, sbi_invalid_param       /* no such hart */
+        slli t2, a1, SSE_ENTRY_SHIFT
+        la t4, sse_table
+        add t2, t2, t4
+        li t0, 1
+        sd t0, SSE_PEND(t2)
+        csrr t0, mhartid
+        beq a1, t0, sse_ok                  /* this hart: taken in sse_exit */
+        fence rw, ow
+        ld t0, HART_MSIP(t1)
+        li t2, 1
+        sw t2, 0(t0)
+        j sse_ok
+
+sse_unmask:
+        ld t0, SSE_UNMASKED(t3)
+        li a0, SBI_ERR_ALREADY_STARTED
+        bnez t0, sbi_ret
+        li t0, 1
+        sd t0, SSE_UNMASKED(t3)
+        j sse_ok
+sse_mask:
+        ld t0, SSE_UNMASKED(t3)
+        li a0, SBI_ERR_ALREADY_STOPPED
+        beqz t0, sbi_ret
+        sd zero, SSE_UNMASKED(t3)
+        j sse_ok
+
+/* The running event is done: back to ENABLED (REGISTERED if one-shot),
+ * and S-mode resumes where the event took it from */
+sse_complete:
+        ld t0, SSE_STATUS(t3)
+        li t1, SSE_RUNNING
+        bne t0, t1, sse_ok                  /* nothing running */
+        ld t1, SSE_CONFIG(t3)
+        andi t1, t1, 1
+        li t0, SSE_ENABLED
+        sub t0, t0, t1
+        sd t0, SSE_STATUS(t3)
+        csrr t0, sepc                       /* pc = sepc */
+        csrw mepc, t0
+        csrr t1, sstatus                    /* t1 = sstatus as the handler left it */
+        li t2, MSTATUS_MPP                  /* mode = SPP */
+        csrc mstatus, t2
+        andi t0, t1, SSTATUS_SPP
+        beqz t0, 1f
+        li t2, MSTATUS_MPP_S
+        csrs mstatus, t2
+1:      csrci sstatus, SSTATUS_SIE          /* SIE = SPIE */
+        andi t0, t1, SSTATUS_SPIE
+        beqz t0, 2f
+        csrsi sstatus, SSTATUS_SIE
+2:      li t2, SSTATUS_SPIE | SSTATUS_SPP   /* SPIE, SPP = the saved flags */
+        csrc sstatus, t2
+        ld t0, SSE_INT_FLAGS(t3)
+        andi t2, t0, 2
+        beqz t2, 3f
+        li t2, SSTATUS_SPIE
+        csrs sstatus, t2
+3:      andi t2, t0, 1
+        beqz t2, 4f
+        li t2, SSTATUS_SPP
+        csrs sstatus, t2
+4:      ld a6, SSE_INT_A6(t3)
+        ld a7, SSE_INT_A7(t3)
+        ld t0, SSE_INT_SEPC(t3)
+        csrw sepc, t0
+        /* fall through: injected again meanwhile, it is taken again */
+
+/* Return to S- or U-mode, through the event handler if this hart's event
+ * is enabled, pending and unmasked */
+sse_exit:
+        sse_entry
+        ld t0, SSE_STATUS(t3)
+        li t1, SSE_ENABLED
+        bne t0, t1, trap_ret
+        ld t0, SSE_PEND(t3)
+        beqz t0, trap_ret
+        ld t0, SSE_UNMASKED(t3)
+        beqz t0, trap_ret
+        csrr t0, mstatus
+        li t1, MSTATUS_MPP
+        and t0, t0, t1
+        beq t0, t1, trap_ret                /* never from M-mode */
+        sd zero, SSE_PEND(t3)
+        li t0, SSE_RUNNING
+        sd t0, SSE_STATUS(t3)
+        csrr t1, sstatus                    /* t1 = the interrupted sstatus */
+        andi t0, t1, SSTATUS_SPP
+        snez t0, t0
+        andi t2, t1, SSTATUS_SPIE
+        snez t2, t2
+        slli t2, t2, 1
+        or t0, t0, t2
+        sd t0, SSE_INT_FLAGS(t3)
+        csrr t0, sepc
+        sd t0, SSE_INT_SEPC(t3)
+        sd a6, SSE_INT_A6(t3)
+        sd a7, SSE_INT_A7(t3)
+        csrr a6, mhartid
+        ld a7, SSE_ENTRY_ARG(t3)
+        csrr t0, mepc                       /* sepc = where it was going */
+        csrw sepc, t0
+        li t2, SSTATUS_SPP | SSTATUS_SPIE
+        csrc sstatus, t2
+        csrr t0, mstatus                    /* SPP = the interrupted mode */
+        li t2, MSTATUS_MPP
+        and t0, t0, t2
+        beqz t0, 1f
+        li t2, SSTATUS_SPP
+        csrs sstatus, t2
+1:      andi t0, t1, SSTATUS_SIE            /* SPIE = SIE, SIE = 0 */
+        beqz t0, 2f
+        li t2, SSTATUS_SPIE
+        csrs sstatus, t2
+2:      csrci sstatus, SSTATUS_SIE
+        li t2, MSTATUS_MPP                  /* into S-mode at the entry pc */
+        csrc mstatus, t2
+        li t2, MSTATUS_MPP_S
+        csrs mstatus, t2
+        ld t0, SSE_ENTRY_PC(t3)
+        csrw mepc, t0
+        j trap_ret
 
 /* Trap handler while enter_s probes menvcfg: skip the instruction */
         .align 2
@@ -1000,7 +1416,7 @@ trap_fatal:
         la a0, msg_halted
         call puts
         /* Let parked harts leave S-mode before the finisher kills QEMU. */
-        li t1, CLINT_MTIME
+        ld t1, clint_mtime
         ld t2, 0(t1)
         li t0, RAS_SHUTDOWN_WAIT
         add t2, t2, t0
@@ -1270,20 +1686,20 @@ clint_layout:
         sd a1, 0(t1)
         j 51f
 52:     sub t2, a1, t2                      /* pass 1: slot in the socket */
-        li t1, CLINT_SOCKET
-        mul t1, t1, a2
-        li t3, CLINT_MSIP
-        add t1, t1, t3                      /* t1 = the socket's CLINT */
+        li a3, CLINT_SOCKET                 /* (a3 is free outside properties) */
+        mul a3, a3, a2                      /* a3 = the socket's offset */
         slli t3, a1, HART_ENTRY_SHIFT
         la a0, hart_table
         add t3, t3, a0                      /* t3 = the hart's entry */
-        slli a0, t2, 2
+        ld a0, clint_msip
+        add a0, a0, a3
+        slli t1, t2, 2
         add a0, a0, t1
         sd a0, HART_MSIP(t3)
-        slli a0, t2, 3
+        ld a0, clint_mtimecmp
+        add a0, a0, a3
+        slli t1, t2, 3
         add a0, a0, t1
-        li t2, CLINT_OFF_MTIMECMP
-        add a0, a0, t2
         sd a0, HART_MTIMECMP(t3)
 51:     li t2, 2
         bne t5, t2, 53f
@@ -1498,6 +1914,184 @@ aia_setup:
         addi sp, sp, 80
         ret
 
+/* a0 = device tree.  The NS16550A UART and the CLINT come from it (with
+ * -M virt,aclint=on, the ACLINT MSWI and MTIMER), lowest address first
+ * when there are several (one CLINT per socket with -numa); clint_layout
+ * then counts sockets from there.  What the tree does not name keeps the
+ * QEMU virt address the build was configured with.  Every hart_table
+ * entry's msip and mtimecmp slot follows the CLINT found.  Runs on the
+ * boot hart before the UART is set up and before any other hart starts. */
+dt_devices:
+        addi sp, sp, -16
+        sd ra, 0(sp)
+        sd s9, 8(sp)
+        mv s9, a0
+        la a1, str_ns16550a
+        call dt_reg_of
+        beqz a0, 1f
+        sd a0, uart_base, t0
+1:      mv a0, s9
+        la a1, str_riscv_clint0
+        call dt_reg_of
+        bnez a0, 2f
+        mv a0, s9
+        la a1, str_sifive_clint0
+        call dt_reg_of
+        beqz a0, 3f
+2:      sd a0, clint_msip, t0               /* a CLINT: msip, mtimecmp, mtime */
+        li t1, CLINT_MTIMECMP - CLINT_MSIP
+        add t1, a0, t1
+        sd t1, clint_mtimecmp, t0
+        li t1, CLINT_MTIME - CLINT_MSIP
+        add t1, a0, t1
+        sd t1, clint_mtime, t0
+        j 5f
+3:      mv a0, s9                           /* an ACLINT: MSWI, then MTIMER */
+        la a1, str_aclint_mswi
+        call dt_reg_of
+        beqz a0, 5f
+        sd a0, clint_msip, t0
+        mv a0, s9
+        la a1, str_aclint_mtimer
+        call dt_reg_of
+        beqz a0, 5f
+        bnez a1, 4f                         /* one region: mtimecmp, mtime after */
+        li t1, CLINT_MTIME - CLINT_MTIMECMP
+        add a1, a0, t1
+4:      bltu a0, a1, 41f                    /* two: mtimecmp is the lower */
+        mv t1, a0
+        mv a0, a1
+        mv a1, t1
+41:     sd a0, clint_mtimecmp, t0
+        sd a1, clint_mtime, t0
+5:      ld t0, clint_msip                   /* the one-socket slots */
+        ld t1, clint_mtimecmp
+        la t2, hart_table
+        li t3, MAX_HARTS
+6:      sd t0, HART_MSIP(t2)
+        sd t1, HART_MTIMECMP(t2)
+        addi t0, t0, 4
+        addi t1, t1, 8
+        addi t2, t2, 1 << HART_ENTRY_SHIFT
+        addi t3, t3, -1
+        bnez t3, 6b
+        ld ra, 0(sp)
+        ld s9, 8(sp)
+        addi sp, sp, 16
+        ret
+
+/* a0 = device tree, a1 = a compatible string.  Of the nodes whose
+ * compatible list holds it, the one with the lowest first reg address:
+ * a0 = that address, a1 = its second reg address or 0.  a0 = 0 when there
+ * is none or the tree does not parse.  reg is read as two address and two
+ * size cells, as under QEMU virt's /soc.  Uses t0-t6, a0-a7. */
+dt_reg_of:
+        addi sp, sp, -32
+        sd s7, 0(sp)
+        sd s8, 8(sp)
+        sd s10, 16(sp)
+        sd s11, 24(sp)
+        li s10, 0                           /* s10, s11 = the best so far */
+        li s11, 0
+        mv a7, a1                           /* a7 = the string */
+        beqz a0, 9f
+        andi t0, a0, 3
+        bnez t0, 9f
+        ldbe t0, 0, a0, t1
+        li t1, FDT_MAGIC
+        bne t0, t1, 9f
+        ldbe t0, FDT_OFF_STRUCT, a0, t1
+        add a4, a0, t0                      /* a4 = structure block */
+        ldbe t1, FDT_SIZE_STRUCT, a0, t2
+        add a5, a4, t1                      /* a5 = its end */
+        ldbe t0, FDT_OFF_STRINGS, a0, t1
+        add a6, a0, t0                      /* a6 = strings block */
+        mv t0, a4                           /* t0 = token */
+        li t5, 0                            /* t5 = 1: the node so far matches */
+        li a2, 0                            /* a2, a3 = its reg addresses */
+        li a3, 0
+1:      bgeu t0, a5, 9f
+        ldbe t1, 0, t0, t2
+        addi t0, t0, 4
+        li t2, FDT_PROP
+        beq t1, t2, 3f
+        li t2, FDT_NOP
+        beq t1, t2, 1b
+        li t2, FDT_BEGIN_NODE
+        beq t1, t2, 2f
+        li t2, FDT_END_NODE
+        bne t1, t2, 9f                      /* FDT_END or anything else */
+        jal t4, 7f                          /* a node's properties end */
+        j 1b
+2:      jal t4, 7f                          /* so do its parent's */
+21:     lbu t1, 0(t0)                       /* skip the name */
+        addi t0, t0, 1
+        bnez t1, 21b
+        addi t0, t0, 3
+        andi t0, t0, -4
+        j 1b
+
+3:      ldbe t6, 0, t0, t2                  /* a property: t6 = length */
+        ldbe t1, 4, t0, t2
+        add a0, a6, t1
+        la t1, str_compatible
+        jal t4, name_is
+        beqz t3, 5f
+        addi s7, t0, 8                      /* walk the string list */
+        add s8, s7, t6
+4:      bgeu s7, s8, 6f
+        mv a0, s7
+        mv t1, a7
+        jal t4, name_is
+        beqz t3, 41f
+        li t5, 1
+        j 6f
+41:     lbu t1, 0(s7)
+        addi s7, s7, 1
+        bnez t1, 41b
+        j 4b
+5:      ldbe t1, 4, t0, t2
+        add a0, a6, t1
+        la t1, str_reg
+        jal t4, name_is
+        beqz t3, 6f
+        li t2, 16
+        bltu t6, t2, 6f
+        ldbe t1, 8, t0, t2
+        ldbe t3, 12, t0, t2
+        slli t1, t1, 32
+        or a2, t1, t3
+        li t2, 32
+        bltu t6, t2, 6f
+        ldbe t1, 24, t0, t2
+        ldbe t3, 28, t0, t2
+        slli t1, t1, 32
+        or a3, t1, t3
+6:      addi t6, t6, 8 + 3                  /* skip length, name and value */
+        andi t6, t6, -4
+        add t0, t0, t6
+        j 1b
+
+7:      beqz t5, 72f                        /* the node done matched: keep */
+        beqz a2, 72f                        /* the lowest */
+        beqz s10, 71f
+        bgeu a2, s10, 72f
+71:     mv s10, a2
+        mv s11, a3
+72:     li t5, 0
+        li a2, 0
+        li a3, 0
+        jr t4
+
+9:      mv a0, s10
+        mv a1, s11
+        ld s7, 0(sp)
+        ld s8, 8(sp)
+        ld s10, 16(sp)
+        ld s11, 24(sp)
+        addi sp, sp, 32
+        ret
+
 /* t3 = 1 if the NUL-terminated string at a0 equals the one at t1, else 0.
  * Uses a0, t1 and t2; returns through t4. */
 name_is:
@@ -1515,7 +2109,7 @@ name_is:
 /* ------------------------------------------------------------------ */
 
 uart_init:
-        li t0, UART_BASE
+        ld t0, uart_base
         sb zero, UART_IER(t0)
         li t1, UART_LCR_DLAB                /* 115200: divisor latch */
         sb t1, UART_LCR(t0)
@@ -1532,7 +2126,7 @@ uart_init:
 /* a0 = character.  Gives up after UART_TIMEOUT polls so a stuck UART
  * cannot hang the firmware. */
 putc:
-        li t0, UART_BASE
+        ld t0, uart_base
         li t2, UART_TIMEOUT
 1:      lbu t1, UART_LSR(t0)
         andi t1, t1, UART_LSR_THRE
@@ -1603,6 +2197,15 @@ msg_dt_room:    .asciz "dt: firmware region not reserved: no room to grow the de
 str_reserved_memory: .asciz "reserved-memory"
 str_cpus:       .asciz "cpus"
 str_reg:        .asciz "reg"
+str_compatible: .asciz "compatible"
+str_ns16550a:   .asciz "ns16550a"
+str_riscv_clint0: .asciz "riscv,clint0"
+str_sifive_clint0: .asciz "sifive,clint0"
+str_aclint_mswi: .asciz "riscv,aclint-mswi"
+str_aclint_mtimer: .asciz "riscv,aclint-mtimer"
+msg_dt_uart:    .asciz "dt: UART at 0x"
+msg_dt_msip:    .asciz ", CLINT msip at 0x"
+msg_dt_mtime:   .asciz ", mtime at 0x"
 str_numa_node_id: .asciz "numa-node-id"
 str_riscv_delegate: .asciz "riscv,delegate"
 str_riscv_children: .asciz "riscv,children"
@@ -1622,6 +2225,16 @@ trap_stacks:
     .align 3
 sstc_on:                                    /* 1 once enter_s found Sstc */
     .dword 0
+    /* Device addresses: QEMU virt's (and the build's CONFIG_UART_BASE)
+     * until dt_devices reads the device tree */
+uart_base:
+    .dword UART_BASE
+clint_msip:
+    .dword CLINT_MSIP
+clint_mtimecmp:
+    .dword CLINT_MTIMECMP
+clint_mtime:
+    .dword CLINT_MTIME
     /* Each entry starts with the one-socket CLINT slots; clint_layout
      * moves them for harts in other sockets. */
 hart_table:
@@ -1631,6 +2244,8 @@ hart_table:
     .dword CLINT_MSIP + 4 * hart_n, CLINT_MTIMECMP + 8 * hart_n
     .set hart_n, hart_n + 1
     .endr
+sse_table:                                  /* SSE event state, per hart */
+    .skip (1 << SSE_ENTRY_SHIFT) * MAX_HARTS
 socket_first:                               /* lowest hart ID per socket, for clint_layout */
     .rept MAX_SOCKETS
     .dword -1

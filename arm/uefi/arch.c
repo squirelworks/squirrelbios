@@ -377,6 +377,7 @@ void arch_virtual_map(void)
 
 void arch_efi_init(void)
 {
+    arm_acpi_init();
 }
 
 /* QEMU hands -kernel to firmware through fw_cfg here (main.c reads it) */

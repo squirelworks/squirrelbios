@@ -24,6 +24,11 @@ disk.c, fat.c   Block I/O for the disk and its GPT/MBR partitions, a
                 names), and the ESP boot; copies of x86_64/core's, with
                 the architecture's boot file name and long-name lookup
 fdt.c           read-only flattened device tree walker
+acpi.c, aml.c   ACPI table store (headers, checksums, XSDT, RSDP as the
+                ACPI 2.0 configuration table) and an AML writer (a copy
+                of x86_64/core/aml.c plus string names, QWord memory,
+                edge interrupts and translated I/O); the architecture
+                builds the tables (arm/uefi/acpi.c)
 memmap.c        usable RAM from device_type "memory", /reserved-memory
 fwcfg.c         QEMU fw_cfg, memory-mapped, with DMA for big reads
 memory.c, protocol.c, image.c, event.c, textcon.c, tables.c,
