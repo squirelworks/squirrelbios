@@ -284,6 +284,10 @@ boxes in [TODO.md](TODO.md).
   - [x] `f1-x86-hmat`: x86_64 HMAT (initiator of each memory node, or
     QEMU's latency, bandwidth and cache structures) and QEMU's `-numa
     dist` in the SLIT
+  - [x] `f1-x86-roots`: x86_64 extra PCI root buses (QEMU pxb and
+    pxb-pcie) as DSDT host bridges with their own buses and windows, and
+    ACPI table room that grows with the CPU count (more than one ECAM
+    segment and >255 CPUs untestable on QEMU x86 TCG)
 - [ ] **F2** RAS: machine-check logging (BERT/HEST/EINJ), corrected-error
   thresholds, CXL memory enumeration (research).
   - [x] `f2-x86-stubs`: x86_64 BERT and HEST stubs (MCE logging, EINJ and

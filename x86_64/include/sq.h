@@ -78,6 +78,7 @@ void pci_write8(u8 bus, u8 dev, u8 fn, u8 off, u8 v);
 u16 pci_assign_io_bar(u8 bus, u8 dev, u8 fn, u8 bar_off);
 u32 pci_assign_mem_bar(u8 bus, u8 dev, u8 fn, u8 bar_off);
 int pci_find(u16 vendor, u16 device, u8 *bus, u8 *dev, u8 *fn);
+int pci_extra_roots(u8 *roots, int max);     /* pxb / pxb-pcie root bus numbers */
 
 /* virtio_blk.c: one transitional virtio-blk disk */
 int vblk_probe(void);
