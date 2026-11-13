@@ -322,8 +322,12 @@ ehci_async:
     push cx
     pushf
     mov eax, [gs:esi + EHCI_USBCMD]
+    popf                        ; CF: on or off (OR would clear it)
+    pushf
+    jc .clear
     or eax, ECMD_ASE
-    jnc .set
+    jmp .set
+.clear:
     and eax, ~ECMD_ASE
 .set:
     mov [gs:esi + EHCI_USBCMD], eax

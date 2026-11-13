@@ -446,6 +446,8 @@ usb_enum:
 .msd:
     ; Mass storage: SCSI commands (subclass 6) over bulk-only transport
     ; (protocol 50h). Its bulk endpoints, before the next interface.
+    mov al, [fs:USB_BUF + si + 2]
+    mov [bp - 21], al                   ; the interface, for a reset
     cmp word [fs:USB_BUF + si + 6], 0x6206
     je .uas
     cmp word [fs:USB_BUF + si + 6], 0x5006
