@@ -31,7 +31,8 @@ X64_FD      := x86_64/squirrel-bios.fd
 X64_RT_C    := common/efi/runtime.c common/efi/lib.c x86_64/core/rt.c x86_64/core/variables.c \
                x86_64/secure/authvar.c x86_64/secure/der.c x86_64/secure/rsa.c x86_64/secure/sha256.c
 X64_EFI_C   := $(addprefix common/efi/,ahci.c aml.c console.c devicepath.c disk.c event.c fat.c \
-                 image.c memory.c nvme.c protocol.c tables.c textcon.c virtio.c virtio_pci.c xhci.c)
+                 image.c memory.c nvme.c protocol.c tables.c textcon.c virtio.c virtio_pci.c xhci.c \
+                 sdhci.c)
 X64_C       := $(filter-out $(X64_RT_C),$(wildcard x86_64/*/*.c)) $(X64_EFI_C) $(wildcard common/efi/net_*.c)
 X64_H       := $(wildcard x86_64/include/*.h) $(wildcard common/efi/include/*.h) common/efi/net.h
 X64_FLASH   := 0x100000

@@ -260,6 +260,9 @@ int pci_disk_add(struct sq_pci *p)
         return ahci_add(p);
     case 0x0C0330:                          /* USB, xHCI */
         return xhci_add(p);
+    case 0x080500:                          /* SD host controller */
+    case 0x080501:                          /* the same, with DMA */
+        return sdhci_add(p);
     }
     return 0;
 }
