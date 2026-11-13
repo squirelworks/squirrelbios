@@ -1,0 +1,40 @@
+# SquirrelBIOS m68k-virt (roadmap E3) cases, sourced by tests/smoke.sh.
+# Needs qemu-system-m68k (Ubuntu: qemu-system-misc) and the firmware,
+# which needs an m68k cross gcc (gcc-m68k-linux-gnu); without either the
+# cases are skipped. QEMU's virt machine has no ROM: the firmware is the
+# -kernel ELF, and the OS image comes as -initrd.
+
+QEMU_M68K=${QEMU_M68K:-qemu-system-m68k}
+M68K_FW=m68k/squirrel-bios.elf
+
+m68k_case() {
+    if ! command -v "$QEMU_M68K" >/dev/null 2>&1; then
+        skip "$1" "no $QEMU_M68K"
+    elif [ ! -f "$M68K_FW" ] || [ ! -f "$TEST_DIR/m68k-kernel.elf" ]; then
+        skip "$1" "m68k firmware not built (no m68k cross gcc)"
+    else
+        run "$@"
+    fi
+}
+
+# The firmware reads QEMU's bootinfo, places the test kernel (an ELF
+# linked at 0x1000) and hands it bootinfo after its end, as an m68k Linux
+# expects: no ramdisk record, the -append line; the kernel checks the CPU
+# state and the records and powers off through the virt ctrl device
+m68k_case m68k-boot "SquirrelBIOS m68k|mem: 128 MB at 0x0, firmware at 0x3c00000|bootargs: console=ttyGF0 squirrel|boot: ELF at 0x1000-|OS-ENTRY m68k state=ok bootinfo=ok mach=14 mem=ok devices=ok cmdline=ok ramdisk=ok|OS-DONE m68k|@exit=0|!=bad|!trap:" \
+    "$QEMU_M68K" -M virt -kernel $M68K_FW -initrd $TEST_DIR/m68k-kernel.elf -append "console=ttyGF0 squirrel"
+
+# 64 MB: still below the firmware's region, and the image fits
+m68k_case m68k-64m "mem: 64 MB at 0x0|OS-ENTRY m68k state=ok bootinfo=ok mach=14 mem=ok devices=ok cmdline=ok ramdisk=ok|@exit=0|!=bad|!trap:" \
+    "$QEMU_M68K" -M virt -m 64 -kernel $M68K_FW -initrd $TEST_DIR/m68k-kernel.elf -append "console=ttyGF0 squirrel"
+
+# No OS image: the prompt. help, info, bootinfo, date, an unknown
+# command, then poweroff through virt ctrl (QEMU exits)
+SERIAL_IN=$TEST_DIR/m68k-prompt.keys
+m68k_case m68k-prompt "boot: no OS image (give one with -initrd)|sq> |commands:|  bootinfo|tty 0xff008000|0x0005 memchunk      0x00000000 0x08000000|~20[0-9]{2}-[01][0-9]-[0-3][0-9] [0-2][0-9]:|unknown command 'bogus'|powering off|@exit=0|!trap:" \
+    "$QEMU_M68K" -M virt -kernel $M68K_FW
+SERIAL_IN=
+
+# Not an m68k ELF: refused at the prompt instead of being jumped to
+m68k_case m68k-not-elf "boot: OS image at 0x|not an ELF file|sq> |!jumping" \
+    "$QEMU_M68K" -M virt -kernel $M68K_FW -initrd $TEST_DIR/x86-boot.bin
