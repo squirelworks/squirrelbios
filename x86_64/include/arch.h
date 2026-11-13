@@ -1,28 +1,22 @@
-/* SquirrelBIOS x86_64-uefi: common types and helpers.
- * Original code. */
-#ifndef SQ_H
-#define SQ_H
+/* SquirrelBIOS x86_64-uefi: what the shared UEFI core (common/efi) needs
+ * to know about x86-64 on QEMU's pc and q35 machines, and the x86-only
+ * helpers (port I/O, CPUID, the TSC, PCI configuration mechanism 1, the
+ * chipset, the CSM). Original code. */
+#ifndef ARCH_H
+#define ARCH_H
 
-typedef unsigned char      u8;
-typedef unsigned short     u16;
-typedef unsigned int       u32;
-typedef unsigned long long u64;
-typedef signed long long   s64;
-typedef signed int         s32;
-typedef signed short       s16;
-typedef unsigned long      uptr;
-typedef unsigned long      usize;
-
-#define NULL ((void *)0)
-
-#ifdef SQ_CONFIG
-#include "config.h"
-#endif
 #ifndef CONFIG_COM1_BASE
 #define CONFIG_COM1_BASE 0x3F8
 #endif
 
-#define SQ_VERSION "2.0.0-alpha"
+#define ARCH_NAME            "x86_64-uefi"
+#define ARCH_PE_MACHINE      0x8664
+#define ARCH_ALLOC_TOP       0x100000000ULL     /* the 4 GB identity map */
+#define ARCH_TEST_ADDR       0x1000000ULL       /* 16 MB */
+/* Only the .rt pages stay for the OS (link.ld, runtime.c) */
+#define ARCH_FW_MEMORY_TYPE  EfiBootServicesCode
+#define ARCH_FW_MEMORY_ATTR  0
+#define ARCH_BOOT_FILE       u"\\EFI\\BOOT\\BOOTX64.EFI"
 
 static inline void outb(u16 port, u8 v)  { __asm__ volatile("outb %0, %1" :: "a"(v), "Nd"(port)); }
 static inline void outw(u16 port, u16 v) { __asm__ volatile("outw %0, %1" :: "a"(v), "Nd"(port)); }
@@ -43,29 +37,10 @@ static inline u64 rdtsc(void)
     return (u64)hi << 32 | lo;
 }
 
-static inline u32 be32(const u8 *p) { return (u32)p[0] << 24 | (u32)p[1] << 16 | (u32)p[2] << 8 | p[3]; }
-static inline u16 be16(const u8 *p) { return (u16)(p[0] << 8 | p[1]); }
-
-/* lib.c */
-void *memset(void *d, int c, usize n);
-void *memcpy(void *d, const void *s, usize n);
-int memcmp(const void *a, const void *b, usize n);
-usize strlen(const char *s);
-int strcmp(const char *a, const char *b);
-
 /* console.c: COM1, 115200 8N1 */
 void con_init(void);
-void con_putc(char c);
-void con_raw(char c);
-int con_getc(void);
-void con_puts(const char *s);
-void printf(const char *fmt, ...);
-void halt(void) __attribute__((noreturn));
 
-/* fwcfg.c: QEMU's firmware configuration device */
-int fwcfg_present(void);
-int fwcfg_find(const char *name, u16 *select, u32 *size);
-void fwcfg_read(u16 select, void *buf, u32 len);
+/* fwcfg.c: QEMU's firmware configuration device, I/O ports */
 void fwcfg_read_at(u16 select, u32 offset, void *buf, u32 len);
 
 /* pci.c */
@@ -80,15 +55,8 @@ u32 pci_assign_mem_bar(u8 bus, u8 dev, u8 fn, u8 bar_off);
 int pci_find(u16 vendor, u16 device, u8 *bus, u8 *dev, u8 *fn);
 int pci_extra_roots(u8 *roots, int max);     /* pxb / pxb-pcie root bus numbers */
 
-/* virtio_blk.c: one transitional virtio-blk disk */
+/* virtio_blk.c: one transitional virtio-blk disk, published */
 int vblk_probe(void);
-int vblk_present(void);
-u64 vblk_sectors(void);
-u8 vblk_bus(void);
-u8 vblk_dev(void);
-u8 vblk_fn(void);
-int vblk_read(u64 lba, void *buf, u32 bytes);
-int vblk_write(u64 lba, void *buf, u32 bytes);
 
 /* csm/csm.c: the legacy BIOS, when nothing boots the UEFI way */
 int csm_boot(void);
@@ -107,15 +75,15 @@ u8 chipset_pirq(u8 slot, u8 pin);
 u8 chipset_pirq_irq(u8 pirq);
 void chipset_legacy_handoff(void);
 
-/* memmap.c */
-struct mem_range {
-    u64 base;
-    u64 length;
-    u32 type;           /* 1 usable, 2 reserved, 3 ACPI, 4 NVS */
-};
-#define MEM_MAX 32
-extern struct mem_range mem_map[MEM_MAX];
-extern int mem_count;
-void memmap_init(void);
+/* arch.c, rt.c */
+#define arch_check_image(src, size) x86_check_image(src, size)
+#define arch_boot_options(image) efi_set_load_options(image)
+#define ARCH_RT_DATA(name) __attribute__((section(".rt.data." name)))
+u64 x86_check_image(const void *src, u64 size);   /* an EFI_STATUS */
+void x86_rt_init(u16 pm_base);      /* the PM block ResetSystem uses */
+
+/* bootopt.c: QEMU's -initrd and -append for a -kernel image */
+void efi_initrd_init(void);
+void efi_set_load_options(void *image);
 
 #endif

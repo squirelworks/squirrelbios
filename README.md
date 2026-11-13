@@ -19,7 +19,7 @@ riscv/      RISC-V QEMU virt — UART banner + S-mode entry to -kernel, DTB in a
             riscv/uefi: the UEFI core in S-mode on top of the SBI (roadmap D3)
 tests/      stand-in OS images and smoke tests (make test)
 common/     hand-off contract; common/efi: the UEFI core shared by the
-            device-tree machines (from x86_64/core)
+            device-tree machines and x86_64 (roadmap D4)
 configs/    build configurations, one directory per platform (make PLATFORM= CONFIG=)
 tools/      build helpers (mkconfig.sh: .cfg to config.inc / config.h)
 release-notes/  tagged releases (v0.2.0, v0.3.0, v1.0.0, …)

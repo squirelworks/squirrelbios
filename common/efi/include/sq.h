@@ -36,6 +36,17 @@ typedef unsigned long      usize;
  *   ARCH_BOOT_FILE       \EFI\BOOT\BOOT<arch>.EFI */
 #include "arch.h"
 
+/* Optional: arch.h may define these too */
+#ifndef ARCH_RT_DATA                /* data the OS keeps after ExitBootServices */
+#define ARCH_RT_DATA(name)
+#endif
+#ifndef arch_check_image            /* LoadImage: may this image run? */
+#define arch_check_image(src, size) EFI_SUCCESS
+#endif
+#ifndef arch_boot_options           /* a disk boot image's LoadOptions */
+#define arch_boot_options(image) ((void)(image))
+#endif
+
 static inline u32 be32(const u8 *p) { return (u32)p[0] << 24 | (u32)p[1] << 16 | (u32)p[2] << 8 | p[3]; }
 static inline u16 be16(const u8 *p) { return (u16)(p[0] << 8 | p[1]); }
 static inline u64 be64(const u8 *p) { return (u64)be32(p) << 32 | be32(p + 4); }
@@ -85,6 +96,7 @@ void arch_sync_icache(void *p, usize n);
 int arch_rtc_seconds(u64 *secs);    /* 1 and seconds since 1970, or 0 */
 void arch_reset(int type, u64 status) __attribute__((noreturn));
 void arch_memory_reserve(void);     /* efi_memory_mark the firmware's areas */
+int arch_disk_probe(void);          /* disks found (efi_disk_add each) */
 struct EFI_SYSTEM_TABLE;
 /* image_call(entry, handle, system table, &saved_sp): call an image's
  * entry point, return what it returns. image_exit(saved_sp, status):
@@ -112,11 +124,11 @@ u32 fdt_u32(const void *p);
 int fdt_next_node(int node, int *depth);   /* -1 at the end */
 const char *fdt_node_name(int node);
 
-/* memmap: the machine's memory, from the device tree */
+/* memmap: the machine's memory, from the device tree (x86: fw_cfg's e820) */
 struct mem_range {
     u64 base;
     u64 length;
-    u32 type;           /* 1 usable, 2 reserved */
+    u32 type;           /* e820: 1 usable, 2 reserved, 3 ACPI, 4 NVS */
 };
 #define MEM_MAX 32
 extern struct mem_range mem_map[MEM_MAX];

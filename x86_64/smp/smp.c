@@ -300,7 +300,7 @@ static int on_bsp(void) { return self_number() == 0; }
  * never a division by zero. */
 static u64 now_us(void)
 {
-    u64 per_us = efi_tsc_hz() / 1000000;
+    u64 per_us = efi_counter_hz() / 1000000;
     return rdtsc() / (per_us ? per_us : 1);
 }
 

@@ -25,6 +25,7 @@
 #define VBLK_T_OUT   1
 
 struct vblk {
+    struct sq_blk blk;          /* first: the disk disk.c publishes */
     u16 io;
     u8 bus, dev, fn;
     u16 qsize;
@@ -38,7 +39,6 @@ struct vblk {
 };
 
 static struct vblk disk;
-static int have_disk;
 
 static void w32(u16 port, u32 v) { outl(port, v); }
 static u32 r32(u16 port) { return inl(port); }
@@ -143,31 +143,18 @@ static int vblk_xfer(struct vblk *v, u64 lba, void *buf, u32 bytes, int write)
     return 0;
 }
 
-int vblk_present(void)
+static int vblk_read(struct sq_blk *b, u64 lba, void *buf, u32 bytes)
 {
-    return have_disk;
+    return vblk_xfer((struct vblk *)b, lba, buf, bytes, 0);
 }
 
-u64 vblk_sectors(void)
+static int vblk_write(struct sq_blk *b, u64 lba, void *buf, u32 bytes)
 {
-    return disk.sectors;
+    return vblk_xfer((struct vblk *)b, lba, buf, bytes, 1);
 }
 
-u8 vblk_bus(void) { return disk.bus; }
-u8 vblk_dev(void) { return disk.dev; }
-u8 vblk_fn(void) { return disk.fn; }
-
-int vblk_read(u64 lba, void *buf, u32 bytes)
-{
-    return have_disk && vblk_xfer(&disk, lba, buf, bytes, 0);
-}
-
-int vblk_write(u64 lba, void *buf, u32 bytes)
-{
-    return have_disk && vblk_xfer(&disk, lba, buf, bytes, 1);
-}
-
-/* Find the first transitional virtio-blk with an I/O BAR0 and bring it up. */
+/* Find the first transitional virtio-blk with an I/O BAR0, bring it up
+ * and publish it (efi_disk_add) */
 int vblk_probe(void)
 {
     u8 bus, dev, fn;
@@ -183,8 +170,12 @@ int vblk_probe(void)
     pci_write16(bus, dev, fn, 0x04, cmd | 0x05);       /* I/O + bus master */
     if (!vblk_init(&disk, io, bus, dev, fn))
         return 0;
-    have_disk = 1;
     printf("disk: virtio-blk at PCI %02x:%02x.%x, %lu sectors\n",
            bus, dev, fn, disk.sectors);
+    disk.blk.sectors = disk.sectors;
+    disk.blk.path = efi_dp_pci(dev, fn);
+    disk.blk.read = vblk_read;
+    disk.blk.write = vblk_write;
+    efi_disk_add(&disk.blk);
     return 1;
 }

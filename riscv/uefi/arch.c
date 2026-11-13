@@ -262,3 +262,9 @@ void arch_efi_init(void)
     efi_install_protocol_interface(&h, (EFI_GUID *)&boot_protocol_guid, 0, &boot_protocol);
     printf("efi: RISCV_EFI_BOOT_PROTOCOL installed (boot hart %lu)\n", boot_hart);
 }
+
+/* Disks: virtio-mmio transports and the PCIe host bridge in the device tree */
+int arch_disk_probe(void)
+{
+    return virtio_mmio_probe() + pci_probe();
+}

@@ -250,9 +250,7 @@ void efi_disk_add(struct sq_blk *dev)
 /* Every disk driver looks for its devices and calls efi_disk_add */
 void efi_disk_init(void)
 {
-    int n = virtio_mmio_probe();
-    n += pci_probe();
-    if (!n)
+    if (!arch_disk_probe())
         printf("disk: no disks\n");
 }
 
@@ -348,6 +346,7 @@ int efi_boot_esp(void)
             li->device_handle = handles[i];
             li->file_path = efi_dp_file(path);
         }
+        arch_boot_options(img);
         UINTN xsz = 0;
         CHAR16 *xdata = NULL;
         s = efi_start_image(img, &xsz, &xdata);

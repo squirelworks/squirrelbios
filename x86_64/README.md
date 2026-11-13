@@ -5,23 +5,21 @@ as a 1 MB flash image (`squirrel-bios.fd`, for
 `qemu-system-x86_64 -bios`). Original code: freestanding C (gcc) and
 NASM. The legacy 16-bit BIOS in `x86/` is separate and unchanged.
 
+The UEFI services (memory, protocols, images, events, the text console,
+tables, runtime services, Block I/O, GPT and FAT) are the shared core in
+`common/efi`, built with `include/arch.h` (roadmap D4).
+
 ```
 reset/     reset.asm: the last 4 KB of flash. Reset vector, 32-bit
            protected mode, copies the body to RAM at FW_BASE (2 MB),
            maps the first 4 GB 1:1 with 2 MB pages (tables at
            0x1000-0x6FFF), enters long mode, jumps to the body
-core/      start.asm (clears .bss, calls fw_main), main.c, console.c
-           (COM1, printf), lib.c, tables.c (EFI system, boot and
-           runtime services tables), memory.c (UEFI memory map,
-           AllocatePages/FreePages, AllocatePool/FreePool, GetMemoryMap),
-           protocol.c (handles, protocols, configuration tables),
-           image.c (PE32+ loader, LoadImage/StartImage/Exit/UnloadImage),
-           event.c (events, timers, Stall; the TSC measured against the
-           PIT), textcon.c (Simple Text Input/Output on COM1),
-           devicepath.c, disk.c (Block I/O, GPT/MBR), fat.c (Simple File
-           System), gop.c (Graphics Output Protocol on Bochs DISPI),
-           runtime.c (GetTime, variables, ResetSystem, ExitBootServices),
-           acpi.c (ACPI 6.x tables), aml.c (the AML writer the DSDT is
+core/      start.asm (clears .bss, calls fw_main), main.c, arch.c (the
+           shared core's architecture interface: COM1, the TSC measured
+           against the PIT, the firmware's memory, PE entry calls with
+           the Microsoft x64 convention, Secure Boot's image check),
+           rt.c (its runtime part: the CMOS clock, ResetSystem),
+           gop.c (Graphics Output Protocol on Bochs DISPI), acpi.c (ACPI 6.x tables), aml.c (the AML writer the DSDT is
            generated with), smbios.c (SMBIOS 3.x), bootopt.c (command
            line and initrd for the booted image)
 platform/  fwcfg.c (QEMU fw_cfg over I/O ports), memmap.c (etc/e820,
@@ -39,9 +37,11 @@ acpi/      numa.c (SRAT and SLIT from QEMU -numa), ras.c (BERT and
 secure/    secure.c (Secure Boot policy, db/dbx, the Authenticode PE
            hash), sha256.c, rsa.c (RSASSA-PKCS1-v1_5 verify), der.c
            (X.509 keys, Authenticode PKCS#7), roadmap C4
-include/   sq.h, efi.h (UEFI types and tables, from the specification),
-           acpi.h
-link.ld    the body, linked at FW_BASE; core/runtime.c and core/lib.c
+include/   arch.h (what the shared core needs to know about x86-64, and
+           the x86-only helpers), acpi.h; sq.h and efi.h are
+           common/efi's
+link.ld    the body, linked at FW_BASE; common/efi/runtime.c, lib.c and
+           core/rt.c
            (built apart, sections renamed .rt.*) go in page-aligned
            runtime code and data, the only part of the image the OS
            keeps after ExitBootServices, with the system, runtime
