@@ -29,7 +29,7 @@ UEFI.
   110 `make test` cases). Phases A and B are finished. The table in
   [What works today](#what-works-today-v100) is the v1.0.0 baseline; the
   release notes in `release-notes/` list what each version added.
-- **v2.1.0 is prepared** (`release-notes/v2.1.0.md`, 205 `make test`
+- **v2.1.0 is prepared** (`release-notes/v2.1.0.md`, 217 `make test`
   cases): C1 to C4 are finished (`x86_64-uefi` with ACPI 6.x, SMBIOS 3.x,
   CSM, SMP and Secure Boot), D1 and D3 are finished (`aarch64-uefi`,
   `riscv64-uefi` from the shared core in `common/efi/`), and F1/F2 have
