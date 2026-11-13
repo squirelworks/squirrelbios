@@ -49,6 +49,15 @@ static void pam_set_e(u8 mode)
         pci_write8(0, 0, 0, (u8)(pam_base + i), (u8)(mode | mode << 4));
 }
 
+/* After a failure: E0000-FFFFF back to how reset left them (reads go to
+ * the flash), so the UEFI side sees no change */
+static void pam_restore(u16 e, u8 f)
+{
+    pci_write8(0, 0, 0, (u8)(pam_base + 5), (u8)e);
+    pci_write8(0, 0, 0, (u8)(pam_base + 6), (u8)(e >> 8));
+    pci_write8(0, 0, 0, pam_base, f);
+}
+
 /* Bochs DISPI off, so the legacy VGA code finds plain VGA again */
 static void dispi_off(void)
 {
@@ -67,6 +76,10 @@ int csm_boot(void)
         printf("csm: unknown host bridge %08x, no shadow RAM\n", pci_read32(0, 0, 0, 0));
         return 0;
     }
+    /* Only QEMU's two chipsets are known: real boards come with C5 */
+    u8 f_was = pci_read8(0, 0, 0, pam_base);
+    u16 e_was = (u16)(pci_read8(0, 0, 0, (u8)(pam_base + 5)) |
+                      pci_read8(0, 0, 0, (u8)(pam_base + 6)) << 8);
     pam_set_e(PAM_RW);
     memset((void *)0xE0000, 0, 0x10000);
     pam_set_f(PAM_RW);
@@ -74,6 +87,7 @@ int csm_boot(void)
     pam_set_f(PAM_RO);
     if (memcmp((void *)LEGACY_BASE, csm_legacy_rom, LEGACY_SIZE)) {
         printf("csm: shadow RAM at F0000 did not take the legacy BIOS\n");
+        pam_restore(e_was, f_was);
         return 0;
     }
     /* Read-only now: a write must not stick */
@@ -82,6 +96,7 @@ int csm_boot(void)
     *probe = (u8)~was;
     if (*probe != was) {
         printf("csm: shadow RAM at F0000 is not write-protected\n");
+        pam_restore(e_was, f_was);
         return 0;
     }
     printf("csm: legacy BIOS (%lu KB) in shadow RAM at F0000, PAM at 0x%02x\n",
