@@ -2,12 +2,15 @@
 ; Original code. Walks the XSDT from the ACPI 2.0 configuration table and
 ; reports on COM1:
 ;   APP numa sums=ok madt=L/X srat=C cpu=D,D,... mem=D:B+S,... slit=N:dd,dd,...
-;   APP numa bert=ok hest=ok
+;   APP numa bert=N hest=S/B
 ; L/X   local APIC / local x2APIC entries in the MADT
 ; C     processor affinity entries in the SRAT; cpu= their domains in order
 ; mem   memory affinity entries: domain, base and size in MB
 ; slit  locality count, then the matrix row by row
-; (srat=none, slit=none when the tables are absent) then returns 0.
+; bert  boot error records in the BERT region
+; hest  error sources (IA-32 MCE and CMC) / banks each, or 0
+; (srat=none, slit=none when the tables are absent; bad on a malformed
+; table) then returns 0.
 
         bits 64
 IMAGE_BASE      equ 0x10000000
@@ -257,38 +260,86 @@ entry:
         call puts
         lea rsi, [rel s_app]
         call puts
-        ; BERT: 48 bytes, region whose block status is 0
+        ; BERT: 48 bytes; the region's entry count (block status 13:4)
+        ; and data length must agree, 184 bytes an entry
+        lea rsi, [rel s_bert]
+        call puts
         mov eax, 'BERT'
         call table
         test rax, rax
         jz .bert_bad
         cmp dword [rax + 4], 48
         jne .bert_bad
-        cmp dword [rax + 36], 20
-        jb .bert_bad
+        mov ecx, [rax + 36]             ; region length
         mov rax, [rax + 40]
         test rax, rax
         jz .bert_bad
-        cmp dword [rax], 0
-        jmp .bert_done
+        mov edx, [rax]
+        shr edx, 4
+        and edx, 0x3FF                  ; entries
+        imul r8d, edx, 184
+        cmp r8d, [rax + 12]             ; data length
+        jne .bert_bad
+        add r8d, 20
+        cmp ecx, r8d
+        jb .bert_bad
+        test edx, edx
+        jnz .bert_entries
+        cmp dword [rax], 0              ; no error: status 0
+        jne .bert_bad
+.bert_entries:
+        mov eax, edx
+        call putd
+        jmp .hest
 .bert_bad:
-        or eax, 1
-.bert_done:
-        lea rsi, [rel s_bert]
-        call result
+        lea rsi, [rel s_bad]
+        call puts
+.hest:
+        ; HEST: S sources; with any, an IA-32 MCE (type 0) and a CMC
+        ; (type 1) source of B banks each, filling the table: S/B
+        lea rsi, [rel s_hest]
+        call puts
         mov eax, 'HEST'
         call table
         test rax, rax
-        jz .hest_no
-        cmp dword [rax + 4], 40
-        jne .hest_no
+        jz .hest_bad
+        mov ecx, [rax + 4]
+        lea rdx, [rax + rcx]            ; end
+        mov r8d, [rax + 36]             ; sources
+        test r8d, r8d
+        jnz .hest_src
+        cmp ecx, 40
+        jne .hest_bad
         xor eax, eax
+        call putd
         jmp .hest_done
-.hest_no:
-        or eax, 1
+.hest_src:
+        cmp r8d, 2
+        jne .hest_bad
+        lea rsi, [rax + 40]
+        cmp word [rsi], 0
+        jne .hest_bad
+        movzx r9d, byte [rsi + 32]      ; banks
+        imul r10d, r9d, 28
+        lea rsi, [rsi + r10 + 40]
+        cmp word [rsi], 1
+        jne .hest_bad
+        cmp byte [rsi + 44], r9b
+        jne .hest_bad
+        lea rsi, [rsi + r10 + 48]
+        cmp rsi, rdx
+        jne .hest_bad
+        mov eax, r8d
+        call putd
+        mov al, '/'
+        call putc
+        mov eax, r9d
+        call putd
+        jmp .hest_done
+.hest_bad:
+        lea rsi, [rel s_bad]
+        call puts
 .hest_done:
-        lea rsi, [rel s_hest]
-        call result
         lea rsi, [rel s_nl]
         call puts
         xor eax, eax

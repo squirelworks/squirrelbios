@@ -1094,7 +1094,7 @@ numa_nodes() {     # numa_nodes N MB_PER_NODE CPUS_PER_NODE
     done
 }
 NUMA_APP="-fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-numa.efi"
-run x86_64-numa "numa: 2 nodes: 96 MB 160 MB|acpi: FACP APIC HPET MCFG SRAT SLIT BERT HEST DSDT|APP numa sums=ok madt=4/0 srat=4 cpu=0,0,1,1 mem=0:0+96,1:96+160 slit=2:1020,2010|APP numa bert=ok hest=ok|!=bad" \
+run x86_64-numa "numa: 2 nodes: 96 MB 160 MB|acpi: FACP APIC HPET MCFG SRAT SLIT BERT HEST DSDT|APP numa sums=ok madt=4/0 srat=4 cpu=0,0,1,1 mem=0:0+96,1:96+160 slit=2:1020,2010|APP numa bert=0 hest=2/10|!=bad" \
     "$QEMU_X86_64" -M q35 -m 256 -smp 4,sockets=2,cores=2 \
     -object memory-backend-ram,id=nm0,size=96M -numa node,nodeid=0,cpus=0-1,memdev=nm0 \
     -object memory-backend-ram,id=nm1,size=160M -numa node,nodeid=1,cpus=2-3,memdev=nm1 \
@@ -1103,14 +1103,30 @@ run x86_64-numa "numa: 2 nodes: 96 MB 160 MB|acpi: FACP APIC HPET MCFG SRAT SLIT
 run x86_64-numa-4g "numa: 4 nodes: 1024 MB 1024 MB 1024 MB 1024 MB|APP numa sums=ok madt=8/0 srat=8 cpu=0,0,1,1,2,2,3,3 mem=0:0+1024,1:1024+1024,2:4096+1024,3:5120+1024 slit=4:10202020,20102020,20201020,20202010|!=bad" \
     "$QEMU_X86_64" -M q35 -m 4G -smp 8 $(numa_nodes 4 1024 2) -bios x86_64/squirrel-bios.fd $NUMA_APP
 # shellcheck disable=SC2046
-run x86_64-numa-64 "smp: 64 CPUs|numa: 4 nodes|APP numa sums=ok madt=64/0 srat=64 cpu=0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,|,3,3 mem=0:0+128,1:128+128,2:256+128,3:384+128 slit=4:|APP numa bert=ok hest=ok|!=bad" \
+run x86_64-numa-64 "smp: 64 CPUs|numa: 4 nodes|APP numa sums=ok madt=64/0 srat=64 cpu=0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,|,3,3 mem=0:0+128,1:128+128,2:256+128,3:384+128 slit=4:|APP numa bert=0 hest=2/10|!=bad" \
     "$QEMU_X86_64" -M q35 -m 512 -smp 64 $(numa_nodes 4 128 16) -bios x86_64/squirrel-bios.fd $NUMA_APP
 # shellcheck disable=SC2046
 run x86_64-numa-dist "APP numa sums=ok madt=2/0 srat=2 cpu=0,1 mem=0:0+128,1:128+128 slit=2:1031,3110|!=bad" \
     "$QEMU_X86_64" -M pc -m 256 -smp 2 $(numa_nodes 2 128 1) -bios x86_64/squirrel-bios.fd $NUMA_APP \
     -fw_cfg name=opt/org.squirrelworks/numa-distance,file=$TEST_DIR/x86_64-numa-dist.bin
-run x86_64-numa-none "APP numa sums=ok madt=2/0 srat=none slit=none|APP numa bert=ok hest=ok|!=bad" \
+run x86_64-numa-none "APP numa sums=ok madt=2/0 srat=none slit=none|APP numa bert=0 hest=2/10|!=bad" \
     "$QEMU_X86_64" -M q35 -smp 2 -bios x86_64/squirrel-bios.fd $NUMA_APP
+
+# x86-64 firmware: machine checks left in the banks survive a reset and
+# become BERT records on the next boot (F2). Once the app has seen an
+# empty BERT, the monitor injects a corrected error on CPU 1 and a fatal
+# one on CPU 0; the fatal one resets the machine (CR4.MCE is set and
+# nothing handles #MC), and the next boot finds both.
+MCE_SOCK=$TEST_DIR/x86_64-mce.sock
+rm -f "$MCE_SOCK"
+python3 tests/monitor.py "$MCE_SOCK" $TEST_DIR/x86_64-mce.log "APP numa bert=0" \
+    "mce 1 2 0x9000000000000000 0 0 0" "mce 0 1 0xb600000000000000 0x5 0x123000 0" &
+mce_mon=$!
+run x86_64-mce "mce: 10 banks, CMCI no, 0 errors from before reset|APP numa bert=0 hest=2/10|mce: 10 banks, CMCI no, 2 errors from before reset|mce: APIC ID 0 bank 1 status 0xb600000000000000 addr 0x123000 misc 0x0 (fatal)|mce: APIC ID 1 bank 2 status 0x9000000000000000 addr 0x0 misc 0x0 (corrected)|APP numa bert=2 hest=2/10|!=bad" \
+    "$QEMU_X86_64" -M q35 -smp 2 -bios x86_64/squirrel-bios.fd $NUMA_APP \
+    -chardev socket,id=mon0,path=$MCE_SOCK,server=on,wait=off -mon chardev=mon0,mode=readline
+kill "$mce_mon" 2>/dev/null; wait "$mce_mon" 2>/dev/null
+rm -f "$MCE_SOCK"
 
 # x86-64 firmware: only the runtime pages stay the OS's after
 # ExitBootServices (runtime services code, then their data with the
