@@ -130,7 +130,7 @@ static int count_entry(const EFI_GUID *type, const u8 *data, u32 size, void *ctx
 /* Authenticode PE hash: the headers without the checksum and the
  * certificate table entry, the sections in file order, then whatever
  * follows them except the certificate table */
-int pe_authenticode_hash(const u8 *img, UINTN size, u8 out[32])
+int pe_authenticode_walk(const u8 *img, UINTN size, hash_update_fn update, void *c)
 {
     if (size < 0x40 || img[0] != 'M' || img[1] != 'Z')
         return 0;
@@ -152,14 +152,12 @@ int pe_authenticode_hash(const u8 *img, UINTN size, u8 out[32])
     if (hdr > size || hdr < secdir + 8 || (u64)(sect - img) + nsect * 40ULL > size || nsect > 96)
         return 0;
 
-    struct sha256 c;
-    sha256_init(&c);
-    sha256_update(&c, img, cksum);
+    update(c, img, cksum);
     if (ndirs > 4) {
-        sha256_update(&c, img + cksum + 4, secdir - cksum - 4);
-        sha256_update(&c, img + secdir + 8, hdr - secdir - 8);
+        update(c, img + cksum + 4, secdir - cksum - 4);
+        update(c, img + secdir + 8, hdr - secdir - 8);
     } else {
-        sha256_update(&c, img + cksum + 4, hdr - cksum - 4);
+        update(c, img + cksum + 4, hdr - cksum - 4);
     }
 
     const u8 *order[96];
@@ -177,11 +175,25 @@ int pe_authenticode_hash(const u8 *img, UINTN size, u8 out[32])
             continue;
         if ((u64)ptr + raw > size)
             return 0;
-        sha256_update(&c, img + ptr, raw);
+        update(c, img + ptr, raw);
         done += raw;
     }
     if (size > done + cert_size)
-        sha256_update(&c, img + done, size - done - cert_size);
+        update(c, img + done, size - done - cert_size);
+    return 1;
+}
+
+static void sha256_piece(void *c, const void *data, usize n)
+{
+    sha256_update(c, data, n);
+}
+
+int pe_authenticode_hash(const u8 *img, UINTN size, u8 out[32])
+{
+    struct sha256 c;
+    sha256_init(&c);
+    if (!pe_authenticode_walk(img, size, sha256_piece, &c))
+        return 0;
     sha256_final(&c, out);
     return 1;
 }

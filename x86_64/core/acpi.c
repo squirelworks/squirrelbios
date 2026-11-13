@@ -12,6 +12,7 @@
  * published as the ACPI 2.0 and 1.0 configuration tables. */
 #include "acpi.h"
 #include "smp.h"
+#include "tpm.h"
 
 static const EFI_GUID acpi20_guid =
     { 0x8868e871, 0xe4f1, 0x11d3, { 0xbc, 0x22, 0x00, 0x80, 0xc7, 0x3c, 0x88, 0x81 } };
@@ -308,6 +309,16 @@ static u32 build_dsdt(u8 *t, u32 cap, int hpet)
         aml_name_resources(&a, "_CRS", &r);
         aml_end(&a);
     }
+    if (tpm_present()) {
+        struct res r = { .len = 0 };
+        res_mem32_fixed(&r, TPM_TIS_BASE, TPM_TIS_SIZE, 1);
+        aml_device(&a, "TPM");
+        aml_name_string(&a, "_HID", "MSFT0101");
+        aml_name_string(&a, "_CID", "MSFT0101");
+        aml_name_int(&a, "_STA", 0x0F);
+        aml_name_resources(&a, "_CRS", &r);
+        aml_end(&a);
+    }
     /* Motherboard resources: the PM block and, on q35, the ECAM window,
      * so the OS knows both are taken. */
     {
@@ -533,6 +544,7 @@ void acpi_init(void)
     }
     n += acpi_numa_tables(tables + n, take);
     n += acpi_ras_tables(tables + n, take);
+    n += tpm_acpi_tables(tables + n, take);
 
     u8 *xsdt = take(36 + 8 * (u32)n);
     u8 *rsdt = take(36 + 4 * (u32)n);
@@ -568,7 +580,7 @@ void acpi_init(void)
     for (int i = 0; i < n; i++)
         if (!memcmp(tables[i], "SRAT", 4) || !memcmp(tables[i], "SLIT", 4) ||
             !memcmp(tables[i], "HMAT", 4) || !memcmp(tables[i], "BERT", 4) ||
-            !memcmp(tables[i], "HEST", 4))
+            !memcmp(tables[i], "HEST", 4) || !memcmp(tables[i], "TPM2", 4))
             printf(" %c%c%c%c", tables[i][0], tables[i][1], tables[i][2], tables[i][3]);
     printf(" DSDT (%u bytes of AML) FACS\n", dsdt_len - 36);
 }

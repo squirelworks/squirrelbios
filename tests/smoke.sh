@@ -1466,5 +1466,50 @@ run x86_64-uefi-httpboot-404 "net: HTTP 404 for $HTTP_URL/no-such-file.efi|tryin
     -netdev user,id=n0,bootfile=$HTTP_URL/no-such-file.efi -device virtio-net-pci,netdev=n0
 kill $httpd 2>/dev/null; wait $httpd 2>/dev/null
 
+# x86-64 firmware: measured boot (C5) with a TPM 2.0 on TIS, from swtpm
+# (skipped without it). The firmware starts the TPM, extends PCR 0 with
+# its flash image, PCR 7 with the Secure Boot variables, PCR 4 with each
+# image and closes PCRs 0-7 with separators; x86_64-tpm uses the TCG2
+# protocol (capability, event log, an extend of PCR 8 read back with
+# TPM2_PCR_Read) and prints the log and PCRs 0-7, which tcglog.py replays.
+# Then with all four PCR banks, and with no TPM at all.
+TPM_DIR=$TEST_DIR/tpm
+TPM_DEV="-chardev socket,id=chrtpm,path=$TPM_DIR/sock -tpmdev emulator,id=tpm0,chardev=chrtpm -device tpm-tis,tpmdev=tpm0"
+start_swtpm() {
+    [ -f "$TPM_DIR/pid" ] && kill "$(cat "$TPM_DIR/pid")" 2>/dev/null
+    rm -rf "$TPM_DIR"
+    mkdir -p "$TPM_DIR/state"
+    swtpm_setup --tpm2 --tpmstate "$TPM_DIR/state" --pcr-banks "$1" --overwrite >/dev/null 2>&1 &&
+        swtpm socket --tpm2 --tpmstate dir="$TPM_DIR/state" --ctrl type=unixio,path="$TPM_DIR/sock" \
+            --pid file="$TPM_DIR/pid" --daemon
+}
+replay() {
+    if out=$(python3 tests/tcglog.py --image "$2" "$TEST_DIR/$1.log"); then
+        echo "PASS  $1-replay ($out)"
+        pass=$((pass + 1))
+    else
+        echo "FAIL  $1-replay: $out"
+        fail=$((fail + 1))
+    fi
+}
+TPM_APP="APP tpm cap=ok log=ok extend=ok pcr8=ok|efi: image returned 0x0"
+if command -v swtpm >/dev/null 2>&1 && command -v swtpm_setup >/dev/null 2>&1; then
+    start_swtpm sha256
+    run x86_64-tpm "tpm: TPM 2.0 at 0xfed40000 (TIS, 1014:0001), PCR banks SHA-256|$TPM_APP|TPMPCR" \
+        "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd $TPM_DEV -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-tpm.efi
+    replay x86_64-tpm $TEST_DIR/x86_64-tpm.efi
+    start_swtpm sha1,sha256,sha384,sha512
+    run x86_64-tpm-banks "PCR banks SHA-1 SHA-256 SHA-384 SHA-512|$TPM_APP|TPMPCR" \
+        "$QEMU_X86_64" -M pc -bios x86_64/squirrel-bios.fd $TPM_DEV -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-tpm.efi
+    replay x86_64-tpm-banks $TEST_DIR/x86_64-tpm.efi
+    start_swtpm sha256
+    run x86_64-tpm-acpi "acpi: FACP APIC HPET MCFG BERT HEST TPM2 DSDT|APP acpi rsdp=ok xsdt=ok sums=ok facp=ok dsdt=ok|!=bad" \
+        "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd $TPM_DEV -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-acpi.efi
+else
+    echo "SKIP  x86_64-tpm, x86_64-tpm-banks, x86_64-tpm-acpi (no swtpm)"
+fi
+run x86_64-tpm-none "tpm: none|APP tpm =bad|!TPM 2.0" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-tpm.efi
+
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

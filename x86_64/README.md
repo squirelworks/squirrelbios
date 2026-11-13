@@ -38,8 +38,12 @@ smp/       smp.c (AP bring-up with INIT-SIPI-SIPI, AP parking, the MP
 acpi/      numa.c (SRAT and SLIT from QEMU -numa), ras.c (BERT and
            HEST stubs), roadmap F1/F2; the other ACPI tables are in core/
 secure/    secure.c (Secure Boot policy, db/dbx, the Authenticode PE
-           hash), sha256.c, rsa.c (RSASSA-PKCS1-v1_5 verify), der.c
+           hash), sha256.c, sha1.c and sha512.c (SHA-384/512, for TPM
+           PCR banks), rsa.c (RSASSA-PKCS1-v1_5 verify), der.c
            (X.509 keys, Authenticode PKCS#7), roadmap C4
+tpm/       tis.c (a TPM 2.0 behind the TIS/FIFO interface), tcg2.c
+           (PCR extends, the event log, EFI_TCG2_PROTOCOL, the TPM2
+           table), roadmap C5
 include/   arch.h (what the shared core needs to know about x86-64, and
            the x86-only helpers), acpi.h; sq.h and efi.h are
            common/efi's
@@ -152,6 +156,33 @@ cannot be changed at run time (no PK/KEK authenticated writes), and the
 CSM stays off. `tests/mksigned.py` signs test images with two RSA-2048
 test keys made from fixed seeds; `osslsigncode verify` accepts its
 signatures and the firmware accepts `osslsigncode sign` output.
+
+Measured boot (C5): a TPM 2.0 on the TIS/FIFO interface at 0xFED40000
+(QEMU `-device tpm-tis` with swtpm) gets TPM2_Startup(CLEAR); the
+firmware then extends every active PCR bank it can hash (SHA-1,
+SHA-256, SHA-384, SHA-512; an active SM3 bank is reported and left
+alone) and logs each event in the TCG2 crypto-agile format: PCR 0 the
+CRTM version and the 1 MB flash image, PCR 7 the SecureBoot, PK, KEK,
+db and dbx variables, PCR 4 the boot action and the Authenticode hash
+of every image LoadImage accepts, PCRs 0-7 a separator before the first
+image, and PCR 5 ExitBootServices. `EFI_TCG2_PROTOCOL` has
+GetCapability, GetEventLog (the TCG2 format only), HashLogExtendEvent
+(plain data or a PE image), SubmitCommand and GetActivePcrBanks;
+changing the banks is unsupported. Events after GetEventLog also go in
+the final events table. The log (64 KB, ACPI NVS) is in the TPM2 table
+(revision 4, start method 6), and the DSDT has an `MSFT0101` device for
+the OS's TIS driver. The CRB interface is not supported. `tests/
+tcglog.py` replays a log against PCRs 0-7; `LINUX_TPM=1 make
+linux-uefi` checks that Linux finds the TPM and that its
+binary_bios_measurements replay. With no TPM the firmware says
+`tpm: none` and installs no protocol.
+
+```
+mkdir -p tpm && swtpm_setup --tpm2 --tpmstate tpm --pcr-banks sha256
+swtpm socket --tpm2 --tpmstate dir=tpm --ctrl type=unixio,path=tpm/sock --daemon
+qemu-system-x86_64 ... -chardev socket,id=chrtpm,path=tpm/sock \
+    -tpmdev emulator,id=tpm0,chardev=chrtpm -device tpm-tis,tpmdev=tpm0
+```
 
 NUMA (F1/F2): with QEMU `-numa`, fw_cfg item 0x0D gives the node of each
 APIC ID and each node's memory; the SRAT gets a processor affinity entry

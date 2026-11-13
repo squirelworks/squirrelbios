@@ -5,6 +5,7 @@
  * call after ExitBootServices are in rt.c. */
 #include "efi.h"
 #include "secure.h"
+#include "tpm.h"
 
 #define COM1 CONFIG_COM1_BASE
 
@@ -98,7 +99,10 @@ void arch_memory_reserve(void)
 /* Secure Boot decides whether an image may run (secure.c) */
 u64 x86_check_image(const void *src, u64 size)
 {
-    return secure_check_image(src, size);
+    u64 s = secure_check_image(src, size);
+    if (s == EFI_SUCCESS)
+        tpm_measure_image(src, size);
+    return s;
 }
 
 /* The transitional virtio-blk (virtio_blk.c), then NVMe, AHCI and
