@@ -294,6 +294,16 @@ if VBE_NAME=x86-vbe-text VBE_SCREEN="720 400" tests/x86-vbe-run.sh; then
 else
     fail=$((fail + 1))
 fi
+# VBE banked window and palette: 640x480x8 without the linear frame
+# buffer, palette entries 1 (red) and 2 (blue) set and read back, the
+# screen filled with 2 one 64 KB window at a time (4F05h), a red square
+# and a red line on row 300 drawn through the far window function
+if VBE_NAME=x86-vbe-bank VBE_SCREEN="640 480 0,0=0000ff 9,10=0000ff 50,50=ff0000 109,109=ff0000 110,110=0000ff 0,300=ff0000 639,300=ff0000 639,299=0000ff 639,479=0000ff" \
+   tests/x86-vbe-run.sh; then
+    pass=$((pass + 1))
+else
+    fail=$((fail + 1))
+fi
 
 # x86: a USB keyboard behind a hub on OHCI; then a full-speed one on an
 # ICH9 EHCI port, handed to its UHCI companion, which keeps it

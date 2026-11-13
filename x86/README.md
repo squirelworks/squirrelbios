@@ -13,8 +13,9 @@ boot/      handoff, fail, floppy (A: boot; CONFIG_FLOPPY),
 drivers/   ata (ATA PIO, LBA28/LBA48, INT 13h with EDD 3.0),
            fdc (82077 FDC, INT 13h diskettes; CONFIG_FLOPPY),
            atapi (ATAPI on both IDE channels, INT 13h for the boot CD;
-           CONFIG_CDBOOT), vga (INT 10h, text mode, font; VBE 3.0 linear-framebuffer
-           modes, CONFIG_VBE),
+           CONFIG_CDBOOT), vga (INT 10h, text mode, font; VBE 3.0 8-, 16- and 32-bit
+           modes, linear frame buffer or banked window, palette;
+           CONFIG_VBE),
            kbd8042 (8042, IRQ1, INT 16h), rtc (INT 1Ah),
            pci (bus 0 scan, BARs, IRQ routing, INT 1Ah B1xx, $PIR;
            CONFIG_PCI), ahci (one SATA disk as DL 80h when no IDE disk
