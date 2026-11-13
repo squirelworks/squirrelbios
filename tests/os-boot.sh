@@ -8,7 +8,8 @@
 #   make os-boot-csm OS_IMG=path/to/os.img   (the x86_64-uefi image's CSM)
 #
 # OS_BIOS picks another firmware image (default x86/squirrel-bios.rom),
-# QEMU_X86 another QEMU, and OS_DRIVE=floppy boots the image as A:.
+# QEMU_X86 another QEMU, OS_DRIVE=floppy boots the image as A: and
+# OS_DRIVE=cdrom as an IDE CD (Squirrel-OS/2's cd.iso).
 #
 # The firmware line is on COM1. The OS writes its banner and the "> "
 # prompt to the VGA text buffer, so this reads that buffer back. Passes
@@ -33,6 +34,10 @@ QEMU=${QEMU_X86:-qemu-system-i386}
 TIMEOUT=${OS_TIMEOUT:-30}
 ROM=${OS_BIOS:-$root/x86/squirrel-bios.rom}
 DRIVE=${OS_DRIVE:-ide}
+case $DRIVE in
+cdrom) drive_opts="if=ide,media=cdrom" ;;
+*) drive_opts="if=$DRIVE,snapshot=on" ;;
+esac
 work=$root/build/os-boot
 mkdir -p "$work"
 log=$work/serial.log
@@ -42,7 +47,7 @@ sock=$work/mon.sock
 rm -f "$log" "$vga" "$screen" "$sock"
 
 "$QEMU" -bios "$ROM" \
-    -drive format=raw,file="$img",if="$DRIVE",snapshot=on \
+    -drive format=raw,file="$img",$drive_opts \
     -display none -serial "file:$log" \
     -monitor "unix:$sock,server,nowait" \
     -no-reboot >/dev/null 2>&1 &
@@ -121,8 +126,8 @@ while time.time() < deadline:
     except OSError:
         serial = ""
     # A hard disk is loaded by the firmware (S2OK); a floppy by its own boot sector
-    loaded = ("booting from floppy A:" if drive == "floppy"
-              else "kernel loaded at 0x00008000, jumping")
+    loaded = {"floppy": "booting from floppy A:",
+              "cdrom": "booting from CD-ROM"}.get(drive, "kernel loaded at 0x00008000, jumping")
     if banner and prompt and loaded in serial:
         open(screen_path, "w").write(text)
         sys.stdout.write(text)

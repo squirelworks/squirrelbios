@@ -5,10 +5,13 @@
 ; Record Volume Descriptor in block 17 names the boot catalog; its
 ; validation entry (header 01h, key 55h AAh, words summing to 0) is
 ; followed by the initial/default entry (88h = bootable, media type,
-; load segment, sector count in 512-byte units, image block). Only
-; no-emulation images are booted. The image is entered at
-; load segment:0 with DL = CD_DRIVE, and INT 13h then reads the CD in
-; 2048-byte blocks under that number (drivers/atapi/int13cd.inc).
+; load segment, sector count in 512-byte units, image block). A
+; no-emulation image is entered at load segment:0 with DL = CD_DRIVE, and
+; INT 13h then reads the CD in 2048-byte blocks under that number. A 1.2,
+; 1.44 or 2.88 MB diskette image (media 1-3) becomes drive 00h instead:
+; its first sectors are loaded and entered with DL = 00h, and INT 13h
+; reads the image as a write-protected diskette
+; (drivers/atapi/int13cd.inc). Hard disk emulation is not supported.
 
 CD_DRIVE        equ 0xE0        ; INT 13h drive number of the booted CD
 CD_SCRATCH      equ 0x8000      ; volume descriptor and catalog, at POST
@@ -127,9 +130,18 @@ cd_try:
     cmp byte [fs:CD_SCRATCH + 0x20], 0x88   ; bootable
     jne .ret
     mov si, msg_cdemul
-    test byte [fs:CD_SCRATCH + 0x21], 0x0F  ; media: 0 = no emulation
-    jnz .ret
+    mov al, [fs:CD_SCRATCH + 0x21]          ; media: 0 = no emulation,
+    and al, 0x0F                            ; 1-3 = diskettes
+    cmp al, 3
+    ja .ret
 
+    push es
+    push word EBDA_BASE >> 4
+    pop es
+    mov al, [fs:CD_SCRATCH + 0x21]
+    and al, 0x0F
+    mov [es:CD_EMUL], al                    ; 0 = no emulation
+    pop es
     mov ax, [fs:CD_SCRATCH + 0x22]          ; load segment, 0 = 07C0h
     test ax, ax
     jnz .seg
@@ -157,17 +169,52 @@ cd_try:
     add edx, ebp
     cmp edx, LOAD_LIMIT
     ja .ret
+    push es
+    push word EBDA_BASE >> 4
+    pop es
+    cmp byte [es:CD_EMUL], 0
+    pop es
+    jne .emulated
     call atapi_read                         ; EAX = image, CX = blocks
     mov si, msg_cdread
     jc .ret
 
     mov byte [ss:BOOT_DL], CD_DRIVE
     mov si, msg_cdboot
+    jmp .go
+.emulated:
+    ; The first CD_COUNT sectors of the diskette, to the load segment
+    push es
+    push di
+    mov ax, [fs:CD_LOAD_SEG]
+    mov es, ax
+    xor di, di
+    xor eax, eax
+    mov cx, [fs:CD_COUNT]
+.emu_sector:
+    call cd_emu_sector
+    jc .emu_fail
+    inc eax
+    mov dx, es
+    add dx, 512 >> 4
+    mov es, dx
+    loop .emu_sector
+    pop di
+    pop es
+    mov byte [ss:BOOT_DL], CD_EMUL_DRIVE
+    or byte [ss:BDA_EQUIP], 1               ; a diskette drive is there
+    mov si, msg_cdemu_boot
+.go:
     mov ah, ATTR_NORMAL
     call con_print
     call con_newline
     jmp cd_handoff
 .ret:
+    ret
+.emu_fail:
+    pop di
+    pop es
+    mov si, msg_cdread
     ret
 
 elt_ident       db 'EL TORITO SPECIFICATION'
@@ -181,7 +228,7 @@ cd_handoff:
     mov es, ax
     mov ss, ax
     mov sp, BOOT_SECTOR
-    mov dl, CD_DRIVE
+    mov dl, [BOOT_DL]
     mov di, MEMMAP_ADDR
     push word [CD_LOAD_SEG]
     push word 0

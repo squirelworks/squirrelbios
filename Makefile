@@ -40,7 +40,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/x86-osload.bin $(TEST_DIR)/x86-int13.bin \
              $(TEST_DIR)/x86-bda.bin $(TEST_DIR)/x86-a20.bin \
              $(TEST_DIR)/x86-pit.bin $(TEST_DIR)/x86-kbd.bin $(TEST_DIR)/x86-kbd-many.bin $(TEST_DIR)/x86-mouse.bin \
-             $(TEST_DIR)/x86-vbe.bin $(TEST_DIR)/x86-vbe-text.bin \
+             $(TEST_DIR)/x86-vbe.bin $(TEST_DIR)/x86-vbe-text.bin $(TEST_DIR)/x86-vbe-bank.bin \
              $(TEST_DIR)/x86-time.bin $(TEST_DIR)/x86-vid.bin \
              $(TEST_DIR)/x86-write.bin $(TEST_DIR)/x86-int15a20.bin \
              $(TEST_DIR)/x86-slave.bin $(TEST_DIR)/x86-acpi.bin \
@@ -48,7 +48,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/x86-optrom.bin \
              $(TEST_DIR)/x86-bzimage-big.bin $(TEST_DIR)/x86-bzimage-toobig.bin \
              $(TEST_DIR)/x86-params.bin $(TEST_DIR)/x86-params-slave.bin \
-             $(TEST_DIR)/x86-floppy.img $(TEST_DIR)/x86-floppy-nosig.img \
+             $(TEST_DIR)/x86-floppy.img $(TEST_DIR)/x86-floppy-nosig.img $(TEST_DIR)/x86-cd-floppy.iso \
              $(TEST_DIR)/x86-pci.bin $(TEST_DIR)/x86-edd.img \
              $(TEST_DIR)/x86-ahci.img $(TEST_DIR)/x86-nvme.img \
              $(TEST_DIR)/x86-usbdisk.img \
@@ -302,6 +302,9 @@ $(TEST_DIR)/x86-vbe.bin: tests/x86-vbe.asm | $(TEST_DIR)
 	$(NASM) -f bin $< -o $@
 $(TEST_DIR)/x86-vbe-text.bin: tests/x86-vbe.asm | $(TEST_DIR)
 	$(NASM) -f bin -DTEXT $< -o $@
+# VBE: 640x480x8 through the banked window at A000h, and the palette
+$(TEST_DIR)/x86-vbe-bank.bin: tests/x86-vbe-bank.asm | $(TEST_DIR)
+	$(NASM) -f bin $< -o $@
 $(TEST_DIR)/x86-mouse.bin: tests/x86-mouse.asm | $(TEST_DIR)
 	$(NASM) -f bin $< -o $@
 
@@ -417,6 +420,14 @@ $(TEST_DIR)/x86-floppy.bin: tests/x86-floppy.asm | $(TEST_DIR)
 	$(NASM) -f bin $< -o $@
 $(TEST_DIR)/x86-floppy.img: $(TEST_DIR)/x86-floppy.bin tests/mkfloppy.py
 	tests/mkfloppy.py $< $@
+# The same diskette, write-protected, as the El Torito diskette
+# emulation image of a CD
+$(TEST_DIR)/x86-cd-floppy.bin: tests/x86-floppy.asm | $(TEST_DIR)
+	$(NASM) -f bin -DCDEMU $< -o $@
+$(TEST_DIR)/x86-cd-floppy.img: $(TEST_DIR)/x86-cd-floppy.bin tests/mkfloppy.py
+	tests/mkfloppy.py $< $@
+$(TEST_DIR)/x86-cd-floppy.iso: $(TEST_DIR)/x86-cd-floppy.img tests/mkiso.py
+	tests/mkiso.py --floppy $< $@
 $(TEST_DIR)/x86-floppy-nosig.img: $(TEST_DIR)/x86-floppy.bin tests/mkfloppy.py
 	tests/mkfloppy.py $< $@ --nosig
 

@@ -8,7 +8,9 @@
 ;      the INT 1Eh vector and the table says 18 sectors per track
 ;   r  AH=02h one sector (C0 H0 S2)
 ;   m  AH=02h three sectors from C0 H1 S17, which runs on to C1 H0 S1
-;   w  AH=03h writes C2 H0 S5, AH=02h reads it back
+;   w  AH=03h writes C2 H0 S5, AH=02h reads it back (built with -DCDEMU,
+;      as the diskette image of an El Torito CD: the write is refused
+;      with AH = 03h, write-protected)
 ;   n  sector 19 does not exist: CF set, AH = 04h
 ;   t  AH=15h: drive A: is a diskette (AH = 1)
 ; Prints floppy=ok, or floppy=bad:<letter> <AH in hex>.
@@ -99,6 +101,16 @@ start:
 
     ; --- write, then read back ---
     mov byte [step], 'w'
+%ifdef CDEMU
+    xor bx, bx
+    mov ax, 0x0301
+    mov cx, 0x0205
+    xor dx, dx
+    int 0x13
+    jnc bad
+    cmp ah, 0x03
+    jne bad
+%else
     mov ax, WBUF
     mov es, ax
     xor di, di
@@ -129,6 +141,7 @@ start:
     repe cmpsw
     pop ds
     jne bad
+%endif
 
     ; --- a sector that does not exist ---
     mov byte [step], 'n'

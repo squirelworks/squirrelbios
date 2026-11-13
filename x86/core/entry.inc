@@ -123,6 +123,15 @@ entry:
     mov si, msg_virtio
     mov ah, ATTR_NORMAL
     call con_print
+    push es
+    push word VBLK_SEG
+    pop es
+    cmp byte [es:VBLK_MODERN], 0
+    pop es
+    je .virtio_line
+    mov si, msg_virtio_v1
+    call con_print
+.virtio_line:
     call con_newline
     jmp .read_boot
 .no_virtio:
