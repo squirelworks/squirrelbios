@@ -17,9 +17,15 @@ main.c          efi_main: console, device tree, memory map, EFI tables,
                 through LoadFile2 on the Linux initrd media path), or
                 opt/org.squirrelworks/boot.efi, or \EFI\BOOT\BOOT<arch>.EFI
                 from a disk
+virtio.c        virtqueue and virtio-blk requests for either transport
 virtio_mmio.c   virtio-blk on the virtio-mmio transports the device tree
                 lists, version 1 (legacy) or 2 registers, polled
-disk.c, fat.c   Block I/O for the disk and its GPT/MBR partitions, a
+pci.c           the device tree's ECAM host bridge (pci-host-ecam-generic):
+                bus 0 walked, memory BARs placed in its windows, functions
+                handed to the drivers below
+virtio_pci.c    virtio-blk on PCI, the modern interface (capabilities)
+nvme.c          NVMe namespace 1, one polled I/O queue, PRP lists
+disk.c, fat.c   Block I/O for each disk and its GPT/MBR partitions, a
                 read-only FAT12/16/32 Simple File System (8.3 and long
                 names), and the ESP boot; copies of x86_64/core's, with
                 the architecture's boot file name and long-name lookup

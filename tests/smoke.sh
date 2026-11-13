@@ -1306,5 +1306,25 @@ run x86_64-rt-after-exit-$m "efi: ExitBootServices|APP rt pages=ok time=ok var=o
     -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-rt.efi
 done
 
+# PCI disks (roadmap D4): the core walks the device tree's ECAM host
+# bridge, places BARs, and boots from NVMe or virtio-blk-pci; with two
+# disks it takes the ESP that has this architecture's boot file.
+run aarch64-uefi-nvme "disk: NVMe at PCI 00:02.0, 131072 sectors|disk: partition 1 LBA 2048..131038 (ESP)|efi: booting \\EFI\\BOOT\\BOOTAA64.EFI|APP aarch64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|efi: BOOTAA64.EFI returned 0x1234|!=bad" \
+    "$QEMU_ARM" -M virt -cpu cortex-a57 -bios $ARM_FD \
+    -drive if=none,file=$TEST_DIR/arm-esp.img,format=raw,id=d0 -device nvme,drive=d0,serial=sq1
+run aarch64-uefi-virtio-pci "disk: virtio-blk at PCI 00:02.0 (virtio-pci), 131072 sectors|disk: partition 1 LBA 2048..131038 (ESP)|APP aarch64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|efi: BOOTAA64.EFI returned 0x1234|!=bad" \
+    "$QEMU_ARM" -M virt -cpu cortex-a57 -bios $ARM_FD \
+    -drive if=none,file=$TEST_DIR/arm-esp.img,format=raw,id=d0 -device virtio-blk-pci,drive=d0
+run aarch64-uefi-two-disks "disk: NVMe at PCI 00:02.0, 131072 sectors|disk: virtio-blk at PCI 00:03.0 (virtio-pci), 131072 sectors|APP aarch64 st=ok|efi: BOOTAA64.EFI returned 0x1234|!APP riscv64" \
+    "$QEMU_ARM" -M virt -cpu cortex-a57 -bios $ARM_FD \
+    -drive if=none,file=$TEST_DIR/riscv-esp.img,format=raw,id=d1 -device nvme,drive=d1,serial=sq1 \
+    -drive if=none,file=$TEST_DIR/arm-esp.img,format=raw,id=d0 -device virtio-blk-pci,drive=d0
+run riscv64-uefi-nvme "disk: NVMe at PCI 00:01.0, 131072 sectors|disk: partition 1 LBA 2048..131038 (ESP)|efi: booting \\EFI\\BOOT\\BOOTRISCV64.EFI|APP riscv64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|efi: BOOTRISCV64.EFI returned 0x1234|!=bad" \
+    "$QEMU_RISCV" -M virt -bios $RV_UEFI \
+    -drive if=none,file=$TEST_DIR/riscv-esp.img,format=raw,id=d0 -device nvme,drive=d0,serial=sq1
+run riscv64-uefi-virtio-pci "disk: virtio-blk at PCI 00:01.0 (virtio-pci), 131072 sectors|disk: partition 1 LBA 2048..131038 (ESP)|APP riscv64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|efi: BOOTRISCV64.EFI returned 0x1234|!=bad" \
+    "$QEMU_RISCV" -M virt -bios $RV_UEFI \
+    -drive if=none,file=$TEST_DIR/riscv-esp.img,format=raw,id=d0 -device virtio-blk-pci,drive=d0
+
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]
