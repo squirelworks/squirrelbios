@@ -221,7 +221,7 @@ boxes in [TODO.md](TODO.md).
 
 ### Phase C — v2.0: x86-64 and a UEFI-class interface
 
-- [ ] **C1 (v2.0.0-alpha) `PLATFORM=x86_64-uefi`.** Reset to long mode in
+- [x] **C1 (v2.0.0-alpha) `PLATFORM=x86_64-uefi`.** Reset to long mode in
   firmware, page tables, PE32+ loader. Original boot services subset an
   OS loader needs (memory map, GOP, Simple Text In/Out, Block I/O, Simple
   File System over FAT32, LoadImage/StartImage, ExitBootServices) and

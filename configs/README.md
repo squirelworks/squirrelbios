@@ -12,6 +12,7 @@
 | `aarch64-uefi` | `squirrel-bios.fd` | QEMU AArch64 `virt`, UEFI-class (`-bios`) |
 | `riscv64-uefi` | `squirrel-bios.bin` | QEMU RISC-V `virt`, UEFI-class on the SBI (`-bios`) |
 | `ppc64le-powernv` | `squirrel-bios.bin` | QEMU `powernv9` / `powernv10` (`qemu-system-ppc64 -bios`) |
+| `sparc64-sun4u` | `squirrel-bios.bin` | QEMU `sun4u` (`qemu-system-sparc64 -bios`) |
 
 A `.cfg` file is `KEY=VALUE` lines; `#` starts a comment line. Keys are
 `CONFIG_*`; values are decimal or `0x` hex numbers, or `y` / `n` (1 / 0).
@@ -111,3 +112,11 @@ boots it as `config-riscv-dt-*`.
 
 The C sources include `config.h` when built with `-DSQ_CONFIG`.
 `make test` boots the default build as `config-ppc64-default`.
+
+### sparc64-sun4u
+
+| Key | Default | Meaning |
+|---|---|---|
+| `CONFIG_IDENTITY_MB` | `32` | RAM mapped 1:1 for the OS in locked 4 MB TLB entries (also where `claim` allocates) |
+
+`make test` boots the default build as `config-sparc64-default`.
