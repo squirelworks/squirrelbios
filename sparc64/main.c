@@ -21,6 +21,20 @@
 #define IO_BASE      0x1fe02000000ull   /* the PCI I/O space, via the PBM */
 #define UART         (IO_BASE + 0x3f8)
 #define FWCFG        (IO_BASE + 0x510)
+#define PBM_REGS     0x1fe00000000ull   /* the Sabre (PBM) controller registers */
+#define PBM_CONFIG   0x1fe01000000ull   /* PCI configuration space */
+#define PBM_MEM      0x1ff00000000ull   /* PCI memory space */
+#define PBM_PORTID   0x1f               /* its UPA port id, the interrupt group */
+#define PBM_OBIO_IMAP(ino) (PBM_REGS + 0x1000 + (((ino) & 0x1f) << 3))
+#define PBM_OBIO_ICLR(ino) (PBM_REGS + 0x1800 + (((ino) & 0x1f) << 3))
+#define INO_SERIAL   0x2b               /* the EBus serial line (ISA IRQ 4) */
+#define INO_PBM_UE   0x2e               /* the PBM's own error interrupts */
+#define INO_PBM_CE   0x2f
+#define INO_PBM_ERR  0x30
+#define SIMBA_A_DEVFN 0x09              /* 00:01.1, the bus with the EBus */
+#define SIMBA_B_DEVFN 0x08              /* 00:01.0 */
+#define EBUS_DEVFN   0x08               /* 01:01.0 */
+#define SU_PATH      "/pci@1fe,0/pci@1,1/ebus@1/su@14,3f8"
 #define EM_SPARCV9   43
 
 #define ASI_LSU_CONTROL         0x45
@@ -71,6 +85,41 @@ static inline void out8(uint64_t a, uint8_t v)
 static inline void out16le(uint64_t a, uint16_t v)
 {
     __asm__ volatile("stha %0, [%1] 0x1d" : : "r"(v), "r"(a) : "memory");
+}
+
+static inline uint64_t in64(uint64_t a)
+{
+    uint64_t v;
+    __asm__ volatile("ldxa [%1] 0x15, %0" : "=r"(v) : "r"(a) : "memory");
+    return v;
+}
+
+static inline void out64(uint64_t a, uint64_t v)
+{
+    __asm__ volatile("stxa %0, [%1] 0x15" : : "r"(v), "r"(a) : "memory");
+}
+
+/* PCI configuration space, little-endian through the PBM */
+static inline uint64_t cfg_addr(int bus, int devfn, int reg)
+{
+    return PBM_CONFIG + ((uint64_t)bus << 16) + ((uint64_t)devfn << 8) + (uint64_t)reg;
+}
+
+static inline uint32_t pci_read32(int bus, int devfn, int reg)
+{
+    uint32_t v;
+    __asm__ volatile("lduwa [%1] 0x1d, %0" : "=r"(v) : "r"(cfg_addr(bus, devfn, reg)) : "memory");
+    return v;
+}
+
+static inline void pci_write8(int bus, int devfn, int reg, uint8_t v)
+{
+    __asm__ volatile("stba %0, [%1] 0x1d" : : "r"(v), "r"(cfg_addr(bus, devfn, reg)) : "memory");
+}
+
+static inline void pci_write16(int bus, int devfn, int reg, uint16_t v)
+{
+    __asm__ volatile("stha %0, [%1] 0x1d" : : "r"(v), "r"(cfg_addr(bus, devfn, reg)) : "memory");
 }
 
 static inline uint64_t tick(void)
@@ -190,6 +239,43 @@ static void prop_cells2(struct fdt_writer *w, const char *name, const uint64_t *
     fdtw_prop(w, name, b, 8 * n);
 }
 
+static void prop_u32s(struct fdt_writer *w, const char *name, const uint32_t *v, int n)
+{
+    uint8_t b[64];
+    for (int i = 0; i < n; i++)
+        fw_put_be32(b + 4 * i, v[i]);
+    fdtw_prop(w, name, b, 4 * n);
+}
+
+/* A Simba (APB) PCI-PCI bridge: no ranges, as on real machines (the OS
+ * reads its windows from the bridge itself) */
+/* The PCI identity of a device, from its configuration space: the OS
+ * builds its PCI devices from these properties */
+static void pci_id_props(struct fdt_writer *w, int bus, int devfn)
+{
+    uint32_t id = pci_read32(bus, devfn, 0), cls = pci_read32(bus, devfn, 8);
+    fdtw_prop_u32(w, "vendor-id", id & 0xffff);
+    fdtw_prop_u32(w, "device-id", id >> 16);
+    fdtw_prop_u32(w, "revision-id", cls & 0xff);
+    fdtw_prop_u32(w, "class-code", cls >> 8);
+}
+
+static void simba_props(struct fdt_writer *w, int devfn, uint32_t bus)
+{
+    fdtw_prop_str(w, "name", "pci");
+    fdtw_prop_str(w, "device_type", "pci");
+    fdtw_prop_str(w, "model", "SUNW,simba");
+    fdtw_prop_str(w, "compatible", "pci108e,5000");
+    uint32_t reg[5] = { (uint32_t)devfn << 8, 0, 0, 0, 0 };
+    prop_u32s(w, "reg", reg, 5);
+    uint32_t range[2] = { bus, bus };
+    prop_u32s(w, "bus-range", range, 2);
+    pci_id_props(w, 0, devfn);
+    fdtw_prop_u32(w, "#address-cells", 3);
+    fdtw_prop_u32(w, "#size-cells", 2);
+    fdtw_prop_u32(w, "#interrupt-cells", 1);
+}
+
 static void avail_prop(struct fdt_writer *w)
 {
     uint64_t v[2 * MAX_RANGES];
@@ -198,6 +284,47 @@ static void avail_prop(struct fdt_writer *w)
         v[2 * i + 1] = avail[i].size;
     }
     prop_cells2(w, "available", v, 2 * navail);
+}
+
+/* --- PCI: the Simba bridges' bus numbers, the interrupt map registers ------- */
+
+static int pci_ok;
+
+static void pci_init(void)
+{
+    if (pci_read32(0, SIMBA_A_DEVFN, 0) != 0x5000108eu ||
+        pci_read32(0, SIMBA_B_DEVFN, 0) != 0x5000108eu) {
+        fw_puts("pci: no Simba bridges behind the PBM\n");
+        return;
+    }
+    /* Primary 0; bus 1 behind 00:01.1 (the EBus side), bus 2 behind 00:01.0 */
+    pci_write8(0, SIMBA_A_DEVFN, 0x18, 0);
+    pci_write8(0, SIMBA_A_DEVFN, 0x19, 1);
+    pci_write8(0, SIMBA_A_DEVFN, 0x1a, 1);
+    pci_write8(0, SIMBA_B_DEVFN, 0x18, 0);
+    pci_write8(0, SIMBA_B_DEVFN, 0x19, 2);
+    pci_write8(0, SIMBA_B_DEVFN, 0x1a, 2);
+    /* APB address maps: each bit forwards one 2 MB block of PCI I/O
+     * space (0xde) or one 512 MB block of memory space (0xdf). Bus 1
+     * (EBus, ISA ports) gets the first of each, bus 2 the second. */
+    pci_write8(0, SIMBA_A_DEVFN, 0xde, 0x01);
+    pci_write8(0, SIMBA_A_DEVFN, 0xdf, 0x01);
+    pci_write8(0, SIMBA_B_DEVFN, 0xde, 0x02);
+    pci_write8(0, SIMBA_B_DEVFN, 0xdf, 0x02);
+    pci_write16(0, SIMBA_A_DEVFN, 0x04, 0x0007);  /* I/O, memory, bus master */
+    pci_write16(0, SIMBA_B_DEVFN, 0x04, 0x0007);
+    uint32_t ebus = pci_read32(1, EBUS_DEVFN, 0);
+    if (ebus != 0x1000108eu) {
+        fw_printf("pci: no EBus at 01:01.0 (0x%08x)\n", ebus);
+        return;
+    }
+    /* On-board interrupts: each IMAP holds the interrupt group (the
+     * PBM's port id) and number that the OS reads back; not valid yet */
+    for (int ino = 0x20; ino < 0x40; ino++) {
+        out64(PBM_OBIO_IMAP(ino), (uint64_t)PBM_PORTID << 6 | (uint64_t)ino);
+        out64(PBM_OBIO_ICLR(ino), 0);
+    }
+    pci_ok = 1;
 }
 
 static void build_dt(void)
@@ -240,8 +367,8 @@ static void build_dt(void)
 
     fdtw_begin(&w, "aliases");
     fdtw_prop_str(&w, "name", "aliases");
-    fdtw_prop_str(&w, "ttya", "/serial@1fe,20003f8");
-    fdtw_prop_str(&w, "screen", "/serial@1fe,20003f8");
+    fdtw_prop_str(&w, "ttya", SU_PATH);
+    fdtw_prop_str(&w, "screen", SU_PATH);
     fdtw_end(&w);
 
     fdtw_begin(&w, "memory@0");
@@ -282,14 +409,67 @@ static void build_dt(void)
         fdtw_end(&w);
     }
 
-    fdtw_begin(&w, "serial@1fe,20003f8");
+    /* The Sabre PCI host bridge (PBM), its two Simba bridges and, on
+     * the first one, the EBus with the console's 16550. Interrupts are
+     * INOs of the PBM: the OS maps them with its IMAP registers. */
+    fdtw_begin(&w, "pci@1fe,0");
+    fdtw_prop_str(&w, "name", "pci");
+    fdtw_prop_str(&w, "device_type", "pci");
+    fdtw_prop_str(&w, "model", "SUNW,sabre");
+    fdtw_prop_str(&w, "compatible", "pci108e,a000");
+    uint64_t preg[6] = { PBM_REGS, 0x10000, PBM_CONFIG, 0x1000000, IO_BASE, 0x1000000 };
+    prop_cells2(&w, "reg", preg, 6);
+    fdtw_prop_u32(&w, "upa-portid", PBM_PORTID);
+    fdtw_prop_u32(&w, "portid", PBM_PORTID);
+    fdtw_prop_u32(&w, "#address-cells", 3);
+    fdtw_prop_u32(&w, "#size-cells", 2);
+    fdtw_prop_u32(&w, "#interrupt-cells", 1);
+    fdtw_prop_u32(&w, "clock-frequency", 33333333);
+    uint32_t cells[16];
+    cells[0] = 0; cells[1] = 2;
+    prop_u32s(&w, "bus-range", cells, 2);
+    cells[0] = 0xc0000000u; cells[1] = 0x20000000u;
+    prop_u32s(&w, "virtual-dma", cells, 2);
+    cells[0] = INO_PBM_UE; cells[1] = INO_PBM_CE; cells[2] = INO_PBM_ERR;
+    prop_u32s(&w, "interrupts", cells, 3);
+    /* PCI I/O and memory space: child (3 cells), parent (2), size (2) */
+    uint32_t ranges[14] = {
+        0x01000000, 0, 0, (uint32_t)(IO_BASE >> 32), (uint32_t)IO_BASE, 0, 0x01000000,
+        0x02000000, 0, 0, (uint32_t)(PBM_MEM >> 32), (uint32_t)PBM_MEM, 1, 0,
+    };
+    prop_u32s(&w, "ranges", ranges, 14);
+
+    fdtw_begin(&w, "pci@1");
+    simba_props(&w, SIMBA_B_DEVFN, 2);
+    fdtw_end(&w);
+
+    fdtw_begin(&w, "pci@1,1");
+    simba_props(&w, SIMBA_A_DEVFN, 1);
+
+    fdtw_begin(&w, "ebus@1");
+    fdtw_prop_str(&w, "name", "ebus");
+    fdtw_prop_str(&w, "compatible", "pci108e,1000");
+    uint32_t ereg[5] = { 1u << 16 | EBUS_DEVFN << 8, 0, 0, 0, 0 };
+    prop_u32s(&w, "reg", ereg, 5);
+    pci_id_props(&w, 1, EBUS_DEVFN);
+    fdtw_prop_u32(&w, "#address-cells", 2);
+    fdtw_prop_u32(&w, "#size-cells", 1);
+    /* Space 0x14: the ISA I/O ports, at the bottom of PCI I/O space */
+    uint32_t eranges[6] = { 0x14, 0, 0x01000000, 0, 0, 0x10000 };
+    prop_u32s(&w, "ranges", eranges, 6);
+
+    fdtw_begin(&w, "su@14,3f8");
     fdtw_prop_str(&w, "name", "su");
     fdtw_prop_str(&w, "device_type", "serial");
-    fdtw_prop_str(&w, "compatible", "ns16550");
-    uint64_t sreg[2] = { UART, 8 };
-    prop_cells2(&w, "reg", sreg, 2);
+    fdtw_prop_str(&w, "compatible", "su16550");
+    uint32_t sreg[3] = { 0x14, 0x3f8, 8 };
+    prop_u32s(&w, "reg", sreg, 3);
+    fdtw_prop_u32(&w, "interrupts", INO_SERIAL);
     fdtw_prop_u32(&w, "clock-frequency", 1843200);
-    fdtw_end(&w);
+    fdtw_end(&w);               /* su */
+    fdtw_end(&w);               /* ebus */
+    fdtw_end(&w);               /* pci@1,1 */
+    fdtw_end(&w);               /* pci@1fe,0 */
 
     fdtw_end(&w);
     if (!fdtw_finish(&w, 0))
@@ -526,7 +706,7 @@ static int node_path(int node, char *buf, int len)
 static int ih_package(uint64_t ih)
 {
     switch (ih) {
-    case IH_CONSOLE: return dtb_path(dt, "/serial");
+    case IH_CONSOLE: return dtb_path(dt, SU_PATH);
     case IH_MMU: return dtb_path(dt, "/virtual-memory");
     case IH_MEMORY: return dtb_path(dt, "/memory");
     }
@@ -888,6 +1068,9 @@ void fw_main(uint64_t pbase, uint64_t ram)
     if (pbase + FW_SIZE < ram)
         avail_add(pbase + FW_SIZE, ram - pbase - FW_SIZE);
     map_for_os();
+    pci_init();
+    fw_printf("pci: sabre at 0x%lx, ebus %s, console interrupt 0x%x (imap 0x%lx)\n", (uint64_t)PBM_REGS,
+              pci_ok ? "on bus 1" : "missing", INO_SERIAL, in64(PBM_OBIO_IMAP(INO_SERIAL)));
     build_dt();
 
     if (cmdline[0])

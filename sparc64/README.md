@@ -21,6 +21,16 @@ qemu-system-sparc64 -M sun4u -nographic -bios sparc64/squirrel-bios.bin -kernel 
   (`trap: type ... at tpc ...`).
 - Console: the 16550 behind the EBus at PCI I/O `0x3F8`
   (`0x1fe020003f8`). Prints `SquirrelBIOS SPARC`.
+- PCI: gives the two Simba (APB) bridges behind the Sabre PBM their bus
+  numbers (1 behind `00:01.1`, where the EBus is, 2 behind `00:01.0`) and
+  APB address maps, and fills each on-board IMAP register with its
+  interrupt group and number (`0x7c0 | ino`), not yet valid.
+- Device tree: `/pci@1fe,0` (`SUNW,sabre`: `reg`, `ranges`,
+  `bus-range`, `virtual-dma`, `upa-portid`, its error interrupts), the
+  Simba bridges `pci@1` and `pci@1,1`, and `pci@1,1/ebus@1/su@14,3f8`,
+  the console, with `interrupts` = INO `0x2b` (ISA IRQ 4 on QEMU's EBus).
+  PCI nodes carry `vendor-id`, `device-id`, `class-code` and
+  `revision-id` from configuration space.
 - Reads the kernel address and size, initrd and command line from fw_cfg.
   QEMU loads `-kernel` (an ELF such as Linux, linked at `0x404000`) at its
   link addresses.
@@ -71,17 +81,19 @@ pointers in `%g4`-`%g6`, and calls some services without saving them).
 
 Linux 6.8 (`sparc64_defconfig`, built from Ubuntu's `linux-source-6.8.0`)
 boots to "VFS: Unable to mount root fs" without a root, and with an
-initramfs runs `/init`, whose system calls work:
+initramfs runs `/init`, whose system calls work. It finds the PBM, the
+bridges and the EBus, and its `su` driver takes the console with its
+interrupt (`ttyS0 at MMIO 0x1fe020003f8 (irq = 4 ...)`), so processes can
+write to the console:
 
     qemu-system-sparc64 -M sun4u -nographic -bios sparc64/squirrel-bios.bin \
         -kernel vmlinux -initrd initrd.cpio -append console=ttyS0
 
 ## Limits (next steps)
 
-- The serial port has no interrupt in the device tree (no PCI host or
-  EBus interrupt map), so Linux's `su` driver says "Cannot register IRQ
-  0": kernel messages appear (they go through the firmware first, then
-  are polled), but a process writing to the console blocks.
+- Only the console is in the device tree under the EBus and the bridges:
+  no IDE, network or VGA nodes (their BARs are not assigned), and no
+  keyboard, mouse, floppy or parallel port.
 - One CPU is started; others stay in reset.
 - No PCI enumeration, disks or network: the kernel comes from `-kernel`.
 - `claim` with a virtual address outside the 1:1 region and `map` /
@@ -97,9 +109,12 @@ initramfs runs `/init`, whose system calls work:
 `qemu-system-sparc64` or the cross compiler): `tests/sparc64-kernel.c`
 checks the entry state and every service above, with 128 MB and 512 MB of
 RAM, plus what Linux relies on: globals kept across a call, no locked
-1:1 entries, `SUNW,dtlb-load` writing the named entry, and the `HdrS`
-initrd fields (run with `-initrd`); the prompt and the `default.cfg`
+1:1 entries, `SUNW,dtlb-load` writing the named entry, the `HdrS`
+initrd fields (run with `-initrd`), and the console's interrupt: it
+translates `su`'s `reg` through the EBus and PBM `ranges`, reads the
+IMAP register for its INO, makes it valid and checks that the UART's
+transmitter-empty interrupt reaches the CPU as that vector; the prompt and the `default.cfg`
 build are checked too.
 
 Original code, written from IEEE Std 1275-1994, its 64-bit SPARC binding
-and the UltraSPARC-IIi manual, not from another firmware's source.
+the UltraSPARC-IIi manual and the PCI bus binding, not from another firmware's source.

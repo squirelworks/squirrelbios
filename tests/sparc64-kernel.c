@@ -81,6 +81,44 @@ static void walk(uint64_t ph, int depth)
             walk(c, depth + 1);
 }
 
+static uint64_t ld_phys(uint64_t a)
+{
+    uint64_t v;
+    __asm__ volatile("ldxa [%1] 0x15, %0" : "=r"(v) : "r"(a) : "memory");
+    return v;
+}
+
+static void st_phys(uint64_t a, uint64_t v)
+{
+    __asm__ volatile("stxa %0, [%1] 0x15\n\tmembar #Sync" : : "r"(v), "r"(a) : "memory");
+}
+
+static void st_phys8(uint64_t a, uint8_t v)
+{
+    __asm__ volatile("stba %0, [%1] 0x15\n\tmembar #Sync" : : "r"(v), "r"(a) : "memory");
+}
+
+/* The CPU's interrupt receive register (busy bit 0x20) and the first
+ * word of the incoming interrupt vector */
+static uint64_t intr_status(void)
+{
+    uint64_t v;
+    __asm__ volatile("ldxa [%%g0] 0x49, %0" : "=r"(v) : : "memory");
+    return v;
+}
+
+static uint64_t intr_data0(void)
+{
+    uint64_t v, a = 0x40;
+    __asm__ volatile("ldxa [%1] 0x7f, %0" : "=r"(v) : "r"(a) : "memory");
+    return v;
+}
+
+static void intr_ack(void)
+{
+    __asm__ volatile("stxa %%g0, [%%g0] 0x49\n\tmembar #Sync" : : : "memory");
+}
+
 static int deep(int n)
 {
     volatile int x = n;
@@ -127,9 +165,13 @@ void kmain(uint64_t cif_entry, uint64_t initrd, uint64_t initrd_size)
     char path[64] = "";
     uint64_t tty = cif1("finddevice", 1, U("ttya"), 0, 0, 0);
     int plen = (int)cif1("package-to-path", 3, tty, U(path), sizeof(path), 0);
-    int alias = plen == 19 && !strcmp(path, "/serial@1fe,20003f8") &&
+    /* ttya: the 16550 on the EBus, behind a Simba bridge of the PBM */
+    uint64_t ebus = cif1("parent", 1, tty, 0, 0, 0);
+    uint64_t simba = cif1("parent", 1, ebus, 0, 0, 0);
+    uint64_t pbm = cif1("parent", 1, simba, 0, 0, 0);
+    int alias = plen == 35 && !strcmp(path, "/pci@1fe,0/pci@1,1/ebus@1/su@14,3f8") &&
                 cif1("instance-to-package", 1, stdout_ih, 0, 0, 0) == tty &&
-                cif1("parent", 1, tty, 0, 0, 0) == cif1("peer", 1, 0, 0, 0, 0);
+                cif1("parent", 1, pbm, 0, 0, 0) == cif1("peer", 1, 0, 0, 0, 0);
     char dtype[16] = "";
     cif1("getprop", 4, tty, U("device_type"), U(dtype), sizeof(dtype));
     alias &= !strcmp(dtype, "serial");
@@ -211,6 +253,49 @@ void kmain(uint64_t cif_entry, uint64_t initrd, uint64_t initrd_size)
     }
     fw_printf("LINUX globals=%s unlocked=%s tlbload=%s hdrs=%s\n", ok(gbad == 0), ok(unlocked),
               ok(tlbload), hd);
+
+    /* The console's interrupt, the way Linux finds and uses it: su's
+     * "interrupts" is an INO of the PBM above it; the PBM's IMAP register
+     * for an on-board INO (regs + 0x1000 + (ino & 0x1f) * 8) reads back
+     * the group and number the CPU receives. Made valid, the UART's
+     * transmitter-empty interrupt arrives as that interrupt vector (with
+     * interrupts off in PSTATE it waits in the receive register). */
+    uint32_t ino = 0, portid = 0, sreg[3] = { 0 }, er[6] = { 0 }, pr[14] = { 0 };
+    uint64_t preg[2] = { 0 };
+    char model[16] = "";
+    cif1("getprop", 4, tty, U("interrupts"), U(&ino), 4);
+    cif1("getprop", 4, tty, U("reg"), U(sreg), sizeof(sreg));
+    cif1("getprop", 4, ebus, U("ranges"), U(er), sizeof(er));
+    cif1("getprop", 4, pbm, U("ranges"), U(pr), sizeof(pr));
+    cif1("getprop", 4, pbm, U("reg"), U(preg), sizeof(preg));
+    cif1("getprop", 4, pbm, U("upa-portid"), U(&portid), 4);
+    cif1("getprop", 4, pbm, U("model"), U(model), sizeof(model));
+    /* reg (space 0x14, port) -> PCI I/O space (EBus ranges) -> physical
+     * (the PBM's I/O range) */
+    uint64_t uart = ((uint64_t)pr[3] << 32 | pr[4]) + (sreg[1] - er[1]) + er[4];
+    int reg_ok = !strcmp(model, "SUNW,sabre") && sreg[0] == er[0] &&
+                 (er[2] & 0x03000000) == 0x01000000 && (pr[0] & 0x03000000) == 0x01000000 &&
+                 uart == 0x1fe020003f8ull;
+    uint64_t imap = preg[0] + 0x1000 + ((ino & 0x1f) << 3);
+    uint64_t iclr = preg[0] + 0x1800 + ((ino & 0x1f) << 3);
+    uint64_t m = ino >= 0x20 && reg_ok ? ld_phys(imap) : 0;
+    int imap_ok = ino >= 0x20 && (m & 0x7ff) == (portid << 6 | ino);
+    uint64_t vec = 0;
+    int got = 0;
+    if (imap_ok) {
+        st_phys(iclr, 0);
+        st_phys(imap, m | 1ull << 31);              /* valid, to CPU 0 */
+        st_phys8(uart + 1, 0x02);                   /* IER: transmitter empty */
+        for (long i = 0; i < 1000000 && !got; i++)
+            got = (intr_status() & 0x20) != 0;
+        vec = intr_data0();
+        st_phys8(uart + 1, 0);
+        intr_ack();
+        st_phys(iclr, 0);
+        st_phys(imap, m);
+    }
+    fw_printf("IRQ console ino=0x%x reg=%s imap=%s vector=%s\n", ino, ok(reg_ok), ok(imap_ok),
+              ok(got && vec == (m & 0x7ff)));
 
     fw_printf("OS-DONE sparc64, exiting to the firmware\n");
     cif("exit", 0, 0, a, o);
