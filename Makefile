@@ -113,6 +113,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/x86_64-tpm.efi \
              $(TEST_DIR)/x86_64-einj.efi \
              $(TEST_DIR)/x86_64-smmlock.efi \
+             $(TEST_DIR)/x86_64-ipmi.efi \
              $(TEST_DIR)/arm-efi-app.efi $(TEST_DIR)/arm-efi-app-exit.efi \
              $(TEST_DIR)/arm-efi-app-ebs.efi $(TEST_DIR)/arm-efi-initrd.img \
              $(TEST_DIR)/riscv-efi-app.efi $(TEST_DIR)/riscv-efi-app-exit.efi \
@@ -442,6 +443,10 @@ $(TEST_DIR)/x86_64-einj.efi: tests/x86_64-einj.c tests/efi-app.ld tests/mkpe.py 
 	python3 tests/mkpe.py x86_64 $(@:.efi=.elf) $@
 # An image that tries to open SMRAM, which must be locked by then
 $(TEST_DIR)/x86_64-smmlock.efi: tests/x86_64-smmlock.c tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)
+	$(CC64) $(X64_APP_CFLAGS) $< -o $(@:.efi=.elf)
+	python3 tests/mkpe.py x86_64 $(@:.efi=.elf) $@
+# The BMC as an OS sees it: SPMI, SMBIOS 38 and 42, KCS
+$(TEST_DIR)/x86_64-ipmi.efi: tests/x86_64-ipmi.c tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)
 	$(CC64) $(X64_APP_CFLAGS) $< -o $(@:.efi=.elf)
 	python3 tests/mkpe.py x86_64 $(@:.efi=.elf) $@
 $(TEST_DIR)/arm-fat.img: tests/mkesp.py $(TEST_DIR)/arm-efi-fat.efi | $(TEST_DIR)

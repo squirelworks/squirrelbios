@@ -49,6 +49,8 @@ secure/    secure.c (Secure Boot policy, db/dbx, the Authenticode PE
 tpm/       tis.c (a TPM 2.0 behind the TIS/FIFO interface), tcg2.c
            (PCR extends, the event log, EFI_TCG2_PROTOCOL, the TPM2
            table), roadmap C5
+mgmt/      ipmi.c (a BMC on IPMI KCS, the SPMI table), redfish.c (the
+           Redfish host interface record), roadmap F3
 include/   arch.h (what the shared core needs to know about x86-64, and
            the x86-only helpers), acpi.h; sq.h and efi.h are
            common/efi's
@@ -260,6 +262,20 @@ SMRAM but the requested type. `x86_64-einj` runs the EINJ actions as an
 OS would, on the BSP and an AP; `LINUX_EINJ=1 make linux-uefi` loads the
 kernel's einj module and injects through debugfs from two CPUs. pc
 (i440fx) has no TSEG, so no SMM and no EINJ.
+
+Management (F3): if a BMC answers Get Device ID on the IPMI KCS ports
+(0xCA2 data, 0xCA3 command/status, as QEMU's `isa-ipmi-kcs` with
+`ipmi-bmc-sim` gives), the firmware prints what it is and describes it
+twice for the OS: an SPMI table (KCS, byte-wide system I/O, polled) and
+SMBIOS type 38. With a BMC and a network controller on bus 0, SMBIOS
+type 42 adds a Redfish host interface stub (DSP0270): a network host
+interface on that PCI NIC with one Redfish over IP record, static
+link-local addresses (host 169.254.0.2, service 169.254.0.1:443,
+hostname `squirrel-bmc`) and the BMC's device GUID as the service UUID.
+There is no Redfish service behind it in QEMU. `x86_64-ipmi` reads the
+three records and talks KCS to the BMC itself; `LINUX_IPMI=1 make
+linux-uefi` loads the kernel's ipmi_si, which finds the BMC through
+SMBIOS type 38.
 
 Variables (C5): the variable services keep every variable in a RAM
 arena and the non-volatile ones also in a flash store on QEMU's second
