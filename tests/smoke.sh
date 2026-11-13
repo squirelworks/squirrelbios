@@ -457,6 +457,11 @@ run x86-cd "booting from CD-ROM|OS-ENTRY x86 cd cd=ok" \
 # El Torito diskette emulation: the x86-floppy checks on a 1.44 MB image
 # that a CD carries (media type 2), booted as drive 00h in place of the
 # empty diskette drive; writes are refused as write-protected
+# El Torito hard disk emulation: a 2016-sector disk image becomes C: (80h),
+# read-only, with the geometry its MBR's partition ends on
+run x86-cd-hdd "booting from CD-ROM (El Torito, hard disk emulation as C:)|OS-ENTRY x86 cdhd cdhd=ok|!cdhd=bad" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -cdrom $TEST_DIR/x86-cd-hdd.iso
 run x86-cd-floppy "booting from CD-ROM (El Torito, diskette emulation as A:)|OS-ENTRY x86 floppy floppy=ok|!floppy=bad" \
     "$QEMU_X86" -bios x86/squirrel-bios.rom \
     -cdrom $TEST_DIR/x86-cd-floppy.iso

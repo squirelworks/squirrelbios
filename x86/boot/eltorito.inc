@@ -11,7 +11,10 @@
 ; 1.44 or 2.88 MB diskette image (media 1-3) becomes drive 00h instead:
 ; its first sectors are loaded and entered with DL = 00h, and INT 13h
 ; reads the image as a write-protected diskette
-; (drivers/atapi/int13cd.inc). Hard disk emulation is not supported.
+; (drivers/atapi/int13cd.inc). A hard disk image (media 4) becomes drive
+; 80h the same way, read-only, its geometry from the first partition in
+; its MBR (or 16 heads and 63 sectors when it has none): the CD is only
+; tried when no hard disk answered, so no real drive moves up.
 
 CD_DRIVE        equ 0xE0        ; INT 13h drive number of the booted CD
 CD_SCRATCH      equ 0x8000      ; volume descriptor and catalog, at POST
@@ -131,8 +134,8 @@ cd_try:
     jne .ret
     mov si, msg_cdemul
     mov al, [fs:CD_SCRATCH + 0x21]          ; media: 0 = no emulation,
-    and al, 0x0F                            ; 1-3 = diskettes
-    cmp al, 3
+    and al, 0x0F                            ; 1-3 = diskettes, 4 = a
+    cmp al, 4                               ; hard disk
     ja .ret
 
     push es
@@ -152,6 +155,12 @@ cd_try:
     mov [fs:CD_COUNT], ax
     mov eax, [fs:CD_SCRATCH + 0x28]
     mov [fs:CD_IMAGE_LBA], eax
+    cmp byte [fs:CD_SCRATCH + 0x21], 4
+    jne .range
+    mov si, msg_cdread
+    call cd_hd_geometry
+    jc .ret
+.range:
 
     ; Whole blocks are read, so the room checked is rounded up to them
     mov si, msg_cdrange
@@ -201,9 +210,16 @@ cd_try:
     loop .emu_sector
     pop di
     pop es
+    cmp byte [fs:CD_SCRATCH + 0x21], 4
+    je .hd
     mov byte [ss:BOOT_DL], CD_EMUL_DRIVE
     or byte [ss:BDA_EQUIP], 1               ; a diskette drive is there
     mov si, msg_cdemu_boot
+    jmp .go
+.hd:
+    mov byte [ss:BOOT_DL], CD_HD_DRIVE
+    mov byte [ss:BDA_HDCOUNT], 1
+    mov si, msg_cdemu_hd
 .go:
     mov ah, ATTR_NORMAL
     call con_print
@@ -215,6 +231,80 @@ cd_try:
     pop di
     pop es
     mov si, msg_cdread
+    ret
+
+; Media 4: the emulated hard disk's geometry, from the first partition
+; entry with a type in the image's MBR (sector 0): heads from its ending
+; head, sectors per track from its ending sector, cylinders from its
+; ending cylinder. With no usable entry: 16 heads, 63 sectors per track,
+; and as many cylinders (up to 1024) as the rest of the CD holds. Into
+; the EBDA (CD_HD_*). CF set if the image cannot be read. FS = 0. Keeps
+; every register.
+cd_hd_geometry:
+    pushad
+    push es
+    xor ax, ax
+    mov es, ax
+    mov di, CD_SCRATCH + 0x800
+    xor eax, eax
+    call cd_emu_sector
+    jc .out
+    mov bx, CD_SCRATCH + 0x800 + 0x1BE
+.entry:
+    cmp byte [fs:bx + 4], 0
+    jne .found
+    add bx, 16
+    cmp bx, CD_SCRATCH + 0x800 + 0x1FE
+    jb .entry
+    jmp .default
+.found:
+    mov al, [fs:bx + 6]
+    and al, 0x3F                ; sectors per track
+    jz .default
+    mov cl, [fs:bx + 5]
+    inc cl                      ; heads
+    jz .default
+    movzx dx, byte [fs:bx + 6]
+    shr dx, 6
+    shl dx, 8
+    mov dl, [fs:bx + 7]
+    inc dx                      ; cylinders
+    jmp .store
+.default:
+    call atapi_capacity
+    jc .out
+    sub eax, [fs:CD_IMAGE_LBA]
+    shl eax, 2                  ; 512-byte sectors from the image on
+    xor edx, edx
+    mov ecx, 16 * 63
+    div ecx
+    cmp eax, 1024
+    jbe .some
+    mov eax, 1024
+.some:
+    test eax, eax
+    jnz .cyls
+    inc eax
+.cyls:
+    mov dx, ax
+    mov al, 63
+    mov cl, 16
+.store:
+    push word EBDA_BASE >> 4
+    pop es
+    mov [es:CD_HD_SPT], al
+    mov [es:CD_HD_HEADS], cl
+    mov [es:CD_HD_CYLS], dx
+    movzx eax, al
+    movzx ecx, cl
+    imul eax, ecx
+    movzx edx, dx
+    imul eax, edx
+    mov [es:CD_HD_TOTAL], eax
+    clc
+.out:
+    pop es
+    popad
     ret
 
 elt_ident       db 'EL TORITO SPECIFICATION'

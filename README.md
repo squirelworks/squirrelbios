@@ -118,6 +118,7 @@ boots each firmware under QEMU with a small stand-in OS image from
 | `x86-pci-q35` | The same on q35, booting from a PIIX3 IDE card; Interrupt Line is `0xFF` there |
 | `x86-cd` | An El Torito no-emulation ISO on `-cdrom` boots with `DL = E0h`; its image checks it was loaded whole, `AH=41h`, the `AX=4B01h` packet (secondary master, block 20, segment `07C0h`), a 2-block `AH=42h` read and `AH=48h` (2048-byte blocks, 64 of them) |
 | `x86-cd-floppy` | El Torito diskette emulation: a CD whose boot entry is a 1.44 MB image (media type 2) boots as drive 00h in place of the (empty) diskette drive and passes the `x86-floppy` checks through INT 13h; writes are refused as write-protected |
+| `x86-cd-hdd` | El Torito hard disk emulation: a CD whose boot entry is a 2016-sector disk image (media type 4) boots as drive 80h with the geometry its MBR's partition ends on (2/16/63); `AH=02h` across a head, `AH=42h` to the last sector, past-the-end and write refusals, `AH=15h` and the `AX=4B01h` packet |
 | `x86-cd-slave` | The same CD as primary slave with no disk on the master |
 | `x86-atapi` | With a disc too small for a boot record as primary master, the CD boot reports the failed read, then the firmware reports the ATAPI master and halts |
 | `x86-bad-sector` | A sector without the `0xAA55` signature is reported and not jumped to |

@@ -73,7 +73,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/x86-optrom.bin \
              $(TEST_DIR)/x86-bzimage-big.bin $(TEST_DIR)/x86-bzimage-toobig.bin \
              $(TEST_DIR)/x86-params.bin $(TEST_DIR)/x86-params-slave.bin \
-             $(TEST_DIR)/x86-floppy.img $(TEST_DIR)/x86-floppy-nosig.img $(TEST_DIR)/x86-cd-floppy.iso \
+             $(TEST_DIR)/x86-floppy.img $(TEST_DIR)/x86-floppy-nosig.img $(TEST_DIR)/x86-cd-floppy.iso $(TEST_DIR)/x86-cd-hdd.iso \
              $(TEST_DIR)/x86-pci.bin $(TEST_DIR)/x86-edd.img \
              $(TEST_DIR)/x86-ahci.img $(TEST_DIR)/x86-nvme.img \
              $(TEST_DIR)/x86-usbdisk.img \
@@ -572,6 +572,13 @@ $(TEST_DIR)/x86-cd-floppy.img: $(TEST_DIR)/x86-cd-floppy.bin tests/mkfloppy.py
 	tests/mkfloppy.py $< $@
 $(TEST_DIR)/x86-cd-floppy.iso: $(TEST_DIR)/x86-cd-floppy.img tests/mkiso.py
 	tests/mkiso.py --floppy $< $@
+# A hard disk image as the El Torito hard disk emulation image of a CD
+$(TEST_DIR)/x86-cdhd.bin: tests/x86-cdhd.asm | $(TEST_DIR)
+	$(NASM) -f bin $< -o $@
+$(TEST_DIR)/x86-cdhd.img: $(TEST_DIR)/x86-cdhd.bin tests/mkfloppy.py
+	tests/mkfloppy.py $< $@ --hdd
+$(TEST_DIR)/x86-cd-hdd.iso: $(TEST_DIR)/x86-cdhd.img tests/mkiso.py
+	tests/mkiso.py --hdd $< $@
 $(TEST_DIR)/x86-floppy-nosig.img: $(TEST_DIR)/x86-floppy.bin tests/mkfloppy.py
 	tests/mkfloppy.py $< $@ --nosig
 
