@@ -95,6 +95,10 @@ def make_fat32(esp_secs: int, efi_file: bytes, name: str = 'BOOTX64.EFI') -> byt
         fat_secs = max(1, math.ceil((clusters + 2) * 4 / bps))
     data_secs = esp_secs - reserved - fats * fat_secs
     clusters = data_secs // spc
+    # The FAT must have an entry for every cluster: if the last round
+    # left it one short, the volume ends where the FAT does
+    clusters = min(clusters, fat_secs * bps // 4 - 2)
+    vol_secs = reserved + fats * fat_secs + clusters * spc
     assert clusters >= 65525, f'volume too small for FAT32 ({clusters} clusters)'
 
     vol = bytearray(esp_secs * bps)
@@ -114,7 +118,7 @@ def make_fat32(esp_secs: int, efi_file: bytes, name: str = 'BOOTX64.EFI') -> byt
     bs[24:26] = u16(32)
     bs[26:28] = u16(1)
     bs[28:32] = u32(0)                       # hidden
-    bs[32:36] = u32(esp_secs)
+    bs[32:36] = u32(vol_secs)
     bs[36:40] = u32(fat_secs)
     bs[40:42] = u16(0)
     bs[42:44] = u16(0)
@@ -123,7 +127,7 @@ def make_fat32(esp_secs: int, efi_file: bytes, name: str = 'BOOTX64.EFI') -> byt
     bs[50:52] = u16(6)                       # backup boot
     bs[66] = 0x29
     bs[67:71] = u32(0x1234ABCD)
-    bs[71:82] = b'SQUIRRELESP'
+    bs[71:82] = b'NO NAME    '            # no label entry in the root
     bs[82:90] = b'FAT32   '
     bs[510:512] = b'\x55\xAA'
     vol[0:512] = bs
@@ -135,7 +139,7 @@ def make_fat32(esp_secs: int, efi_file: bytes, name: str = 'BOOTX64.EFI') -> byt
     fsi[484:488] = b'rrAa'
     fsi[488:492] = u32(0xFFFFFFFF)
     fsi[492:496] = u32(0xFFFFFFFF)
-    fsi[508:512] = b'\x55\xAA'
+    fsi[510:512] = b'\x55\xAA'              # trail signature 0xAA550000
     vol[1 * bps:2 * bps] = fsi
 
     def fat_set(clus: int, val: int):
@@ -182,7 +186,7 @@ def make_fat32(esp_secs: int, efi_file: bytes, name: str = 'BOOTX64.EFI') -> byt
     write_dir_entry(2, 0, b'EFI        ', 0x10, efi_clus, 0)
     # EFI: BOOT
     write_dir_entry(efi_clus, 0, b'.          ', 0x10, efi_clus, 0)
-    write_dir_entry(efi_clus, 1, b'..         ', 0x10, 2, 0)
+    write_dir_entry(efi_clus, 1, b'..         ', 0x10, 0, 0)    # 0: the root
     write_dir_entry(efi_clus, 2, b'BOOT       ', 0x10, boot_clus, 0)
     # BOOT: the boot file, with long-name entries when it is not 8.3
     write_dir_entry(boot_clus, 0, b'.          ', 0x10, boot_clus, 0)

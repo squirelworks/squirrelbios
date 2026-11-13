@@ -448,6 +448,7 @@ static inline u16 pci_cfg16(struct sq_pci *p, u32 off)
 int virtio_pci_add(struct sq_pci *p);   /* virtio_pci.c */
 int nvme_add(struct sq_pci *p);         /* nvme.c */
 int ahci_add(struct sq_pci *p);         /* ahci.c */
+int xhci_add(struct sq_pci *p);         /* xhci.c: USB mass storage */
 int pci_disk_add(struct sq_pci *p);     /* pci.c: whichever fits */
 int efi_boot_esp(void);
 int fat_install(EFI_HANDLE handle, EFI_BLOCK_IO_PROTOCOL *bio);
