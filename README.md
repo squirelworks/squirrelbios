@@ -185,6 +185,9 @@ boots each firmware under QEMU with a small stand-in OS image from
 | `riscv64-uefi-wrong-arch` | An AArch64 PE32+ image is refused with `EFI_UNSUPPORTED` |
 | `riscv64-uefi-disk` | The same from a disk with the virtio-mmio version 2 registers: `\EFI\BOOT\BOOTRISCV64.EFI` is not 8.3 and is found by its long name |
 | `riscv64-uefi-disk-other-arch` | A disk holding only `BOOTAA64.EFI`: the volume is mounted, nothing boots |
+| `aarch64-uefi-nvme`, `riscv64-uefi-nvme` | The same ESP on an NVMe disk behind the device tree's PCIe ECAM host bridge (BARs placed by the firmware) |
+| `aarch64-uefi-virtio-pci`, `riscv64-uefi-virtio-pci` | The same on virtio-blk-pci (the modern virtio PCI interface) |
+| `aarch64-uefi-two-disks` | An NVMe disk with only `BOOTRISCV64.EFI` and a virtio-blk-pci disk with `BOOTAA64.EFI`: both are published, the second boots |
 
 Needs `qemu-system-i386`, `qemu-system-x86_64`, `qemu-system-aarch64` and `qemu-system-riscv64`.
 Serial logs are kept in `build/tests/*.log`. `SMOKE_TIMEOUT` (seconds,

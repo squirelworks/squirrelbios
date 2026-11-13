@@ -1,7 +1,7 @@
 /* SquirrelBIOS UEFI core (common/efi): Block I/O, GPT/MBR partitions,
  * ESP boot. Original code; started as a copy of x86_64/core/disk.c.
- * Publishes Block I/O and a device path for the virtio-blk disk the
- * virtio-mmio driver found, walks GPT (or MBR) for partitions, mounts FAT
+ * Publishes Block I/O and a device path for every disk a driver found
+ * (virtio-mmio, virtio-pci, NVMe), walks GPT (or MBR) for partitions, mounts FAT
  * volumes, and starts the architecture's \EFI\BOOT\BOOT<arch>.EFI. */
 #include "efi.h"
 
@@ -18,6 +18,7 @@ struct blk_dev {
     EFI_BLOCK_IO_MEDIA media;
     EFI_HANDLE handle;
     EFI_DEVICE_PATH_PROTOCOL *path;
+    struct sq_blk *dev;                 /* the driver's disk */
     /* Parent whole-disk (NULL for the disk itself); LBA offset into it. */
     struct blk_dev *parent;
     u64 lba_start;
@@ -48,10 +49,19 @@ static EFI_STATUS disk_rw(struct blk_dev *d, u64 lba, UINTN bytes, void *buf, in
     u64 blocks = bytes / d->media.block_size;
     if (lba > d->media.last_block || blocks - 1 > d->media.last_block - lba)
         return EFI_INVALID_PARAMETER;
-    /* lba_start is absolute on the virtio disk for every node. */
+    /* lba_start is absolute on the driver's disk for every node. */
     u64 abs = d->lba_start + lba;
-    int ok = write ? vblk_write(abs, buf, (u32)bytes) : vblk_read(abs, buf, (u32)bytes);
-    return ok ? EFI_SUCCESS : EFI_DEVICE_ERROR;
+    u8 *p = buf;
+    while (bytes) {                     /* drivers take up to 1 GB a call */
+        u32 n = bytes > (1u << 30) ? 1u << 30 : (u32)bytes;
+        int ok = write ? d->dev->write(d->dev, abs, p, n) : d->dev->read(d->dev, abs, p, n);
+        if (!ok)
+            return EFI_DEVICE_ERROR;
+        abs += n / 512;
+        p += n;
+        bytes -= n;
+    }
+    return EFI_SUCCESS;
 }
 
 static EFI_STATUS EFIAPI blk_read(EFI_BLOCK_IO_PROTOCOL *this, u64 media_id, u64 lba,
@@ -98,7 +108,7 @@ static void blk_fill(struct blk_dev *d, u64 last, int partition)
 }
 
 static struct blk_dev *blk_new(u64 lba_start, u64 lba_count, struct blk_dev *parent,
-                               EFI_DEVICE_PATH_PROTOCOL *path)
+                               EFI_DEVICE_PATH_PROTOCOL *path, struct sq_blk *dev)
 {
     void *mem;
     if (efi_allocate_pool(EfiBootServicesData, sizeof(struct blk_dev), &mem) != EFI_SUCCESS)
@@ -106,6 +116,7 @@ static struct blk_dev *blk_new(u64 lba_start, u64 lba_count, struct blk_dev *par
     struct blk_dev *d = mem;
     memset(d, 0, sizeof *d);
     d->parent = parent;
+    d->dev = parent ? parent->dev : dev;
     d->lba_start = lba_start;
     d->lba_count = lba_count;
     d->path = path;
@@ -172,7 +183,7 @@ static void scan_gpt(struct blk_dev *disk)
         EFI_DEVICE_PATH_PROTOCOL *path = efi_dp_append(disk->path, hd);
         if (hd)
             efi_free_pool(hd);
-        struct blk_dev *p = blk_new(start, count, disk, path);
+        struct blk_dev *p = blk_new(start, count, disk, path, NULL);
         if (!p)
             continue;
         printf("disk: partition %u LBA %lu..%lu%s\n", i + 1, start, end,
@@ -216,7 +227,7 @@ static void scan_mbr(struct blk_dev *disk)
         EFI_DEVICE_PATH_PROTOCOL *path = efi_dp_append(disk->path, hd);
         if (hd)
             efi_free_pool(hd);
-        struct blk_dev *part = blk_new(start, count, disk, path);
+        struct blk_dev *part = blk_new(start, count, disk, path, NULL);
         if (!part)
             continue;
         printf("disk: MBR partition %d type %02x LBA %u+%u\n", i + 1, type, start, count);
@@ -224,20 +235,25 @@ static void scan_mbr(struct blk_dev *disk)
     }
 }
 
-void efi_disk_init(void)
+/* A driver found a disk: publish it, its partitions and file systems */
+void efi_disk_add(struct sq_blk *dev)
 {
-    if (!vblk_probe()) {
-        printf("disk: no virtio-blk device\n");
-        return;
-    }
-    EFI_DEVICE_PATH_PROTOCOL *path = vblk_path();
-    struct blk_dev *disk = blk_new(0, vblk_sectors(), NULL, path);
+    struct blk_dev *disk = blk_new(0, dev->sectors, NULL, dev->path, dev);
     if (!disk)
         return;
     /* Prefer GPT; also try whole-disk FAT (removable-style) and MBR. */
     scan_gpt(disk);
     scan_mbr(disk);
     try_fat(disk);
+}
+
+/* Every disk driver looks for its devices and calls efi_disk_add */
+void efi_disk_init(void)
+{
+    int n = virtio_mmio_probe();
+    n += pci_probe();
+    if (!n)
+        printf("disk: no disks\n");
 }
 
 /* The boot file name as ASCII, for messages */

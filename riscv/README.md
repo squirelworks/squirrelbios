@@ -116,7 +116,8 @@ and:
   `-fw_cfg name=opt/org.squirrelworks/boot.efi,file=...`, or
   `\EFI\BOOT\BOOTRISCV64.EFI` (a long FAT name) from a virtio-blk disk
   (`-device virtio-blk-device`, legacy or
-  `-global virtio-mmio.force-legacy=false`).
+  `-global virtio-mmio.force-legacy=false`), or from an NVMe or
+  virtio-blk-pci disk on the PCIe host bridge.
 
 Linux uses the runtime services after `SetVirtualAddressMap` (`GetTime`
 from the goldfish RTC, variables, reset). Not yet: ACPI (RHCT); SSE has only the software-injected local event.
