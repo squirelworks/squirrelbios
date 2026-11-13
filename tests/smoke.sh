@@ -1560,5 +1560,32 @@ for n in 7 8 9; do
 done
 kill $nodes $netsim 2>/dev/null; wait $nodes $netsim 2>/dev/null
 
+# FAT write (D4): the app on the ESP makes a directory, writes, appends
+# past the end, truncates, renames, lists, deletes, grows a directory past
+# its first cluster, and leaves a long-named file (tests/efi-fat.c)
+run aarch64-uefi-fat-write "fs: FAT32 on partition|FAT vol=ok mkdir=ok create=ok write=ok read=ok info=ok append=ok gap=ok truncate=ok rename=ok list=ok delete=ok grow=ok rmdir=ok keep=ok|FAT all ok|efi: BOOTAA64.EFI returned 0x1234|!=bad" \
+    "$QEMU_ARM" -M virt -cpu cortex-a57 -bios $ARM_FD \
+    -drive if=none,file=$TEST_DIR/arm-fat.img,format=raw,id=d0,snapshot=on -device virtio-blk-device,drive=d0
+run riscv64-uefi-fat-write "FAT vol=ok mkdir=ok create=ok write=ok read=ok info=ok append=ok gap=ok truncate=ok rename=ok list=ok delete=ok grow=ok rmdir=ok keep=ok|FAT all ok|efi: BOOTRISCV64.EFI returned 0x1234|!=bad" \
+    "$QEMU_RISCV" -M virt -bios $RV_UEFI \
+    -drive if=none,file=$TEST_DIR/riscv-fat.img,format=raw,id=d0,snapshot=on -device nvme,drive=d0,serial=sq1
+
+# USB mass storage on xHCI (D4): boot from a bulk-only disk on a root
+# port; a keyboard on another port is passed over; FAT writes over USB
+run aarch64-uefi-usb "disk: USB at PCI 00:02.0 port 1 (46f4:0001, bulk-only), 131072 sectors|disk: partition 1 LBA 2048..131038 (ESP)|APP aarch64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|efi: BOOTAA64.EFI returned 0x1234|!=bad" \
+    "$QEMU_ARM" -M virt -cpu cortex-a57 -bios $ARM_FD -device qemu-xhci,id=xhci \
+    -drive if=none,file=$TEST_DIR/arm-esp.img,format=raw,id=d0,snapshot=on -device usb-storage,bus=xhci.0,drive=d0
+run riscv64-uefi-usb-fat-write "disk: USB at PCI 00:01.0 port 3 (46f4:0001, bulk-only), 131072 sectors|usb: port 5: 0627:0001, not a bulk-only disk|FAT all ok|efi: BOOTRISCV64.EFI returned 0x1234|!=bad" \
+    "$QEMU_RISCV" -M virt -bios $RV_UEFI -device qemu-xhci,id=xhci -device usb-kbd,bus=xhci.0,port=1 \
+    -drive if=none,file=$TEST_DIR/riscv-fat.img,format=raw,id=d0,snapshot=on -device usb-storage,bus=xhci.0,drive=d0,port=3
+run x86_64-uefi-usb "disk: USB at PCI 00:03.0 port 1 (46f4:0001, bulk-only), 131072 sectors|APP x86_64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|efi: BOOTX64.EFI returned 0x1234|!=bad" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd -device qemu-xhci,id=xhci \
+    -drive if=none,id=esp,format=raw,file=$TEST_DIR/x86_64-esp.img,snapshot=on -device usb-storage,bus=xhci.0,drive=esp
+# The UEFI side has run the xHCI by then: the CSM's legacy BIOS still
+# finds the USB disk and boots it
+run x86_64-csm-usb "disk: USB at PCI 00:03.0 port 1 (46f4:0001, bulk-only), 2 sectors|csm: leaving long mode for F000:FFF0|usb: disk is device 1|OS-ENTRY x86 dl=ok memmap=ok flags=ok vga=ok" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd -device qemu-xhci,id=xhci \
+    -drive if=none,id=ud,format=raw,file=$TEST_DIR/x86-boot.bin,snapshot=on -device usb-storage,bus=xhci.0,drive=ud
+
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

@@ -258,6 +258,8 @@ int pci_disk_add(struct sq_pci *p)
         return nvme_add(p);
     case 0x010601:                          /* SATA, AHCI 1.0 */
         return ahci_add(p);
+    case 0x0C0330:                          /* USB, xHCI */
+        return xhci_add(p);
     }
     return 0;
 }
