@@ -28,6 +28,12 @@ arch.c    PL011 console, generic timer (CNTVCT/CNTFRQ), PL031 RTC,
           group 1 and disabled, this CPU's redistributor awake, system
           register interface on), the identity map, cache maintenance
           for loaded images
+acpi.c    the ACPI tables (the SBBR set) from the device tree: FACP
+          (hardware-reduced, PSCI over hvc or smc), APIC (GICC per CPU,
+          GICD, GICR or GICv2m frames, ITS), GTDT, SPCR and DBG2 for the
+          PL011, MCFG and IORT for the PCIe host, and a DSDT with the
+          CPUs, PL011, fw_cfg, virtio-mmio transports and the PCIe host
+          bridge (windows, _PRT, ECAM reserved)
 arch.h    ARCH_* constants for the core
 link.ld   linked at FW_BASE (0x40100000), right after the 1 MB device
           tree QEMU puts at the start of RAM
@@ -49,8 +55,12 @@ link.ld   linked at FW_BASE (0x40100000), right after the 1 MB device
   the system table's pointers and the RTC address.
 - **Images.** PE32+ for AArch64 (`0xAA64`), placed on their section
   alignment (64 KB for Linux's `Image`).
-- **Not yet:** ACPI (SBBR), a disk (virtio-mmio Block I/O and the FAT
-  file system for `\EFI\BOOT\BOOTAA64.EFI`), GOP, and SMBIOS.
+- **ACPI.** The tables go next to the device tree. Linux keeps using the
+  device tree unless told `acpi=force`; then it takes CPUs, the GIC,
+  timers, console, PCIe (with MSIs through the ITS) and the virtio-mmio
+  devices from ACPI.
+- **Not yet:** GOP, SMBIOS, PPTT, and an `_OSC` for the PCIe host.
 
 `make linux-arm` boots Ubuntu's arm64 kernel through its EFI stub to a
-shell: see the top-level README.
+shell, and `make linux-arm-acpi` does the same with `acpi=force` on a
+GICv3 machine with 4 CPUs: see the top-level README.

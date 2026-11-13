@@ -8,14 +8,15 @@ qemu-system-riscv64 -M virt -nographic -bios riscv/squirrel-bios.bin -kernel ima
 ```
 
 - One hart boots: the one `fw_dynamic_info.boot_hart` names when it is below 512, otherwise hart 0 (QEMU's `-kernel` path always names 0); other harts park in `wfi` until the OS starts them with `sbi_hart_start`; `sbi_hart_stop` sends a hart back
-- Initialises the NS16550A UART (`0x10000000`, 115200 8N1) and prints `SquirrelBIOS RISC-V`
+- Takes the NS16550A UART and the CLINT (or, with `aclint=on`, the ACLINT MSWI and MTIMER) from the device tree QEMU passes in `a1`, the lowest when there are several; the build's addresses (`0x10000000`, `0x02000000`) stay only for what the tree does not name. It prints `dt: UART at ..., CLINT msip at ..., mtime at ...`
+- Initialises the UART (115200 8N1) and prints `SquirrelBIOS RISC-V`
 - Finds the `-kernel` image QEMU loaded (via the `fw_dynamic_info` block in `a2`)
 - Enters it in the mode QEMU's `next_mode` asks for, S-mode for `-kernel`,
   with PMP closing the firmware region (`0x80000000`–`0x801FFFFF`) to S-mode and opening the rest of memory, `a0` = hart ID, `a1` = device tree
 - Adds the firmware region to the device tree's `/reserved-memory` (`no-map`), so Linux does not use it
 - Lets S-mode use the cache-block instructions (Zicbom, Zicboz) and its own timer compare (Sstc) when the hart has them, as Linux expects
 - In S-mode, supervisor faults and interrupts are delegated to the image; `ecall` from S-mode stays in M-mode
-- Provides an SBI to S-mode through `ecall`: base, TIME, IPI, RFENCE, HSM, SRST and DBCN (spec 2.0, implementation ID `0x5351`); `sbi_set_timer` uses the CLINT, `sbi_send_ipi` and the remote fences reach every started hart through the CLINT software interrupt; `sbi_system_reset` powers off or resets through QEMU's test device at `0x100000`
+- Provides an SBI to S-mode through `ecall`: base, TIME, IPI, RFENCE, HSM, SRST, DBCN and SSE (spec 2.0, with SSE from 3.0, implementation ID `0x5351`); `sbi_set_timer` uses the CLINT, `sbi_send_ipi` and the remote fences reach every started hart through the CLINT software interrupt; `sbi_system_reset` powers off or resets through QEMU's test device at `0x100000`
 - Any other trap that reaches M-mode prints `ras: hart=<16 hex> mcause=<16 hex> mepc=<16 hex> mtval=<16 hex> fatal`, parks every other started hart, prints `boot halted`, then shuts the machine down as an SRST system failure (QEMU exit status 1)
 - Without `-kernel`, prints the reason and halts
 
@@ -75,8 +76,9 @@ Known limits:
   (Ubuntu's 7.0 kernel, for example) stops early with `this kernel does
   not parse "riscv,isa"`: QEMU 8.2 writes only `riscv,isa`. That is the
   QEMU version, not the firmware; a newer QEMU writes both.
-- Only QEMU `virt` is supported: the firmware assumes its CLINT, UART,
-  test device and memory layout.
+- Only QEMU `virt` is supported: the UART and CLINT come from the device
+  tree, but the firmware still assumes virt's test device and memory
+  layout.
 
 Linux is not part of `make test` or CI, and no kernel, busybox or
 initramfs is kept in the repo.
@@ -117,4 +119,4 @@ and:
   `-global virtio-mmio.force-legacy=false`).
 
 Linux uses the runtime services after `SetVirtualAddressMap` (`GetTime`
-from the goldfish RTC, variables, reset). Not yet: ACPI (RHCT), SSE, and UART/CLINT addresses from the device tree in the SBI itself.
+from the goldfish RTC, variables, reset). Not yet: ACPI (RHCT); SSE has only the software-injected local event.

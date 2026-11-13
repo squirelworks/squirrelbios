@@ -10,6 +10,10 @@
  *   APP <arch> st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok
  *   APP con=ok timer=ok time=ok var=ok dtb=ok
  *
+ * followed on the same line by acpi=none, or acpi=ok and the signatures
+ * of the tables the XSDT lists (and the FADT's DSDT) once every
+ * checksum and signature in them holds up, or acpi=bad.
+ *
  * Started as a -kernel image, it also prints its LoadOptions (the
  * -append line) and the size of the -initrd it gets the way a Linux EFI
  * stub does (LocateDevicePath on the initrd media path, then LoadFile2):
@@ -121,6 +125,7 @@ typedef struct {
 static const guid loaded_image_guid = { 0x5B1B31A1, 0x9562, 0x11d2, { 0x8E, 0x3F, 0x00, 0xA0, 0xC9, 0x69, 0x72, 0x3B } };
 static const guid dtb_guid = { 0xb1b621d5, 0xf19c, 0x41a5, { 0x83, 0x0b, 0xd9, 0x15, 0x2c, 0x69, 0xaa, 0xe0 } };
 static const guid load_file2_guid = { 0x4006c0c1, 0xfcb3, 0x403e, { 0x99, 0x6d, 0x4a, 0x6c, 0x87, 0x24, 0xe0, 0x6d } };
+static const guid acpi20_guid = { 0x8868e871, 0xe4f1, 0x11d3, { 0xbc, 0x22, 0x00, 0x80, 0xc7, 0x3c, 0x88, 0x81 } };
 static const guid var_guid = { 0x53717153, 0x6170, 0x7041, { 0x70, 0x54, 0x65, 0x73, 0x74, 0x56, 0x61, 0x72 } };
 
 static system_table *st;
@@ -163,6 +168,66 @@ static int guid_eq(const guid *a, const guid *b)
         if (p[i] != q[i])
             return 0;
     return 1;
+}
+
+static int sum_ok(const void *p, u32 len)
+{
+    const u8 *b = p;
+    u8 sum = 0;
+    while (len--)
+        sum = (u8)(sum + *b++);
+    return sum == 0;
+}
+
+static u32 rd32le(const u8 *p) { return p[0] | p[1] << 8 | p[2] << 16 | (u32)p[3] << 24; }
+static u64 rd64le(const u8 *p) { return rd32le(p) | (u64)rd32le(p + 4) << 32; }
+
+static int table_ok(const u8 *t, const char *sig)
+{
+    if (!t || (sig && (t[0] != sig[0] || t[1] != sig[1] || t[2] != sig[2] || t[3] != sig[3])))
+        return 0;
+    u32 len = rd32le(t + 4);
+    return len >= 36 && len < (1u << 20) && sum_ok(t, len);
+}
+
+/* RSDP 2.0 -> XSDT -> each table (and FACP -> DSDT), checksums all */
+static void check_acpi(const void *rsdp)
+{
+    const u8 *r = rsdp;
+    static const char rsd[] = "RSD PTR ";
+    int ok = 1;
+    for (int i = 0; i < 8; i++)
+        ok &= r[i] == (u8)rsd[i];
+    ok = ok && r[15] >= 2 && sum_ok(r, 20) && sum_ok(r, rd32le(r + 20));
+    const u8 *x = ok ? (const u8 *)(uintn)rd64le(r + 24) : 0;
+    if (!ok || !table_ok(x, "XSDT")) {
+        puts(" acpi=bad");
+        return;
+    }
+    static char sigs[33 * 5];
+    int n = 0, at = 0;
+    u32 count = (rd32le(x + 4) - 36) / 8;
+    for (u32 i = 0; i < count && n < 32; i++, n++) {
+        const u8 *t = (const u8 *)(uintn)rd64le(x + 36 + 8 * i);
+        if (!table_ok(t, 0)) {
+            puts(" acpi=bad");
+            return;
+        }
+        if (t[0] == 'F' && t[1] == 'A' && t[2] == 'C' && t[3] == 'P') {
+            const u8 *d = (const u8 *)(uintn)rd64le(t + 140);
+            if (!table_ok(d, "DSDT")) {
+                puts(" acpi=bad");
+                return;
+            }
+        }
+        if (at)
+            sigs[at++] = ',';
+        for (int k = 0; k < 4; k++)
+            sigs[at++] = (char)t[k];
+    }
+    sigs[at] = 0;
+    puts(" acpi=ok ");
+    puts(sigs);
 }
 
 /* The Linux initrd media device path: vendor media node, then the end */
@@ -299,6 +364,14 @@ status efi_main(handle image, system_table *systab)
         if (guid_eq(&st->tables[i].vendor, &dtb_guid))
             ok = be32(st->tables[i].table) == 0xd00dfeed;
     result("dtb", ok);
+    const void *rsdp = 0;
+    for (uintn i = 0; i < st->n_tables; i++)
+        if (guid_eq(&st->tables[i].vendor, &acpi20_guid))
+            rsdp = st->tables[i].table;
+    if (rsdp)
+        check_acpi(rsdp);
+    else
+        puts(" acpi=none");
     puts("\n");
     options_and_initrd(li);
 

@@ -995,7 +995,8 @@ function returns `SBI_ERR_NOT_SUPPORTED` (`-2`).
 | RFENCE | `0x52464E43` | `remote_fence_i` (0), `remote_sfence_vma` (1), `remote_sfence_vma_asid` (2) |
 | HSM | `0x48534D` | `hart_start` (0), `hart_stop` (1), `hart_get_status` (2) |
 | SRST | `0x53525354` | `system_reset` (0) |
-| DBCN | `0x4442434E` | `console_write` (0), `console_read` (1), `console_write_byte` (2): on the UART; `a0` = bytes, `a1`/`a2` = physical address low/high (high must be 0), returns the bytes done in `a1` |
+| DBCN | `0x4442434E` | `console_write` (0), `console_read` (1), `console_write_byte` (2): on the UART; `a0` = bytes, `a1`/`a2` = physical address low/high (high must be 0, and the buffer must not touch the firmware's 2 MB), returns the bytes done in `a1` |
+| SSE | `0x535345` | SBI 3.0 supervisor software events, functions 0-9 (`read_attrs` ... `hart_mask`), for one event: the software-injected local event `0xFFFF0000` (other IDs: `SBI_ERR_NOT_SUPPORTED`). Events start masked on each hart; an enabled, pending, unmasked event is taken on the way back to S-mode after an SSE call or an IPI. Attribute buffers: 8-byte aligned, `a4` = 0, value *i* at 8 × *i*, clear of the firmware. `complete` returns no `sbiret`: `a0`/`a1` stay as the handler left them |
 
 `set_timer(a0)`, on a hart with Sstc (`menvcfg.STCE` set, as on QEMU's
 default CPU), writes the absolute time `a0` to `stimecmp`: the
