@@ -1208,6 +1208,16 @@ run riscv64-uefi-disk "disk: virtio-blk at 0x0000000010008000 (virtio-mmio v2), 
 run riscv64-uefi-disk-other-arch "disk: virtio-blk at 0x0000000010008000 (virtio-mmio v1)|fs: FAT32 on partition|fw: nothing to boot (no -kernel, no opt/org.squirrelworks/boot.efi, no boot disk), halting|!APP riscv64" \
     "$QEMU_RISCV" -M virt -bios $RV_UEFI \
     -drive if=none,file=$TEST_DIR/arm-esp.img,format=raw,id=d0 -device virtio-blk-device,drive=d0
+# x86-64 firmware: the runtime services after ExitBootServices, with
+# every boot services page overwritten by the app (as an OS may reuse
+# them) and the app's own page tables and stack. ResetSystem then powers
+# off (isa-debug-exit -> status 1).
+for m in q35 pc; do
+run x86_64-rt-after-exit-$m "efi: ExitBootServices|APP rt pages=ok time=ok var=ok next=ok|@exit=1|!=bad" \
+    "$QEMU_X86_64" -M $m -smp 2 -bios x86_64/squirrel-bios.fd \
+    -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
+    -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-rt.efi
+done
 
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]
