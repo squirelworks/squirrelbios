@@ -8,3 +8,4 @@ riscv/*.o
 riscv/*.elf
 riscv/*.bin
 build/
+ppc64/*.bin

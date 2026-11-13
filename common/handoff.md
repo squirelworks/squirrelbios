@@ -1163,3 +1163,23 @@ Expect `SquirrelBIOS RISC-V`, then `jumping to kernel at
 0x0000000080200000, next_mode=1`, then whatever the image prints. For a
 Linux kernel, see "Trying Linux" in `riscv/README.md`.
 `tests/riscv-kernel.S` is a minimal image.
+
+## POWER (QEMU powernv9 / powernv10)
+
+Roadmap E1, `PLATFORM=ppc64le-powernv`; details in
+[ppc64/README.md](../ppc64/README.md).
+
+| | |
+|---|---|
+| Image source | an ELF64 (either byte order) that `-kernel` put at `0x20000000`; segments with a `p_paddr` are copied there, an image with `p_paddr` 0 (Linux `vmlinux`) runs in place |
+| Entry | `e_entry`, big-endian, hypervisor real mode: `MSR` `SF`, `HV`, `ME` set, `IR`, `DR`, `EE`, `LE` clear |
+| Boot argument | `r3` = device tree, `r4` = in-place load address or 0, `r5` = 0, `r8`/`r9` = OPAL base / entry |
+| Memory description | Device tree `/memory`; the firmware's 4 MB at `0x30000000` is in the reserve map |
+| Console | 16550 at LPC I/O `0x3F8`, 115200 8N1, also `OPAL_CONSOLE_WRITE` terminal 0 |
+| Interrupts | `MSR[EE]` = 0; the firmware installs nothing the OS must keep |
+| CPUs running | The boot thread; the others are parked until `OPAL_START_CPU` (then `r3` = PIR) |
+| Firmware services | OPAL-style calls at `opal-entry-address`: console, RTC, power down / reboot, start / query / return CPU, check token |
+
+The OS must not assume anything below `0x30000000` other than its own
+image and the initrd survives from the firmware, and must not write the
+firmware's region while it uses the OPAL calls.

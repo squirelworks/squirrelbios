@@ -9,6 +9,7 @@
 | `aarch64-virt` | `squirrel-bios.bin` | QEMU AArch64 `virt` (`-bios`) |
 | `riscv64-virt` | `squirrel-bios.bin` | QEMU RISC-V `virt` (`-bios`) |
 | `x86_64-uefi` | `squirrel-bios.fd` | QEMU q35 or PC, 64-bit (`qemu-system-x86_64 -bios`) |
+| `ppc64le-powernv` | `squirrel-bios.bin` | QEMU `powernv9` / `powernv10` (`qemu-system-ppc64 -bios`) |
 
 A `.cfg` file is `KEY=VALUE` lines; `#` starts a comment line. Keys are
 `CONFIG_*`; values are decimal or `0x` hex numbers, or `y` / `n` (1 / 0).
@@ -72,3 +73,14 @@ The C sources include `config.h` when built with `-DSQ_CONFIG`.
 
 `riscv64-virt/small.cfg` (8 harts) shows a non-default build; `make test`
 boots it as `config-riscv-small`.
+
+### ppc64le-powernv
+
+| Key | Default | Meaning |
+|---|---|---|
+| `CONFIG_MAX_CPUS` | `64` | Hardware threads the firmware parks and can start; the rest stay in the reset loop |
+| `CONFIG_KERNEL_BASE` | `0x20000000` | Where QEMU's `-kernel` puts the image |
+| `CONFIG_KERNEL_MAX` | `0x08000000` | Largest kernel file looked at there |
+
+The C sources include `config.h` when built with `-DSQ_CONFIG`.
+`make test` boots the default build as `config-ppc64-default`.

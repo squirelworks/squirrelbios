@@ -87,6 +87,10 @@ OUT_x86_64-uefi  := squirrel-bios.fd
 OUT_aarch64-virt := squirrel-bios.bin
 OUT_riscv64-virt := squirrel-bios.bin
 
+# Phase E platforms (roadmap E1-E3) keep their rules in <arch>/platform.mk:
+# each adds itself to PLATFORMS, all, test and clean
+include $(wildcard */platform.mk)
+
 ifeq ($(PLATFORM),)
 all: x86 x86_64 arm riscv
 else

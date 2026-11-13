@@ -851,5 +851,16 @@ run x86_64-gop "gop: 800x600x32 at|APP gop mode=ok fb=ok blt=ok time=ok var=ok|e
     -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
     -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-gop.efi
 
+# Phase E platforms (ppc64le-powernv, ...) keep their cases in
+# tests/<arch>.smoke; a case whose QEMU or firmware is missing is skipped
+skipped=0
+skip() {
+    echo "SKIP  $1 ($2)"
+    skipped=$((skipped + 1))
+}
+for smoke in tests/*.smoke; do
+    [ -f "$smoke" ] && . "./$smoke"
+done
+[ "$skipped" -eq 0 ] || echo "$skipped skipped"
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]
