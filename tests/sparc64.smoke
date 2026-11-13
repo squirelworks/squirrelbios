@@ -16,7 +16,7 @@ sparc64_case() {
     fi
 }
 
-SPARC64_OK="OS-ENTRY sparc64 cif=ok state=ok mmu=ok tba=ok windows=ok|CIF test=ok unknown=ok mem=ok walk=ok nodes=13 missing=ok alias=ok|MMU translate=ok translations=ok method=ok claim=ok ms=ok interpret=ok|LINUX globals=ok unlocked=ok tlbload=ok hdrs=|IRQ console ino=0x2b reg=ok imap=ok vector=ok|cif: exit|sq> "
+SPARC64_OK="OS-ENTRY sparc64 cif=ok state=ok mmu=ok tba=ok windows=ok|CIF test=ok unknown=ok mem=ok walk=ok nodes=16 missing=ok alias=ok|MMU translate=ok translations=ok method=ok claim=ok ms=ok interpret=ok|LINUX globals=ok unlocked=ok tlbload=ok hdrs=|IRQ console ino=0x2b reg=ok imap=ok vector=ok|PCI bars=ok ide-ino=0x20 net-ino=0x21 mac=ok atapi=ok ide-irq=ok|cif: exit|sq> "
 
 # The firmware copies itself from the PROM to the top 4 MB of RAM, runs
 # there at 0xf0000000 with the MMUs on, and enters the test kernel (an
@@ -39,7 +39,7 @@ sparc64_case sparc64-512m "firmware at 0xf0000000 (physical 0x1fc00000)|mem: 512
 
 # No kernel: the firmware prompt, its commands and the device tree
 SERIAL_IN=$TEST_DIR/sparc64-prompt.keys
-sparc64_case sparc64-prompt "boot: no kernel (-kernel)|sq> |commands:|  dt |available: 0x4000-0x7bfffff|chosen {|stdout = <0x51530001>|unknown command 'bogus'|!trap:" \
+sparc64_case sparc64-prompt "boot: no kernel (-kernel)|sq> |commands:|  dt |available: 0x4000-0x7bfffff|chosen {|stdout = <0x51530001>|01:03.0 1095:0646 class 01018f pin 1|  bar 0x10: i/o 0x4000, 8 bytes|01:01.1 108e:1001 class 020000|unknown command 'bogus'|!trap:" \
     "$QEMU_SPARC64" -M sun4u -bios $SPARC64_FW
 SERIAL_IN=
 

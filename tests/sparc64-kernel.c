@@ -119,6 +119,46 @@ static void intr_ack(void)
     __asm__ volatile("stxa %%g0, [%%g0] 0x49\n\tmembar #Sync" : : : "memory");
 }
 
+static uint8_t in_phys8(uint64_t a)
+{
+    uint8_t v;
+    __asm__ volatile("lduba [%1] 0x15, %0" : "=r"(v) : "r"(a) : "memory");
+    return v;
+}
+
+static uint16_t in_phys16le(uint64_t a)
+{
+    uint16_t v;
+    __asm__ volatile("lduha [%1] 0x1d, %0" : "=r"(v) : "r"(a) : "memory");
+    return v;
+}
+
+static uint32_t in_phys32le(uint64_t a)
+{
+    uint32_t v;
+    __asm__ volatile("lduwa [%1] 0x1d, %0" : "=r"(v) : "r"(a) : "memory");
+    return v;
+}
+
+/* A PCI device node under the EBus's Simba bridge: every BAR in
+ * assigned-addresses is what its configuration space holds (read
+ * through the PBM's configuration space, reg[1] of the PBM node) */
+static int bars_match(uint64_t node, uint64_t pbm_cfg, int *nbars)
+{
+    uint32_t aa[30] = { 0 };
+    int len = (int)cif1("getprop", 4, node, U("assigned-addresses"), U(aa), sizeof(aa));
+    int good = len > 0 && len % 20 == 0;
+    *nbars = len > 0 ? len / 20 : 0;
+    for (int i = 0; good && i < len / 20; i++) {
+        uint32_t hi = aa[5 * i];
+        uint64_t cfg = pbm_cfg + (hi & 0x00ffffffu);
+        uint32_t bar = in_phys32le(cfg) & ((hi & 0x03000000u) == 0x01000000u ? ~3u : ~0xfu);
+        good = (hi & 0x80000000u) && bar == aa[5 * i + 2] && aa[5 * i + 4] &&
+               !(bar & (aa[5 * i + 4] - 1));
+    }
+    return good;
+}
+
 static int deep(int n)
 {
     volatile int x = n;
@@ -296,6 +336,68 @@ void kmain(uint64_t cif_entry, uint64_t initrd, uint64_t initrd_size)
     }
     fw_printf("IRQ console ino=0x%x reg=%s imap=%s vector=%s\n", ino, ok(reg_ok), ok(imap_ok),
               ok(got && vec == (m & 0x7ff)));
+
+    /* The other devices on that bus: IDE, network, display. Their BARs
+     * as assigned, their interrupts, the NIC's MAC from the ID PROM */
+    uint64_t pcfg[4] = { 0 };
+    cif1("getprop", 4, pbm, U("reg"), U(pcfg), sizeof(pcfg));
+    uint64_t ide = cif1("finddevice", 1, U("/pci@1fe,0/pci@1,1/ide@3"), 0, 0, 0);
+    uint64_t net = cif1("finddevice", 1, U("/pci@1fe,0/pci@1,1/network@1,1"), 0, 0, 0);
+    uint64_t vga = cif1("finddevice", 1, U("/pci@1fe,0/pci@1,1/display@2"), 0, 0, 0);
+    int nide = 0, nnet = 0, nvga = 0;
+    int bars = (int64_t)ide > 0 && (int64_t)net > 0 && (int64_t)vga > 0 &&
+               bars_match(ide, pcfg[2], &nide) && bars_match(net, pcfg[2], &nnet) &&
+               bars_match(vga, pcfg[2], &nvga) && nide == 5 && nnet == 1 && nvga == 2;
+    uint32_t ide_ino = 0, net_ino = 0;
+    cif1("getprop", 4, ide, U("interrupts"), U(&ide_ino), 4);
+    cif1("getprop", 4, net, U("interrupts"), U(&net_ino), 4);
+    uint8_t mac[6] = { 0 }, idprom[32] = { 0 };
+    int ml = (int)cif1("getprop", 4, net, U("local-mac-address"), U(mac), 6);
+    int il = (int)cif1("getprop", 4, cif1("peer", 1, 0, 0, 0, 0), U("idprom"), U(idprom), 32);
+    int mac_ok = ml == 6 && il == 32 && idprom[0] == 1 && !memcmp(mac, idprom + 2, 6) &&
+                 (mac[0] | mac[1] | mac[2]);
+
+    /* The IDE controller through its assigned I/O BARs (secondary
+     * channel: BAR 0x18 commands, BAR 0x1c control): IDENTIFY PACKET
+     * DEVICE to QEMU's CD-ROM, answered with an interrupt on the IDE's
+     * INO and an ATAPI identify block */
+    uint32_t iaa[25] = { 0 };
+    cif1("getprop", 4, ide, U("assigned-addresses"), U(iaa), sizeof(iaa));
+    uint64_t io = (uint64_t)pr[3] << 32 | pr[4];
+    uint64_t cmd = io + iaa[5 * 2 + 2], ctl = io + iaa[5 * 3 + 2];
+    uint64_t imap2 = preg[0] + 0x1000 + ((ide_ino & 0x1f) << 3);
+    uint64_t iclr2 = preg[0] + 0x1800 + ((ide_ino & 0x1f) << 3);
+    uint64_t m2 = ld_phys(imap2);
+    int atapi = 0, ide_irq = 0;
+    char idmodel[13] = "";
+    if (bars && ide_ino >= 0x20 && (m2 & 0x7ff) == (portid << 6 | ide_ino)) {
+        st_phys(iclr2, 0);
+        st_phys(imap2, m2 | 1ull << 31);
+        st_phys8(ctl + 2, 0x00);                    /* device control: nIEN off */
+        st_phys8(cmd + 6, 0xa0);                    /* master */
+        st_phys8(cmd + 7, 0xa1);                    /* IDENTIFY PACKET DEVICE */
+        for (long i = 0; i < 2000000 && !ide_irq; i++)
+            ide_irq = (intr_status() & 0x20) && intr_data0() == (m2 & 0x7ff);
+        uint8_t st = 0;
+        for (long i = 0; i < 2000000 && !(st & 0x08); i++)
+            st = in_phys8(cmd + 7);                 /* clears INTRQ too */
+        uint16_t wd[256];
+        for (int i = 0; i < 256 && (st & 0x08); i++)
+            wd[i] = in_phys16le(cmd);
+        if (st & 0x08) {
+            atapi = (wd[0] >> 14) == 2;
+            for (int i = 0; i < 6; i++) {
+                idmodel[2 * i] = (char)(wd[27 + i] >> 8);
+                idmodel[2 * i + 1] = (char)wd[27 + i];
+            }
+            atapi &= !strcmp(idmodel, "QEMU DVD-ROM");
+        }
+        intr_ack();
+        st_phys(iclr2, 0);
+        st_phys(imap2, m2);
+    }
+    fw_printf("PCI bars=%s ide-ino=0x%x net-ino=0x%x mac=%s atapi=%s ide-irq=%s\n", ok(bars),
+              ide_ino, net_ino, ok(mac_ok), ok(atapi), ok(ide_irq));
 
     fw_printf("OS-DONE sparc64, exiting to the firmware\n");
     cif("exit", 0, 0, a, o);
