@@ -68,6 +68,7 @@ int csm_boot(void)
         printf("csm: unknown host bridge %08x, no shadow RAM\n", pci_read32(0, 0, 0, 0));
         return 0;
     }
+    chipset_legacy_handoff();
     pam_set_e(PAM_RW);
     memset((void *)0xE0000, 0, 0x10000);
     pam_set_f(PAM_RW);

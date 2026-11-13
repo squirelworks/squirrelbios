@@ -20,16 +20,22 @@ core/      start.asm (clears .bss, calls fw_main), main.c, console.c
            PIT), textcon.c (Simple Text Input/Output on COM1),
            devicepath.c, disk.c (Block I/O, GPT/MBR), fat.c (Simple File
            System), gop.c (Graphics Output Protocol on Bochs DISPI),
-           runtime.c (GetTime, variables, ResetSystem, ExitBootServices)
+           runtime.c (GetTime, variables, ResetSystem, ExitBootServices),
+           acpi.c (ACPI 6.x tables), aml.c (the AML writer the DSDT is
+           generated with), smbios.c (SMBIOS 3.x), bootopt.c (command
+           line and initrd for the booted image)
 platform/  fwcfg.c (QEMU fw_cfg over I/O ports), memmap.c (etc/e820,
            CMOS as a fallback), pci.c (config space, I/O and 32-bit
-           memory BAR assignment), virtio_blk.c (legacy virtio-blk)
+           memory BAR assignment), virtio_blk.c (legacy virtio-blk),
+           chipset.c (PIIX4 / ICH9 PM block, q35 ECAM, PCI interrupt
+           routing)
 csm/       csm.c, csm.asm: the CSM (roadmap C3), the legacy x86-pc ROM
            carried in the image and the way back to real mode
 smp/       smp.c (AP bring-up with INIT-SIPI-SIPI, AP parking, the MP
            services protocol), apic.c (local APIC in xAPIC or x2APIC
            mode), mptable.c (MPS 1.4 table), roadmap C4
-include/   sq.h, efi.h (UEFI types and tables, from the specification)
+include/   sq.h, efi.h (UEFI types and tables, from the specification),
+           acpi.h
 link.ld    the body, linked at FW_BASE
 ```
 

@@ -2,7 +2,7 @@
  * Original code. GetTime from the CMOS RTC, ResetSystem through the
  * QEMU/Bochs ACPI port and the keyboard controller, a small in-RAM
  * variable store, and ExitBootServices which drops boot services. */
-#include "efi.h"
+#include "acpi.h"
 
 static int exited;
 static u64 mono_high;
@@ -223,39 +223,6 @@ static EFI_STATUS EFIAPI get_next_high_mono(u32 *count)
     return EFI_SUCCESS;
 }
 
-/* Make sure QEMU's chipset has an ACPI PM I/O block. Our firmware is
- * the platform BIOS, so nothing else programs PIIX4 / ICH9. Returns the
- * PM1a_CNT port (PMBASE+4), or 0. */
-static u16 acpi_pm1_cnt(void)
-{
-    /* ICH9 LPC on q35: 00:1f.0, PMBASE at 0x40, ACPI_EN at 0x44 bit 7. */
-    u16 vend = pci_read16(0, 0x1f, 0, 0x00);
-    u16 dev = pci_read16(0, 0x1f, 0, 0x02);
-    if (vend == 0x8086 && (dev == 0x2918 || dev == 0x2916 || dev == 0x2917)) {
-        u32 pm = pci_read32(0, 0x1f, 0, 0x40);
-        if (!(pm & 1) || !(pm & ~1u)) {
-            pci_write32(0, 0x1f, 0, 0x40, 0x601);
-            pm = 0x601;
-        }
-        u8 en = pci_read8(0, 0x1f, 0, 0x44);
-        pci_write8(0, 0x1f, 0, 0x44, (u8)(en | 0x80));
-        return (u16)((pm & ~1u) + 4);
-    }
-    /* PIIX4 PM on i440fx: 00:01.3, PMBA at 0x40, enable at 0x80 bit 0. */
-    vend = pci_read16(0, 1, 3, 0x00);
-    if (vend == 0x8086) {
-        u32 pm = pci_read32(0, 1, 3, 0x40);
-        if (!(pm & 1) || !(pm & ~1u)) {
-            pci_write32(0, 1, 3, 0x40, 0x601);
-            pm = 0x601;
-        }
-        u8 en = pci_read8(0, 1, 3, 0x80);
-        pci_write8(0, 1, 3, 0x80, (u8)(en | 1));
-        return (u16)((pm & ~1u) + 4);
-    }
-    return 0;
-}
-
 static void EFIAPI reset_system(EFI_RESET_TYPE type, EFI_STATUS status, UINTN size, void *data)
 {
     (void)status;
@@ -264,11 +231,11 @@ static void EFIAPI reset_system(EFI_RESET_TYPE type, EFI_STATUS status, UINTN si
     if (type == EfiResetShutdown) {
         /* isa-debug-exit if the smoke test attached one at 0xF4. */
         outb(0xF4, 0x00);
-        u16 pm1 = acpi_pm1_cnt();
-        /* SLP_EN | SLP_TYP=5 (S5). QEMU accepts this on ICH9/PIIX4. */
+        /* SLP_EN with the SLP_TYP the DSDT gives \_S5 (0: QEMU's soft
+         * off on both PIIX4 and ICH9), on the PM block chipset.c opened. */
+        u16 pm1 = chipset()->pm_base;
         if (pm1)
-            outw(pm1, 0x2000 | (5 << 10));
-        outw(0x604, 0x2000 | (5 << 10));
+            outw((u16)(pm1 + 4), 0x2000 | (ACPI_S5_SLP_TYP << 10));
         outw(0xB004, 0x2000);
         for (;;)
             __asm__ volatile("cli; hlt");

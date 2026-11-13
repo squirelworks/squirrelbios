@@ -319,6 +319,7 @@ int efi_boot_esp(void)
             li->device_handle = handles[i];
             li->file_path = efi_dp_file(path);
         }
+        efi_set_load_options(img);
         UINTN xsz = 0;
         CHAR16 *xdata = NULL;
         s = efi_start_image(img, &xsz, &xdata);
