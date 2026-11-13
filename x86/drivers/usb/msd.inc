@@ -16,7 +16,10 @@
 ; with a keyboard or mouse, which go to the companion controllers: the
 ; asynchronous list is one queue head for the endpoint in use, built in
 ; the EBDA for each transfer with the qTDs after it and run with the
-; schedule on only until it is done (usbd_ehci_xfer). That
+; schedule on only until it is done (usbd_ehci_xfer). A high-speed UAS
+; interface (USB Attached SCSI, protocol 62h) is taken on EHCI too: its
+; four pipes are four bulk endpoints, used one at a time without streams
+; (usbd_uas_scsi). That
 ; controller then keeps running after POST, alongside a USB keyboard or
 ; mouse on the same controller, and its state that the transfers need
 ; (registers, event ring position, the disk's rings or data toggles) is
@@ -53,6 +56,12 @@ USBD_SECTORS    equ 0x1F70          ; dword: capacity (usbd_detect)
 USBD_BUFS       equ 0x1F74          ; dword: linear CBW; CSW and SCSI data after
 USBD_BDF        equ 0x1F78          ; word: its controller
 USBD_HC         equ 0x1F7A          ; byte: and that controller's type
+USBD_UAS        equ 0x1F63          ; byte: 1 if it speaks UAS, not bulk-only
+USBD_EPDIN      equ 0x1F7B          ; byte: UAS data-in pipe's endpoint
+USBD_EPDOUT     equ 0x1F7C          ; byte: UAS data-out pipe's endpoint
+USBD_DINST      equ 0x1F7D          ; byte: data-in pipe's data toggle
+USBD_DOUTST     equ 0x1F7E          ; byte: data-out pipe's data toggle
+; On UAS, USBD_EPOUT is the command pipe and USBD_EPIN the status pipe
 ; On UHCI and EHCI, USBD_OUTST and USBD_INST hold each endpoint's next
 ; data toggle
 
@@ -123,6 +132,13 @@ usb_disk_claim:
     jne .out                    ; high speed only (no split transactions)
     cmp byte [fs:USBD_ADDR], 0
     jne .out
+    cmp byte [bp - 17], 2
+    jne .ehci_eps
+    cmp byte [bp - 18], 0       ; UAS: all four pipes
+    je .out
+    cmp byte [bp - 19], 0
+    je .out
+.ehci_eps:
     cmp byte [bp - 13], 0
     je .out
     cmp byte [bp - 14], 0
@@ -131,6 +147,8 @@ usb_disk_claim:
     je .out
     jmp .usb_bufs               ; on its own: no keyboard shares it
 .hc:
+    cmp byte [bp - 17], 1
+    jne .out                    ; UAS on EHCI only
     cmp byte [fs:USBD_ADDR], 0
     jne .out
     cmp byte [bp - 13], 0
@@ -153,6 +171,7 @@ usb_disk_claim:
     mov dword [fs:USBD_BUFS], EBDA_BASE + USBD_UBUF
     mov word [fs:USBD_OUTST], 0         ; DATA0 on both after configuring
     mov word [fs:USBD_INST], 0
+    mov word [fs:USBD_DINST], 0
     jmp .config
 .xhci:
     cmp dword [fs:XHCI_BASE], XHCI_EBDA
@@ -182,6 +201,13 @@ usb_disk_claim:
     mov [fs:USBD_EPOUT], al
     mov ax, [bp - 16]
     mov [fs:USBD_MPS], ax
+    mov al, [bp - 17]
+    dec al
+    mov [fs:USBD_UAS], al
+    mov al, [bp - 18]
+    mov [fs:USBD_EPDIN], al
+    mov al, [bp - 19]
+    mov [fs:USBD_EPDOUT], al
     mov dword [fs:USBD_TAG], 0
     mov dword [fs:USBD_SECTORS], 0
     mov ax, [fs:USB_BDF]
@@ -405,6 +431,8 @@ usbd_cdb:
 ; not this command's; otherwise AL = its status (0 passed, 1 failed, 2
 ; phase error). Keeps every other register.
 usbd_scsi:
+    cmp byte [fs:USBD_UAS], 0
+    jne usbd_uas_scsi
     pushad
     mov ebx, [fs:USBD_BUFS]
     mov dword [gs:ebx + USBD_CBW], USBD_CBW_SIG
@@ -1129,10 +1157,16 @@ usbd_ehci_xfer:
     or dl, [fs:USBD_ADDR]
     movzx ebx, byte [fs:USBD_EPOUT]
     mov ebp, QTD_OUT
-    cmp di, USBD_INST
-    jne .ep
-    movzx ebx, byte [fs:USBD_EPIN]
+    cmp di, USBD_OUTST
+    je .ep
+    movzx ebx, byte [fs:USBD_EPDOUT]
+    cmp di, USBD_DOUTST
+    je .ep
     mov ebp, QTD_IN
+    movzx ebx, byte [fs:USBD_EPDIN]
+    cmp di, USBD_DINST
+    je .ep
+    movzx ebx, byte [fs:USBD_EPIN]
 .ep:
     shl ebx, 8
     or edx, ebx
@@ -1255,4 +1289,125 @@ usbd_ehci_xfer:
 .fail:
     popad
     stc
+    ret
+
+; usbd_scsi for a UAS disk (on EHCI, without streams): the command IU on
+; the command pipe; with data, the device's READ READY or WRITE READY IU
+; on the status pipe, then the data on the data-in or data-out pipe; then
+; the SENSE IU on the status pipe. The IUs use the block's CBW and CSW
+; space: the command at +40h (its CDB taken from usbd_cdb's block), what
+; the status pipe sends at +0. Same registers and results as usbd_scsi.
+usbd_uas_scsi:
+    pushad
+    mov ebx, [fs:USBD_BUFS]
+    ; A new tag, never 0; SI = it big-endian, as the IUs carry it
+    mov edx, [fs:USBD_TAG]
+    inc dx
+    jnz .tag
+    inc dx
+.tag:
+    mov [fs:USBD_TAG], edx
+    xchg dl, dh
+    mov si, dx
+    ; The command IU: ID 1, the tag, a simple task, LUN 0, the CDB
+    movzx edx, dx
+    shl edx, 16
+    or edx, 1
+    mov [gs:ebx + 0x40], edx
+    xor edx, edx
+    mov [gs:ebx + 0x44], edx
+    mov [gs:ebx + 0x48], edx
+    mov [gs:ebx + 0x4C], edx
+    mov edx, [gs:ebx + USBD_CBW + 15]
+    mov [gs:ebx + 0x50], edx
+    mov edx, [gs:ebx + USBD_CBW + 19]
+    mov [gs:ebx + 0x54], edx
+    mov edx, [gs:ebx + USBD_CBW + 23]
+    mov [gs:ebx + 0x58], edx
+    mov edx, [gs:ebx + USBD_CBW + 27]
+    mov [gs:ebx + 0x5C], edx
+    push eax
+    push ecx
+    lea eax, [ebx + 0x40]
+    mov ecx, 32
+    mov di, USBD_OUTST
+    call usbd_xfer
+    pop ecx
+    pop eax
+    jc .fail
+    test ecx, ecx
+    jz .status
+    ; READ READY (6) or WRITE READY (7); a SENSE IU instead means the
+    ; command ended before any data
+    call .iu
+    jc .fail
+    mov dl, [gs:ebx]
+    cmp dl, 3
+    je .sense
+    mov dh, 6
+    mov di, USBD_DINST
+    test al, USBD_IN
+    jnz .ready
+    mov dh, 7
+    mov di, USBD_DOUTST
+.ready:
+    cmp dl, dh
+    jne .fail
+    mov eax, ebp
+    call usbd_xfer
+    jc .fail
+.status:
+    call .iu
+    jc .fail
+.sense:
+    ; The SENSE IU (3): its status byte, GOOD or not
+    cmp byte [gs:ebx], 3
+    jne .fail
+    mov al, [gs:ebx + 6]
+    test al, al
+    jz .done
+    mov al, 1
+.done:
+    mov bp, sp
+    mov [bp + 28], al           ; the caller's AL
+    popad
+    clc
+    ret
+.fail:
+    popad
+    stc
+    ret
+
+; The next IU from the status pipe, to +0: CF set unless it arrived and
+; carries this command's tag (SI). Keeps every register.
+.iu:
+    push eax
+    push ecx
+    push di
+    mov dword [gs:ebx], 0
+    mov eax, ebx
+    mov ecx, 0x40
+    mov di, USBD_INST
+    call usbd_xfer
+    jc .iu_out
+    cmp [gs:ebx + 2], si
+    je .iu_out                  ; CF clear
+    stc
+.iu_out:
+    pop di
+    pop ecx
+    pop eax
+    ret
+
+; The POST line for the USB disk: SI = it. Keeps every other register.
+usbd_banner:
+    push es
+    push word EBDA_BASE >> 4
+    pop es
+    mov si, msg_usbd
+    cmp byte [es:USBD_SNAP + USBD_UAS - 0x1F00], 0
+    je .out
+    mov si, msg_usbd_uas
+.out:
+    pop es
     ret

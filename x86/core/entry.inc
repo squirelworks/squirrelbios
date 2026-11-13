@@ -110,7 +110,7 @@ entry:
 %if CONFIG_USB
     call usbd_detect            ; CF clear: DL 80h is the USB disk
     jc .no_usbd
-    mov si, msg_usbd
+    call usbd_banner
     mov ah, ATTR_NORMAL
     call con_print
     call con_newline

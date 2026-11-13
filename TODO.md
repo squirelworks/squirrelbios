@@ -391,13 +391,15 @@ roadmap item, run under QEMU in `make test`.
   - [x] Keyboard on OHCI (and on EHCI ports, through the companions)
   - [x] Keyboard on xHCI (EHCI hands keyboards to its companions)
   - [x] Mouse, `INT 15h C2xx`
-- [ ] `x86-usb-storage` — Boot from USB mass storage (BOT, then UAS).
+- [x] `x86-usb-storage` — Boot from USB mass storage (BOT, then UAS).
   - [x] Bulk-only transport on xHCI: `INT 13h` and booting, as DL 80h
     when no IDE, SATA or NVMe disk answered. No stall recovery yet.
   - [x] Bulk-only transport on UHCI and OHCI (full speed) and EHCI (high
     speed): `INT 13h`, EDD and booting as DL 80h; a full-speed keyboard on
     an ICH9 UHCI companion keeps working while the disk is on EHCI.
-  - [ ] UAS
+  - [x] UAS: a high-speed UAS disk on EHCI as DL 80h (boot, `INT 13h`
+    read/write, EDD), without streams. On xHCI a UAS device is listed and
+    left alone until streams are supported.
 - [x] `x86-virtio-net-boot` — virtio-blk/net and an original TFTP boot
   of `SQBL`.
   - [x] virtio-blk (legacy interface) as DL 80h, after NVMe. One
