@@ -193,7 +193,8 @@ expanders add root buses that only ACPI describes. fw_cfg
 populated buses past 0 that no bridge leads to. Each becomes a DSDT host
 bridge `PCxx` with `_BBN`, the buses up to the next root, and the first
 six get a 4 KB I/O window from 0x6000 and a 64 MB memory window from
-0xE0000000, cut out of PCI0's. On pc their `_PRT` follows QEMU's pxb
+0xE0000000, cut out of PCI0's. An expander given a `numa_node` gets it as `_PXM`, read from QEMU's
+own DSDT in fw_cfg `etc/acpi/tables`. On pc their `_PRT` follows QEMU's pxb
 routing; on q35 devices behind an expander use MSI. All roots share ECAM
 segment 0 (QEMU x86 has one). `LINUX_PXB=1 make linux-uefi` adds one
 expander at bus 0x40 with a device behind it. The ACPI table area grows
