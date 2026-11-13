@@ -439,7 +439,13 @@ ohci_hid_start:
     cmp di, 256
     jb .zero
     mov dword [gs:esi + OHCI_HCCA], EBDA_BASE + USBK_FL
-    mov dword [gs:esi + OHCI_CONTROL], OCTL_HCFS_OPER | OCTL_PLE
+    mov eax, OCTL_HCFS_OPER | OCTL_PLE
+    cmp byte [fs:USBD_ADDR], 0
+    je .run
+    call usbd_ohci_eds          ; the USB disk's, on the bulk list
+    or eax, OCTL_BLE
+.run:
+    mov [gs:esi + OHCI_CONTROL], eax
     pop es
     popad
     ret
