@@ -1,7 +1,7 @@
 # common/fw: shared C for the Phase E ports
 
 Arch-neutral, freestanding C used by the firmware ports written in C
-(`ppc64/` first) and by their test kernels. Nothing here touches hardware:
+(`ppc64/`, `sparc64/`) and by their test kernels. Nothing here touches hardware:
 the port supplies `fw_putc()` / `fw_getc()`.
 
 | File | |

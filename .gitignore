@@ -17,3 +17,4 @@ loongarch/*.bin
 mips/*.o
 mips/*.elf
 mips/*.bin
+sparc64/*.bin
