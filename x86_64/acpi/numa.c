@@ -106,7 +106,7 @@ static u8 *mem_entries(u8 *p, u32 node, u64 start, u64 len, u64 low)
 
 /* One of QEMU's own ACPI tables, from the blob it offers to firmware
  * that loads them (etc/acpi/tables): its offset and length there */
-static int qemu_table(const char *sig, u16 *sel, u32 *off, u32 *len)
+int acpi_qemu_table(const char *sig, u16 *sel, u32 *off, u32 *len)
 {
     u32 size;
     if (!fwcfg_find("etc/acpi/tables", sel, &size))
@@ -136,7 +136,7 @@ static u8 *build_hmat(acpi_take_fn take, const u8 *dist, const int *has_cpu)
 {
     u16 sel;
     u32 off, qlen;
-    int qemu = qemu_table("HMAT", &sel, &off, &qlen) && qlen >= 40;
+    int qemu = acpi_qemu_table("HMAT", &sel, &off, &qlen) && qlen >= 40;
     u32 len = qemu ? qlen : 40 + nodes * 40;
     u8 *h = take(len);
     if (!h)
@@ -229,7 +229,7 @@ int acpi_numa_tables(u8 **out, acpi_take_fn take)
     u64 qn = 0;
     if (fwcfg_find(FWCFG_DIST, &sel, &fsize) && fsize == nodes * nodes) {
         fwcfg_read(sel, slit + 44, fsize);
-    } else if (qemu_table("SLIT", &sel, &qoff, &qlen) && qlen == slen &&
+    } else if (acpi_qemu_table("SLIT", &sel, &qoff, &qlen) && qlen == slen &&
                (fwcfg_read_at(sel, qoff + 36, &qn, 8), qn == nodes)) {
         fwcfg_read_at(sel, qoff + 44, slit + 44, nodes * nodes);     /* -numa dist */
     } else {
@@ -256,3 +256,50 @@ int acpi_numa_tables(u8 **out, acpi_take_fn take)
     out[2] = hmat;
     return 3;
 }
+
+/* The proximity domain QEMU gives an expander's root bus (-device pxb or
+ * pxb-pcie with numa_node=): the _PXM in Device (PCxx) of its own DSDT,
+ * or -1. Its AML is a Device op (5B 82), a PkgLength, the name PCxx,
+ * then names; _PXM is a byte, word or dword integer, or Zero or One. */
+int acpi_qemu_bus_pxm(u8 bus)
+{
+    u16 sel;
+    u32 off, len;
+    if (!acpi_qemu_table("DSDT", &sel, &off, &len))
+        return -1;
+    u8 *d;
+    if (efi_allocate_pool(EfiBootServicesData, len, (void **)&d))
+        return -1;
+    fwcfg_read_at(sel, off, d, len);
+    static const char hex[] = "0123456789ABCDEF";
+    char name[4] = { 'P', 'C', hex[bus >> 4], hex[bus & 15] };
+    int pxm = -1;
+    for (u32 i = 36; pxm < 0 && i + 3 < len; i++) {
+        if (d[i] != 0x5B || d[i + 1] != 0x82)
+            continue;
+        u32 lead = d[i + 2], nbytes = lead >> 6, pkg = nbytes ? lead & 15 : lead & 63;
+        for (u32 k = 0; k < nbytes; k++)
+            pkg |= (u32)d[i + 3 + k] << (4 + 8 * k);
+        u32 at = i + 3 + nbytes, end = i + 2 + pkg;
+        if (end > len || at + 4 > end || memcmp(d + at, name, 4))
+            continue;
+        for (u32 j = at + 4; j + 6 <= end; j++) {
+            if (d[j] != 0x08 || memcmp(d + j + 1, "_PXM", 4))
+                continue;
+            u8 op = d[j + 5];
+            if (op == 0x00 || op == 0x01)
+                pxm = op;
+            else if (op == 0x0A && j + 7 <= end)
+                pxm = d[j + 6];
+            else if (op == 0x0B && j + 8 <= end)
+                pxm = d[j + 6] | d[j + 7] << 8;
+            else if (op == 0x0C && j + 10 <= end)
+                pxm = (int)((u32)d[j + 6] | (u32)d[j + 7] << 8 | (u32)d[j + 8] << 16 | (u32)(d[j + 9] & 0x7F) << 24);
+            break;
+        }
+        break;
+    }
+    efi_free_pool(d);
+    return pxm;
+}
+

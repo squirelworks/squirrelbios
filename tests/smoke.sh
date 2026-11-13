@@ -1215,6 +1215,12 @@ run x86_64-numa-initiator "numa: HMAT with the initiator of each node|APP numa s
     -bios x86_64/squirrel-bios.fd $NUMA_APP
 run x86_64-numa-none "APP numa sums=ok madt=2/0 srat=none slit=none hmat=none|APP numa bert=0 hest=2/10|!=bad" \
     "$QEMU_X86_64" -M q35 -smp 2 -bios x86_64/squirrel-bios.fd $NUMA_APP
+# With NUMA, an expander's numa_node becomes its _PXM, read from QEMU's
+# own DSDT
+run x86_64-pxb-numa "pci: root bus 40-7f (PC40), I/O|pci: root bus 80-ff (PC80), node 1, I/O 7000-7fff|APP numa sums=ok|!=bad" \
+    "$QEMU_X86_64" -M q35 -m 256 -smp 2 $(numa_nodes 2 128 1) -bios x86_64/squirrel-bios.fd $NUMA_APP \
+    -device pxb-pcie,id=pxb1,bus_nr=0x80,numa_node=1,bus=pcie.0 -device pcie-root-port,id=rp1,bus=pxb1,chassis=1 \
+    -device pxb-pcie,id=pxb2,bus_nr=0x40,bus=pcie.0 -device pcie-root-port,id=rp2,bus=pxb2,chassis=2
 
 # x86-64 firmware: machine checks left in the banks survive a reset and
 # become BERT records on the next boot (F2). Once the app has seen an

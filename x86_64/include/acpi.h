@@ -65,6 +65,8 @@ void acpi_seal(u8 *t);
 typedef void *(*acpi_take_fn)(u32 len);
 int acpi_numa_tables(u8 **out, acpi_take_fn take);     /* SRAT, SLIT */
 int acpi_ras_tables(u8 **out, acpi_take_fn take);      /* BERT, HEST */
+int acpi_qemu_table(const char *sig, u16 *sel, u32 *off, u32 *len);  /* in etc/acpi/tables */
+int acpi_qemu_bus_pxm(u8 bus);                          /* an expander's _PXM, or -1 */
 
 /* mce.c: machine-check banks, read once at boot on every CPU */
 #define MCE_MAX_RECORDS 32
