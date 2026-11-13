@@ -24,13 +24,19 @@ qemu-system-sparc64 -M sun4u -nographic -bios sparc64/squirrel-bios.bin -kernel 
 - PCI: gives the two Simba (APB) bridges behind the Sabre PBM their bus
   numbers (1 behind `00:01.1`, where the EBus is, 2 behind `00:01.0`) and
   APB address maps, and fills each on-board IMAP register with its
-  interrupt group and number (`0x7c0 | ino`), not yet valid.
+  interrupt group and number (`0x7c0 | ino`), not yet valid. It sizes and
+  assigns the BARs of the devices on bus 1 (PCI I/O from `0x4000`, above
+  the ISA ports and the NVRAM at `0x2000`; memory from 16 MB) and opens
+  Simba A's windows for them. `pci` at the prompt lists them.
 - Device tree: `/pci@1fe,0` (`SUNW,sabre`: `reg`, `ranges`,
   `bus-range`, `virtual-dma`, `upa-portid`, its error interrupts), the
-  Simba bridges `pci@1` and `pci@1,1`, and `pci@1,1/ebus@1/su@14,3f8`,
-  the console, with `interrupts` = INO `0x2b` (ISA IRQ 4 on QEMU's EBus).
-  PCI nodes carry `vendor-id`, `device-id`, `class-code` and
-  `revision-id` from configuration space.
+  Simba bridges `pci@1` and `pci@1,1`, and under `pci@1,1`:
+  `ebus@1/su@14,3f8`, the console, with `interrupts` = INO `0x2b` (ISA
+  IRQ 4 on QEMU's EBus); `network@1,1` (hme, INO `0x21`,
+  `local-mac-address`), `display@2` (VGA) and `ide@3` (CMD646, INO
+  `0x20`), each with `reg` and `assigned-addresses`. PCI nodes carry
+  `vendor-id`, `device-id`, `class-code` and `revision-id` from
+  configuration space. The root has the NVRAM's ID PROM as `idprom`.
 - Reads the kernel address and size, initrd and command line from fw_cfg.
   QEMU loads `-kernel` (an ELF such as Linux, linked at `0x404000`) at its
   link addresses.
@@ -84,18 +90,21 @@ boots to "VFS: Unable to mount root fs" without a root, and with an
 initramfs runs `/init`, whose system calls work. It finds the PBM, the
 bridges and the EBus, and its `su` driver takes the console with its
 interrupt (`ttyS0 at MMIO 0x1fe020003f8 (irq = 4 ...)`), so processes can
-write to the console:
+write to the console. `pata_cmd64x` drives the IDE controller (QEMU's
+DVD-ROM appears as `sr0`), `hme` brings up `eth0` with the ID PROM's MAC
+address, and the VGA is the boot VGA device:
 
     qemu-system-sparc64 -M sun4u -nographic -bios sparc64/squirrel-bios.bin \
         -kernel vmlinux -initrd initrd.cpio -append console=ttyS0
 
 ## Limits (next steps)
 
-- Only the console is in the device tree under the EBus and the bridges:
-  no IDE, network or VGA nodes (their BARs are not assigned), and no
-  keyboard, mouse, floppy or parallel port.
+- Only the console is described under the EBus: no keyboard, mouse,
+  floppy or parallel port. Bus 2 (behind `00:01.0`, where `-device`
+  cards go) is not scanned, and the VGA's ROM BAR is left off.
 - One CPU is started; others stay in reset.
-- No PCI enumeration, disks or network: the kernel comes from `-kernel`.
+- The firmware itself boots only from `-kernel`, not from the IDE disk or
+  the network.
 - `claim` with a virtual address outside the 1:1 region and `map` /
   `unmap` are not done.
 
@@ -113,7 +122,11 @@ RAM, plus what Linux relies on: globals kept across a call, no locked
 initrd fields (run with `-initrd`), and the console's interrupt: it
 translates `su`'s `reg` through the EBus and PBM `ranges`, reads the
 IMAP register for its INO, makes it valid and checks that the UART's
-transmitter-empty interrupt reaches the CPU as that vector; the prompt and the `default.cfg`
+transmitter-empty interrupt reaches the CPU as that vector; and the PCI
+devices: their `assigned-addresses` match their BARs in configuration
+space, the NIC's MAC is the ID PROM's, and an IDENTIFY PACKET DEVICE sent
+through the IDE's assigned I/O BARs comes back from QEMU's DVD-ROM with
+an interrupt on the IDE's INO; the prompt and the `default.cfg`
 build are checked too.
 
 Original code, written from IEEE Std 1275-1994, its 64-bit SPARC binding

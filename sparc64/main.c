@@ -34,6 +34,10 @@
 #define SIMBA_A_DEVFN 0x09              /* 00:01.1, the bus with the EBus */
 #define SIMBA_B_DEVFN 0x08              /* 00:01.0 */
 #define EBUS_DEVFN   0x08               /* 01:01.0 */
+#define INO_IDE      0x20               /* QEMU wires the on-board IDE and NIC */
+#define INO_NIC      0x21               /* to fixed OBIO interrupts */
+#define NVRAM_IO     (IO_BASE + 0x2000) /* the M48T59, on the EBus */
+#define IDPROM_OFF   0x1fd8             /* its ID PROM: format, machine, MAC, ... */
 #define SU_PATH      "/pci@1fe,0/pci@1,1/ebus@1/su@14,3f8"
 #define EM_SPARCV9   43
 
@@ -241,7 +245,9 @@ static void prop_cells2(struct fdt_writer *w, const char *name, const uint64_t *
 
 static void prop_u32s(struct fdt_writer *w, const char *name, const uint32_t *v, int n)
 {
-    uint8_t b[64];
+    uint8_t b[4 * 40];
+    if (n > 40)
+        n = 40;
     for (int i = 0; i < n; i++)
         fw_put_be32(b + 4 * i, v[i]);
     fdtw_prop(w, name, b, 4 * n);
@@ -289,6 +295,97 @@ static void avail_prop(struct fdt_writer *w)
 /* --- PCI: the Simba bridges' bus numbers, the interrupt map registers ------- */
 
 static int pci_ok;
+static void prop_u32s(struct fdt_writer *w, const char *name, const uint32_t *v, int n);
+static void pci_id_props(struct fdt_writer *w, int bus, int devfn);
+
+static inline void pci_write32(int bus, int devfn, int reg, uint32_t v)
+{
+    __asm__ volatile("stwa %0, [%1] 0x1d" : : "r"(v), "r"(cfg_addr(bus, devfn, reg)) : "memory");
+}
+
+/* The devices on bus 1 (behind Simba A) and their BARs, as assigned */
+struct pci_bar {
+    uint8_t reg;                /* 0x10 + 4 * n */
+    uint8_t io;
+    uint8_t prefetch;
+    uint32_t addr, size;
+};
+struct pci_dev {
+    uint8_t devfn;
+    uint32_t id, cls;
+    uint8_t pin;
+    int nbars;
+    struct pci_bar bar[6];
+};
+#define MAX_PCI_DEVS 16
+static struct pci_dev pdevs[MAX_PCI_DEVS];
+static int npdevs;
+
+/* Bus 1's windows: PCI I/O 0x4000-0xffff (the ISA ports and, at 0x2000,
+ * the NVRAM stay below) and
+ * memory from 16 MB, inside the first 2 MB / 512 MB blocks of the APB
+ * address maps */
+#define BUS1_IO_START   0x4000u   /* above the ISA ports and the NVRAM */
+#define BUS1_IO_END     0x10000u
+#define BUS1_MEM_START  0x01000000u
+#define BUS1_MEM_END    0x20000000u
+
+static void pci_assign(void)
+{
+    uint32_t io = BUS1_IO_START, mem = BUS1_MEM_START;
+    npdevs = 0;
+    for (int dev = 0; dev < 32; dev++) {
+        int nfn = 1;
+        for (int fn = 0; fn < nfn; fn++) {
+            int devfn = dev << 3 | fn;
+            uint32_t id = pci_read32(1, devfn, 0);
+            if (id == 0xffffffffu || (id & 0xffff) == 0xffff || id == 0)
+                continue;
+            uint32_t hdr = pci_read32(1, devfn, 0x0c);
+            if (fn == 0 && (hdr & 0x00800000))
+                nfn = 8;
+            if (devfn == EBUS_DEVFN || npdevs == MAX_PCI_DEVS)
+                continue;               /* the EBus is reached through its ISA ports */
+            struct pci_dev *d = &pdevs[npdevs++];
+            d->devfn = (uint8_t)devfn;
+            d->id = id;
+            d->cls = pci_read32(1, devfn, 8);
+            d->pin = (uint8_t)(pci_read32(1, devfn, 0x3c) >> 8);
+            d->nbars = 0;
+            for (int r = 0x10; r <= 0x24; r += 4) {
+                uint32_t old = pci_read32(1, devfn, r);
+                pci_write32(1, devfn, r, 0xffffffffu);
+                uint32_t m = pci_read32(1, devfn, r);
+                pci_write32(1, devfn, r, old);
+                if (!m || m == 0xffffffffu)
+                    continue;
+                struct pci_bar *b = &d->bar[d->nbars];
+                b->reg = (uint8_t)r;
+                b->io = m & 1;
+                b->prefetch = !b->io && (m & 8);
+                b->size = b->io ? (~(m & ~3u) + 1) & 0xffff : ~(m & ~0xfu) + 1;
+                if (!b->size)
+                    continue;
+                uint32_t *next = b->io ? &io : &mem;
+                uint32_t a = (*next + b->size - 1) & ~(b->size - 1);
+                if (a + b->size > (b->io ? BUS1_IO_END : BUS1_MEM_END))
+                    continue;
+                b->addr = a;
+                *next = a + b->size;
+                pci_write32(1, devfn, r, a);
+                d->nbars++;
+                if (!b->io && (m & 6) == 4)
+                    r += 4;             /* a 64-bit BAR: the upper half stays 0 */
+            }
+            pci_write16(1, devfn, 0x04, 0x0007);    /* I/O, memory, bus master */
+        }
+    }
+    /* Simba A forwards those windows (standard bridge registers too) */
+    pci_write8(0, SIMBA_A_DEVFN, 0x1c, 0x00);               /* I/O base 0 */
+    pci_write8(0, SIMBA_A_DEVFN, 0x1d, 0xf0);               /* I/O limit 0xffff */
+    pci_write16(0, SIMBA_A_DEVFN, 0x20, BUS1_MEM_START >> 16);
+    pci_write16(0, SIMBA_A_DEVFN, 0x22, (BUS1_MEM_END - 1) >> 16 & 0xfff0);
+}
 
 static void pci_init(void)
 {
@@ -324,7 +421,72 @@ static void pci_init(void)
         out64(PBM_OBIO_IMAP(ino), (uint64_t)PBM_PORTID << 6 | (uint64_t)ino);
         out64(PBM_OBIO_ICLR(ino), 0);
     }
+    pci_assign();
     pci_ok = 1;
+}
+
+static void idprom_read(uint8_t *b)
+{
+    for (int i = 0; i < 32; i++)
+        b[i] = in8(NVRAM_IO + IDPROM_OFF + i);
+}
+
+/* A device on bus 1: its name and compatible from the class and IDs, reg
+ * (configuration space, then each BAR's size) and assigned-addresses (the
+ * BARs as programmed), and the interrupt QEMU wires it to */
+static void pci_dev_node(struct fdt_writer *w, const struct pci_dev *d)
+{
+    char name[32], unit[16], compat[24];
+    uint32_t cls = d->cls >> 8, vendor = d->id & 0xffff, device = d->id >> 16;
+    const char *nm = "device", *type = 0;
+    uint32_t ino = 0;
+    if (cls >> 8 == 0x0200) {
+        nm = "network";
+        type = "network";
+        ino = INO_NIC;
+    } else if (cls >> 8 == 0x0101) {
+        nm = "ide";
+        type = "ide";
+        ino = INO_IDE;
+    } else if (cls >> 8 == 0x0300) {
+        nm = "display";
+        type = "display";
+    }
+    if (d->devfn & 7)
+        fw_snprintf(unit, sizeof(unit), "%x,%x", d->devfn >> 3, d->devfn & 7);
+    else
+        fw_snprintf(unit, sizeof(unit), "%x", d->devfn >> 3);
+    fw_snprintf(name, sizeof(name), "%s@%s", nm, unit);
+    fw_snprintf(compat, sizeof(compat), "pci%x,%x", vendor, device);
+    fdtw_begin(w, name);
+    fdtw_prop_str(w, "name", nm);
+    if (type)
+        fdtw_prop_str(w, "device_type", type);
+    fdtw_prop_str(w, "compatible", compat);
+    pci_id_props(w, 1, d->devfn);
+    uint32_t hi = 1u << 16 | (uint32_t)d->devfn << 8;
+    uint32_t reg[5 * 7], aa[5 * 6];
+    int nr = 0, na = 0;
+    reg[nr++] = hi; reg[nr++] = 0; reg[nr++] = 0; reg[nr++] = 0; reg[nr++] = 0;
+    for (int j = 0; j < d->nbars; j++) {
+        const struct pci_bar *b = &d->bar[j];
+        uint32_t sp = (b->io ? 0x01000000u : 0x02000000u) | (b->prefetch ? 0x40000000u : 0) |
+                      hi | b->reg;
+        reg[nr++] = sp; reg[nr++] = 0; reg[nr++] = 0; reg[nr++] = 0; reg[nr++] = b->size;
+        aa[na++] = 0x80000000u | sp; aa[na++] = 0; aa[na++] = b->addr;
+        aa[na++] = 0; aa[na++] = b->size;
+    }
+    prop_u32s(w, "reg", reg, nr);
+    if (na)
+        prop_u32s(w, "assigned-addresses", aa, na);
+    if (ino && d->pin)
+        fdtw_prop_u32(w, "interrupts", ino);
+    if (ino == INO_NIC) {
+        uint8_t id[32];
+        idprom_read(id);
+        fdtw_prop(w, "local-mac-address", id + 2, 6);
+    }
+    fdtw_end(w);
 }
 
 static void build_dt(void)
@@ -340,6 +502,10 @@ static void build_dt(void)
     fdtw_prop_u32(&w, "#address-cells", 2);
     fdtw_prop_u32(&w, "#size-cells", 2);
     fdtw_prop_u32(&w, "clock-frequency", (uint32_t)tick_hz);
+    uint8_t idprom[32];
+    idprom_read(idprom);
+    if (idprom[0] == 1)
+        fdtw_prop(&w, "idprom", idprom, 32);
 
     fdtw_begin(&w, "openprom");
     fdtw_prop_str(&w, "name", "openprom");
@@ -468,6 +634,8 @@ static void build_dt(void)
     fdtw_prop_u32(&w, "clock-frequency", 1843200);
     fdtw_end(&w);               /* su */
     fdtw_end(&w);               /* ebus */
+    for (int i = 0; i < npdevs; i++)
+        pci_dev_node(&w, &pdevs[i]);
     fdtw_end(&w);               /* pci@1,1 */
     fdtw_end(&w);               /* pci@1fe,0 */
 
@@ -1006,6 +1174,20 @@ static void cmd_dt(int argc, char **argv)
         dtb_print(dt, node);
 }
 
+static void cmd_pci(int argc, char **argv)
+{
+    (void)argc, (void)argv;
+    for (int i = 0; i < npdevs; i++) {
+        const struct pci_dev *d = &pdevs[i];
+        fw_printf("01:%02x.%x %04x:%04x class %06x pin %u\n", d->devfn >> 3, d->devfn & 7,
+                  d->id & 0xffff, d->id >> 16, d->cls >> 8, d->pin);
+        for (int j = 0; j < d->nbars; j++)
+            fw_printf("  bar 0x%x: %s 0x%x, %u bytes%s\n", d->bar[j].reg,
+                      d->bar[j].io ? "i/o" : "mem", d->bar[j].addr, d->bar[j].size,
+                      d->bar[j].prefetch ? ", prefetchable" : "");
+    }
+}
+
 static void cmd_boot(int argc, char **argv)
 {
     (void)argc, (void)argv;
@@ -1018,6 +1200,7 @@ static void cmd_boot(int argc, char **argv)
 static const struct fw_cmd commands[] = {
     { "info", "firmware, memory and CPUs", cmd_info },
     { "dt", "print the device tree (or one node: dt /chosen)", cmd_dt },
+    { "pci", "the PCI devices on bus 1 and their BARs", cmd_pci },
     { "boot", "boot the -kernel image", cmd_boot },
     { 0, 0, 0 },
 };

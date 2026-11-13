@@ -44,8 +44,8 @@ $(TEST_DIR)/sparc64-kernel.elf: tests/sparc64-kernel.c tests/sparc64-start.S \
 		common/fw/string.c common/fw/printf.c common/fw/fwlib.h | $(TEST_DIR)
 	$(SPARC64)gcc $(SPARC64_CFLAGS) $(SPARC64_LDFLAGS) -Wl,-Ttext=0x404000 -Wl,-e,_start \
 	    tests/sparc64-start.S tests/sparc64-kernel.c common/fw/string.c common/fw/printf.c -o $@
-$(TEST_DIR)/sparc64-prompt.keys: | $(TEST_DIR)
-	printf 'help\rinfo\rdt /chosen\rbogus\r' > $@
+$(TEST_DIR)/sparc64-prompt.keys: sparc64/platform.mk | $(TEST_DIR)
+	printf 'help\rinfo\rdt /chosen\rpci\rbogus\r' > $@
 
 .PHONY: sparc64-test-files config-default-sparc64
 sparc64-test-files: $(SPARC64_BIN) $(TEST_DIR)/sparc64-kernel.elf \
