@@ -244,7 +244,7 @@ boxes in [TODO.md](TODO.md).
 - [x] **C3 (v2.0.1) CSM.** Legacy BIOS services kept on the x86-64 build.
 - [ ] **C4 (v2.1.x) SMP and Secure Boot.** INIT-SIPI-SIPI, MP table, x2APIC;
   verify-only Secure Boot with our own keys.
-  - [ ] `c4-smp`: AP bring-up (INIT-SIPI-SIPI), AP parking, MP services
+  - [x] `c4-smp`: AP bring-up (INIT-SIPI-SIPI), AP parking, MP services
     protocol, MPS table, x2APIC mode; APs parked at ExitBootServices and
     before the CSM
   - [ ] `c4-secure-boot`: verify-only Secure Boot with our own keys
