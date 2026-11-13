@@ -119,6 +119,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/riscv-efi-app-ebs.efi \
              $(TEST_DIR)/arm-esp.img $(TEST_DIR)/riscv-esp.img \
              $(TEST_DIR)/arm-fat.img $(TEST_DIR)/riscv-fat.img \
+             $(TEST_DIR)/arm-efi-psci.efi \
              $(TEST_DIR)/x86_64-rt.efi $(TEST_DIR)/x86_64-nv.efi \
              $(TEST_DIR)/sb/sb-authrt.efi \
              $(TEST_DIR)/tftp/snp-x64.efi $(TEST_DIR)/tftp/snp-aa64.efi $(TEST_DIR)/tftp/snp-rv64.efi
@@ -430,6 +431,10 @@ $(TEST_DIR)/riscv-efi-app-ebs.efi: tests/efi-app.c tests/efi-app.ld tests/mkpe.p
 	python3 tests/mkpe.py riscv64 $(@:.efi=.elf) $@
 # The FAT write test app (tests/efi-fat.c) on an ESP of its own (D4)
 $(TEST_DIR)/arm-efi-fat.efi: tests/efi-fat.c tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)
+	$(AARCH64_CC) $(ARM_APP_CFLAGS) $< -o $(@:.efi=.elf)
+	python3 tests/mkpe.py aarch64 $(@:.efi=.elf) $@
+# PSCI from the firmware's own EL3 monitor (virt with secure=on)
+$(TEST_DIR)/arm-efi-psci.efi: tests/efi-psci.c tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)
 	$(AARCH64_CC) $(ARM_APP_CFLAGS) $< -o $(@:.efi=.elf)
 	python3 tests/mkpe.py aarch64 $(@:.efi=.elf) $@
 $(TEST_DIR)/riscv-efi-fat.efi: tests/efi-fat.c tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)
@@ -860,6 +865,11 @@ linux-arm: arm-uefi
 # firmware's ACPI tables (SBBR) instead of the device tree
 linux-arm-acpi: arm-uefi
 	LINUX_ACPI=1 LINUX_MACHINE=virt,gic-version=3 LINUX_CPU=max LINUX_SMP=4 tests/uefi-linux.sh aarch64
+# The same with the firmware started at EL3 (virt with secure=on): our own
+# PSCI (arm/uefi/el3.c) brings up the 4 CPUs, Linux runs at EL2
+.PHONY: linux-arm-el3
+linux-arm-el3: arm-uefi
+	LINUX_MACHINE=virt,secure=on,virtualization=on,gic-version=3 LINUX_CPU=max LINUX_SMP=4 tests/uefi-linux.sh aarch64
 
 # Optional, not part of make test: the same with Ubuntu 24.04's riscv64
 # kernel (the package make linux-shell uses) on the riscv64-uefi firmware

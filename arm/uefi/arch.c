@@ -18,6 +18,8 @@ static uptr gicd, gicr;
 static u32 gic_version;
 static int psci_smc = -1;               /* -1: no PSCI, 0: hvc, 1: smc */
 static u32 el;
+extern int el3_active;                  /* el3.c: started at EL3, the monitor runs */
+void el3_report(void);
 
 #define PL011_DR   0x00
 #define PL011_FR   0x18
@@ -238,12 +240,12 @@ static const char *implementer(u32 id)
 static void find_devices(void)
 {
     u64 b;
-    int n = fdt_find_compatible("arm,pl011", -1);
+    int n = fdt_find_enabled("arm,pl011", -1);
     if (n >= 0 && fdt_reg(n, 0, &b, NULL) && b != uart) {
         uart = (uptr)b;
         arch_con_init();
     }
-    n = fdt_find_compatible("arm,pl031", -1);
+    n = fdt_find_enabled("arm,pl031", -1);
     if (n >= 0 && fdt_reg(n, 0, &b, NULL))
         rtc = (uptr)b;
     if ((n = fdt_find_compatible("arm,gic-v3", -1)) >= 0) {
@@ -295,6 +297,21 @@ static void gic_init(void)
     u32 lines = ((mmio_read32(gicd + GICD_TYPER) & 0x1F) + 1) * 32;
     if (lines > 1020)
         lines = 1020;
+    if (el3_active) {
+        /* el3.c put every interrupt in non-secure group 1, enabled the
+         * distributor and woke the redistributor: only the system
+         * register interface is left at this EL */
+        if (gic_version == 3) {
+            if (el == 2)
+                write_sysreg(S3_4_C12_C9_5, read_sysreg(S3_4_C12_C9_5) | 0x9);
+            else
+                write_sysreg(S3_0_C12_C12_5, read_sysreg(S3_0_C12_C12_5) | 0x1);
+            __asm__ volatile("isb");
+        }
+        printf("gic: v%u, distributor at %p, %u interrupt lines, secure side set up at EL3\n",
+               gic_version, (void *)gicd, lines);
+        return;
+    }
     if (gic_version == 3) {
         u32 arch = (mmio_read32(gicd + GICD_PIDR2) >> 4) & 0xF;   /* v2's 4 KB frame has none */
         mmio_write32(gicd + GICD_CTLR, 0);
@@ -349,6 +366,8 @@ void arch_init(void)
         arch_halt();
     }
     printf("mmu: identity map, caches on\n");
+    if (el3_active)
+        el3_report();
     find_devices();
     printf("uart: PL011 at %p\n", (void *)uart);
     if (psci_smc >= 0) {
