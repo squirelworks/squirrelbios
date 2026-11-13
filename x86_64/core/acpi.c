@@ -231,6 +231,9 @@ static u32 build_dsdt(u8 *t, u32 cap, int hpet)
         aml_name_int(&a, "_UID", roots[k]);
         aml_name_int(&a, "_SEG", 0);
         aml_name_int(&a, "_BBN", roots[k]);
+        int pxm = acpi_qemu_bus_pxm(roots[k]);
+        if (pxm >= 0)
+            aml_name_int(&a, "_PXM", (u32)pxm);
         struct res r = { .len = 0 };
         res_word(&r, 2, roots[k], k + 1 < nroots ? (u16)(roots[k + 1] - 1) : 0xFF);
         u32 win = low_ram_top();
@@ -264,7 +267,10 @@ static u32 build_dsdt(u8 *t, u32 cap, int hpet)
     }
     for (int k = 0; k < nroots; k++) {
         u32 last = k + 1 < nroots ? roots[k + 1] - 1u : 0xFFu;
+        int pxm = acpi_qemu_bus_pxm(roots[k]);
         printf("pci: root bus %02x-%02x (PC%02X)", roots[k], last, roots[k]);
+        if (pxm >= 0)
+            printf(", node %d", pxm);
         if (low_ram_top() < XROOT_MEM)
             printf(", I/O %04x-%04x, memory %08x-%08x", XROOT_IO + k * 0x1000, XROOT_IO + k * 0x1000 + 0xFFF,
                    XROOT_MEM + (u32)k * XROOT_MEM_SIZE, XROOT_MEM + (u32)(k + 1) * XROOT_MEM_SIZE - 1);
