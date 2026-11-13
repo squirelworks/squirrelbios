@@ -281,6 +281,9 @@ boxes in [TODO.md](TODO.md).
   - [x] `f1-x86-numa`: x86_64 SRAT (CPU and memory affinity) and SLIT
     from QEMU `-numa`, MADT from the SMP list with x2APIC entries past
     APIC ID 254 (HMAT, more than 1000 CPUs and ECAM segments still open)
+  - [ ] `f1-x86-hmat`: x86_64 HMAT (initiator of each memory node, or
+    QEMU's latency, bandwidth and cache structures) and QEMU's `-numa
+    dist` in the SLIT
 - [ ] **F2** RAS: machine-check logging (BERT/HEST/EINJ), corrected-error
   thresholds, CXL memory enumeration (research).
   - [x] `f2-x86-stubs`: x86_64 BERT and HEST stubs (MCE logging, EINJ and
