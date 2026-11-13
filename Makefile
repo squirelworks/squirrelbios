@@ -301,7 +301,8 @@ config-default: x86 x86_64 arm riscv arm-uefi riscv-uefi build/x86-pc/default/sq
 		build/aarch64-uefi/default/squirrel-bios.fd build/riscv64-uefi/default/squirrel-bios.bin \
 		build/x86_64-uefi/default/squirrel-bios.fd \
 		build/aarch64-virt/default/squirrel-bios.bin build/riscv64-virt/default/squirrel-bios.bin \
-		build/riscv64-virt/small/squirrel-bios.bin build/x86-pc/minimal/squirrel-bios.rom
+		build/riscv64-virt/small/squirrel-bios.bin build/riscv64-virt/dt/squirrel-bios.bin \
+		build/x86-pc/minimal/squirrel-bios.rom
 	cmp $(X86_ROM) build/x86-pc/default/squirrel-bios.rom
 	cmp $(X64_FD) build/x86_64-uefi/default/squirrel-bios.fd
 	cmp $(ARM_BIN) build/aarch64-virt/default/squirrel-bios.bin

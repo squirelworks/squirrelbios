@@ -776,6 +776,19 @@ run config-riscv-small "SquirrelBIOS RISC-V|next_mode=1|OS-ENTRY riscv hart=ok d
     "$QEMU_RISCV" -M virt -smp 2 -bios build/riscv64-virt/small/squirrel-bios.bin \
     -kernel $TEST_DIR/riscv-kernel.bin
 
+# Build configs: riscv64-virt/dt has its fixed UART and CLINT addresses
+# pointing at nothing, so the SBI must find the NS16550A and the CLINT (or
+# with aclint=on, the ACLINT MSWI and MTIMER) in the device tree: console,
+# timer interrupts, IPIs and hart start all go through what it found
+RV_DT=build/riscv64-virt/dt/squirrel-bios.bin
+RV_DT_OK="dt: UART at 0x0000000010000000, CLINT msip at 0x0000000002000000, mtime at 0x000000000200bff8"
+run config-riscv-dt-timer "$RV_DT_OK|OS-ENTRY riscv timer|timer=ok|!timer=again|!timer=bad|!trap mcause=" \
+    "$QEMU_RISCV" -M virt -bios $RV_DT -kernel $TEST_DIR/riscv-timer.bin
+run config-riscv-dt-ipi "$RV_DT_OK|OS-ENTRY riscv ipi|ipi=ok|!ipi=bad|!trap mcause=" \
+    "$QEMU_RISCV" -M virt -smp 2 -bios $RV_DT -kernel $TEST_DIR/riscv-ipi.bin
+run config-riscv-dt-hsm-aclint "$RV_DT_OK|OS-ENTRY riscv hsm|hart1=ok a1=5157000012345678|hsm=ok|!hsm=bad|!trap mcause=" \
+    "$QEMU_RISCV" -M virt,aclint=on -smp 2 -bios $RV_DT -kernel $TEST_DIR/riscv-hsm.bin
+
 # Build configs: x86-pc/minimal (no ACPI, SMBIOS, bzImage loader or
 # option ROM scan) still boots the x86-boot image with every hand-off
 # check, and really leaves ACPI out (the x86-acpi image finds no RSDP)
