@@ -11,6 +11,7 @@
  * on qemu-system-i386 -bios squirrel-bios.rom. */
 #include "efi.h"
 #include "smp.h"
+#include "secure.h"
 
 extern const u8 csm_tramp[], csm_tramp_end[];
 extern const u8 csm_legacy_rom[], csm_legacy_rom_end[];
@@ -59,6 +60,10 @@ static void dispi_off(void)
 
 int csm_boot(void)
 {
+    if (secure_boot_on()) {
+        printf("csm: off while Secure Boot is on\n");     /* legacy boot is unverified */
+        return 0;
+    }
     usize rom = (usize)(csm_legacy_rom_end - csm_legacy_rom);
     if (rom != LEGACY_SIZE || csm_legacy_rom[rom - 16] != 0xEA) {
         printf("csm: no legacy BIOS in this image\n");

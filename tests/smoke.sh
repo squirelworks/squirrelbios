@@ -894,5 +894,44 @@ run x86_64-mp-up "smp: 1 CPU, xAPIC, BSP APIC ID 0|APP mp n=1 en=1 who=0 info=0:
 run x86_64-x2apic-cfg "~^smp: 4 CPUs, x2?APIC( \(the CPU has no x2APIC\))?, BSP APIC ID 0|APP mp n=4 en=4 who=0 info=|$MP_OK|!=bad" \
     "$QEMU_X86_64" -M q35 -smp 4 -cpu max -bios build/x86_64-uefi/x2apic/squirrel-bios.fd -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-mp.efi
 
+# x86-64 firmware: verify-only Secure Boot (C4). Our test keys and lists
+# (tests/mksigned.py) go in through fw_cfg as db and dbx. An Authenticode
+# signature verifies against a db X.509 certificate or RSA-2048 key, or the
+# image's SHA-256 is in db; unsigned, wrongly signed and tampered images,
+# hashes and keys in dbx are refused with EFI_SECURITY_VIOLATION. The ESP
+# path checks BOOTX64.EFI the same way, and the CSM stays off.
+SB=$TEST_DIR/sb
+SB_DB=name=opt/org.squirrelworks/db
+SB_DBX=name=opt/org.squirrelworks/dbx
+SB_APP="APP x86_64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|efi: image returned 0x1234"
+SB_NO="efi: LoadImage failed: 0x800000000000001a, halting|!APP x86_64"
+run x86_64-sb-x509 "secure: Secure Boot on (verify-only)|secure: db: 0 SHA-256, 0 RSA-2048, 1 X.509|secure: image verified: signed by db entry 1 (X.509)|$SB_APP" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd -fw_cfg $SB_DB,file=$SB/sb-db-x509.esl -fw_cfg $X64_BOOT,file=$SB/sb-signed.efi
+run x86_64-sb-rsa "secure: db: 0 SHA-256, 1 RSA-2048, 0 X.509|secure: image verified: signed by db entry 1 (RSA-2048)|$SB_APP" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd -fw_cfg $SB_DB,file=$SB/sb-db-rsa.esl -fw_cfg $X64_BOOT,file=$SB/sb-signed.efi
+run x86_64-sb-mixed "secure: db: 1 SHA-256, 0 RSA-2048, 1 X.509|secure: image verified: signed by db entry 2 (X.509)|$SB_APP" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd -fw_cfg $SB_DB,file=$SB/sb-db-mixed.esl -fw_cfg $X64_BOOT,file=$SB/sb-signed.efi
+run x86_64-sb-hash "secure: db: 1 SHA-256, 0 RSA-2048, 0 X.509|secure: image verified: its SHA-256 is in db|$SB_APP" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd -fw_cfg $SB_DB,file=$SB/sb-db-hash.esl -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-app.efi
+run x86_64-sb-unsigned "secure: image refused: not signed, and its SHA-256 is not in db|$SB_NO" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd -fw_cfg $SB_DB,file=$SB/sb-db-x509.esl -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-app.efi
+run x86_64-sb-wrongkey "secure: image refused: signed by a key that is not in db|$SB_NO" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd -fw_cfg $SB_DB,file=$SB/sb-db-x509.esl -fw_cfg $X64_BOOT,file=$SB/sb-wrongkey.efi
+run x86_64-sb-tampered "secure: image refused: a signature for another image (hash mismatch)|$SB_NO" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd -fw_cfg $SB_DB,file=$SB/sb-db-x509.esl -fw_cfg $X64_BOOT,file=$SB/sb-tampered.efi
+run x86_64-sb-dbx-hash "secure: dbx: 1 SHA-256, 0 RSA-2048, 0 X.509|secure: image refused: its SHA-256 is in dbx|$SB_NO" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd -fw_cfg $SB_DB,file=$SB/sb-db-x509.esl -fw_cfg $SB_DBX,file=$SB/sb-dbx-hash.esl -fw_cfg $X64_BOOT,file=$SB/sb-signed.efi
+run x86_64-sb-dbx-key "secure: image refused: signed by a key in dbx|$SB_NO" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd -fw_cfg $SB_DB,file=$SB/sb-db-x509.esl -fw_cfg $SB_DBX,file=$SB/sb-dbx-x509.esl -fw_cfg $X64_BOOT,file=$SB/sb-signed.efi
+run x86_64-sb-esp "fs: FAT32 on partition|efi: booting \\EFI\\BOOT\\BOOTX64.EFI|secure: image verified: signed by db entry 1 (X.509)|efi: BOOTX64.EFI returned 0x1234|!=bad" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd -fw_cfg $SB_DB,file=$SB/sb-db-x509.esl \
+    -drive if=none,id=esp,format=raw,file=$TEST_DIR/x86_64-sb-esp.img,snapshot=on \
+    -device virtio-blk-pci,drive=esp,disable-legacy=off,disable-modern=on
+run x86_64-sb-nocsm "secure: Secure Boot on (verify-only)|csm: off while Secure Boot is on|!csm: leaving long mode" \
+    "$QEMU_X86_64" -M pc -bios x86_64/squirrel-bios.fd -fw_cfg $SB_DB,file=$SB/sb-db-x509.esl \
+    -drive format=raw,file=$TEST_DIR/x86-osload.bin,if=ide,snapshot=on
+run x86_64-sb-baddb "secure: opt/org.squirrelworks/db is not a list of EFI_SIGNATURE_LISTs|secure: Secure Boot off (bad db)|$SB_APP" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd -fw_cfg $SB_DB,file=$TEST_DIR/x86-boot.bin -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-app.efi
+
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]
