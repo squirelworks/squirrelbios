@@ -393,13 +393,18 @@ roadmap item, run under QEMU in `make test`.
   - [x] Mouse, `INT 15h C2xx`
 - [x] `x86-usb-storage` — Boot from USB mass storage (BOT, then UAS).
   - [x] Bulk-only transport on xHCI: `INT 13h` and booting, as DL 80h
-    when no IDE, SATA or NVMe disk answered. No stall recovery yet.
+    when no IDE, SATA or NVMe disk answered.
   - [x] Bulk-only transport on UHCI and OHCI (full speed) and EHCI (high
     speed): `INT 13h`, EDD and booting as DL 80h; a full-speed keyboard on
     an ICH9 UHCI companion keeps working while the disk is on EHCI.
   - [x] UAS: a high-speed UAS disk on EHCI as DL 80h (boot, `INT 13h`
-    read/write, EDD), without streams. On xHCI a UAS device is listed and
-    left alone until streams are supported.
+    read/write, EDD), without streams.
+  - [x] UAS at super speed on xHCI, with streams.
+  - [x] Stall recovery: after a stall, stray status wrapper or phase
+    error, BOT reset recovery (mass storage reset, CLEAR_FEATURE(HALT) on
+    both bulk endpoints and the host side) and one retry, on UHCI, OHCI,
+    EHCI and xHCI. Tested in QEMU with an injected bad CBW; not yet on
+    real hardware.
 - [x] `x86-virtio-net-boot` — virtio-blk/net and an original TFTP boot
   of `SQBL`.
   - [x] virtio-blk (legacy interface) as DL 80h, after NVMe. One
