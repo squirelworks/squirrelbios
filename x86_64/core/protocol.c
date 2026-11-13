@@ -342,8 +342,53 @@ EFI_STATUS EFIAPI efi_install_configuration_table(EFI_GUID *guid, void *table)
     return EFI_SUCCESS;
 }
 
+/* LocateDevicePath: of the handles with both the protocol and a device
+ * path, the one whose path is the longest whole-node prefix of *dp. On
+ * success *dp moves past the matched part. */
+static EFI_STATUS EFIAPI locate_device_path(EFI_GUID *guid, EFI_DEVICE_PATH_PROTOCOL **dp,
+                                            EFI_HANDLE *device)
+{
+    if (!guid || !dp || !*dp)
+        return EFI_INVALID_PARAMETER;
+    const u8 *want = (const u8 *)*dp;
+    UINTN want_len = efi_dp_size(*dp);
+    struct handle *best = NULL;
+    UINTN best_len = 0;
+    for (struct handle *h = handles; h; h = h->next) {
+        struct prot *dpp = find(h, &efi_device_path_guid);
+        if (!find(h, guid) || !dpp || !dpp->iface)
+            continue;
+        UINTN len = efi_dp_size(dpp->iface);
+        if (len < 4)
+            continue;
+        len -= 4;                       /* without its end node */
+        if (len > want_len || memcmp(dpp->iface, want, len))
+            continue;
+        /* the match must end on a node boundary of *dp */
+        UINTN off = 0;
+        while (off < len) {
+            const EFI_DEVICE_PATH_PROTOCOL *n = (const void *)(want + off);
+            off += n->length[0] | ((UINTN)n->length[1] << 8);
+        }
+        if (off != len)
+            continue;
+        if (!best || len >= best_len) {
+            best = h;
+            best_len = len;
+        }
+    }
+    if (!best)
+        return EFI_NOT_FOUND;
+    if (!device)
+        return EFI_INVALID_PARAMETER;
+    *device = best;
+    *dp = (EFI_DEVICE_PATH_PROTOCOL *)(want + best_len);
+    return EFI_SUCCESS;
+}
+
 void efi_protocol_init(EFI_BOOT_SERVICES *bs)
 {
+    bs->locate_device_path = (void *)locate_device_path;
     bs->install_protocol_interface = (void *)efi_install_protocol_interface;
     bs->reinstall_protocol_interface = (void *)reinstall_protocol_interface;
     bs->uninstall_protocol_interface = (void *)efi_uninstall_protocol_interface;

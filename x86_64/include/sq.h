@@ -90,6 +90,20 @@ int vblk_write(u64 lba, void *buf, u32 bytes);
 
 /* csm/csm.c: the legacy BIOS, when nothing boots the UEFI way */
 int csm_boot(void);
+/* chipset.c: PIIX4 (i440fx, -M pc) or ICH9 (-M q35) */
+struct chipset {
+    int q35;            /* ICH9 and the 3 Series MCH, else PIIX3/PIIX4 */
+    u16 pm_base;        /* ACPI PM1 event block; PM1a_CNT +4, PM timer +8 */
+    u16 gpe0;           /* GPE0 block and its length in bytes */
+    u8 gpe0_len;
+    u64 mcfg_base;      /* PCI Express ECAM window (q35 only), else 0 */
+    u32 mcfg_buses;
+};
+void chipset_init(void);
+const struct chipset *chipset(void);
+u8 chipset_pirq(u8 slot, u8 pin);
+u8 chipset_pirq_irq(u8 pirq);
+void chipset_legacy_handoff(void);
 
 /* memmap.c */
 struct mem_range {
