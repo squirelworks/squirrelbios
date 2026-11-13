@@ -277,7 +277,7 @@ boxes in [TODO.md](TODO.md).
   tree, boot Linux on QEMU `powernv`.
 - [x] **E2** `PLATFORM=sparc64-sun4u`: an IEEE 1275-style client interface
   subset (no Forth), boot on QEMU `sun4u`.
-- [ ] **E3** Stretch: `m68k-virt`, `mips-malta`, `loongarch64-virt`, `s390x`
+- [x] **E3** Stretch: `m68k-virt`, `mips-malta`, `loongarch64-virt`, `s390x`
   (IPL only). Test: each reaches a firmware prompt under QEMU and hands
   off to a test kernel.
 
