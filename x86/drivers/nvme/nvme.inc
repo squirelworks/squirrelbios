@@ -51,6 +51,8 @@ NVME_ACQ_REG    equ 0x30                ; qword
 NVME_DOORBELL   equ 0x1000
 CC_EN           equ 0x00000001
 CC_QES          equ (6 << 16) | (4 << 20)   ; 64-byte SQ, 16-byte CQ entries
+NVME_FAST_POLLS equ 0x10000         ; completion polls before slowing down
+NVME_TIMEOUT_MS equ 5000            ; then one a millisecond, up to this
 CSTS_RDY        equ 0x01
 CSTS_CFS        equ 0x02
 
@@ -324,7 +326,11 @@ nvme_submit:
     jz .poll_start
     add edi, NVME_IOCQ - NVME_ACQ
 .poll_start:
-    mov ecx, ATA_TIMEOUT
+    ; A burst of quick polls (most commands are done by then), then one
+    ; poll a millisecond for NVME_TIMEOUT_MS: a count of polls alone is
+    ; only a few tens of milliseconds under emulation, less than a write
+    ; can take on a busy host
+    mov ecx, NVME_FAST_POLLS
 .poll:
     mov eax, [gs:edi + 12]      ; DW3: CID, phase, status
     shr eax, 16
@@ -333,6 +339,19 @@ nvme_submit:
     je .done
     dec ecx
     jnz .poll
+    mov ecx, NVME_TIMEOUT_MS
+.slow:
+    push cx
+    mov cx, 1
+    call delay_ms
+    pop cx
+    mov eax, [gs:edi + 12]
+    shr eax, 16
+    and al, 1
+    cmp al, [gs:ebp + 2]
+    je .done
+    dec ecx
+    jnz .slow
     mov si, msg_timeout
     xor bx, bx
     jmp .fail
