@@ -22,4 +22,7 @@
 /* QEMU virt puts the device tree at the start of RAM for -bios */
 #define ARCH_DTB_ADDR        0x40000000UL
 
+/* acpi.c: the ACPI tables, from the device tree */
+void arm_acpi_init(void);
+
 #endif

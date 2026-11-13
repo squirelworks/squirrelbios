@@ -174,6 +174,7 @@ boots each firmware under QEMU with a small stand-in OS image from
 | `aarch64-uefi-ebs` | ExitBootServices, then ResetSystem(shutdown) through the runtime services: PSCI `SYSTEM_OFF`, QEMU exits 0 |
 | `aarch64-uefi-el2` | The same at EL2 (`virtualization=on`) with GICv3 and 2 GB: PSCI through `smc`, the distributor set up and this CPU's redistributor awake |
 | `aarch64-uefi-disk` | A GPT disk on virtio-blk (virtio-mmio, legacy registers): Block I/O, the FAT32 ESP, and boot of `\EFI\BOOT\BOOTAA64.EFI` (the C app) |
+| `aarch64-uefi-acpi` | ACPI tables built from the device tree on a GICv3 + ITS machine with 4 CPUs (FACP, APIC, GTDT, SPCR, DBG2, MCFG, IORT and the DSDT); the C app walks RSDP, XSDT and every table and checks their signatures and checksums (`acpi=none` on RISC-V) |
 | `aarch64-uefi-wrong-arch` | An x86-64 PE32+ image is refused with `EFI_UNSUPPORTED` |
 | `riscv64-uefi` | The RISC-V UEFI-class firmware: the SBI enters the UEFI core in S-mode at 2 MB; it finds the NS16550A, timebase and goldfish RTC in the device tree, reports SBI 2.0, keeps the SBI's 2 MB reserved, checks the memory services and installs `RISCV_EFI_BOOT_PROTOCOL` |
 | `riscv64-uefi-app`, `riscv64-uefi-app-exit` | The same C stand-in app as on AArch64, built for RISC-V, through fw_cfg |
@@ -230,6 +231,7 @@ expected CPU count, reads our SMBIOS vendor, and powers off through
 
 ```bash
 make linux-arm                        # prints PASS linux-aarch64-uefi
+make linux-arm-acpi                   # the same with acpi=force: PASS linux-aarch64-uefi-acpi
 make linux-riscv-uefi                 # prints PASS linux-riscv64-uefi
 tests/uefi-linux.sh aarch64 --interactive   # the same boot, with the shell for you
 LINUX_MACHINE=virt,virtualization=on,gic-version=3 LINUX_CPU=max LINUX_SMP=2 tests/uefi-linux.sh aarch64
