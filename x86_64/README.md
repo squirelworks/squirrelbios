@@ -34,6 +34,9 @@ csm/       csm.c, csm.asm: the CSM (roadmap C3), the legacy x86-pc ROM
 smp/       smp.c (AP bring-up with INIT-SIPI-SIPI, AP parking, the MP
            services protocol), apic.c (local APIC in xAPIC or x2APIC
            mode), mptable.c (MPS 1.4 table), roadmap C4
+secure/    secure.c (Secure Boot policy, db/dbx, the Authenticode PE
+           hash), sha256.c, rsa.c (RSASSA-PKCS1-v1_5 verify), der.c
+           (X.509 keys, Authenticode PKCS#7), roadmap C4
 include/   sq.h, efi.h (UEFI types and tables, from the specification),
            acpi.h
 link.ld    the body, linked at FW_BASE
@@ -124,3 +127,17 @@ with `CONFIG_X2APIC=y`. The MPS 1.4 table (processors with APIC IDs up
 to 254, the ISA bus, the I/O APIC, ISA IRQs and LINT0/1) is the MPS EFI
 configuration table. At ExitBootServices, and before the CSM leaves
 long mode, every AP gets an INIT and waits for the OS's STARTUP.
+
+Secure Boot (C4, verify-only): the keys are ours and come from fw_cfg,
+`-fw_cfg name=opt/org.squirrelworks/db,file=...` (and `.../dbx`), each a
+list of EFI_SIGNATURE_LISTs with SHA-256 hashes, RSA-2048 keys or X.509
+certificates. With a db, Secure Boot is on: `SecureBoot` reads 1 and
+`SetupMode` 0, and `LoadImage` (fw_cfg images and `BOOTX64.EFI` alike)
+answers `EFI_SECURITY_VIOLATION` unless the image's Authenticode SHA-256
+is in db, or one of its PKCS#7 signatures (SHA-256 with RSA) is verified
+by a db key; a hash or a signing key in dbx always refuses it. The key
+must be in db itself: certificate chains are not walked. The databases
+cannot be changed at run time (no PK/KEK authenticated writes), and the
+CSM stays off. `tests/mksigned.py` signs test images with two RSA-2048
+test keys made from fixed seeds; `osslsigncode verify` accepts its
+signatures and the firmware accepts `osslsigncode sign` output.

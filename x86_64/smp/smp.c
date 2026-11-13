@@ -186,10 +186,14 @@ static void topology(struct smp_cpu_info *ci)
     ci->package = pkg_shift ? id >> pkg_shift : id;
 }
 
-static void ap_main(u32 slot)
+/* Restarts: the AP comes up in a spare slot and moves to its own */
+static u32 spare_slot, restart_slot;
+static volatile u32 restart_id;
+static u64 stack_base;
+
+static void __attribute__((noreturn)) ap_loop(u32 slot)
 {
     struct cpu *c = &cpus[slot];
-    apic_enable(x2mode);
     c->info.apic_id = apic_id();
     topology(&c->info);
     __atomic_store_n(&c->state, AP_IDLE, __ATOMIC_RELEASE);
@@ -199,6 +203,28 @@ static void ap_main(u32 slot)
         c->proc(c->arg);
         __atomic_store_n(&c->state, AP_IDLE, __ATOMIC_RELEASE);
     }
+}
+
+static void __attribute__((noreturn)) park(void)
+{
+    for (;;)
+        __asm__ volatile("cli; hlt");
+}
+
+static void ap_main(u32 slot)
+{
+    apic_enable(x2mode);
+    if (slot != spare_slot)
+        ap_loop(slot);
+    /* A restart: only the AP being restarted goes on, on its own stack;
+     * one from the first broadcast that turns up late stops here */
+    if (apic_id() != restart_id)
+        park();
+    u64 top = stack_base + (u64)restart_slot * STACK_SIZE;
+    __asm__ volatile("mov %0, %%rsp\n"
+                     "call *%1\n"
+                     :: "r"(top), "r"(ap_loop), "D"(restart_slot) : "memory");
+    park();
 }
 
 static u32 expected_cpus(void)
@@ -225,10 +251,14 @@ static void restart_ap(int slot)
 {
     struct cpu *c = &cpus[slot];
     c->state = AP_DOWN;
-    td->next = slot;
+    restart_slot = slot;
+    restart_id = c->info.apic_id;
+    td->next = spare_slot;              /* one slot open: the spare */
+    td->max = spare_slot;
     init_sipi_sipi(0, c->info.apic_id);
     for (int n = 0; n < 100000 && c->state == AP_DOWN; n++)
         efi_stall(10);
+    td->max = 0;
     if (c->state == AP_DOWN)
         c->info.enabled = 0;
 }
@@ -265,10 +295,13 @@ static int self_number(void)
 
 static int on_bsp(void) { return self_number() == 0; }
 
+/* Microseconds from the TSC. A TSC that measured below 1 MHz (a failed
+ * calibration) counts one tick as a microsecond: timeouts get longer,
+ * never a division by zero. */
 static u64 now_us(void)
 {
-    u64 hz = efi_tsc_hz();
-    return hz ? rdtsc() / (hz / 1000000) : 0;
+    u64 per_us = efi_tsc_hz() / 1000000;
+    return rdtsc() / (per_us ? per_us : 1);
 }
 
 static EFI_STATUS EFIAPI get_number_of_processors(EFI_MP_SERVICES_PROTOCOL *this, UINTN *total, UINTN *enabled)
@@ -497,7 +530,7 @@ void smp_init(void)
     if (want <= 1 ||
         efi_allocate_pages(AllocateMaxAddress, EfiBootServicesData, 1, &page) != EFI_SUCCESS ||
         efi_allocate_pages(AllocateAnyPages, EfiBootServicesData,
-                           nstacks * (STACK_SIZE / 4096), &stacks) != EFI_SUCCESS) {
+                           (nstacks + 1) * (STACK_SIZE / 4096), &stacks) != EFI_SUCCESS) {
         sort_order(1);
         goto done;
     }
@@ -513,6 +546,8 @@ void smp_init(void)
     td->entry = (u64)(uptr)ap_main;
     td->next = 1;
     td->max = nstacks;
+    stack_base = stacks;
+    spare_slot = nstacks + 1;           /* its stack is the extra one */
 
     init_sipi_sipi(1, 0);
     u64 deadline = now_us() + WAIT_US;
@@ -528,6 +563,7 @@ void smp_init(void)
             break;
         efi_stall(100);
     }
+    td->max = 0;                        /* an AP still on its way parks in the trampoline */
     for (u32 s = 1; s <= nstacks; s++)
         cpus[s].info.enabled = cpus[s].state == AP_IDLE;
     sort_order(nstacks + 1);
