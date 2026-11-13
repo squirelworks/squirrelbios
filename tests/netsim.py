@@ -18,6 +18,12 @@
 # so a client that does not route never gets the file. With norouter,
 # DHCP leaves option 3 out. Exits when QEMU
 # goes away (no frame for 30 s) or on SIGTERM.
+#
+# Several QEMU nodes may join (diskless boot, roadmap F4), each with
+# localaddr on a port of its own and a MAC address of its own: every
+# frame is answered to the node that sent it, and the node whose MAC ends
+# in 56 (QEMU's default) gets 10.0.2.15, the one ending in 57 10.0.2.16,
+# and so on. The TFTP state is kept per node.
 import os
 import socket
 import struct
@@ -25,7 +31,6 @@ import sys
 
 ROUTER_MAC = bytes.fromhex('525400000001')
 ROUTER_IP = socket.inet_aton('10.0.2.1')
-CLIENT_IP = socket.inet_aton('10.0.2.15')
 MASK = socket.inet_aton('255.255.255.0')
 SERVER_IP = socket.inet_aton('192.168.50.5')
 BCAST_MAC = b'\xff' * 6
@@ -49,6 +54,10 @@ def udp_frame(dst_mac, src_ip, dst_ip, sport, dport, payload):
     return dst_mac + ROUTER_MAC + b'\x08\x00' + ip + udp
 
 
+def client_ip(mac):
+    return bytes([10, 0, 2, (15 + mac[5] - 0x56) & 0xFF])
+
+
 def dhcp_reply(request, kind, boot_file, router=True):
     xid = request[4:8]
     chaddr = request[28:44]
@@ -56,7 +65,7 @@ def dhcp_reply(request, kind, boot_file, router=True):
     bootp[0:4] = b'\x02\x01\x06\x00'
     bootp[4:8] = xid
     bootp[10:12] = b'\x80\x00'
-    bootp[16:20] = CLIENT_IP
+    bootp[16:20] = client_ip(chaddr)
     bootp[20:24] = SERVER_IP
     bootp[28:44] = chaddr
     opts = b'\x63\x82\x53\x63'
@@ -80,13 +89,11 @@ def main():
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind(('127.0.0.1', int(listen)))
     sock.settimeout(30)
-    peer = ('127.0.0.1', int(qemu_port))
-    data = b''
-    client_mac = None
-    client_port = None
+    del qemu_port               # each node is answered where it sent from
+    nodes = {}                  # MAC: [file data, client port]
     while True:
         try:
-            frame, _ = sock.recvfrom(4096)
+            frame, peer = sock.recvfrom(4096)
         except socket.timeout:
             return
         if len(frame) < 42:
@@ -118,7 +125,6 @@ def main():
                 if payload[i] == 53:
                     kind = payload[i + 2]
                 i += 2 + payload[i + 1]
-            client_mac = src
             if kind == 1:
                 sock.sendto(dhcp_reply(payload, 2, boot_file, router), peer)
             elif kind == 3:
@@ -128,28 +134,29 @@ def main():
         if dst_ip != SERVER_IP or dst != ROUTER_MAC:
             continue
         op = struct.unpack('!H', payload[0:2])[0]
+        node = nodes.setdefault(src, [b'', None])
         if dport == 69 and op == 1:                 # read request
             name = payload[2:].split(b'\0')[0].decode()
             path = os.path.join(tftp_dir, os.path.basename(name))
-            client_port = sport
+            node[1] = sport
             try:
-                data = open(path, 'rb').read()
+                node[0] = open(path, 'rb').read()
             except OSError:
                 err = struct.pack('!HH', 5, 1) + b'not found\0'
-                sock.sendto(udp_frame(src, SERVER_IP, CLIENT_IP, TFTP_PORT,
+                sock.sendto(udp_frame(src, SERVER_IP, client_ip(src), TFTP_PORT,
                                       sport, err), peer)
                 continue
             block = 1
         elif dport == TFTP_PORT and op == 4:        # acknowledgement
             block = struct.unpack('!H', payload[2:4])[0] + 1
-            if (block - 1) * 512 > len(data):
+            if (block - 1) * 512 > len(node[0]):
                 continue                            # the last one
         else:
             continue
-        chunk = data[(block - 1) * 512:block * 512]
+        chunk = node[0][(block - 1) * 512:block * 512]
         msg = struct.pack('!HH', 3, block & 0xFFFF) + chunk
-        sock.sendto(udp_frame(client_mac or src, SERVER_IP, CLIENT_IP,
-                              TFTP_PORT, client_port, msg), peer)
+        sock.sendto(udp_frame(src, SERVER_IP, client_ip(src),
+                              TFTP_PORT, node[1], msg), peer)
 
 
 if __name__ == '__main__':
