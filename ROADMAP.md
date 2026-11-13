@@ -253,6 +253,8 @@ boxes in [TODO.md](TODO.md).
 - [ ] **C5 (v2.2.x) Real x86 hardware track.** A flashing guide for one
   cheap board; DDR training is research under `boards/` and never a
   merge blocker.
+  - [ ] `c5-tpm`: measured boot with a TPM 2.0 on TIS (PCR extends, the
+    TCG2 protocol and event log, the TPM2 table)
 
 ### Phase D — v2.5: ARM and RISC-V as full firmware
 
