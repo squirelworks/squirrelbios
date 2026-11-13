@@ -5,11 +5,14 @@
 ; Written from the USB Mass Storage Class Bulk-Only Transport 1.0 and the
 ; SCSI Block Commands (READ CAPACITY(10), READ(10), WRITE(10)). The first
 ; bulk-only SCSI interface that usb_enum finds on an xHCI whose block is
-; in the EBDA, or at full speed on a UHCI, is configured. On xHCI both
-; bulk endpoints get a ring in the block and are added to the device's
-; slot. On UHCI the disk gets a queue head of its own after the keyboard's
-; and mouse's in the frame list hid.inc moves into the EBDA, and each
-; transfer is a chain of TDs hung from it (usbd_uhci_xfer). That
+; in the EBDA, or at full speed on a UHCI or an OHCI, is configured. On
+; xHCI both bulk endpoints get a ring in the block and are added to the
+; device's slot. On UHCI the disk gets a queue head of its own after the
+; keyboard's and mouse's in the frame list hid.inc moves into the EBDA,
+; and each transfer is a chain of TDs hung from it (usbd_uhci_xfer). On
+; OHCI each bulk endpoint gets an endpoint descriptor on the bulk list,
+; skipped except while a chain of general TDs runs on it
+; (usbd_ohci_xfer). That
 ; controller then keeps running after POST, alongside a USB keyboard or
 ; mouse on the same controller, and its state that the transfers need
 ; (registers, event ring position, the disk's rings or data toggles) is
@@ -99,9 +102,12 @@ usb_disk_claim:
     cmp byte [fs:USB_HC], USB_HC_XHCI
     je .hc
     cmp byte [fs:USB_HC], USB_HC_UHCI
+    je .usb11
+    cmp byte [fs:USB_HC], USB_HC_OHCI
     jne .out
+.usb11:
     cmp byte [bp - 2], 0
-    jne .out                    ; UHCI: full speed only (no bulk at low)
+    jne .out                    ; USB 1.1: full speed only (no bulk at low)
 .hc:
     cmp byte [fs:USBD_ADDR], 0
     jne .out
@@ -119,8 +125,8 @@ usb_disk_claim:
     cmp ax, [fs:USB_KBD_BDF]
     jne .out                    ; the keyboard or mouse runs elsewhere
 .first:
-    cmp byte [fs:USB_HC], USB_HC_UHCI
-    jne .xhci
+    cmp byte [fs:USB_HC], USB_HC_XHCI
+    je .xhci
     mov dword [fs:USBD_BUFS], EBDA_BASE + USBD_UBUF
     mov word [fs:USBD_OUTST], 0         ; DATA0 on both after configuring
     mov word [fs:USBD_INST], 0
@@ -438,6 +444,8 @@ usbd_scsi:
 usbd_xfer:
     cmp byte [fs:USB_HC], USB_HC_UHCI
     je usbd_uhci_xfer
+    cmp byte [fs:USB_HC], USB_HC_OHCI
+    je usbd_ohci_xfer
     pushad
     ; EBP = the first TRB, its cycle bit cleared
     xchg eax, ebp
@@ -650,6 +658,8 @@ usbd_reset:
     push word USBD_FSEG
     pop fs
     call flat_gs
+    cmp byte [fs:USB_HC], USB_HC_OHCI
+    je .ohci
     cmp byte [fs:USB_HC], USB_HC_UHCI
     jne .xhci
     push dx
@@ -659,6 +669,16 @@ usbd_reset:
     pop dx
     test ax, STS_HALTED | 0x18  ; halted, process or host system error
     jz .ok
+    jmp .bad
+.ohci:
+    ; Unrecoverable error, or no longer operational
+    mov eax, [fs:USB_MMIO]
+    test dword [gs:eax + OHCI_INTSTATUS], 0x10
+    jnz .bad
+    mov eax, [gs:eax + OHCI_CONTROL]
+    and eax, 0xC0
+    cmp eax, OCTL_HCFS_OPER
+    je .ok
     jmp .bad
 .xhci:
     mov eax, [fs:USB_MMIO]
@@ -899,4 +919,144 @@ usbd_uhci_xfer:
     ret
 .is_short:
     stc
+    ret
+
+; OHCI (ohci_hid_start, ES = USBK_SEG, flat GS, ESI = its registers): the
+; disk's endpoint descriptors, bulk OUT then bulk IN, empty and skipped,
+; as the bulk list. Keeps every register.
+usbd_ohci_eds:
+    pushad
+    movzx eax, word [fs:USBD_MPS]
+    shl eax, 16
+    or eax, ED_SKIP
+    or al, [fs:USBD_ADDR]
+    movzx ecx, byte [fs:USBD_EPOUT]
+    shl ecx, 7
+    or ecx, eax
+    or ecx, 1 << 11             ; OUT
+    mov [es:USBD_UQH], ecx
+    movzx ecx, byte [fs:USBD_EPIN]
+    shl ecx, 7
+    or ecx, eax
+    or ecx, 2 << 11             ; IN
+    mov [es:USBD_UQH + 16], ecx
+    xor eax, eax
+    mov [es:USBD_UQH + 4], eax          ; TailP = HeadP: empty, DATA0
+    mov [es:USBD_UQH + 8], eax
+    mov dword [es:USBD_UQH + 12], EBDA_BASE + USBD_UQH + 16
+    mov [es:USBD_UQH + 16 + 4], eax
+    mov [es:USBD_UQH + 16 + 8], eax
+    mov [es:USBD_UQH + 16 + 12], eax
+    mov dword [gs:esi + OHCI_BULKHEAD], EBDA_BASE + USBD_UQH
+    popad
+    ret
+
+; usbd_xfer on OHCI: ECX bytes (1 to 64 KB) at linear EAX, IN when DI =
+; USBD_INST, else OUT. General TDs of up to 8 KB that cross at most one
+; page boundary, then an empty tail, put on that endpoint's descriptor;
+; the controller carries the data toggle in it. A short IN packet halts
+; the endpoint with a data underrun: that ends the transfer, and the rest
+; of the chain is dropped. CF set on any other error or a 5 s timeout
+; (the descriptor is emptied and un-halted either way). Keeps every
+; register.
+usbd_ohci_xfer:
+    pushad
+    mov edx, EBDA_BASE + USBD_UQH       ; EDX = the endpoint descriptor
+    mov ebx, GTD_CC_NEW | GTD_NOINT | GTD_OUT
+    cmp di, USBD_INST
+    jne .build
+    add edx, 16
+    mov ebx, GTD_CC_NEW | GTD_NOINT | GTD_IN
+.build:
+    mov edi, EBDA_BASE + USBD_UTD       ; EDI = the next TD
+.td:
+    mov [gs:edi], ebx
+    mov [gs:edi + 4], eax               ; CBP
+    lea ebp, [edi + 16]
+    mov [gs:edi + 8], ebp               ; next TD
+    ; ESI = this TD's bytes: to the end of the next page at most
+    mov esi, eax
+    and esi, 0xFFF
+    neg esi
+    add esi, 0x2000
+    cmp esi, ecx
+    jbe .len
+    mov esi, ecx
+.len:
+    lea ebp, [eax + esi - 1]
+    mov [gs:edi + 12], ebp              ; BE: the last byte
+    add eax, esi
+    sub ecx, esi
+    add edi, 16
+    test ecx, ecx
+    jnz .td
+    ; The empty tail
+    xor eax, eax
+    mov [gs:edi], eax
+    mov [gs:edi + 4], eax
+    mov [gs:edi + 8], eax
+    mov [gs:edi + 12], eax
+    ; On the descriptor (still skipped): TailP, HeadP with the toggle carry
+    mov [gs:edx + 4], edi
+    mov eax, [gs:edx + 8]
+    and eax, 2
+    or eax, EBDA_BASE + USBD_UTD
+    mov [gs:edx + 8], eax
+    and dword [gs:edx], ~ED_SKIP
+    mov esi, [fs:USB_MMIO]
+    mov dword [gs:esi + OHCI_CMDSTATUS], OCS_BLF
+    ; Done when HeadP reaches the tail; halted on an error. Up to 5 s.
+    mov ecx, 5000
+.poll:
+    mov eax, [gs:edx + 8]
+    test al, ED_HALTED
+    jnz .halted
+    and eax, ~0x0F
+    cmp eax, edi
+    je .done
+    push ecx
+    mov cx, 1
+    call delay_ms
+    pop ecx
+    dec ecx
+    jnz .poll
+    or dword [gs:edx], ED_SKIP
+    jmp .drop                           ; timed out
+.halted:
+    or dword [gs:edx], ED_SKIP
+    ; The TD it halted on: a data underrun (a short IN packet) is the end
+    ; of the transfer, anything else an error
+    and eax, ~0x0F
+    mov ebx, [gs:eax]
+    shr ebx, 28
+    cmp bl, 9
+    jne .drop
+    call .empty
+    popad
+    clc
+    ret
+.drop:
+    call .empty
+    popad
+    stc
+    ret
+.done:
+    or dword [gs:edx], ED_SKIP
+    popad
+    clc
+    ret
+
+; Let the controller leave the skipped descriptor at GS:EDX, then empty
+; it at the tail EDI, keeping the toggle carry and clearing a halt.
+.empty:
+    push eax
+    push cx
+    mov cx, 2
+    call delay_ms
+    pop cx
+    mov eax, [gs:edx + 8]
+    and eax, 2
+    or eax, edi
+    mov [gs:edx + 8], eax
+    pop eax
     ret

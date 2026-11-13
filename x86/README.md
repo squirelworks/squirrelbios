@@ -26,7 +26,7 @@ drivers/   ata (ATA PIO, LBA28/LBA48, INT 13h with EDD 3.0),
            network boot, boot/netboot.inc; CONFIG_NETBOOT),
            usb (USB core: enumeration and hubs; uhci, ohci, ehci,
            xhci; hid: keyboard and mouse after POST; msd: a
-           bulk-only USB disk on xHCI or UHCI as DL 80h; CONFIG_USB)
+           bulk-only USB disk on xHCI, UHCI or OHCI as DL 80h; CONFIG_USB)
 tables/    acpi (CONFIG_ACPI), smbios (CONFIG_SMBIOS)
 ```
 
