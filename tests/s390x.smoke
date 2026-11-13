@@ -40,8 +40,23 @@ s390x_case s390x-prompt "boot: no disk (add -device virtio-blk-ccw)|sq> |command
     "$QEMU_S390X" -M s390-ccw-virtio -bios $S390X_FW
 SERIAL_IN=
 
-# Not an s390x ELF on the disk (two sectors, less than the first read
+# Neither an s390x ELF nor a Linux image on the disk (two sectors, less than the first read
 # wants): refused, and the prompt instead
-s390x_case s390x-not-elf "boot: virtio-blk 0.0.0000, 2 sectors|boot: not an s390x ELF image|sq> |!jumping" \
+s390x_case s390x-not-elf "boot: virtio-blk 0.0.0000, 2 sectors|boot: not an s390x ELF or Linux image|sq> |!jumping" \
     "$QEMU_S390X" -M s390-ccw-virtio -bios $S390X_FW -nic none \
     -drive file=$TEST_DIR/x86-boot.bin,if=none,format=raw,id=d0 -device virtio-blk-ccw,drive=d0
+
+# A Linux-style boot image ("S390EP" at 0x10008, belongs at address 0,
+# starts at 0x10000) and a second disk as its initrd: the firmware loads
+# both, fills in the parameter area (initrd address and size) and keeps
+# the image's own command line
+S390X_IMG="-drive file=$TEST_DIR/s390x-image.img,if=none,format=raw,id=d0 -device virtio-blk-ccw,drive=d0,devno=fe.0.0001 -drive file=$TEST_DIR/s390x-initrd.img,if=none,format=raw,id=d1 -device virtio-blk-ccw,drive=d1,devno=fe.0.0002"
+s390x_case s390x-linux-image "boot: Linux image, 275 KB|boot: initrd from 0.0.0002 at 0x100000, 4 KB|boot: command line \"squirrel default\"|$S390X_OK|LINUX-IMAGE s390x initrd=ok cmdline=\"squirrel default\"" \
+    "$QEMU_S390X" -M s390-ccw-virtio -m 256 -bios $S390X_FW $S390X_IMG
+
+# A key waiting stops the automatic boot; "boot <args>" then gives the
+# image its command line
+SERIAL_IN=$TEST_DIR/s390x-boot.keys
+s390x_case s390x-linux-args "boot: key pressed, staying at the prompt|sq> |boot: command line \"console=ttysclp0 squirrel\"|$S390X_OK|LINUX-IMAGE s390x initrd=ok cmdline=\"console=ttysclp0 squirrel\"" \
+    "$QEMU_S390X" -M s390-ccw-virtio -m 256 -bios $S390X_FW $S390X_IMG
+SERIAL_IN=
