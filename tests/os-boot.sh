@@ -5,6 +5,10 @@
 #
 #   tests/os-boot.sh path/to/os.img
 #   make os-boot OS_IMG=path/to/os.img
+#   make os-boot-csm OS_IMG=path/to/os.img   (the x86_64-uefi image's CSM)
+#
+# OS_BIOS picks another firmware image (default x86/squirrel-bios.rom),
+# QEMU_X86 another QEMU, and OS_DRIVE=floppy boots the image as A:.
 #
 # The firmware line is on COM1. The OS writes its banner and the "> "
 # prompt to the VGA text buffer, so this reads that buffer back. Passes
@@ -27,7 +31,8 @@ fi
 root=$(cd "$(dirname "$0")/.." && pwd)
 QEMU=${QEMU_X86:-qemu-system-i386}
 TIMEOUT=${OS_TIMEOUT:-30}
-ROM=$root/x86/squirrel-bios.rom
+ROM=${OS_BIOS:-$root/x86/squirrel-bios.rom}
+DRIVE=${OS_DRIVE:-ide}
 work=$root/build/os-boot
 mkdir -p "$work"
 log=$work/serial.log
@@ -37,17 +42,17 @@ sock=$work/mon.sock
 rm -f "$log" "$vga" "$screen" "$sock"
 
 "$QEMU" -bios "$ROM" \
-    -drive format=raw,file="$img",if=ide \
+    -drive format=raw,file="$img",if="$DRIVE",snapshot=on \
     -display none -serial "file:$log" \
     -monitor "unix:$sock,server,nowait" \
     -no-reboot >/dev/null 2>&1 &
 qemu=$!
 trap 'kill "$qemu" 2>/dev/null; wait "$qemu" 2>/dev/null || true' EXIT INT TERM
 
-python3 - "$sock" "$vga" "$screen" "$log" "$TIMEOUT" << 'PY'
+python3 - "$sock" "$vga" "$screen" "$log" "$TIMEOUT" "$DRIVE" << 'PY'
 import socket, sys, time
 
-sock_path, vga_path, screen_path, log_path, timeout = sys.argv[1:]
+sock_path, vga_path, screen_path, log_path, timeout, drive = sys.argv[1:]
 timeout = float(timeout)
 deadline = time.time() + timeout
 
@@ -115,7 +120,10 @@ while time.time() < deadline:
         serial = open(log_path, "r", errors="replace").read()
     except OSError:
         serial = ""
-    if banner and prompt and "kernel loaded at 0x00008000, jumping" in serial:
+    # A hard disk is loaded by the firmware (S2OK); a floppy by its own boot sector
+    loaded = ("booting from floppy A:" if drive == "floppy"
+              else "kernel loaded at 0x00008000, jumping")
+    if banner and prompt and loaded in serial:
         open(screen_path, "w").write(text)
         sys.stdout.write(text)
         print("PASS os-boot")

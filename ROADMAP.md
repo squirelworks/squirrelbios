@@ -241,7 +241,7 @@ boxes in [TODO.md](TODO.md).
 - [ ] **C2 (v2.0.0) ACPI 2.0+/6.x and SMBIOS 3.x.** MADT, HPET, MCFG, FADT,
   DSDT (original, generated AML). Test: Linux x86-64 boots to a shell
   with ACPI; an `acpidump`-style self-check in `make test`.
-- [ ] **C3 (v2.0.1) CSM.** Legacy BIOS services kept on the x86-64 build.
+- [x] **C3 (v2.0.1) CSM.** Legacy BIOS services kept on the x86-64 build.
 - [ ] **C4 (v2.1.x) SMP and Secure Boot.** INIT-SIPI-SIPI, MP table, x2APIC;
   verify-only Secure Boot with our own keys.
 - [ ] **C5 (v2.2.x) Real x86 hardware track.** A flashing guide for one
