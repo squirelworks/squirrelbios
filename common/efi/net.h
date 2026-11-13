@@ -14,8 +14,11 @@
  *                 (device path: the platform's, then a MAC node)
  *   net_ip.c      Ethernet, ARP, IPv4, ICMP echo, UDP; a DHCP client and
  *                 a TFTP client
- *   net_boot.c    PXE-style boot: DHCP, then the boot file over TFTP,
- *                 loaded and started as an EFI image */
+ *   net_tcp.c     a small TCP client (one connection, stop-and-wait out)
+ *   net_http.c    an HTTP/1.1 client: Content-Length, chunked, redirects
+ *   net_boot.c    PXE-style boot: DHCP, then the boot file over TFTP (or
+ *                 HTTP, when DHCP names an http:// URL), loaded and
+ *                 started as an EFI image */
 #ifndef NET_H
 #define NET_H
 
@@ -156,6 +159,20 @@ u32 net_csum_add(u32 s, const void *data, u32 n);
 u16 net_csum_fold(u32 s);
 u32 net_pseudo_sum(u32 src, u32 dst, u8 proto, u32 len);
 extern void (*net_tcp_input)(u32 src_ip, const u8 *seg, u32 len);
+
+/* net_tcp.c: one TCP connection at a time. connect: 1 when open, every
+ * in-order byte from the peer going to fn; send: 0 once acknowledged;
+ * poll: -1 reset, 1 the peer closed, 0 still open */
+typedef void (*net_tcp_fn)(const u8 *data, u32 len);
+int net_tcp_connect(u32 ip, u16 port, net_tcp_fn fn);
+int net_tcp_send(const void *data, u32 len);
+int net_tcp_poll(u32 ms);
+void net_tcp_close(void);
+void net_tcp_abort(void);
+
+/* net_http.c: GET an http://a.b.c.d[:port]/path URL into a pool buffer:
+ * 1 with *buf and *size */
+int net_http_get(const char *url, void **buf, u32 *size);
 
 /* UDP for the clients above (one socket at a time) */
 typedef void (*net_udp_fn)(u32 src_ip, u16 src_port, const u8 *data, u32 len);

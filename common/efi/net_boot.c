@@ -5,7 +5,8 @@
  * reset when the OS calls ExitBootServices. A network boot asks DHCP for
  * an address and a boot file (sending the RFC 4578 architecture and the
  * PXEClient vendor class, so a PXE server can pick BOOTX64.EFI or
- * BOOTAA64.EFI), reads the file over TFTP from the server DHCP names and
+ * BOOTAA64.EFI), reads the file over TFTP from the server DHCP names, or
+ * over HTTP when the boot file is an http:// URL (UEFI HTTP boot), and
  * starts it as an EFI image whose device is the NIC's handle. */
 #include "net.h"
 
@@ -52,6 +53,11 @@ void efi_net_init(void)
     net_platform_probe();
 }
 
+static int http_url(const char *f)
+{
+    return !memcmp(f, "http://", 7);
+}
+
 int net_boot(struct net_dev *nd, EFI_HANDLE nic)
 {
     struct net_cfg cfg;
@@ -69,7 +75,7 @@ int net_boot(struct net_dev *nd, EFI_HANDLE nic)
         return 0;
     }
     printf(", boot file %s\n", cfg.file);
-    if (cfg.server && (cfg.server & cfg.mask) != (cfg.ip & cfg.mask)) {
+    if (cfg.server && !http_url(cfg.file) && (cfg.server & cfg.mask) != (cfg.ip & cfg.mask)) {
         if (!cfg.gw) {
             printf("net: the boot server is on another network and DHCP gave no router\n");
             return 0;
@@ -80,9 +86,10 @@ int net_boot(struct net_dev *nd, EFI_HANDLE nic)
     }
     void *buf;
     u32 size;
-    if (!net_tftp_get(&cfg, cfg.file, &buf, &size))
+    int http = http_url(cfg.file);
+    if (http ? !net_http_get(cfg.file, &buf, &size) : !net_tftp_get(&cfg, cfg.file, &buf, &size))
         return 0;
-    printf("net: loaded %u bytes\n", size);
+    printf("net: loaded %u bytes%s\n", size, http ? " over HTTP" : "");
 
     u64 free_before = efi_free_pages_count();
     EFI_HANDLE h;
