@@ -314,7 +314,7 @@ boxes in [TODO.md](TODO.md).
     chunked, close-delimited bodies and redirects; IPv4 hosts, no DNS yet)
   - [x] `f3-sol`: serial-over-LAN style console mirror over UDP (output
     per line, input from the same host), until ExitBootServices
-  - [ ] `f3-ipmi`: x86_64 BMC on IPMI KCS (QEMU `ipmi-bmc-sim`), SPMI
+  - [x] `f3-ipmi`: x86_64 BMC on IPMI KCS (QEMU `ipmi-bmc-sim`), SPMI
     table, SMBIOS type 38 and a Redfish host interface stub (type 42)
 - [ ] **F4** Diskless cluster boot of many nodes from one image server.
   Test: QEMU `-smp 256 -numa ...`; `make linux-big` already covers part.
