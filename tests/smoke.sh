@@ -860,6 +860,7 @@ run x86_64-gop "gop: 800x600x32 at|APP gop mode=ok fb=ok blt=ok time=ok var=ok|e
 run x86_64-csm "csm: legacy BIOS (64 KB) in shadow RAM at F0000, PAM at 0x59|csm: leaving long mode for F000:FFF0|SquirrelBIOS x86|kernel loaded at 0x00008000, jumping|osload=ok dl=ok flags=ok memmap=ok sig=ok e820=ok disk=absent|!boot halted" \
     "$QEMU_X86_64" -M pc -bios x86_64/squirrel-bios.fd \
     -drive format=raw,file=$TEST_DIR/x86-osload.bin,if=ide,snapshot=on
+# ... and with four CPUs, the APs parked (INIT) before long mode ends
 run x86_64-csm-smp "smp: 4 CPUs, xAPIC|csm: leaving long mode for F000:FFF0|kernel loaded at 0x00008000, jumping|osload=ok dl=ok flags=ok memmap=ok sig=ok e820=ok disk=absent|!boot halted" \
     "$QEMU_X86_64" -M pc -smp 4 -bios x86_64/squirrel-bios.fd \
     -drive format=raw,file=$TEST_DIR/x86-osload.bin,if=ide,snapshot=on
