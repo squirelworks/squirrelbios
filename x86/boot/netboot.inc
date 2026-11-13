@@ -5,13 +5,13 @@
 ; (BOOTP), RFC 1350 (TFTP), RFC 826 (ARP), RFC 791 (IPv4) and RFC 768
 ; (UDP). When no disk and no CD booted, net_boot brings up a virtio-net
 ; device (drivers/virtio/net.inc), asks for an address and a boot file
-; (DHCPDISCOVER, DHCPREQUEST), finds the boot server's Ethernet address
-; (ARP), and reads the file over TFTP (512-byte blocks) into memory from
+; (DHCPDISCOVER, DHCPREQUEST), finds the Ethernet address of the boot
+; server, or of the router (option 3) when the subnet mask (option 1)
+; puts the server on another network (ARP), and reads the file over TFTP (512-byte blocks) into memory from
 ; 0x7C00, as if its sectors had been read from a disk there. The device
 ; is reset, and the file is entered at 0000:7C00 with DL = FFh (no
 ; INT 13h drive) like a boot sector.
 ;
-; The boot server must be on the local network: there is no routing.
 ; The file must end below NET_SEG (0x40000), where the network buffers
 ; are: up to 230400 bytes. Everything runs with interrupts off, on a
 ; stack in NET_SEG, and every wait is counted in milliseconds.
@@ -39,6 +39,11 @@ NN_SAVESP       equ 0x6658          ; dword: POST's SP, then SS
 NN_PSID         equ 0x665C          ; dword: server identifier parsed
 NN_PFILE        equ 0x6660          ; word: option 67 parsed (offset; 0 none)
 NN_PFLEN        equ 0x6662          ; byte: its length
+NN_MASK         equ 0x6664          ; dword: subnet mask (0: none given)
+NN_GW           equ 0x6668          ; dword: the first router (0: none)
+NN_HOP          equ 0x666C          ; dword: who NN_SRVMAC belongs to
+NN_PMASK        equ 0x6670          ; dword: option 1 parsed
+NN_PGW          equ 0x6674          ; dword: option 3 parsed
 NN_FILE         equ 0x6680          ; the boot file's name, NUL-ended
 
 NET_PAY         equ NET_TX + 42     ; a UDP datagram's data
@@ -120,6 +125,8 @@ net_try:
     jmp .name
 .named:
     call con_newline
+    call net_route
+    jc .fail
     call net_arp
     jc .fail
     call net_tftp
@@ -378,11 +385,12 @@ net_frame:
     jne .no
     cmp word [fs:si + 18], 0x0406
     jne .no
-    ; From the boot server, request or reply: its address
+    ; From the next hop (the boot server or the router), request or
+    ; reply: its address
     mov eax, [fs:si + 28]
     test eax, eax
     jz .request
-    cmp eax, [fs:NN_SRV]
+    cmp eax, [fs:NN_HOP]
     jne .request
     mov eax, [fs:si + 22]
     mov [fs:NN_SRVMAC], eax
@@ -442,6 +450,9 @@ net_dhcp:
     mov [fs:NN_IP], eax
     mov [fs:NN_SRV], eax
     mov [fs:NN_SRVID], eax
+    mov [fs:NN_MASK], eax
+    mov [fs:NN_GW], eax
+    mov [fs:NN_HOP], eax
     mov [fs:NN_FILE], al
     mov byte [fs:NN_ARP], 0
     mov byte [fs:NN_BCAST], 1
@@ -572,6 +583,8 @@ net_bootp_parse:
     jne .no
     mov byte [fs:NN_PTYPE], 0
     mov dword [fs:NN_PSID], 0
+    mov dword [fs:NN_PMASK], 0
+    mov dword [fs:NN_PGW], 0
     mov word [fs:NN_PFILE], 0
     mov bx, si
     add bx, cx                  ; BX = its end
@@ -600,11 +613,27 @@ net_bootp_parse:
     jmp .next
 .sid:
     cmp al, 54
-    jne .file
+    jne .mask
     cmp cx, 4
     jb .next
     mov eax, [fs:si]
     mov [fs:NN_PSID], eax
+    jmp .next
+.mask:
+    cmp al, 1
+    jne .router
+    cmp cx, 4
+    jb .next
+    mov eax, [fs:si]
+    mov [fs:NN_PMASK], eax
+    jmp .next
+.router:
+    cmp al, 3                   ; one or more routers: the first
+    jne .file
+    cmp cx, 4
+    jb .next
+    mov eax, [fs:si]
+    mov [fs:NN_PGW], eax
     jmp .next
 .file:
     cmp al, 67
@@ -639,8 +668,18 @@ net_bootp_take:
 .sid:
     mov eax, [fs:NN_PSID]
     test eax, eax
-    jz .file
+    jz .route
     mov [fs:NN_SRVID], eax
+.route:
+    mov eax, [fs:NN_PMASK]
+    test eax, eax
+    jz .gw
+    mov [fs:NN_MASK], eax
+.gw:
+    mov eax, [fs:NN_PGW]
+    test eax, eax
+    jz .file
+    mov [fs:NN_GW], eax
 .file:
     mov bx, [fs:NN_PFILE]
     movzx cx, byte [fs:NN_PFLEN]
@@ -671,7 +710,47 @@ net_bootp_take:
     popad
     ret
 
-; The boot server's Ethernet address, by ARP unless already known. CF
+; The next hop: the boot server when it is on our network (or no subnet
+; mask was given), else the router, which is then named on the console.
+; CF set with SI = the reason when the server is elsewhere and there is
+; no router. Keeps every other register.
+net_route:
+    push eax
+    mov eax, [fs:NN_SRV]
+    xor eax, [fs:NN_IP]
+    and eax, [fs:NN_MASK]
+    mov eax, [fs:NN_SRV]
+    jz .hop
+    mov eax, [fs:NN_GW]
+    mov si, msg_net_noroute
+    test eax, eax
+    jz .fail
+    ; "net: boot server on another network, through router 10.0.2.1"
+    push ax
+    push bx
+    mov si, msg_net_via
+    mov ah, ATTR_NORMAL
+    call con_print
+    mov bx, NN_GW
+    call net_print_ip
+    call con_newline
+    pop bx
+    pop ax
+.hop:
+    cmp eax, [fs:NN_HOP]
+    je .same
+    mov [fs:NN_HOP], eax
+    mov byte [fs:NN_ARP], 0     ; whoever answered before was not it
+.same:
+    pop eax
+    clc
+    ret
+.fail:
+    pop eax
+    stc
+    ret
+
+; The next hop's Ethernet address, by ARP unless already known. CF
 ; set with SI = the reason if it does not answer. Keeps every other
 ; register.
 net_arp:
@@ -700,7 +779,7 @@ net_arp:
     xor eax, eax
     mov [fs:NET_TX + 32], eax
     mov [fs:NET_TX + 36], ax
-    mov eax, [fs:NN_SRV]
+    mov eax, [fs:NN_HOP]
     mov [fs:NET_TX + 38], eax
     mov cx, 42
     call vnet_send

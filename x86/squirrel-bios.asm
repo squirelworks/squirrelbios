@@ -396,7 +396,9 @@ msg_net_got db 'net: loaded ', 0
 msg_net_bytes db ' bytes', 0
 msg_net_nodhcp db 'net: no DHCP answer', 0
 msg_net_nofile db 'net: DHCP gave no boot file', 0
-msg_net_noarp db 'net: the boot server does not answer ARP', 0
+msg_net_noarp db 'net: the boot server (or its router) does not answer ARP', 0
+msg_net_via db 'net: boot server on another network, through router ', 0
+msg_net_noroute db 'net: the boot server is on another network and DHCP gave no router', 0
 msg_net_timeout db 'net: TFTP timed out', 0
 msg_net_refused db 'net: the TFTP server refused the file', 0
 msg_net_big db 'net: the boot file does not fit below 0x40000', 0
