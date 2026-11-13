@@ -19,6 +19,17 @@ void fwcfg_read(u16 select, void *buf, u32 len)
         *p++ = inb(FWCFG_DATA);
 }
 
+/* Bytes [offset, offset + len) of an item */
+void fwcfg_read_at(u16 select, u32 offset, void *buf, u32 len)
+{
+    u8 *p = buf;
+    outw(FWCFG_SEL, select);
+    while (offset--)
+        (void)inb(FWCFG_DATA);
+    while (len--)
+        *p++ = inb(FWCFG_DATA);
+}
+
 int fwcfg_present(void)
 {
     char sig[4];

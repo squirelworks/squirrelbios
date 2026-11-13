@@ -66,4 +66,16 @@ typedef void *(*acpi_take_fn)(u32 len);
 int acpi_numa_tables(u8 **out, acpi_take_fn take);     /* SRAT, SLIT */
 int acpi_ras_tables(u8 **out, acpi_take_fn take);      /* BERT, HEST */
 
+/* mce.c: machine-check banks, read once at boot on every CPU */
+#define MCE_MAX_RECORDS 32
+struct mce_record {
+    u32 apic_id, bank, cpuid_eax;
+    u64 ctl, status, addr, misc;
+};
+void mce_scan(void);
+u32 mce_banks(void);
+u64 mce_cap(void);
+int mce_records(const struct mce_record **out);
+u32 mce_severity(const struct mce_record *r);   /* CPER: 0 recoverable, 1 fatal, 2 corrected */
+
 #endif

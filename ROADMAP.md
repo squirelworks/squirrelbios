@@ -255,10 +255,10 @@ boxes in [TODO.md](TODO.md).
 
 ### Phase D — v2.5: ARM and RISC-V as full firmware
 
-- [ ] **D1** AArch64 `virt`: UEFI-class interface, device tree and ACPI
+- [x] **D1** AArch64 `virt`: UEFI-class interface, device tree and ACPI
   (SBBR-like), PSCI, GICv3.
 - [ ] **D2** AArch64 boards: Raspberry Pi 4/5 under `boards/rpi4`.
-- [ ] **D3** RISC-V `virt`: UEFI-class interface while keeping the SBI;
+- [x] **D3** RISC-V `virt`: UEFI-class interface while keeping the SBI;
   `DBCN`, SSE; boards (VisionFive 2, HiFive) under `boards/`.
 - [ ] **D4** Shared drivers across architectures (NVMe, xHCI, virtio, FAT,
   PE/ELF loaders) from the same sources. Test: each QEMU target boots
@@ -281,10 +281,21 @@ boxes in [TODO.md](TODO.md).
   - [x] `f1-x86-numa`: x86_64 SRAT (CPU and memory affinity) and SLIT
     from QEMU `-numa`, MADT from the SMP list with x2APIC entries past
     APIC ID 254 (HMAT, more than 1000 CPUs and ECAM segments still open)
+  - [x] `f1-x86-hmat`: x86_64 HMAT (initiator of each memory node, or
+    QEMU's latency, bandwidth and cache structures) and QEMU's `-numa
+    dist` in the SLIT
+  - [x] `f1-x86-roots`: x86_64 extra PCI root buses (QEMU pxb and
+    pxb-pcie) as DSDT host bridges with their own buses and windows, and
+    ACPI table room that grows with the CPU count (more than one ECAM
+    segment and >255 CPUs untestable on QEMU x86 TCG)
 - [ ] **F2** RAS: machine-check logging (BERT/HEST/EINJ), corrected-error
   thresholds, CXL memory enumeration (research).
   - [x] `f2-x86-stubs`: x86_64 BERT and HEST stubs (MCE logging, EINJ and
     thresholds still open)
+  - [x] `f2-x86-mce`: x86_64 machine-check banks read at boot, errors
+    from before a reset as CPER records in the BERT, HEST IA-32 MCE and
+    corrected machine check sources with CMCI or polling and thresholds
+    (EINJ still open)
 - [ ] **F3** Management: IPMI/Redfish-style BMC stubs, serial-over-LAN, HTTP
   boot.
 - [ ] **F4** Diskless cluster boot of many nodes from one image server.
@@ -305,6 +316,8 @@ The older polish items stay valid and fold into Phase D when it starts:
   QEMU can inject corrected errors, `aplic-imsic` when the hypervisor
   stack allows a shell.
   - [x] `DBCN` (SBI 2.0 debug console; Linux `earlycon=sbi`)
+  - [x] UART and CLINT/ACLINT addresses taken from the device tree in the
+    M-mode SBI (`CONFIG_UART_BASE`/`CONFIG_CLINT_BASE` as fallbacks)
 - [ ] AArch64: firmware PSCI/GIC only if QEMU's built-ins are disabled for a
   test; otherwise leave them.
 

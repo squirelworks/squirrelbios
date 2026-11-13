@@ -824,6 +824,19 @@ run config-riscv-small "SquirrelBIOS RISC-V|next_mode=1|OS-ENTRY riscv hart=ok d
     "$QEMU_RISCV" -M virt -smp 2 -bios build/riscv64-virt/small/squirrel-bios.bin \
     -kernel $TEST_DIR/riscv-kernel.bin
 
+# Build configs: riscv64-virt/dt has its fixed UART and CLINT addresses
+# pointing at nothing, so the SBI must find the NS16550A and the CLINT (or
+# with aclint=on, the ACLINT MSWI and MTIMER) in the device tree: console,
+# timer interrupts, IPIs and hart start all go through what it found
+RV_DT=build/riscv64-virt/dt/squirrel-bios.bin
+RV_DT_OK="dt: UART at 0x0000000010000000, CLINT msip at 0x0000000002000000, mtime at 0x000000000200bff8"
+run config-riscv-dt-timer "$RV_DT_OK|OS-ENTRY riscv timer|timer=ok|!timer=again|!timer=bad|!trap mcause=" \
+    "$QEMU_RISCV" -M virt -bios $RV_DT -kernel $TEST_DIR/riscv-timer.bin
+run config-riscv-dt-ipi "$RV_DT_OK|OS-ENTRY riscv ipi|ipi=ok|!ipi=bad|!trap mcause=" \
+    "$QEMU_RISCV" -M virt -smp 2 -bios $RV_DT -kernel $TEST_DIR/riscv-ipi.bin
+run config-riscv-dt-hsm-aclint "$RV_DT_OK|OS-ENTRY riscv hsm|hart1=ok a1=5157000012345678|hsm=ok|!hsm=bad|!trap mcause=" \
+    "$QEMU_RISCV" -M virt,aclint=on -smp 2 -bios $RV_DT -kernel $TEST_DIR/riscv-hsm.bin
+
 # Build configs: x86-pc/minimal (no ACPI, SMBIOS, bzImage loader or
 # option ROM scan) still boots the x86-boot image with every hand-off
 # check, and really leaves ACPI out (the x86-acpi image finds no RSDP)
@@ -850,6 +863,15 @@ run riscv-deleg "OS-ENTRY riscv deleg|deleg=ok|ecall=ok|!trap mcause=" \
 run riscv-sbi "OS-ENTRY riscv sbi|dbcn=ok|sbi=ok|!trap mcause=" \
     "$QEMU_RISCV" -M virt -bios riscv/squirrel-bios.bin \
     -kernel $TEST_DIR/riscv-sbi.bin
+
+# RISC-V: SSE (SBI 3.0 supervisor software events) for the software-
+# injected local event: register, attributes and their errors, a masked
+# inject that waits, unmask taking it, the handler's a6/a7 and saved
+# state, complete resuming a0/a6/a7/sepc, one-shot; then hart 0 injects
+# on hart 1, which takes it on the IPI. DBCN refuses firmware memory.
+run riscv-sse "OS-ENTRY riscv sse|sse=ok|!sse=bad|!trap mcause=|!ras:" \
+    "$QEMU_RISCV" -M virt -smp 2 -bios riscv/squirrel-bios.bin \
+    -kernel $TEST_DIR/riscv-sse.bin
 
 # RISC-V: sbi_set_timer raises the supervisor timer interrupt once
 run riscv-timer "OS-ENTRY riscv timer|timer=ok|!timer=again|!timer=bad|!trap mcause=" \
@@ -1080,6 +1102,16 @@ run x86_64-acpi "acpi: FACP APIC HPET MCFG BERT HEST DSDT|~^acpi: RSDP at 0x[0-9
     "$QEMU_X86_64" -M q35 -smp 2 -bios x86_64/squirrel-bios.fd -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-acpi.efi
 run x86_64-acpi-pc "acpi: FACP APIC HPET BERT HEST DSDT|i440fx (PIIX4), PM at 0x600|APP acpi rsdp=ok xsdt=ok sums=ok facp=ok dsdt=ok facs=ok madt=ok cpus=3|APP acpi hpet=ok mcfg=none|APP smbios sm3=ok walk=ok types=ok|!=bad" \
     "$QEMU_X86_64" -M pc -smp 3 -bios x86_64/squirrel-bios.fd -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-acpi.efi
+# Extra PCI root buses (F1): QEMU pxb-pcie (q35) and pxb (pc) expanders
+# become DSDT host bridges PCxx with _BBN, their buses up to the next
+# root, and I/O and memory windows taken out of PCI0's
+run x86_64-pxb "pci: root bus 40-7f (PC40), I/O 6000-6fff, memory e0000000-e3ffffff|pci: root bus 80-ff (PC80), I/O 7000-7fff, memory e4000000-e7ffffff|APP acpi rsdp=ok xsdt=ok sums=ok facp=ok dsdt=ok facs=ok madt=ok cpus=2|!=bad" \
+    "$QEMU_X86_64" -M q35 -smp 2 -bios x86_64/squirrel-bios.fd -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-acpi.efi \
+    -device pxb-pcie,id=pxb1,bus_nr=0x80,bus=pcie.0 -device pcie-root-port,id=rp1,bus=pxb1,chassis=1 \
+    -device pxb-pcie,id=pxb2,bus_nr=0x40,bus=pcie.0 -device pcie-root-port,id=rp2,bus=pxb2,chassis=2
+run x86_64-pxb-pc "pci: root bus 20-ff (PC20), I/O 6000-6fff, memory e0000000-e3ffffff|APP acpi rsdp=ok xsdt=ok sums=ok facp=ok dsdt=ok facs=ok madt=ok cpus=1|!=bad" \
+    "$QEMU_X86_64" -M pc -bios x86_64/squirrel-bios.fd -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-acpi.efi \
+    -device pxb,id=b1,bus_nr=0x20,bus=pci.0 -device e1000,bus=b1
 # ResetSystem(EfiResetShutdown) without isa-debug-exit: SLP_TYP from
 # \_S5 on the PM block the firmware opened powers QEMU off (exit 0)
 run x86_64-s5 "APP ebs=ok|@exit=0|!=bad" \
@@ -1142,7 +1174,7 @@ numa_nodes() {     # numa_nodes N MB_PER_NODE CPUS_PER_NODE
     done
 }
 NUMA_APP="-fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-numa.efi"
-run x86_64-numa "numa: 2 nodes: 96 MB 160 MB|acpi: FACP APIC HPET MCFG SRAT SLIT BERT HEST DSDT|APP numa sums=ok madt=4/0 srat=4 cpu=0,0,1,1 mem=0:0+96,1:96+160 slit=2:1020,2010|APP numa bert=ok hest=ok|!=bad" \
+run x86_64-numa "numa: 2 nodes: 96 MB 160 MB|acpi: FACP APIC HPET MCFG SRAT SLIT HMAT BERT HEST DSDT|APP numa sums=ok madt=4/0 srat=4 cpu=0,0,1,1 mem=0:0+96,1:96+160 slit=2:1020,2010 hmat=0>0,1>1 lb=0 cache=0|APP numa bert=0 hest=2/10|!=bad" \
     "$QEMU_X86_64" -M q35 -m 256 -smp 4,sockets=2,cores=2 \
     -object memory-backend-ram,id=nm0,size=96M -numa node,nodeid=0,cpus=0-1,memdev=nm0 \
     -object memory-backend-ram,id=nm1,size=160M -numa node,nodeid=1,cpus=2-3,memdev=nm1 \
@@ -1151,14 +1183,54 @@ run x86_64-numa "numa: 2 nodes: 96 MB 160 MB|acpi: FACP APIC HPET MCFG SRAT SLIT
 run x86_64-numa-4g "numa: 4 nodes: 1024 MB 1024 MB 1024 MB 1024 MB|APP numa sums=ok madt=8/0 srat=8 cpu=0,0,1,1,2,2,3,3 mem=0:0+1024,1:1024+1024,2:4096+1024,3:5120+1024 slit=4:10202020,20102020,20201020,20202010|!=bad" \
     "$QEMU_X86_64" -M q35 -m 4G -smp 8 $(numa_nodes 4 1024 2) -bios x86_64/squirrel-bios.fd $NUMA_APP
 # shellcheck disable=SC2046
-run x86_64-numa-64 "smp: 64 CPUs|numa: 4 nodes|APP numa sums=ok madt=64/0 srat=64 cpu=0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,|,3,3 mem=0:0+128,1:128+128,2:256+128,3:384+128 slit=4:|APP numa bert=ok hest=ok|!=bad" \
+run x86_64-numa-64 "smp: 64 CPUs|numa: 4 nodes|APP numa sums=ok madt=64/0 srat=64 cpu=0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,|,3,3 mem=0:0+128,1:128+128,2:256+128,3:384+128 slit=4:|APP numa bert=0 hest=2/10|!=bad" \
     "$QEMU_X86_64" -M q35 -m 512 -smp 64 $(numa_nodes 4 128 16) -bios x86_64/squirrel-bios.fd $NUMA_APP
 # shellcheck disable=SC2046
 run x86_64-numa-dist "APP numa sums=ok madt=2/0 srat=2 cpu=0,1 mem=0:0+128,1:128+128 slit=2:1031,3110|!=bad" \
     "$QEMU_X86_64" -M pc -m 256 -smp 2 $(numa_nodes 2 128 1) -bios x86_64/squirrel-bios.fd $NUMA_APP \
     -fw_cfg name=opt/org.squirrelworks/numa-distance,file=$TEST_DIR/x86_64-numa-dist.bin
-run x86_64-numa-none "APP numa sums=ok madt=2/0 srat=none slit=none|APP numa bert=ok hest=ok|!=bad" \
+# HMAT (F1): QEMU's own HMAT and SLIT (-machine hmat=on, -numa hmat-lb,
+# hmat-cache and dist) are taken from the tables it offers in
+# etc/acpi/tables; node 2 has memory and no CPUs. Without hmat=on the
+# HMAT names each node's initiator, the memory-only node getting the
+# nearest node with CPUs by the SLIT.
+NUMA3="-object memory-backend-ram,id=nm0,size=128M -object memory-backend-ram,id=nm1,size=128M -object memory-backend-ram,id=nm2,size=64M"
+HMAT_LB="-numa hmat-lb,initiator=0,target=0,hierarchy=memory,data-type=access-latency,latency=5 -numa hmat-lb,initiator=0,target=0,hierarchy=memory,data-type=access-bandwidth,bandwidth=400M \
+    -numa hmat-lb,initiator=0,target=1,hierarchy=memory,data-type=access-latency,latency=10 -numa hmat-lb,initiator=0,target=1,hierarchy=memory,data-type=access-bandwidth,bandwidth=200M \
+    -numa hmat-lb,initiator=0,target=2,hierarchy=memory,data-type=access-latency,latency=30 -numa hmat-lb,initiator=0,target=2,hierarchy=memory,data-type=access-bandwidth,bandwidth=100M \
+    -numa hmat-lb,initiator=1,target=0,hierarchy=memory,data-type=access-latency,latency=10 -numa hmat-lb,initiator=1,target=0,hierarchy=memory,data-type=access-bandwidth,bandwidth=200M \
+    -numa hmat-lb,initiator=1,target=1,hierarchy=memory,data-type=access-latency,latency=5 -numa hmat-lb,initiator=1,target=1,hierarchy=memory,data-type=access-bandwidth,bandwidth=400M \
+    -numa hmat-lb,initiator=1,target=2,hierarchy=memory,data-type=access-latency,latency=40 -numa hmat-lb,initiator=1,target=2,hierarchy=memory,data-type=access-bandwidth,bandwidth=100M"
+run x86_64-numa-hmat "numa: HMAT from QEMU (-numa hmat-lb)|acpi: FACP APIC HPET MCFG SRAT SLIT HMAT BERT HEST DSDT|APP numa sums=ok madt=2/0 srat=2 cpu=0,1 mem=0:0+128,1:128+128,2:256+64 slit=3:103117,311028,172810 hmat=0>0,1>1,0>2 lb=2 cache=1|!=bad" \
+    "$QEMU_X86_64" -M q35,hmat=on -m 320 -smp 2 $NUMA3 \
+    -numa node,nodeid=0,cpus=0,memdev=nm0,initiator=0 -numa node,nodeid=1,cpus=1,memdev=nm1,initiator=1 \
+    -numa node,nodeid=2,memdev=nm2,initiator=0 \
+    -numa dist,src=0,dst=1,val=31 -numa dist,src=0,dst=2,val=17 -numa dist,src=1,dst=2,val=28 \
+    $HMAT_LB -numa hmat-cache,node-id=2,size=8M,level=1,associativity=direct,policy=write-back,line=64 \
+    -bios x86_64/squirrel-bios.fd $NUMA_APP
+run x86_64-numa-initiator "numa: HMAT with the initiator of each node|APP numa sums=ok madt=2/0 srat=2 cpu=0,1 mem=0:0+128,1:128+128,2:256+64 slit=3:102140,211017,401710 hmat=0>0,1>1,1>2 lb=0 cache=0|!=bad" \
+    "$QEMU_X86_64" -M pc -m 320 -smp 2 $NUMA3 \
+    -numa node,nodeid=0,cpus=0,memdev=nm0 -numa node,nodeid=1,cpus=1,memdev=nm1 -numa node,nodeid=2,memdev=nm2 \
+    -numa dist,src=0,dst=1,val=21 -numa dist,src=0,dst=2,val=40 -numa dist,src=1,dst=2,val=17 \
+    -bios x86_64/squirrel-bios.fd $NUMA_APP
+run x86_64-numa-none "APP numa sums=ok madt=2/0 srat=none slit=none hmat=none|APP numa bert=0 hest=2/10|!=bad" \
     "$QEMU_X86_64" -M q35 -smp 2 -bios x86_64/squirrel-bios.fd $NUMA_APP
+
+# x86-64 firmware: machine checks left in the banks survive a reset and
+# become BERT records on the next boot (F2). Once the app has seen an
+# empty BERT, the monitor injects a corrected error on CPU 1 and a fatal
+# one on CPU 0; the fatal one resets the machine (CR4.MCE is set and
+# nothing handles #MC), and the next boot finds both.
+MCE_SOCK=$TEST_DIR/x86_64-mce.sock
+rm -f "$MCE_SOCK"
+python3 tests/monitor.py "$MCE_SOCK" $TEST_DIR/x86_64-mce.log "APP numa bert=0" \
+    "mce 1 2 0x9000000000000000 0 0 0" "mce 0 1 0xb600000000000000 0x5 0x123000 0" &
+mce_mon=$!
+run x86_64-mce "mce: 10 banks, CMCI no, 0 errors from before reset|APP numa bert=0 hest=2/10|mce: 10 banks, CMCI no, 2 errors from before reset|mce: APIC ID 0 bank 1 status 0xb600000000000000 addr 0x123000 misc 0x0 (fatal)|mce: APIC ID 1 bank 2 status 0x9000000000000000 addr 0x0 misc 0x0 (corrected)|APP numa bert=2 hest=2/10|!=bad" \
+    "$QEMU_X86_64" -M q35 -smp 2 -bios x86_64/squirrel-bios.fd $NUMA_APP \
+    -chardev socket,id=mon0,path=$MCE_SOCK,server=on,wait=off -mon chardev=mon0,mode=readline
+kill "$mce_mon" 2>/dev/null; wait "$mce_mon" 2>/dev/null
+rm -f "$MCE_SOCK"
 
 # x86-64 firmware: only the runtime pages stay the OS's after
 # ExitBootServices (runtime services code, then their data with the
@@ -1179,13 +1251,13 @@ run aarch64-uefi "SquirrelBIOS 2.0.0-alpha (aarch64-uefi)|fdt: device tree at 0x
 # MB, it checks the tables, its loaded image, the relocation, pool and
 # memory map, ConOut, a timer event, GetTime, variables and the device
 # tree configuration table; then returns, or calls Exit
-run aarch64-uefi-app "efi: image of 28672 bytes loaded at|APP aarch64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|APP con=ok timer=ok time=ok var=ok dtb=ok|efi: image returned 0x1234|efi: image unloaded, its memory given back|fw: halting|!=bad|!APP opts" \
+run aarch64-uefi-app "efi: image of 32768 bytes loaded at|APP aarch64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|APP con=ok timer=ok time=ok var=ok dtb=ok acpi=ok FACP,APIC,GTDT,SPCR,DBG2,MCFG|efi: image returned 0x1234|efi: image unloaded, its memory given back|fw: halting|!=bad|!APP opts" \
     "$QEMU_ARM" -M virt -cpu cortex-a57 -bios $ARM_FD -fw_cfg $X64_BOOT,file=$TEST_DIR/arm-efi-app.efi
 run aarch64-uefi-app-exit "APP con=ok timer=ok time=ok var=ok dtb=ok|efi: image returned 0x5678|efi: image unloaded, its memory given back|!=bad|!exit=returned" \
     "$QEMU_ARM" -M virt -cpu cortex-a57 -bios $ARM_FD -fw_cfg $X64_BOOT,file=$TEST_DIR/arm-efi-app-exit.efi
 # As -kernel with -append and -initrd, the way Linux's EFI stub is
 # started: LoadOptions, and the initrd through LocateDevicePath + LoadFile2
-run aarch64-uefi-kernel "fw: -kernel image, 28672 bytes|fw: -initrd, 3000 bytes|APP aarch64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|APP opts=\"console=ttyAMA0 squirrel=1\" initrd=3000 data=ok|efi: image returned 0x1234|!=bad" \
+run aarch64-uefi-kernel "fw: -kernel image, 32768 bytes|fw: -initrd, 3000 bytes|APP aarch64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|APP opts=\"console=ttyAMA0 squirrel=1\" initrd=3000 data=ok|efi: image returned 0x1234|!=bad" \
     "$QEMU_ARM" -M virt -cpu cortex-a57 -bios $ARM_FD -kernel $TEST_DIR/arm-efi-app.efi \
     -initrd $TEST_DIR/arm-efi-initrd.img -append "console=ttyAMA0 squirrel=1"
 # ExitBootServices, then ResetSystem(shutdown) through the runtime
@@ -1196,13 +1268,19 @@ run aarch64-uefi-ebs "APP con=ok timer=ok time=ok var=ok dtb=ok|efi: ExitBootSer
 run aarch64-uefi-el2 "~^cpu: .*, EL2, |psci: v1.1 via smc|gic: v3 (arch 3), distributor at 0x0000000008000000, 288 interrupt lines, redistributor awake|mem: 2048 MB usable (from the device tree)|APP aarch64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|APP con=ok timer=ok time=ok var=ok dtb=ok|efi: ExitBootServices|@exit=0|!=bad" \
     "$QEMU_ARM" -M virt,virtualization=on,gic-version=3 -cpu max -m 2G -bios $ARM_FD \
     -fw_cfg $X64_BOOT,file=$TEST_DIR/arm-efi-app-ebs.efi
+# ACPI tables (SBBR set) built from the device tree: GICv3 with an ITS,
+# 4 CPUs; the app follows RSDP -> XSDT -> each table and the FADT's DSDT
+# and checks every signature and checksum
+run aarch64-uefi-acpi "~^acpi: RSDP at 0x[0-9a-f]{16}: FACP APIC GTDT SPCR DBG2 MCFG IORT, DSDT of [0-9]+ bytes; 4 CPUs, GICv3|APP con=ok timer=ok time=ok var=ok dtb=ok acpi=ok FACP,APIC,GTDT,SPCR,DBG2,MCFG,IORT|efi: image returned 0x1234|!=bad" \
+    "$QEMU_ARM" -M virt,gic-version=3 -cpu max -smp 4 -bios $ARM_FD \
+    -fw_cfg $X64_BOOT,file=$TEST_DIR/arm-efi-app.efi
 # An x86-64 image is a PE32+ for another machine: refused
 run aarch64-uefi-wrong-arch "efi: LoadImage failed: 0x8000000000000003, halting" \
     "$QEMU_ARM" -M virt -cpu cortex-a57 -bios $ARM_FD -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-app.efi
 
 # From a virtio-blk disk on virtio-mmio (the legacy register layout, QEMU's
 # default): GPT, the FAT32 ESP, \EFI\BOOT\BOOTAA64.EFI
-run aarch64-uefi-disk "~^disk: virtio-blk at 0x[0-9a-f]{16} \(virtio-mmio v1\), 131072 sectors|disk: partition 1 LBA 2048..131038 (ESP)|fs: FAT32 on partition|efi: booting \\EFI\\BOOT\\BOOTAA64.EFI (28672 bytes)|APP aarch64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|APP con=ok timer=ok time=ok var=ok dtb=ok|efi: BOOTAA64.EFI returned 0x1234|!=bad" \
+run aarch64-uefi-disk "~^disk: virtio-blk at 0x[0-9a-f]{16} \(virtio-mmio v1\), 131072 sectors|disk: partition 1 LBA 2048..131038 (ESP)|fs: FAT32 on partition|efi: booting \\EFI\\BOOT\\BOOTAA64.EFI (32768 bytes)|APP aarch64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|APP con=ok timer=ok time=ok var=ok dtb=ok|efi: BOOTAA64.EFI returned 0x1234|!=bad" \
     "$QEMU_ARM" -M virt -cpu cortex-a57 -bios $ARM_FD \
     -drive if=none,file=$TEST_DIR/arm-esp.img,format=raw,id=d0 -device virtio-blk-device,drive=d0
 
@@ -1215,7 +1293,7 @@ RV_UEFI=riscv/uefi/squirrel-bios.bin
 run riscv64-uefi "SquirrelBIOS RISC-V|entering the UEFI core at 0x0000000080200000, next_mode=1|dt: firmware region 0x80000000-0x801fffff reserved (no-map)|SquirrelBIOS 2.0.0-alpha (riscv64-uefi)|cpu: hart 0, S-mode, SBI 2.0 implementation 0x5351|uart: NS16550A at 0x0000000010000000|timer: time CSR at 10000000 Hz|rtc: goldfish at 0x0000000000101000|fw: running at 0x0000000080200000-|mem: 128 MB usable (from the device tree)|efi: 0000000080000000-00000000801fffff reserved|~^efi: 0000000080200000-[0-9a-f]{16} RT code|efi: memory services ok|efi: device tree installed as a configuration table|efi: RISCV_EFI_BOOT_PROTOCOL installed (boot hart 0)|fw: nothing to boot (no -kernel, no opt/org.squirrelworks/boot.efi, no boot disk), halting" \
     "$QEMU_RISCV" -M virt -bios $RV_UEFI
 # The C stand-in app through fw_cfg, returning and calling Exit
-run riscv64-uefi-app "efi: image of 28672 bytes loaded at|APP riscv64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|APP con=ok timer=ok time=ok var=ok dtb=ok|efi: image returned 0x1234|efi: image unloaded, its memory given back|fw: halting|!=bad|!APP opts" \
+run riscv64-uefi-app "efi: image of 28672 bytes loaded at|APP riscv64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|APP con=ok timer=ok time=ok var=ok dtb=ok acpi=none|efi: image returned 0x1234|efi: image unloaded, its memory given back|fw: halting|!=bad|!APP opts" \
     "$QEMU_RISCV" -M virt -bios $RV_UEFI -fw_cfg $X64_BOOT,file=$TEST_DIR/riscv-efi-app.efi
 run riscv64-uefi-app-exit "APP con=ok timer=ok time=ok var=ok dtb=ok|efi: image returned 0x5678|efi: image unloaded, its memory given back|!=bad|!exit=returned" \
     "$QEMU_RISCV" -M virt -bios $RV_UEFI -fw_cfg $X64_BOOT,file=$TEST_DIR/riscv-efi-app-exit.efi
@@ -1240,6 +1318,16 @@ run riscv64-uefi-disk "disk: virtio-blk at 0x0000000010008000 (virtio-mmio v2), 
 run riscv64-uefi-disk-other-arch "disk: virtio-blk at 0x0000000010008000 (virtio-mmio v1)|fs: FAT32 on partition|fw: nothing to boot (no -kernel, no opt/org.squirrelworks/boot.efi, no boot disk), halting|!APP riscv64" \
     "$QEMU_RISCV" -M virt -bios $RV_UEFI \
     -drive if=none,file=$TEST_DIR/arm-esp.img,format=raw,id=d0 -device virtio-blk-device,drive=d0
+# x86-64 firmware: the runtime services after ExitBootServices, with
+# every boot services page overwritten by the app (as an OS may reuse
+# them) and the app's own page tables and stack. ResetSystem then powers
+# off (isa-debug-exit -> status 1).
+for m in q35 pc; do
+run x86_64-rt-after-exit-$m "efi: ExitBootServices|APP rt pages=ok time=ok var=ok next=ok|@exit=1|!=bad" \
+    "$QEMU_X86_64" -M $m -smp 2 -bios x86_64/squirrel-bios.fd \
+    -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
+    -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-rt.efi
+done
 
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

@@ -118,3 +118,38 @@ int pci_find(u16 vendor, u16 device, u8 *bus, u8 *dev, u8 *fn)
     }
     return 0;
 }
+
+/* Extra PCI root buses: QEMU's pxb and pxb-pcie expanders (roadmap F1).
+ * fw_cfg etc/extra-pci-roots counts them. Their bus numbers are not in
+ * the expanders' config space, so they are found as the populated buses
+ * past 0 that no bridge on bus 0 leads to (this firmware numbers no
+ * bridges, so normally that is all of them). Ascending bus numbers. */
+int pci_extra_roots(u8 *roots, int max)
+{
+    u16 sel;
+    u32 size;
+    u64 want = 0;
+    if (!fwcfg_find("etc/extra-pci-roots", &sel, &size) || size != 8)
+        return 0;
+    fwcfg_read(sel, &want, 8);
+    u8 behind[256] = { 0 };
+    for (u8 d = 0; d < 32; d++) {
+        if ((pci_read32(0, d, 0, 0) & 0xFFFF) == 0xFFFF || (pci_read8(0, d, 0, 0x0E) & 0x7F) != 1)
+            continue;
+        u8 sec = pci_read8(0, d, 0, 0x19), sub = pci_read8(0, d, 0, 0x1A);
+        for (u32 b = sec; sec && b <= sub; b++)
+            behind[b] = 1;
+    }
+    int n = 0;
+    for (u32 b = 1; b < 256 && (u64)n < want && n < max; b++) {
+        if (behind[b])
+            continue;
+        for (u8 d = 0; d < 32; d++)
+            if ((pci_read32((u8)b, d, 0, 0) & 0xFFFF) != 0xFFFF) {
+                roots[n++] = (u8)b;
+                break;
+            }
+    }
+    return n;
+}
+

@@ -23,6 +23,10 @@ static const EFI_GUID acpi10_guid =
 #define HPET_BASE   0xFED00000u
 
 #define TABLE_PAGES 32
+#define XROOT_MAX      6                /* extra root buses with windows */
+#define XROOT_IO       0x6000           /* their I/O windows, 4 KB each */
+#define XROOT_MEM      0xE0000000u      /* their memory windows */
+#define XROOT_MEM_SIZE 0x04000000u
 
 u8 acpi_checksum(const void *p, u32 len)
 {
@@ -145,6 +149,12 @@ static u32 build_dsdt(u8 *t, u32 cap, int hpet)
 
     aml_scope(&a, "\\_SB");
 
+    /* Extra root buses (pxb, pxb-pcie): each gets the buses up to the
+     * next root, a 4 KB I/O window and a 64 MB memory window of its
+     * own; PCI0 keeps the rest */
+    u8 roots[XROOT_MAX];
+    int nroots = pci_extra_roots(roots, XROOT_MAX);
+
     /* Host bridge and its windows */
     aml_device(&a, "PCI0");
     if (cs->q35) {
@@ -162,12 +172,22 @@ static u32 build_dsdt(u8 *t, u32 cap, int hpet)
         if (cs->q35 && cs->mcfg_base && win < cs->mcfg_base + (cs->mcfg_buses << 20))
             win = (u32)(cs->mcfg_base + (cs->mcfg_buses << 20));
         win = (win + 0xFFFFF) & ~0xFFFFFu;
-        res_word(&r, 2, 0, 0xFF);
+        res_word(&r, 2, 0, nroots ? (u16)(roots[0] - 1) : 0xFF);
         res_io(&r, 0xCF8, 8);
         res_word(&r, 1, 0x0000, 0x0CF7);
-        res_word(&r, 1, 0x0D00, 0xFFFF);
+        if (nroots) {
+            res_word(&r, 1, 0x0D00, XROOT_IO - 1);
+            res_word(&r, 1, (u16)(XROOT_IO + nroots * 0x1000), 0xFFFF);
+        } else {
+            res_word(&r, 1, 0x0D00, 0xFFFF);
+        }
         res_dword_mem(&r, 0x000A0000, 0x000BFFFF, 1);
-        res_dword_mem(&r, win, 0xFEBFFFFF, 0);
+        if (nroots && win < XROOT_MEM) {
+            res_dword_mem(&r, win, XROOT_MEM - 1, 0);
+            res_dword_mem(&r, XROOT_MEM + (u32)nroots * XROOT_MEM_SIZE, 0xFEBFFFFF, 0);
+        } else {
+            res_dword_mem(&r, win, 0xFEBFFFFF, 0);
+        }
         aml_name_resources(&a, "_CRS", &r);
     }
     /* Interrupt routing for every bus 0 slot and pin, through the link
@@ -195,6 +215,61 @@ static u32 build_dsdt(u8 *t, u32 cap, int hpet)
     }
     aml_end(&a);                        /* _PRT */
     aml_end(&a);                        /* PCI0 */
+
+    for (int k = 0; k < nroots; k++) {
+        static const char hex[] = "0123456789ABCDEF";
+        char name[] = "PC00";
+        name[2] = hex[roots[k] >> 4];
+        name[3] = hex[roots[k] & 15];
+        aml_device(&a, name);
+        if (cs->q35) {
+            aml_name_eisaid(&a, "_HID", "PNP0A08");
+            aml_name_eisaid(&a, "_CID", "PNP0A03");
+        } else {
+            aml_name_eisaid(&a, "_HID", "PNP0A03");
+        }
+        aml_name_int(&a, "_UID", roots[k]);
+        aml_name_int(&a, "_SEG", 0);
+        aml_name_int(&a, "_BBN", roots[k]);
+        struct res r = { .len = 0 };
+        res_word(&r, 2, roots[k], k + 1 < nroots ? (u16)(roots[k + 1] - 1) : 0xFF);
+        u32 win = low_ram_top();
+        if (win < XROOT_MEM) {
+            u16 io = (u16)(XROOT_IO + k * 0x1000);
+            u32 mem = XROOT_MEM + (u32)k * XROOT_MEM_SIZE;
+            res_word(&r, 1, io, (u16)(io + 0xFFF));
+            res_dword_mem(&r, mem, mem + XROOT_MEM_SIZE - 1, 0);
+        }
+        aml_name_resources(&a, "_CRS", &r);
+        if (!cs->q35) {
+            /* QEMU's pxb takes its own slot back out of the swizzle,
+             * so a device's pin lands on link (slot + pin - 1) & 3 */
+            aml_byte(&a, 0x08);
+            aml_name(&a, "_PRT");
+            aml_package(&a, 128);
+            for (u8 slot = 0; slot < 32; slot++)
+                for (u8 pin = 0; pin < 4; pin++) {
+                    char link[] = "\\_SB.LNKA";
+                    link[8] = (char)('A' + ((slot + pin + 3) & 3));
+                    aml_package(&a, 4);
+                    aml_int(&a, (u32)slot << 16 | 0xFFFF);
+                    aml_int(&a, pin);
+                    aml_name(&a, link);
+                    aml_int(&a, 0);
+                    aml_end(&a);
+                }
+            aml_end(&a);                /* _PRT */
+        }
+        aml_end(&a);                    /* PCxx */
+    }
+    for (int k = 0; k < nroots; k++) {
+        u32 last = k + 1 < nroots ? roots[k + 1] - 1u : 0xFFu;
+        printf("pci: root bus %02x-%02x (PC%02X)", roots[k], last, roots[k]);
+        if (low_ram_top() < XROOT_MEM)
+            printf(", I/O %04x-%04x, memory %08x-%08x", XROOT_IO + k * 0x1000, XROOT_IO + k * 0x1000 + 0xFFF,
+                   XROOT_MEM + (u32)k * XROOT_MEM_SIZE, XROOT_MEM + (u32)(k + 1) * XROOT_MEM_SIZE - 1);
+        printf("\n");
+    }
 
     if (cs->q35) {
         char name[] = "GSIA";
@@ -399,14 +474,18 @@ static u32 build_mcfg(u8 *t)
 
 void acpi_init(void)
 {
+    /* The fixed tables, plus room that grows with the CPUs: a MADT
+     * x2APIC entry (16 bytes) and an SRAT x2APIC affinity entry (24)
+     * each, so a thousand CPUs and more fit */
     EFI_PHYSICAL_ADDRESS base = 0, facs_page = 0;
-    if (efi_allocate_pages(AllocateAnyPages, EfiACPIReclaimMemory, TABLE_PAGES, &base) ||
+    u32 pages = TABLE_PAGES + ((u32)smp_cpu_count() * 48 + 4095) / 4096;
+    if (efi_allocate_pages(AllocateAnyPages, EfiACPIReclaimMemory, pages, &base) ||
         efi_allocate_pages(AllocateAnyPages, EfiACPIMemoryNVS, 1, &facs_page)) {
         printf("acpi: no memory for the tables\n");
         return;
     }
     area = next = (u8 *)(uptr)base;
-    area_end = area + TABLE_PAGES * 4096;
+    area_end = area + pages * 4096;
     const struct chipset *cs = chipset();
     int hpet = hpet_present();
     u32 cpus = (u32)smp_cpu_count();
@@ -421,7 +500,7 @@ void acpi_init(void)
     facs[32] = 2;                       /* version */
 
     u8 *dsdt = area;
-    u32 dsdt_len = build_dsdt(dsdt, (u32)(area_end - area) / 2, hpet);
+    u32 dsdt_len = build_dsdt(dsdt, TABLE_PAGES * 4096 / 2, hpet);
     if (!dsdt_len) {
         printf("acpi: DSDT does not fit\n");
         return;
@@ -482,7 +561,8 @@ void acpi_init(void)
     printf("acpi: FACP APIC%s%s", hpet ? " HPET" : "", cs->q35 && cs->mcfg_base ? " MCFG" : "");
     for (int i = 0; i < n; i++)
         if (!memcmp(tables[i], "SRAT", 4) || !memcmp(tables[i], "SLIT", 4) ||
-            !memcmp(tables[i], "BERT", 4) || !memcmp(tables[i], "HEST", 4))
+            !memcmp(tables[i], "HMAT", 4) || !memcmp(tables[i], "BERT", 4) ||
+            !memcmp(tables[i], "HEST", 4))
             printf(" %c%c%c%c", tables[i][0], tables[i][1], tables[i][2], tables[i][3]);
     printf(" DSDT (%u bytes of AML) FACS\n", dsdt_len - 36);
 }

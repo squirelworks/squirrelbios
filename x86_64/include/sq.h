@@ -66,6 +66,7 @@ void halt(void) __attribute__((noreturn));
 int fwcfg_present(void);
 int fwcfg_find(const char *name, u16 *select, u32 *size);
 void fwcfg_read(u16 select, void *buf, u32 len);
+void fwcfg_read_at(u16 select, u32 offset, void *buf, u32 len);
 
 /* pci.c */
 u32 pci_read32(u8 bus, u8 dev, u8 fn, u8 off);
@@ -77,6 +78,7 @@ void pci_write8(u8 bus, u8 dev, u8 fn, u8 off, u8 v);
 u16 pci_assign_io_bar(u8 bus, u8 dev, u8 fn, u8 bar_off);
 u32 pci_assign_mem_bar(u8 bus, u8 dev, u8 fn, u8 bar_off);
 int pci_find(u16 vendor, u16 device, u8 *bus, u8 *dev, u8 *fn);
+int pci_extra_roots(u8 *roots, int max);     /* pxb / pxb-pcie root bus numbers */
 
 /* virtio_blk.c: one transitional virtio-blk disk */
 int vblk_probe(void);
