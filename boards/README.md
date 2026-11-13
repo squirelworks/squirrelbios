@@ -9,6 +9,7 @@ real-hardware checks are never a merge blocker (ROADMAP D2, D3, C5).
 | [`rpi4/`](rpi4/README.md) | Raspberry Pi 4 (BCM2711), notes on Pi 5 (BCM2712) | `aarch64-uefi` (`arm/uefi`, `common/efi`) |
 | [`visionfive2/`](visionfive2/README.md) | StarFive VisionFive 2 (JH7110) | `riscv64-uefi` (the SBI in `riscv/` plus `common/efi`) |
 | [`hifive-unmatched/`](hifive-unmatched/README.md) | SiFive HiFive Unmatched (FU740) | the same |
+| [`ga-g41m-es2l/`](ga-g41m-es2l/README.md) | Gigabyte GA-G41M-ES2L (Intel G41 + ICH7) | `x86_64-uefi` (first as a coreboot payload) |
 
 Each note says how the board boots, what of ours could run where, and
 the gaps in our code, file by file. Addresses are the ones the boards'
