@@ -82,6 +82,9 @@ void con_raw(char c);
 int con_getc(void);
 void con_puts(const char *s);
 void printf(const char *fmt, ...);
+/* A console mirrored beside the serial port (net_sol.c), when set */
+extern void (*con_mirror_putc)(u8 c);
+extern int (*con_mirror_getc)(void);
 void halt(void) __attribute__((noreturn));
 
 /* Written per architecture (arch.c / start.S) */

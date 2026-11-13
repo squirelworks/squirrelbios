@@ -1464,7 +1464,101 @@ run x86_64-uefi-httpboot-big "net: loaded 240000 bytes over HTTP|efi: LoadImage 
 run x86_64-uefi-httpboot-404 "net: HTTP 404 for $HTTP_URL/no-such-file.efi|trying the CSM" \
     "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd \
     -netdev user,id=n0,bootfile=$HTTP_URL/no-such-file.efi -device virtio-net-pci,netdev=n0
+# A body over the 1 GB limit is refused before any of it is kept
+run x86_64-uefi-httpboot-toolarge "net: $HTTP_URL/huge/snp-x64.efi is larger than the 1073741824-byte limit|trying the CSM|!SNP" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd \
+    -netdev user,id=n0,bootfile=$HTTP_URL/huge/snp-x64.efi -device virtio-net-pci,netdev=n0
 kill $httpd 2>/dev/null; wait $httpd 2>/dev/null
+
+# Serial-over-LAN style console mirror (roadmap F3): fw_cfg names the far
+# end (tests/solcon.py on the host, 10.0.2.2 to the guest). The console
+# app's keys reach it only over the network, and only after its greeting
+# came out over the network: tests/solcon.py sends them when it sees it.
+# Then the mirrored text itself, on AArch64 too; and a bad setting.
+SOL_PORT=$((NETSIM_PORT + 3))
+NETCON=opt/org.squirrelworks/netconsole
+sol_log_check() {
+    if grep -qF -- "$2" "$TEST_DIR/$1.sol" && grep -qF -- "$3" "$TEST_DIR/$1.sol"; then
+        echo "PASS  $1-log"
+        pass=$((pass + 1))
+    else
+        echo "FAIL  $1-log (expected in the mirrored text: $2, $3)"
+        sed 's/^/      | /' "$TEST_DIR/$1.sol"
+        fail=$((fail + 1))
+    fi
+}
+rm -f $TEST_DIR/x86_64-uefi-sol.sol
+python3 tests/solcon.py $SOL_PORT $TEST_DIR/x86_64-uefi-sol.sol "APP con: hello" $TEST_DIR/x86_64-con.keys &
+solcon=$!
+sleep 0.3
+run x86_64-uefi-sol "net: console mirrored to 10.0.2.2:$SOL_PORT from 10.0.2.15:6665|APP con: hello|key=0000/0061 key=0000/0062 key=0001/0000 key=0008/0000 key=0000/0071|efi: image returned 0x0|!=bad" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd -fw_cfg name=$NETCON,string=10.0.2.2:$SOL_PORT \
+    -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-con.efi -netdev user,id=n0 -device virtio-net-pci,netdev=n0
+kill $solcon 2>/dev/null; wait $solcon 2>/dev/null
+sol_log_check x86_64-uefi-sol "APP con: hello" "key=0000/0061 key=0000/0062 key=0001/0000 key=0008/0000 key=0000/0071"
+rm -f $TEST_DIR/aarch64-uefi-sol.sol
+python3 tests/solcon.py $SOL_PORT $TEST_DIR/aarch64-uefi-sol.sol "no trigger" /dev/null &
+solcon=$!
+sleep 0.3
+run aarch64-uefi-sol "net: console mirrored to 10.0.2.2:$SOL_PORT from 10.0.2.15:6665|APP con=ok timer=ok time=ok var=ok dtb=ok|fw: halting" \
+    "$QEMU_ARM" -M virt -cpu cortex-a57 -bios $ARM_FD -fw_cfg name=$NETCON,string=10.0.2.2:$SOL_PORT \
+    -fw_cfg $X64_BOOT,file=$TEST_DIR/arm-efi-app.efi -netdev user,id=n0 -device virtio-net-device,netdev=n0
+kill $solcon 2>/dev/null; wait $solcon 2>/dev/null
+sol_log_check aarch64-uefi-sol "net: console mirrored to 10.0.2.2" "APP aarch64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok"
+run x86_64-uefi-sol-bad "net: console mirror: \"10.0.2.2\" is not A.B.C.D:PORT|trying the CSM" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd -fw_cfg name=$NETCON,string=10.0.2.2 \
+    -netdev user,id=n0 -device virtio-net-pci,netdev=n0
+
+# Diskless boot (roadmap F4): four x86-64 nodes on one simulated network
+# (tests/netsim.py, each node joined through a UDP socket of its own) boot
+# the same image at the same time from the one boot server behind the
+# router; each gets its own address by its MAC. Nodes 2-4 run in the
+# background, node 1 through run, then each of the others must show the
+# same.
+python3 tests/netsim.py $NETSIM_PORT $((NETSIM_PORT + 1)) $TEST_DIR x86_64-app.efi &
+netsim=$!
+sleep 0.3
+diskless_expect() {
+    echo "net: virtio-net at PCI 00:02.0, MAC 52:54:00:12:34:5$1|net: address 10.0.2.1$(($1 - 1)) from 192.168.50.5, boot file x86_64-app.efi|net: boot server on another network, through router 10.0.2.1|net: loaded 12288 bytes|APP x86_64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|efi: x86_64-app.efi returned 0x1234"
+}
+nodes=
+for n in 7 8 9; do
+    rm -f $TEST_DIR/x86_64-uefi-diskless-$n.log
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd -display none -monitor none \
+        -serial file:$TEST_DIR/x86_64-uefi-diskless-$n.log \
+        -netdev socket,id=n0,udp=127.0.0.1:$NETSIM_PORT,localaddr=127.0.0.1:$((NETSIM_PORT + n + 4)) \
+        -device virtio-net-pci,netdev=n0,mac=52:54:00:12:34:5$n >/dev/null 2>&1 &
+    nodes="$nodes $!"
+done
+run x86_64-uefi-diskless-6 "$(diskless_expect 6)" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd \
+    -netdev socket,id=n0,udp=127.0.0.1:$NETSIM_PORT,localaddr=127.0.0.1:$((NETSIM_PORT + 1)) \
+    -device virtio-net-pci,netdev=n0,mac=52:54:00:12:34:56
+for n in 7 8 9; do
+    log=$TEST_DIR/x86_64-uefi-diskless-$n.log
+    ticks=$((TIMEOUT * 10))
+    while :; do
+        ok=1
+        old_ifs=$IFS
+        IFS='|'
+        for want in $(diskless_expect $n); do
+            grep -qF -- "$want" "$log" || ok=0
+        done
+        IFS=$old_ifs
+        [ "$ok" -eq 1 ] || [ "$ticks" -le 0 ] && break
+        sleep 0.1
+        ticks=$((ticks - 1))
+    done
+    if [ "$ok" -eq 1 ]; then
+        echo "PASS  x86_64-uefi-diskless-$n"
+        pass=$((pass + 1))
+    else
+        echo "FAIL  x86_64-uefi-diskless-$n (expected: $(diskless_expect $n))"
+        sed 's/^/      | /' "$log"
+        fail=$((fail + 1))
+    fi
+done
+kill $nodes $netsim 2>/dev/null; wait $nodes $netsim 2>/dev/null
 
 # Non-volatile variables (C5): the firmware as pflash unit 0 and a store
 # as unit 1. Three boots against one store: a boot counter goes up, an
