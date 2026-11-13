@@ -11,8 +11,9 @@
  * for each CPU and, for each CPU, an SMBASE whose entry stub switches to
  * protected mode and jumps to the handler. Every CPU's SMBASE is moved
  * there from the default 0x30000 by one SMI each at boot. SMIs come only
- * from writes to the APM port 0xB2 (APMC_EN); at ExitBootServices the
- * SMRAM controls are locked (D_LCK).
+ * from writes to the APM port 0xB2 (APMC_EN). The SMRAM controls are
+ * locked (D_LCK) before any code but the firmware's runs: the first image
+ * LoadImage is given, ExitBootServices or the CSM, whichever is first.
  *
  * EINJ: the OS writes the error type to a mailbox and writes SMI_EINJ to
  * port 0xB2. The handler reads only that type from outside SMRAM; for a
@@ -258,13 +259,22 @@ static void smi_enable(int on)
     outl((u16)(pmbase + SMI_EN), en);
 }
 
-static void EFIAPI on_exit_boot_services(EFI_EVENT ev, void *ctx)
+/* D_LCK: SMRAM and ESMRAMC become read-only until reset, so TSEG stays
+ * closed. Done before any code but the firmware's runs: the first image
+ * LoadImage is given (ESP, fw_cfg, network), ExitBootServices, the CSM. */
+void smm_lock(void)
 {
-    (void)ev, (void)ctx;
     if (available && !locked) {
         pci_write8(0, 0, 0, SMRAM_REG, G_SMRAME | C_BASE_SEG | D_LCK);
         locked = 1;
+        printf("smm: SMRAM locked\n");
     }
+}
+
+static void EFIAPI on_exit_boot_services(EFI_EVENT ev, void *ctx)
+{
+    (void)ev, (void)ctx;
+    smm_lock();
 }
 
 void smm_init(void)
@@ -359,7 +369,7 @@ void smm_init(void)
     EFI_EVENT ev;
     efi_create_event(EVT_SIGNAL_EXIT_BOOT_SERVICES, TPL_CALLBACK, on_exit_boot_services, NULL, &ev);
     printf("smm: TSEG %u KB at 0x%lx, SMBASE moved there on %d CPU%s, SMIs from port 0xB2; "
-           "locked at ExitBootServices\n", TSEG_SIZE / 1024, tseg, relocated, relocated == 1 ? "" : "s");
+           "locked before the first image\n", TSEG_SIZE / 1024, tseg, relocated, relocated == 1 ? "" : "s");
 }
 
 int smm_einj_available(void)
@@ -367,14 +377,29 @@ int smm_einj_available(void)
     return available;
 }
 
+/* Before the CSM: SMIs off, SMRAM locked. The legacy BIOS sizes RAM
+ * from CMOS 34h/35h (64 KB blocks above 16 MB, or 30h/31h when those
+ * are 0). TSEG stays closed under it, so that size must end where TSEG
+ * starts. */
 void smm_legacy_handoff(void)
 {
-    if (!available || locked)
+    if (!available)
         return;
-    smi_enable(0);
-    pci_write8(0, 0, 0, ESMRAMC_REG, ESMRAMC_CACHE);
-    pci_write8(0, 0, 0, SMRAM_REG, C_BASE_SEG);
-    available = 0;
+    smi_enable(0);                      /* the legacy BIOS has no use for EINJ */
+    smm_lock();
+    if (tseg > 0x1000000) {
+        u32 blocks = (u32)((tseg - 0x1000000) >> 16);
+        outb(0x70, 0x34);
+        outb(0x71, (u8)blocks);
+        outb(0x70, 0x35);
+        outb(0x71, (u8)(blocks >> 8));
+    } else {                            /* below 16 MB: KB above 1 MB in 30h/31h */
+        u32 kb = (u32)((tseg - 0x100000) >> 10);
+        outb(0x70, 0x30);
+        outb(0x71, (u8)kb);
+        outb(0x70, 0x31);
+        outb(0x71, (u8)(kb >> 8));
+    }
 }
 
 /* ---------------------------------------------------------------- tables */

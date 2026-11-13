@@ -1705,5 +1705,14 @@ run x86_64-einj "smm: TSEG 1024 KB at 0x7f00000, SMBASE moved there on 4 CPUs|ac
 run x86_64-einj-pc "acpi: FACP APIC HPET BERT HEST DSDT|APP einj no EINJ|!smm:" \
     "$QEMU_X86_64" -M pc -bios x86_64/squirrel-bios.fd -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-einj.efi
 
+# SMRAM is locked (D_LCK) before the first image runs: x86_64-smmlock,
+# loaded like any third-party image, tries to open SMRAM (D_OPEN) and to
+# turn TSEG off, and reads TSEG, which must stay all ones. On pc there is
+# no TSEG to lock.
+run x86_64-smmlock "smm: SMRAM locked|APP smmlock dlck=ok open=refused tseg=closed|!=bad" \
+    "$QEMU_X86_64" -M q35 -smp 2 -bios x86_64/squirrel-bios.fd -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-smmlock.efi
+run x86_64-smmlock-pc "APP smmlock none|!smm:" \
+    "$QEMU_X86_64" -M pc -bios x86_64/squirrel-bios.fd -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-smmlock.efi
+
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

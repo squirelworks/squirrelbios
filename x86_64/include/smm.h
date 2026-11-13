@@ -13,6 +13,7 @@ void smm_init(void);            /* after smp_init and chipset_init */
 int smm_einj_available(void);
 u32 smm_hest_ghes(u8 *p, u16 source_id);   /* a 64-byte GHES entry, or 0 */
 u8 *smm_einj_table(void *(*take)(u32 len));
-void smm_legacy_handoff(void);  /* before the CSM: TSEG and SMIs off */
+void smm_lock(void);            /* D_LCK: before any image runs */
+void smm_legacy_handoff(void);  /* before the CSM: locked, TSEG hidden from its RAM size */
 
 #endif
