@@ -278,12 +278,12 @@ boxes in [TODO.md](TODO.md).
 
 - [ ] **F1** NUMA (SRAT/SLIT/HMAT), more than 1000 CPUs, many PCIe root
   complexes and ECAM segments.
-  - [ ] `f1-x86-numa`: x86_64 SRAT (CPU and memory affinity) and SLIT
+  - [x] `f1-x86-numa`: x86_64 SRAT (CPU and memory affinity) and SLIT
     from QEMU `-numa`, MADT from the SMP list with x2APIC entries past
     APIC ID 254 (HMAT, more than 1000 CPUs and ECAM segments still open)
 - [ ] **F2** RAS: machine-check logging (BERT/HEST/EINJ), corrected-error
   thresholds, CXL memory enumeration (research).
-  - [ ] `f2-x86-stubs`: x86_64 BERT and HEST stubs (MCE logging, EINJ and
+  - [x] `f2-x86-stubs`: x86_64 BERT and HEST stubs (MCE logging, EINJ and
     thresholds still open)
 - [ ] **F3** Management: IPMI/Redfish-style BMC stubs, serial-over-LAN, HTTP
   boot.
