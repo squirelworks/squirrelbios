@@ -14,8 +14,9 @@
 ; Functions: 4F00h controller information, 4F01h mode information,
 ; 4F02h set mode, 4F03h current mode, 4F05h window control, 4F06h scan
 ; line length (get only), 4F07h display start, 4F08h DAC width (6 bits
-; only), 4F09h palette data (primary palette). Others answer AX = 0100h
-; (not supported).
+; only), 4F09h palette data (primary palette), 4F0Ah the protected-mode
+; interface (Set Window, Set Display Start, Set Primary Palette). Others
+; answer AX = 0100h (not supported).
 
 VBE_INDEX       equ 0x01CE
 VBE_DATA        equ 0x01CF
@@ -85,6 +86,8 @@ vbe_handler:
     je vbe_dac
     cmp al, 0x09
     je vbe_palette
+    cmp al, 0x0A
+    je vbe_pmi
 .none:
     mov ax, 0x0100
     pop bp
@@ -696,3 +699,157 @@ vbe_palette:
     loop .put
     popad
     jmp vbe_ok
+
+; 4F0Ah: BL = 00h: ES:DI = the protected-mode interface table in the ROM,
+; CX = its length (the caller copies it, code included, wherever it
+; likes). Other BL values fail.
+vbe_pmi:
+    test bl, bl
+    jnz vbe_fail
+    push cs
+    pop es
+    mov di, vbe_pm_table
+    mov cx, vbe_pm_end - vbe_pm_table
+    jmp vbe_ok
+
+; The table: offsets from its start of the 32-bit Set Window, Set
+; Display Start and Set Primary Palette code, and of the list of I/O
+; ports it uses (FFFFh-ended, then an empty memory list). The code is
+; position-independent and touches no memory but the caller's palette
+; data, so it runs from a copy, with any CS and DS; each routine keeps
+; every register but AX, which it sets to 004Fh, and returns with a near
+; RET.
+vbe_pm_table:
+    dw vbe_pm_window - vbe_pm_table
+    dw vbe_pm_start - vbe_pm_table
+    dw vbe_pm_palette - vbe_pm_table
+    dw vbe_pm_ports - vbe_pm_table
+
+BITS 32
+; Set Window (as 4F05h with BH = 00h): BL = window (A only, 0), DX = its
+; position in 64 KB units. Not range-checked, as the protected-mode
+; interface allows.
+vbe_pm_window:
+    push edx
+    push edx
+    mov dx, VBE_INDEX
+    mov ax, DISPI_BANK
+    out dx, ax
+    pop eax
+    inc dx
+    out dx, ax
+    pop edx
+    mov eax, 0x004F
+    ret
+
+; Set Display Start: BL = 00h, or 80h to wait for the vertical retrace
+; first; DX:CX = the start's byte offset in video memory divided by 4.
+; It becomes the pixel and line of the current mode's virtual screen.
+vbe_pm_start:
+    push ebx
+    push ecx
+    push edx
+    push esi
+    push edi
+    test bl, 0x80
+    jz .now
+    mov esi, 0x100000           ; at most this many polls
+    mov dx, 0x3DA
+.retrace:
+    in al, dx
+    test al, 0x08
+    jnz .now
+    dec esi
+    jnz .retrace
+.now:
+    mov esi, [esp + 8]          ; the caller's EDX
+    shl esi, 16
+    mov si, [esp + 12]          ; and CX
+    shl esi, 2                  ; ESI = the byte offset
+    ; Bytes per pixel and per line, from the DISPI registers
+    mov ax, DISPI_BPP
+    call .read
+    add eax, 7
+    shr eax, 3
+    mov edi, eax                ; EDI = bytes per pixel
+    mov ax, DISPI_VWIDTH
+    call .read
+    imul eax, edi
+    mov ecx, eax                ; ECX = bytes per line
+    test ecx, ecx
+    jz .done
+    mov eax, esi
+    xor edx, edx
+    div ecx                     ; EAX = line, EDX = bytes into it
+    push eax
+    mov eax, edx
+    xor edx, edx
+    div edi                     ; EAX = pixel
+    mov bx, DISPI_XOFF
+    call .write
+    pop eax
+    mov bx, DISPI_YOFF
+    call .write
+.done:
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    mov eax, 0x004F
+    ret
+; DISPI register AX into EAX. Clobbers DX.
+.read:
+    mov dx, VBE_INDEX
+    out dx, ax
+    inc dx
+    in ax, dx
+    movzx eax, ax
+    ret
+; DISPI register BX = AX. Clobbers DX.
+.write:
+    push eax
+    mov dx, VBE_INDEX
+    mov ax, bx
+    out dx, ax
+    pop eax
+    inc dx
+    out dx, ax
+    ret
+
+; Set Primary Palette: BL = 00h (or 80h: no retrace wait here), CX
+; entries from entry DX, at ES:EDI as blue, green, red, 0 (6 bits each).
+vbe_pm_palette:
+    push ecx
+    push edx
+    push edi
+    movzx ecx, cx
+    jecxz .done
+    mov al, dl
+    mov dx, 0x3C8               ; write index
+    out dx, al
+    inc dx
+.put:
+    mov al, [es:edi + 2]
+    and al, 0x3F
+    out dx, al
+    mov al, [es:edi + 1]
+    and al, 0x3F
+    out dx, al
+    mov al, [es:edi]
+    and al, 0x3F
+    out dx, al
+    add edi, 4
+    loop .put
+.done:
+    pop edi
+    pop edx
+    pop ecx
+    mov eax, 0x004F
+    ret
+BITS 16
+
+vbe_pm_ports:
+    dw VBE_INDEX, VBE_DATA, 0x3C8, 0x3C9, 0x3DA, 0xFFFF
+    dw 0xFFFF                   ; no memory
+vbe_pm_end:

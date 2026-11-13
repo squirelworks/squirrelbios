@@ -65,7 +65,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/x86-osload.bin $(TEST_DIR)/x86-int13.bin \
              $(TEST_DIR)/x86-bda.bin $(TEST_DIR)/x86-a20.bin \
              $(TEST_DIR)/x86-pit.bin $(TEST_DIR)/x86-kbd.bin $(TEST_DIR)/x86-kbd-many.bin $(TEST_DIR)/x86-mouse.bin \
-             $(TEST_DIR)/x86-vbe.bin $(TEST_DIR)/x86-vbe-text.bin $(TEST_DIR)/x86-vbe-bank.bin \
+             $(TEST_DIR)/x86-vbe.bin $(TEST_DIR)/x86-vbe-text.bin $(TEST_DIR)/x86-vbe-bank.bin $(TEST_DIR)/x86-vbe-pmi.bin \
              $(TEST_DIR)/x86-usbfault.rom \
              $(TEST_DIR)/x86-time.bin $(TEST_DIR)/x86-vid.bin \
              $(TEST_DIR)/x86-write.bin $(TEST_DIR)/x86-int15a20.bin \
@@ -74,7 +74,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/x86-optrom.bin \
              $(TEST_DIR)/x86-bzimage-big.bin $(TEST_DIR)/x86-bzimage-toobig.bin \
              $(TEST_DIR)/x86-params.bin $(TEST_DIR)/x86-params-slave.bin \
-             $(TEST_DIR)/x86-floppy.img $(TEST_DIR)/x86-floppy-nosig.img $(TEST_DIR)/x86-cd-floppy.iso \
+             $(TEST_DIR)/x86-floppy.img $(TEST_DIR)/x86-floppy-nosig.img $(TEST_DIR)/x86-cd-floppy.iso $(TEST_DIR)/x86-cd-hdd.iso \
              $(TEST_DIR)/x86-pci.bin $(TEST_DIR)/x86-edd.img \
              $(TEST_DIR)/x86-ahci.img $(TEST_DIR)/x86-nvme.img \
              $(TEST_DIR)/x86-usbdisk.img \
@@ -450,6 +450,8 @@ $(TEST_DIR)/x86-vbe-text.bin: tests/x86-vbe.asm | $(TEST_DIR)
 # VBE: 640x480x8 through the banked window at A000h, and the palette
 $(TEST_DIR)/x86-vbe-bank.bin: tests/x86-vbe-bank.asm | $(TEST_DIR)
 	$(NASM) -f bin $< -o $@
+$(TEST_DIR)/x86-vbe-pmi.bin: tests/x86-vbe-pmi.asm | $(TEST_DIR)
+	$(NASM) -f bin $< -o $@
 # The legacy BIOS with a fault: its 8th USB disk command (a read at
 # runtime) goes out with a bad CBW signature, for stall recovery's tests
 $(TEST_DIR)/x86-usbfault.rom: x86/squirrel-bios.asm $(X86_SRCS) | $(TEST_DIR)
@@ -577,6 +579,13 @@ $(TEST_DIR)/x86-cd-floppy.img: $(TEST_DIR)/x86-cd-floppy.bin tests/mkfloppy.py
 	tests/mkfloppy.py $< $@
 $(TEST_DIR)/x86-cd-floppy.iso: $(TEST_DIR)/x86-cd-floppy.img tests/mkiso.py
 	tests/mkiso.py --floppy $< $@
+# A hard disk image as the El Torito hard disk emulation image of a CD
+$(TEST_DIR)/x86-cdhd.bin: tests/x86-cdhd.asm | $(TEST_DIR)
+	$(NASM) -f bin $< -o $@
+$(TEST_DIR)/x86-cdhd.img: $(TEST_DIR)/x86-cdhd.bin tests/mkfloppy.py
+	tests/mkfloppy.py $< $@ --hdd
+$(TEST_DIR)/x86-cd-hdd.iso: $(TEST_DIR)/x86-cdhd.img tests/mkiso.py
+	tests/mkiso.py --hdd $< $@
 $(TEST_DIR)/x86-floppy-nosig.img: $(TEST_DIR)/x86-floppy.bin tests/mkfloppy.py
 	tests/mkfloppy.py $< $@ --nosig
 

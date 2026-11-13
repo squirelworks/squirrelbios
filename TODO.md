@@ -360,11 +360,12 @@ roadmap item, run under QEMU in `make test`.
   Bus 0 only; still open: numbering and scanning behind PCI-to-PCI
   bridges, q35 (ICH9) interrupt routing, and a BIOS32 entry.
 - [x] `x86-edd` — `INT 13h` EDD 3.0, LBA48, El Torito over ATAPI.
-  Floppy-emulation and hard-disk-emulation El Torito images are not
-  booted (no-emulation only).
   - [x] El Torito diskette emulation (media 1.2/1.44/2.88 MB) as drive
     00h, read-only; Squirrel-OS/2 `cd.iso` boots on x86-pc and through
-    the CSM. Hard-disk emulation is still open.
+    the CSM.
+  - [x] El Torito hard-disk emulation (media type 4) as drive 80h,
+    read-only, geometry from the MBR's first partition; Squirrel-OS/2
+    `os.img` on a CD boots this way.
   A real ISOLINUX 6.04 CD boots to its `boot:` prompt; it also wants
   `INT 10h` `AH=01h/09h` and `INT 16h` `AH=10h/11h`, which are not there yet.
 - [x] `x86-ahci` — AHCI/SATA with `INT 13h` on top. Depends on:
@@ -417,10 +418,11 @@ roadmap item, run under QEMU in `make test`.
     and an off-network boot server is reached through the router's MAC.
 - [x] `x86-vbe` — VBE 2.0/3.0 linear-framebuffer modes. VBE 3.0 on QEMU's
   standard VGA: 16- and 32-bit modes up to 1280x1024, linear frame buffer
-  only (no banked windows, palette or protected-mode interface).
+  only at first; the sub-boxes below added the rest.
   - [x] Banked windows (64 KB at A000h, 4F05h and the far WinFuncPtr),
     8-bit palette modes 100h-107h, 4F08h and 4F09h.
-  - [ ] Protected-mode interface (4F0Ah)
+  - [x] Protected-mode interface (4F0Ah): Set Window, Set Display
+    Start and Set Primary Palette, position-independent 32-bit code.
 
 ## 15. Phase C1 — x86-64 UEFI-class firmware (v2.0.0-alpha, epic #82)
 
