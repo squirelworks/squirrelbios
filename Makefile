@@ -851,7 +851,60 @@ $(SRST_IMAGES:=.elf): %.elf: %.o
 $(SRST_IMAGES:=.bin): %.bin: %.elf
 	$(RISCV64)objcopy -O binary $< $@
 
-test: x86 x86_64 arm riscv arm-uefi riscv-uefi config-default $(TEST_BINS) build/x86_64-uefi/x2apic/squirrel-bios.fd
+# --- E3 stretch ports: LoongArch64 virt and MIPS Malta -------------------
+# Each builds only when its cross binutils are installed; make test runs
+# their cases only when the firmware was built and QEMU has the machine
+# (tests/smoke.sh prints SKIP otherwise). make loongarch / make mips build
+# one regardless and fail without the tools.
+LOONGARCH ?= loongarch64-linux-gnu-
+MIPS      ?= mips-linux-gnu-
+LA_BIN    := loongarch/squirrel-bios.bin
+MIPS_BIN  := mips/squirrel-bios.bin
+MIPS_AS   := $(MIPS)as -march=24kf -non_shared
+
+loongarch: $(LA_BIN)
+mips: $(MIPS_BIN)
+
+loongarch/squirrel-bios.elf: loongarch/squirrel-bios.S
+	$(LOONGARCH)as -o loongarch/squirrel-bios.o $<
+	$(LOONGARCH)ld -e _start -Ttext=0x1c000000 -o $@ loongarch/squirrel-bios.o
+$(LA_BIN): loongarch/squirrel-bios.elf
+	$(LOONGARCH)objcopy -O binary -j .text $< $@
+mips/squirrel-bios.elf: mips/squirrel-bios.S
+	$(MIPS_AS) -o mips/squirrel-bios.o $<
+	$(MIPS)ld -e _start -Ttext=0xbfc00000 -o $@ mips/squirrel-bios.o
+$(MIPS_BIN): mips/squirrel-bios.elf
+	$(MIPS)objcopy -O binary -j .text $< $@
+
+# Test kernels: LoongArch's comes through -kernel (fw_cfg); MIPS's is put
+# into the flash image by mips/mkimage.py, with and without a command line
+$(TEST_DIR)/loongarch-kernel.bin: tests/loongarch-kernel.S | $(TEST_DIR)
+	$(LOONGARCH)as -o $(@:.bin=.o) $<
+	$(LOONGARCH)ld -e _start -Ttext=0x200000 -o $(@:.bin=.elf) $(@:.bin=.o)
+	$(LOONGARCH)objcopy -O binary -j .text $(@:.bin=.elf) $@
+$(TEST_DIR)/mips-kernel.bin: tests/mips-kernel.S | $(TEST_DIR)
+	$(MIPS_AS) -o $(@:.bin=.o) $<
+	$(MIPS)ld -e _start -Ttext=0x80100000 -o $(@:.bin=.elf) $(@:.bin=.o)
+	$(MIPS)objcopy -O binary -j .text $(@:.bin=.elf) $@
+$(TEST_DIR)/mips-flash.img: $(MIPS_BIN) $(TEST_DIR)/mips-kernel.bin mips/mkimage.py
+	python3 mips/mkimage.py $(MIPS_BIN) $(TEST_DIR)/mips-kernel.bin $@ --cmdline "console=ttyS0 squirrel=1"
+$(TEST_DIR)/mips-flash-nocmd.img: $(MIPS_BIN) $(TEST_DIR)/mips-kernel.bin mips/mkimage.py
+	python3 mips/mkimage.py $(MIPS_BIN) $(TEST_DIR)/mips-kernel.bin $@
+$(TEST_DIR)/stretch-keys.txt: | $(TEST_DIR)
+	printf 'help\r  info  \rfoo\rbootx\177\r' > $@
+
+# What make test builds of them: whatever the installed tools allow
+stretch: | $(TEST_DIR)
+	@if command -v $(LOONGARCH)as >/dev/null 2>&1; then \
+	    $(MAKE) --no-print-directory $(LA_BIN) $(TEST_DIR)/loongarch-kernel.bin $(TEST_DIR)/stretch-keys.txt; \
+	else echo "stretch: no $(LOONGARCH)as, LoongArch64 not built"; rm -f $(LA_BIN); fi
+	@if command -v $(MIPS)as >/dev/null 2>&1; then \
+	    $(MAKE) --no-print-directory $(MIPS_BIN) $(TEST_DIR)/mips-flash.img \
+	        $(TEST_DIR)/mips-flash-nocmd.img $(TEST_DIR)/stretch-keys.txt; \
+	else echo "stretch: no $(MIPS)as, MIPS not built"; rm -f $(MIPS_BIN); fi
+.PHONY: loongarch mips stretch
+
+test: x86 x86_64 arm riscv arm-uefi riscv-uefi config-default $(TEST_BINS) build/x86_64-uefi/x2apic/squirrel-bios.fd stretch
 	tests/smoke.sh
 
 # Optional, not part of make test: downloads Ubuntu 24.04's arm64 kernel
@@ -934,5 +987,7 @@ linux-stress: riscv
 clean:
 	rm -f $(X86_ROM) $(X64_FD) $(ARM_FD) $(RV_UEFI_BIN) \
 	      arm/squirrel-bios.o arm/squirrel-bios.elf $(ARM_BIN) \
-	      riscv/squirrel-bios.o riscv/squirrel-bios.elf $(RISCV_BIN)
+	      riscv/squirrel-bios.o riscv/squirrel-bios.elf $(RISCV_BIN) \
+	      loongarch/squirrel-bios.o loongarch/squirrel-bios.elf $(LA_BIN) \
+	      mips/squirrel-bios.o mips/squirrel-bios.elf $(MIPS_BIN)
 	rm -rf build
