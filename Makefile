@@ -33,6 +33,27 @@ X64_CFLAGS  := -m64 -std=gnu11 -O2 -Wall -Wextra -Werror -ffreestanding -fno-bui
                -fno-pic -fno-pie -no-pie -fno-stack-protector -fno-asynchronous-unwind-tables \
                -mno-red-zone -mgeneral-regs-only -nostdlib -static -Ix86_64/include
 
+# AArch64 UEFI-class firmware (roadmap D1): the shared UEFI core in
+# common/efi plus arm/uefi, linked to run from RAM at ARM_FW_BASE (start.S
+# copies it there from flash at 0)
+ARM_FD      := arm/uefi/squirrel-bios.fd
+ARM_FW_BASE := 0x40100000
+AARCH64_CC  ?= $(AARCH64)gcc
+EFI_C       := $(wildcard common/efi/*.c)
+EFI_H       := $(wildcard common/efi/include/*.h)
+EFI_CFLAGS  := -std=gnu11 -O2 -Wall -Wextra -Werror -ffreestanding -fno-builtin \
+               -fno-pic -fno-pie -no-pie -fno-stack-protector -fno-asynchronous-unwind-tables \
+               -nostdlib -static -Icommon/efi/include
+ARM_EFI_CFLAGS := $(EFI_CFLAGS) -mgeneral-regs-only -mstrict-align -mno-outline-atomics -Iarm/uefi
+# RISC-V UEFI-class firmware (roadmap D3): the SBI (riscv/squirrel-bios.S
+# with UEFI=1) padded to 2 MB, then the shared UEFI core plus riscv/uefi,
+# linked at RV_FW_BASE and run in S-mode
+RV_UEFI_BIN := riscv/uefi/squirrel-bios.bin
+RV_FW_BASE  := 0x80200000
+RISCV64_CC  ?= $(RISCV64)gcc
+RV_EFI_CFLAGS := $(EFI_CFLAGS) -march=rv64imac_zicsr_zifencei -mabi=lp64 -mcmodel=medany \
+                 -mno-relax -mstrict-align -Iriscv/uefi
+
 TEST_DIR  := build/tests
 TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)/x86-bad-sector.bin \
              $(TEST_DIR)/x86-extra.bin $(TEST_DIR)/x86-extra-map.bin \
@@ -77,21 +98,28 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/x86_64-esp.img $(TEST_DIR)/x86_64-gop.efi \
              $(TEST_DIR)/x86_64-mp.efi \
              $(TEST_DIR)/x86_64-acpi.efi \
-             $(TEST_DIR)/sb/sb-signed.efi $(TEST_DIR)/x86_64-sb-esp.img
+             $(TEST_DIR)/sb/sb-signed.efi $(TEST_DIR)/x86_64-sb-esp.img \
+             $(TEST_DIR)/arm-efi-app.efi $(TEST_DIR)/arm-efi-app-exit.efi \
+             $(TEST_DIR)/arm-efi-app-ebs.efi $(TEST_DIR)/arm-efi-initrd.img \
+             $(TEST_DIR)/riscv-efi-app.efi $(TEST_DIR)/riscv-efi-app-exit.efi \
+             $(TEST_DIR)/riscv-efi-app-ebs.efi \
+             $(TEST_DIR)/arm-esp.img $(TEST_DIR)/riscv-esp.img
 
-.PHONY: all x86 x86_64 arm riscv test linux-shell linux-x86 linux-uefi linux-big linux-stress os-boot os-boot-csm clean
+.PHONY: all x86 x86_64 arm arm-uefi riscv riscv-uefi test linux-shell linux-arm linux-riscv-uefi linux-x86 linux-big linux-stress os-boot clean linux-uefi os-boot-csm
 .DELETE_ON_ERROR:
 
-PLATFORMS := x86-pc x86_64-uefi aarch64-virt riscv64-virt
+PLATFORMS := x86-pc x86_64-uefi aarch64-virt riscv64-virt aarch64-uefi riscv64-uefi
 PLATFORM  ?=
 CONFIG    ?= default
 OUT_x86-pc       := squirrel-bios.rom
 OUT_x86_64-uefi  := squirrel-bios.fd
 OUT_aarch64-virt := squirrel-bios.bin
 OUT_riscv64-virt := squirrel-bios.bin
+OUT_aarch64-uefi := squirrel-bios.fd
+OUT_riscv64-uefi := squirrel-bios.bin
 
 ifeq ($(PLATFORM),)
-all: x86 x86_64 arm riscv
+all: x86 x86_64 arm riscv arm-uefi riscv-uefi
 else
 ifeq ($(filter $(PLATFORM),$(PLATFORMS)),)
 $(error PLATFORM must be one of: $(PLATFORMS))
@@ -105,6 +133,8 @@ endif
 x86: $(X86_ROM)
 x86_64: $(X64_FD)
 arm: $(ARM_BIN)
+arm-uefi: $(ARM_FD)
+riscv-uefi: $(RV_UEFI_BIN)
 riscv: $(RISCV_BIN)
 
 # --- firmware ---------------------------------------------------------
@@ -144,10 +174,53 @@ arm/squirrel-bios.elf: arm/squirrel-bios.o
 $(ARM_BIN): arm/squirrel-bios.elf
 	$(AARCH64)objcopy -O binary $< $@
 
+# aarch64-uefi: $(1) is the directory for the pieces, $(2) extra C flags
+define ARM_EFI_BUILD
+	@mkdir -p $(1)
+	$(AARCH64_CC) $(ARM_EFI_CFLAGS) $(2) -c arm/uefi/start.S -o $(1)/start.o
+	$(AARCH64_CC) $(ARM_EFI_CFLAGS) $(2) -Wl,-T,arm/uefi/link.ld -Wl,--defsym,FW_BASE=$(ARM_FW_BASE) \
+	    -Wl,--build-id=none -Wl,--no-warn-rwx-segments $(1)/start.o arm/uefi/arch.c $(EFI_C) -o $(1)/body.elf
+	$(AARCH64)objcopy -O binary $(1)/body.elf $@
+endef
+
+$(ARM_FD): arm/uefi/start.S arm/uefi/arch.c arm/uefi/arch.h arm/uefi/link.ld $(EFI_C) $(EFI_H)
+	$(call ARM_EFI_BUILD,build/aarch64-uefi,)
+
 riscv/squirrel-bios.o: riscv/squirrel-bios.S
 	$(RISCV64)as -o $@ $<
 riscv/squirrel-bios.elf: riscv/squirrel-bios.o
 	$(RISCV64)ld -Ttext=0x80000000 -o $@ $<
+# riscv64-uefi: $(1) is the directory for the pieces, $(2) extra C flags,
+# $(3) extra assembler flags for the SBI. The SBI (with .bss) must end
+# below RV_FW_BASE, and the core (with .bss) 2 MB later, where QEMU puts
+# -kernel (the next 2 MB boundary after the image file)
+define RV_EFI_BUILD
+	@mkdir -p $(1)
+	$(RISCV64)as --defsym UEFI=1 $(3) -o $(1)/sbi.o riscv/squirrel-bios.S
+	$(RISCV64)ld -Ttext=0x80000000 -o $(1)/sbi.elf $(1)/sbi.o
+	@end=$$($(RISCV64)nm $(1)/sbi.elf | awk '$$3 == "_end" { print $$1 }'); \
+	if [ $$((0x$$end)) -gt $$(($(RV_FW_BASE))) ]; then \
+	    echo "riscv-uefi: the SBI ends at 0x$$end, past $(RV_FW_BASE)" >&2; exit 1; \
+	fi
+	$(RISCV64)objcopy -O binary $(1)/sbi.elf $(1)/sbi.bin
+	$(RISCV64_CC) $(RV_EFI_CFLAGS) $(2) -c riscv/uefi/start.S -o $(1)/start.o
+	$(RISCV64_CC) $(RV_EFI_CFLAGS) $(2) -Wl,-T,riscv/uefi/link.ld -Wl,--defsym,FW_BASE=$(RV_FW_BASE) \
+	    -Wl,--build-id=none -Wl,--no-warn-rwx-segments $(1)/start.o riscv/uefi/arch.c $(EFI_C) -o $(1)/body.elf
+	@end=$$($(RISCV64)nm $(1)/body.elf | awk '$$3 == "__fw_end" { print $$1 }'); \
+	if [ $$((0x$$end)) -gt $$(($(RV_FW_BASE) + 0x200000)) ]; then \
+	    echo "riscv-uefi: the UEFI core ends at 0x$$end, past 2 MB" >&2; exit 1; \
+	fi
+	$(RISCV64)objcopy -O binary $(1)/body.elf $(1)/body.bin
+	cp $(1)/sbi.bin $@.tmp
+	truncate -s $$(($(RV_FW_BASE) - 0x80000000)) $@.tmp
+	cat $(1)/body.bin >> $@.tmp
+	mv $@.tmp $@
+endef
+
+$(RV_UEFI_BIN): riscv/squirrel-bios.S riscv/uefi/start.S riscv/uefi/arch.c riscv/uefi/arch.h \
+		riscv/uefi/link.ld $(EFI_C) $(EFI_H)
+	$(call RV_EFI_BUILD,build/riscv64-uefi,,)
+
 # The image, .bss included, must fit the 2 MB region PMP entry 0 denies to
 # S-mode (FW_BASE and FW_SIZE in squirrel-bios.S)
 $(RISCV_BIN): riscv/squirrel-bios.elf
@@ -192,6 +265,18 @@ build/aarch64-virt/%/squirrel-bios.elf: build/aarch64-virt/%/squirrel-bios.o
 build/aarch64-virt/%/squirrel-bios.bin: build/aarch64-virt/%/squirrel-bios.elf
 	$(AARCH64)objcopy -O binary $< $@
 
+build/aarch64-uefi/%/squirrel-bios.fd: arm/uefi/start.S arm/uefi/arch.c arm/uefi/arch.h \
+		arm/uefi/link.ld $(EFI_C) $(EFI_H) build/aarch64-uefi/%/config.h
+	$(call ARM_EFI_BUILD,$(@D)/obj,-DSQ_CONFIG -I$(@D))
+
+build/riscv64-uefi/%/config.inc: configs/riscv64-uefi/%.cfg tools/mkconfig.sh
+	@mkdir -p $(@D)
+	tools/mkconfig.sh gas $< > $@
+build/riscv64-uefi/%/squirrel-bios.bin: riscv/squirrel-bios.S riscv/uefi/start.S riscv/uefi/arch.c \
+		riscv/uefi/arch.h riscv/uefi/link.ld $(EFI_C) $(EFI_H) \
+		build/riscv64-uefi/%/config.inc build/riscv64-uefi/%/config.h
+	$(call RV_EFI_BUILD,$(@D)/obj,-DSQ_CONFIG -I$(@D),--defsym SQ_CONFIG=1 -I $(@D))
+
 build/riscv64-virt/%/squirrel-bios.o: riscv/squirrel-bios.S build/riscv64-virt/%/config.inc build/riscv64-virt/%/config.h
 	$(RISCV64)as --defsym SQ_CONFIG=1 -I $(@D) -o $@ $<
 build/riscv64-virt/%/squirrel-bios.elf: build/riscv64-virt/%/squirrel-bios.o
@@ -205,7 +290,8 @@ build/riscv64-virt/%/squirrel-bios.bin: build/riscv64-virt/%/squirrel-bios.elf
 
 # Each platform's default.cfg must build the same bytes as plain make
 .PHONY: config-default
-config-default: x86 x86_64 arm riscv build/x86-pc/default/squirrel-bios.rom \
+config-default: x86 x86_64 arm riscv arm-uefi riscv-uefi build/x86-pc/default/squirrel-bios.rom \
+		build/aarch64-uefi/default/squirrel-bios.fd build/riscv64-uefi/default/squirrel-bios.bin \
 		build/x86_64-uefi/default/squirrel-bios.fd \
 		build/aarch64-virt/default/squirrel-bios.bin build/riscv64-virt/default/squirrel-bios.bin \
 		build/riscv64-virt/small/squirrel-bios.bin build/x86-pc/minimal/squirrel-bios.rom
@@ -213,6 +299,8 @@ config-default: x86 x86_64 arm riscv build/x86-pc/default/squirrel-bios.rom \
 	cmp $(X64_FD) build/x86_64-uefi/default/squirrel-bios.fd
 	cmp $(ARM_BIN) build/aarch64-virt/default/squirrel-bios.bin
 	cmp $(RISCV_BIN) build/riscv64-virt/default/squirrel-bios.bin
+	cmp $(ARM_FD) build/aarch64-uefi/default/squirrel-bios.fd
+	cmp $(RV_UEFI_BIN) build/riscv64-uefi/default/squirrel-bios.bin
 	@echo "config-default: default.cfg builds match plain make"
 
 # --- test payloads (stand-ins for the OS) ------------------------------
@@ -267,6 +355,44 @@ $(TEST_DIR)/sb/sb-signed.efi: tests/mksigned.py $(TEST_DIR)/x86_64-app.efi | $(T
 	python3 tests/mksigned.py $(TEST_DIR)/x86_64-app.efi $(TEST_DIR)/sb
 $(TEST_DIR)/x86_64-sb-esp.img: tests/mkesp.py $(TEST_DIR)/sb/sb-signed.efi | $(TEST_DIR)
 	python3 tests/mkesp.py $(TEST_DIR)/sb/sb-signed.efi $@
+
+# aarch64-uefi: the stand-in EFI application in C (tests/efi-app.c),
+# linked at 256 MB + 4 KB and wrapped as PE32+ by tests/mkpe.py; it
+# returns, calls Exit, or calls ExitBootServices and powers off
+EFI_APP_CFLAGS := -std=gnu11 -O2 -Wall -Wextra -Werror -ffreestanding -fno-builtin -fno-pic \
+                  -fno-pie -no-pie -fno-stack-protector -fno-asynchronous-unwind-tables -nostdlib -static \
+                  -Wl,-T,tests/efi-app.ld -Wl,-q -Wl,--build-id=none
+ARM_APP_CFLAGS := $(EFI_APP_CFLAGS) -mgeneral-regs-only -mstrict-align
+$(TEST_DIR)/arm-efi-app.efi: tests/efi-app.c tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)
+	$(AARCH64_CC) $(ARM_APP_CFLAGS) $< -o $(@:.efi=.elf)
+	python3 tests/mkpe.py aarch64 $(@:.efi=.elf) $@
+$(TEST_DIR)/arm-efi-app-exit.efi: tests/efi-app.c tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)
+	$(AARCH64_CC) $(ARM_APP_CFLAGS) -DEXIT $< -o $(@:.efi=.elf)
+	python3 tests/mkpe.py aarch64 $(@:.efi=.elf) $@
+$(TEST_DIR)/arm-efi-app-ebs.efi: tests/efi-app.c tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)
+	$(AARCH64_CC) $(ARM_APP_CFLAGS) -DEBS $< -o $(@:.efi=.elf)
+	python3 tests/mkpe.py aarch64 $(@:.efi=.elf) $@
+# riscv64-uefi: the same app for RISC-V
+RV_APP_CFLAGS := $(EFI_APP_CFLAGS) -march=rv64imac_zicsr -mabi=lp64 -mcmodel=medany -mno-relax -mstrict-align
+$(TEST_DIR)/riscv-efi-app.efi: tests/efi-app.c tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)
+	$(RISCV64_CC) $(RV_APP_CFLAGS) $< -o $(@:.efi=.elf)
+	python3 tests/mkpe.py riscv64 $(@:.efi=.elf) $@
+$(TEST_DIR)/riscv-efi-app-exit.efi: tests/efi-app.c tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)
+	$(RISCV64_CC) $(RV_APP_CFLAGS) -DEXIT $< -o $(@:.efi=.elf)
+	python3 tests/mkpe.py riscv64 $(@:.efi=.elf) $@
+$(TEST_DIR)/riscv-efi-app-ebs.efi: tests/efi-app.c tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)
+	$(RISCV64_CC) $(RV_APP_CFLAGS) -DEBS $< -o $(@:.efi=.elf)
+	python3 tests/mkpe.py riscv64 $(@:.efi=.elf) $@
+# An -initrd for the app started as -kernel: 3000 bytes starting "Sq"
+$(TEST_DIR)/arm-efi-initrd.img: | $(TEST_DIR)
+	python3 -c 'import sys; sys.stdout.buffer.write(b"Sq" + bytes(2998))' > $@
+
+# GPT disks with the C app as \\EFI\\BOOT\\BOOTAA64.EFI and (a long name)
+# \\EFI\\BOOT\\BOOTRISCV64.EFI
+$(TEST_DIR)/arm-esp.img: tests/mkesp.py $(TEST_DIR)/arm-efi-app.efi | $(TEST_DIR)
+	python3 tests/mkesp.py $(TEST_DIR)/arm-efi-app.efi $@ BOOTAA64.EFI
+$(TEST_DIR)/riscv-esp.img: tests/mkesp.py $(TEST_DIR)/riscv-efi-app.efi | $(TEST_DIR)
+	python3 tests/mkesp.py $(TEST_DIR)/riscv-efi-app.efi $@ BOOTRISCV64.EFI
 
 # GPT disk with a FAT32 ESP holding \\EFI\\BOOT\\BOOTX64.EFI (the app)
 $(TEST_DIR)/x86_64-esp.img: tests/mkesp.py $(TEST_DIR)/x86_64-app.efi | $(TEST_DIR)
@@ -623,8 +749,19 @@ $(SRST_IMAGES:=.elf): %.elf: %.o
 $(SRST_IMAGES:=.bin): %.bin: %.elf
 	$(RISCV64)objcopy -O binary $< $@
 
-test: x86 x86_64 arm riscv config-default $(TEST_BINS) build/x86_64-uefi/x2apic/squirrel-bios.fd
+test: x86 x86_64 arm riscv arm-uefi riscv-uefi config-default $(TEST_BINS) build/x86_64-uefi/x2apic/squirrel-bios.fd
 	tests/smoke.sh
+
+# Optional, not part of make test: downloads Ubuntu 24.04's arm64 kernel
+# into build/linux-arm (about 20 MB, once) and boots it through its EFI
+# stub on the aarch64-uefi firmware to a busybox shell
+linux-arm: arm-uefi
+	tests/uefi-linux.sh aarch64
+
+# Optional, not part of make test: the same with Ubuntu 24.04's riscv64
+# kernel (the package make linux-shell uses) on the riscv64-uefi firmware
+linux-riscv-uefi: riscv-uefi
+	tests/uefi-linux.sh riscv64
 
 # Optional, not part of make test: downloads an Ubuntu riscv64 kernel and
 # busybox into build/linux (about 40 MB, once) and checks for a shell prompt
@@ -687,7 +824,7 @@ linux-stress: riscv
 	tests/linux-stress.sh
 
 clean:
-	rm -f $(X86_ROM) $(X64_FD) \
+	rm -f $(X86_ROM) $(X64_FD) $(ARM_FD) $(RV_UEFI_BIN) \
 	      arm/squirrel-bios.o arm/squirrel-bios.elf $(ARM_BIN) \
 	      riscv/squirrel-bios.o riscv/squirrel-bios.elf $(RISCV_BIN)
 	rm -rf build
