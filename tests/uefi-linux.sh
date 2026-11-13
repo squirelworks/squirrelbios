@@ -62,6 +62,9 @@ MEM=${LINUX_MEM:-512M}
 MACHINE=${LINUX_MACHINE:-virt}
 CPU=${LINUX_CPU:-cortex-a57}
 WORK=${LINUX_WORK:-build/linux-$ARCH-uefi}
+# LINUX_ACPI=1: boot with acpi=force, so Linux describes the machine from
+# the firmware's ACPI tables instead of the device tree, and check it did
+ACPI=${LINUX_ACPI:-0}
 MIRROR=${UBUNTU_PORTS:-http://ports.ubuntu.com/ubuntu-ports}
 OLD_MIRROR=${UBUNTU_OLD_RELEASES:-http://old-releases.ubuntu.com/ubuntu}
 
@@ -70,6 +73,7 @@ KERNEL_VER=6.8.0-31-generic
 interactive=0
 [ "${1:-}" = "--interactive" ] && interactive=1
 NAME=linux-$ARCH-uefi
+[ "$ACPI" = 1 ] && NAME=$NAME-acpi
 
 die() { echo "uefi-linux: $*" >&2; exit 1; }
 
@@ -151,7 +155,7 @@ set -- "$QEMU" -M "$MACHINE"
 [ "$ARCH" = aarch64 ] && set -- "$@" -cpu "$CPU"
 set -- "$@" -m "$MEM" -smp "$SMP" -no-reboot \
     -bios "$FIRMWARE" -kernel "$image" -initrd "$initrd" \
-    -append "console=$CONSOLE earlycon panic=-1"
+    -append "console=$CONSOLE earlycon panic=-1$([ "$ACPI" = 1 ] && echo " acpi=force")"
 
 if [ "$interactive" -eq 1 ]; then
     echo "uefi-linux: Ctrl-A X quits QEMU; poweroff shuts Linux down"
@@ -206,6 +210,16 @@ grep -qa "EFI yes" "$log" || fail "Linux does not see EFI (/sys/firmware/efi)"
 echo "ok    Linux booted through EFI"
 printf 'echo uefi-linux=$((40+2))\n' >&3
 wait_for "uefi-linux=42" "command at the prompt"
+if [ "$ACPI" = 1 ]; then
+    grep -qa "ACPI: Interpreter enabled" "$log" || fail "Linux did not enable ACPI"
+    printf 'echo "acpi-tables=$((6*7)) $(ls /sys/firmware/acpi/tables | tr "\\n" " ")"\n' >&3
+    wait_for "acpi-tables=42" "the ACPI tables listed"
+    tables=$(grep -a "acpi-tables=42" "$log" | tail -n 1 | tr -d '\r')
+    for t in APIC DBG2 DSDT FACP GTDT MCFG SPCR; do
+        echo "$tables" | grep -qw "$t" || fail "no $t in /sys/firmware/acpi/tables"
+    done
+    echo "ok    Linux runs on the ACPI tables (${tables#acpi-tables=42 })"
+fi
 printf 'poweroff -f\n' >&3
 while running; do
     [ "$(date +%s)" -lt "$deadline" ] || fail "QEMU still running after poweroff"
