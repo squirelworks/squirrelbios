@@ -60,3 +60,28 @@ with an identity map), `riscv/uefi/` (RISC-V, in S-mode on the SBI) and
 `x86_64/` (`include/arch.h`, `core/arch.c`, `core/rt.c`). Optional hooks
 in `arch.h`: `ARCH_RT_DATA` (data the OS keeps), `arch_check_image`
 (Secure Boot) and `arch_boot_options` (LoadOptions for a disk boot).
+
+## Network (`net*.c`)
+
+Built into every UEFI firmware (x86-64 takes `common/efi/net_*.c`; the
+virtio-mmio side is `netmmio.c`, the x86-64 PCI side
+`x86_64/platform/net_pci.c`): virtio-net with a Simple Network Protocol
+handle per NIC, DHCP and a PXE-style boot over TFTP, or over HTTP when
+DHCP's boot file is an `http://` URL (an IPv4 host; no DNS client), and
+files of at most 1 GB (`NET_FILE_MAX`).
+
+The console mirror (`net_sol.c`) is set with
+`-fw_cfg name=opt/org.squirrelworks/netconsole,string=A.B.C.D:PORT`: the
+console goes out as UDP to A.B.C.D:PORT from port 6665, and what comes
+back to port 6665 is typed into the console.
+
+**Use the console mirror only on a trusted network.** Nothing in it is
+authenticated or encrypted: everything the console shows travels in the
+clear, and input is accepted from any datagram whose source address and
+port match the configured host, which anyone on the path can forge. A
+forged datagram types keys into the firmware console, and from there into
+whatever boot loader or shell is reading it. Keep the NIC on an isolated
+management network, or leave `netconsole` unset. The same goes for TFTP
+and HTTP boot: neither authenticates the server, so the image is only as
+trustworthy as the network (on x86-64, Secure Boot, when enabled, still
+checks the image's signature).
