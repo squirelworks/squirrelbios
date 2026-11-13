@@ -167,6 +167,13 @@ void efi_memory_init(void)
         set_type(ds, (de - ds) / PAGE, EfiRuntimeServicesData, EFI_MEMORY_WB | EFI_MEMORY_RUNTIME);
 }
 
+/* MMIO the runtime services use after ExitBootServices (the variable
+ * store's flash): in the map, so the OS maps it for them */
+void efi_memory_mmio(u64 base, u64 pages)
+{
+    set_type(base, pages, EfiMemoryMappedIO, EFI_MEMORY_UC | EFI_MEMORY_RUNTIME);
+}
+
 static int valid_alloc_type(EFI_MEMORY_TYPE t)
 {
     return (t >= EfiReservedMemoryType && t <= EfiRuntimeServicesData) ||

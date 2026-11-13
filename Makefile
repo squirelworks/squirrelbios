@@ -27,7 +27,7 @@ RISCV_BIN := riscv/squirrel-bios.bin
 X64_FD      := x86_64/squirrel-bios.fd
 # runtime.c and lib.c are built on their own, their sections renamed .rt.*:
 # link.ld puts them in the pages the OS keeps after ExitBootServices
-X64_RT_C    := x86_64/core/runtime.c x86_64/core/lib.c
+X64_RT_C    := x86_64/core/runtime.c x86_64/core/lib.c x86_64/core/variables.c
 X64_C       := $(filter-out $(X64_RT_C),$(wildcard x86_64/*/*.c))
 X64_H       := $(wildcard x86_64/include/*.h)
 X64_FLASH   := 0x100000
@@ -110,7 +110,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/riscv-efi-app.efi $(TEST_DIR)/riscv-efi-app-exit.efi \
              $(TEST_DIR)/riscv-efi-app-ebs.efi \
              $(TEST_DIR)/arm-esp.img $(TEST_DIR)/riscv-esp.img \
-             $(TEST_DIR)/x86_64-rt.efi
+             $(TEST_DIR)/x86_64-rt.efi $(TEST_DIR)/x86_64-nv.efi
 
 .PHONY: all x86 x86_64 arm arm-uefi riscv riscv-uefi test linux-shell linux-arm linux-arm-acpi linux-riscv-uefi linux-x86 linux-big linux-stress os-boot clean linux-uefi os-boot-csm
 .DELETE_ON_ERROR:
@@ -360,6 +360,9 @@ $(TEST_DIR)/x86_64-acpi.efi: tests/x86_64-acpi.asm tests/x86_64-pe.inc | $(TEST_
 	$(NASM) -f bin -i tests/ $< -o $@
 # SRAT/SLIT/MADT/BERT/HEST self-check (F1/F2), and a 2x2 SLIT override
 $(TEST_DIR)/x86_64-numa.efi: tests/x86_64-numa.asm tests/x86_64-pe.inc | $(TEST_DIR)
+	$(NASM) -f bin -i tests/ $< -o $@
+# Non-volatile variables in a flash store (pflash unit 1)
+$(TEST_DIR)/x86_64-nv.efi: tests/x86_64-nv.asm tests/x86_64-pe.inc | $(TEST_DIR)
 	$(NASM) -f bin -i tests/ $< -o $@
 # The runtime services after ExitBootServices, boot services memory overwritten
 $(TEST_DIR)/x86_64-rt.efi: tests/x86_64-rt.asm tests/x86_64-pe.inc | $(TEST_DIR)

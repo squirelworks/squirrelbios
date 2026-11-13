@@ -1366,5 +1366,30 @@ run riscv64-uefi-virtio-pci "disk: virtio-blk at PCI 00:01.0 (virtio-pci), 13107
     "$QEMU_RISCV" -M virt -bios $RV_UEFI \
     -drive if=none,file=$TEST_DIR/riscv-esp.img,format=raw,id=d0 -device virtio-blk-pci,drive=d0
 
+# Non-volatile variables (C5): the firmware as pflash unit 0 and a store
+# as unit 1. Three boots against one store: a boot counter goes up, an
+# 8000-byte variable set on the first is read back on the next ones, a
+# volatile one is gone, and 200 rewrites of a 1000-byte variable fill a
+# bank and move the store into the other. The runtime services then
+# write flash after ExitBootServices with boot memory overwritten. With
+# -bios there is no store and variables last until reset.
+NV_STORE=$TEST_DIR/x86_64-vars.fd
+NV_FLASH="-drive if=pflash,format=raw,unit=0,readonly=on,file=x86_64/squirrel-bios.fd -drive if=pflash,format=raw,unit=1,file=$NV_STORE"
+rm -f "$NV_STORE"
+truncate -s 256K "$NV_STORE"
+run x86_64-nv-1 "vars: new store in 256 KB of flash at 0x00000000ffec0000|APP nv before=none after=1 big=none vol=none churn=ok|fw: halting|!=bad" \
+    "$QEMU_X86_64" -M q35 $NV_FLASH -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-nv.efi
+run x86_64-nv-2 "~^vars: 3 variables from 256 KB of flash at 0x00000000ffec0000 \(bank 1, generation 2\)|APP nv before=1 after=2 big=ok vol=none churn=ok|fw: halting|!=bad" \
+    "$QEMU_X86_64" -M pc $NV_FLASH -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-nv.efi
+run x86_64-nv-3 "APP nv before=2 after=3 big=ok vol=none churn=ok|fw: halting|!=bad" \
+    "$QEMU_X86_64" -M q35 $NV_FLASH -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-nv.efi
+run x86_64-nv-after-exit "~^vars: 3 variables from|efi: ExitBootServices|APP rt pages=ok time=ok var=ok next=ok|@exit=1|!=bad" \
+    "$QEMU_X86_64" -M q35 $NV_FLASH -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
+    -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-rt.efi
+run x86_64-nv-after-exit-kept "~^vars: 4 variables from|APP nv before=3 after=4 big=ok|!=bad" \
+    "$QEMU_X86_64" -M q35 $NV_FLASH -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-nv.efi
+run x86_64-nv-none "vars: no flash store, variables are kept until reset|APP nv before=none after=1 big=none vol=none churn=ok|!=bad" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-nv.efi
+
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

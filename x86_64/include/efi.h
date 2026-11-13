@@ -466,6 +466,21 @@ int efi_boot_services_exited(void);
 void efi_event_init(EFI_BOOT_SERVICES *bs);
 void efi_timers_poll(void);
 void efi_signal_exit_boot_services(void);
+
+/* variables.c: the variable services, kept in flash when there is a
+ * store (runtime pages). vars_auth_hook checks an authenticated write:
+ * it may replace the payload with what follows the authentication
+ * descriptor and set the time to keep. */
+typedef EFI_STATUS (*vars_auth_fn)(const CHAR16 *name, const EFI_GUID *vendor, u32 attr,
+                                   const u8 **data, u32 *size, EFI_TIME *time,
+                                   const EFI_TIME *old_time, int exited);
+extern vars_auth_fn vars_auth_hook;
+void vars_init(void);
+void vars_install(EFI_RUNTIME_SERVICES *rt);
+EFI_STATUS EFIAPI vars_get(CHAR16 *name, EFI_GUID *vendor, u32 *attr, UINTN *size, void *data);
+EFI_STATUS EFIAPI vars_next(UINTN *size, CHAR16 *name, EFI_GUID *vendor);
+EFI_STATUS EFIAPI vars_set(CHAR16 *name, EFI_GUID *vendor, u32 attr, UINTN size, void *data);
+EFI_STATUS EFIAPI vars_query(u32 attr, u64 *max, u64 *rem, u64 *maxsz);
 u64 efi_tsc_hz(void);
 EFI_STATUS EFIAPI efi_create_event(u32, EFI_TPL, EFI_EVENT_NOTIFY, void *, EFI_EVENT *);
 EFI_STATUS EFIAPI efi_signal_event(EFI_EVENT);
@@ -491,6 +506,7 @@ extern EFI_HANDLE efi_firmware_handle;
 /* memory.c */
 void efi_memory_init(void);
 int efi_memory_selftest(void);
+void efi_memory_mmio(u64 base, u64 pages);      /* MMIO the OS maps for the runtime services */
 u64 efi_free_pages_count(void);
 EFI_STATUS EFIAPI efi_allocate_pages(EFI_ALLOCATE_TYPE, EFI_MEMORY_TYPE, UINTN, EFI_PHYSICAL_ADDRESS *);
 EFI_STATUS EFIAPI efi_free_pages(EFI_PHYSICAL_ADDRESS, UINTN);

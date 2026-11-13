@@ -142,6 +142,8 @@ void fw_main(void)
     efi_gop_init();
 
     efi_initrd_init();
+    vars_init();
+    vars_install(efi_st->runtime_services);
     secure_init();
     efi_disk_init();
     if (efi_boot_esp()) {
