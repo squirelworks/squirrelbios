@@ -81,6 +81,7 @@ boots each firmware under QEMU with a small stand-in OS image from
 | `x86-ahci-osload` | The 192-sector S2OK kernel load from a SATA disk on q35's AHCI port 0 |
 | `x86-nvme` | The `x86-edd` disk as namespace 1 of an NVMe controller in PCI slot 5: the same checks over NVMe Read/Write and PRP lists, and `AH=48h` names PCI `00:05.0`, `NVMe` and namespace 1 |
 | `x86-virtio`, `x86-virtio-osload`, `x86-virtio-int13` | The `x86-edd` disk as a virtio-blk device in PCI slot 5 (the same checks, `AH=48h` naming PCI `00:05.0`), then the S2OK kernel load on q35 and the `INT 13h` boot sector from a virtio disk |
+| `x86-virtio-modern`, `x86-virtio-modern-q35`, `x86-virtio-modern-write` | The same disks on a modern-only virtio-blk (`1AF4:1042`, `disable-legacy=on`): registers in a memory BAR found through the virtio PCI capabilities, `VERSION_1` negotiated; the `x86-edd` checks, the S2OK load on q35, and `INT 13h` writes |
 | `x86-netboot`, `x86-netboot-q35`, `x86-netboot-big` | No disk: a virtio-net device gets an address from QEMU's DHCP server and loads the boot file over TFTP to `0x7C00` (5000 bytes; 2048 on q35, with an empty last block; 200000, past block 255), entered with `DL = FFh` |
 | `x86-netboot-missing`, `x86-netboot-huge` | A boot file the server does not have, and one too large for the memory below `0x40000`: each says why and the boot halts |
 | `x86-vbe`, `x86-vbe-text` | VBE 3.0: controller and mode information, mode 112h (640x480x32) set with a linear frame buffer that the test fills through unreal mode, checked on QEMU's screen; then back to 80x25 text with `4F02h` `BX=3` |
@@ -155,6 +156,7 @@ boots each firmware under QEMU with a small stand-in OS image from
 | `x86_64-app-junk` | A file that is not PE32+ is refused with `EFI_LOAD_ERROR` |
 | `x86_64-fat` | A GPT disk with a FAT32 ESP on virtio-blk: Block I/O, Simple File System, and boot of `\EFI\BOOT\BOOTX64.EFI` (the PE32+ test app) |
 | `x86_64-gop` | An EFI app sets GOP mode 800×600×32, Blt-fills a rectangle, GetTime and Set/GetVariable, then ExitBootServices and ResetSystem (shutdown via isa-debug-exit, QEMU status 1) |
+| `x86_64-csm`, `x86_64-csm-q35`, `x86_64-csm-floppy`, `x86_64-csm-cd` | CSM (C3): with nothing to boot the UEFI way, the legacy x86-pc BIOS built into the image is copied to shadow RAM at F0000 (PAM on i440fx and q35) and entered in real mode; it boots the S2OK stand-in from IDE, a boot sector from q35's AHCI port with VGA text mode back after GOP, the floppy A: and an El Torito CD |
 
 Needs `qemu-system-i386`, `qemu-system-x86_64`, `qemu-system-aarch64` and `qemu-system-riscv64`.
 Serial logs are kept in `build/tests/*.log`. `SMOKE_TIMEOUT` (seconds,

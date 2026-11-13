@@ -386,6 +386,7 @@ msg_nvme    db 'disk: NVMe disk (namespace 1)', 0
 %endif
 %if CONFIG_VIRTIO
 msg_virtio  db 'disk: virtio disk', 0
+msg_virtio_v1 db ' (modern interface)', 0
 %endif
 %if CONFIG_NETBOOT
 msg_net_mac db 'net: virtio-net, MAC ', 0

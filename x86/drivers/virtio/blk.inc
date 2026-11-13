@@ -2,9 +2,11 @@
 ; Original code. Included by x86/squirrel-bios.asm when CONFIG_VIRTIO.
 ;
 ; Written from the Virtual I/O Device (VIRTIO) specification 1.1, its
-; legacy interface (sections 4.1.4.8 and 2.4): the first PCI function
-; with vendor 1AF4h and device 1001h (a transitional block device) whose
-; BAR0 is an I/O range. At POST, when no IDE, SATA or NVMe disk answered,
+; legacy interface (sections 4.1.4.8 and 2.4) and its modern one (4.1.4,
+; at the end of this file): the first PCI function with vendor 1AF4h and
+; device 1001h (a transitional block device), on its legacy I/O BAR0 when
+; it has one and on the modern interface otherwise, or 1042h (a
+; modern-only block device). At POST, when no IDE, SATA or NVMe disk answered,
 ; vblk_detect resets it, accepts no optional features (so writes go
 ; through to the disk) and gives its one queue three pages in the EBDA,
 ; the ones NVMe would have used. The disk then becomes DL = 80h:
@@ -37,6 +39,7 @@ VBLK_QMAX       equ 256                 ; the largest queue that fits
 
 VBLK_VENDOR     equ 0x1AF4
 VBLK_DEVICE     equ 0x1001
+VBLK_DEVICE_V1  equ 0x1042          ; modern only
 
 ; Legacy registers, from BAR0 (no MSI-X)
 VIO_HOST_F      equ 0x00
@@ -79,6 +82,7 @@ vblk_owns:
 vblk_detect:
     pushad
     push es
+    push gs
     pushf
     cli
     call pci_present
@@ -89,12 +93,14 @@ vblk_detect:
     jc .none
     xor di, di
     call pci_read32
+    cmp eax, (VBLK_DEVICE_V1 << 16) | VBLK_VENDOR
+    je .modern
     cmp eax, (VBLK_DEVICE << 16) | VBLK_VENDOR
     jne .next
     mov di, PCI_BAR0
     call pci_read32
     test al, 1                  ; the legacy interface: an I/O BAR
-    jz .next
+    jz .modern                  ; switched off (disable-legacy=on)
     and ax, 0xFFFC
     jz .next                    ; POST could not place it
     mov si, ax
@@ -105,11 +111,16 @@ vblk_detect:
     call pci_write16
     call vblk_init
     jnc .found
+    jmp .next
+.modern:
+    call vblk_modern_init
+    jnc .found
 .next:
     inc bl
     jnz .fn
 .none:
     popf
+    pop gs
     pop es
     popad
     stc
@@ -121,6 +132,7 @@ vblk_detect:
     mov byte [ss:ATA_DEVSEL], ATA_SEL_MASTER
     mov byte [ss:BOOT_DL], 0x80
     popf
+    pop gs
     pop es
     popad
     clc
@@ -134,6 +146,7 @@ vblk_init:
     pop es
     mov [es:VBLK_IO], si
     mov [es:VBLK_BDF], bx
+    mov byte [es:VBLK_MODERN], 0
     lea dx, [si + VIO_STATUS]
     xor al, al
     out dx, al                  ; reset
@@ -148,15 +161,43 @@ vblk_init:
     out dx, ax                  ; queue 0
     lea dx, [si + VIO_QSIZE]
     in ax, dx
+    call vblk_queue_setup
+    jc .fail
+    lea dx, [si + VIO_QPFN]
+    mov eax, (EBDA_BASE + VBLK_QUEUE) >> 12
+    out dx, eax
+    lea dx, [si + VIO_CONFIG]
+    in eax, dx
+    mov [es:VBLK_SECTORS], eax
+    add dx, 4
+    in eax, dx
+    mov [es:VBLK_SECTORS + 4], eax
+    or eax, [es:VBLK_SECTORS]
+    jz .fail                    ; no medium
+    lea dx, [si + VIO_STATUS]
+    mov al, VIO_ACK | VIO_DRIVER | VIO_DRIVER_OK
+    out dx, al
+    clc
+    ret
+.fail:
+    lea dx, [si + VIO_STATUS]
+    xor al, al
+    out dx, al
+    stc
+    ret
+
+; Queue 0 of AX entries (a power of two, 3 to VBLK_QMAX) in the EBDA, ES =
+; VBLK_SEG: clear its three pages, place the rings and chain descriptors
+; 0-2. CF set if the size will not do. Clobbers AX, CX, DI.
+vblk_queue_setup:
     cmp ax, 3
-    jb .fail
+    jb .bad
     cmp ax, VBLK_QMAX
-    ja .fail
-    test ax, ax                 ; a power of two
-    mov cx, ax
+    ja .bad
+    mov cx, ax                  ; a power of two
     dec cx
     test cx, ax
-    jnz .fail
+    jnz .bad
     mov [es:VBLK_QSIZE], ax
     ; The queue: descriptors (16 bytes each), the available ring (6 +
     ; 2 per entry), then on the next page the used ring (6 + 8 per entry)
@@ -185,26 +226,9 @@ vblk_init:
     mov dword [es:VBLK_QUEUE + 32], EBDA_BASE + VBLK_STATUS
     mov word [es:VBLK_QUEUE + 32 + 8], 1
     mov word [es:VBLK_QUEUE + 32 + 12], VRING_WRITE
-    lea dx, [si + VIO_QPFN]
-    mov eax, (EBDA_BASE + VBLK_QUEUE) >> 12
-    out dx, eax
-    lea dx, [si + VIO_CONFIG]
-    in eax, dx
-    mov [es:VBLK_SECTORS], eax
-    add dx, 4
-    in eax, dx
-    mov [es:VBLK_SECTORS + 4], eax
-    or eax, [es:VBLK_SECTORS]
-    jz .fail                    ; no medium
-    lea dx, [si + VIO_STATUS]
-    mov al, VIO_ACK | VIO_DRIVER | VIO_DRIVER_OK
-    out dx, al
     clc
     ret
-.fail:
-    lea dx, [si + VIO_STATUS]
-    xor al, al
-    out dx, al
+.bad:
     stc
     ret
 
@@ -236,6 +260,7 @@ vblk_rw:
     push esi
     push ebx
     push es
+    push gs
     pushf
     cli
     push word VBLK_SEG
@@ -278,10 +303,18 @@ vblk_rw:
     mov word [es:bx + 4], 0
     inc ax
     mov [es:di + 2], ax
+    xor ax, ax                  ; notify queue 0
+    cmp byte [es:VBLK_MODERN], 0
+    jne .notify_modern
     mov dx, [es:VBLK_IO]
     add dx, VIO_QNOTIFY
-    xor ax, ax
     out dx, ax
+    jmp .notified
+.notify_modern:
+    call flat_gs
+    mov edx, [es:VBLK_NOTIFY]
+    mov [gs:edx], ax
+.notified:
     ; Wait up to 5 s for the used ring to move
     mov di, [es:VBLK_USED]
     mov si, 5000
@@ -299,6 +332,7 @@ vblk_rw:
     cmp byte [es:VBLK_STATUS], 0
     jne .fail
     popf
+    pop gs
     pop es
     pop ebx
     pop esi
@@ -313,6 +347,7 @@ vblk_rw:
     mov si, msg_readerr
     xor bx, bx
     popf
+    pop gs
     pop es
     add sp, 8                   ; drop saved EBX and ESI; BX/SI stay
     pop edi
@@ -342,9 +377,24 @@ vblk_reset:
     push es
     push word VBLK_SEG
     pop es
+    cmp byte [es:VBLK_MODERN], 0
+    jne .modern
     mov dx, [es:VBLK_IO]
     add dx, VIO_STATUS
     in al, dx
+    jmp .status
+.modern:
+    push edx
+    push gs
+    pushf
+    cli
+    call flat_gs
+    mov edx, [es:VBLK_COMMON]
+    mov al, [gs:edx + VC_STATUS]
+    popf
+    pop gs
+    pop edx
+.status:
     pop es
     test al, VIO_FAILED | 0x40  ; failed, or DEVICE_NEEDS_RESET
     pop dx
@@ -380,4 +430,206 @@ vblk_edd_path:
     mov dword [si + 0x3C], 0
     pop es
     pop ax
+    ret
+
+; --- The modern interface (VIRTIO 1.1 section 4.1.4) ---------------------
+;
+; A modern-only device (1042h, or a transitional 1001h whose legacy BAR0
+; is switched off) is driven through four structures that its PCI
+; capabilities (vendor-specific, ID 09h) place in its memory BARs: the
+; common configuration, the notification area, the ISR and the device
+; configuration. pci_init has put those BARs below 4 GB; they are read and
+; written through the flat GS (flat_gs) with interrupts off. The queue is
+; the same three EBDA pages as on the legacy interface, and VERSION_1 is
+; the only feature accepted.
+
+VCAP_VENDOR     equ 0x09            ; PCI capability ID
+VCAP_COMMON     equ 1               ; cfg_type
+VCAP_NOTIFY     equ 2
+VCAP_DEVICE     equ 4
+PCI_STATUS      equ 0x06
+PCI_STATUS_CAPS equ 0x10
+PCI_CAP_PTR     equ 0x34
+
+; The common configuration
+VC_DFSEL        equ 0x00            ; device_feature_select
+VC_DF           equ 0x04            ; device_feature
+VC_GFSEL        equ 0x08            ; driver_feature_select
+VC_GF           equ 0x0C            ; driver_feature
+VC_STATUS       equ 0x14            ; device_status (byte)
+VC_QSEL         equ 0x16
+VC_QSIZE        equ 0x18
+VC_QENABLE      equ 0x1C
+VC_QNOTIFY_OFF  equ 0x1E
+VC_QDESC        equ 0x20            ; qwords: descriptors, driver, device
+VC_QDRIVER      equ 0x28
+VC_QDEVICE      equ 0x30
+VIO_FEATURES_OK equ 0x08
+VIO_F_VERSION_1 equ 1               ; bit 32: bit 0 of feature word 1
+
+; EBDA variables, after the legacy ones
+VBLK_MODERN     equ VBLK_VARS + 20  ; byte: 1 on the modern interface
+VBLK_COMMON     equ VBLK_VARS + 24  ; dword: common configuration
+VBLK_NOTIFY     equ VBLK_VARS + 28  ; dword: queue 0's notify address
+VBLK_DEVCFG     equ VBLK_VARS + 32  ; dword: device configuration
+VBLK_NOTIFY_MUL equ VBLK_VARS + 36  ; dword: notify_off_multiplier
+
+; The capability of cfg_type AL on the device at BX: CF clear and EAX =
+; the linear address of its structure (memory BAR + offset), DI = the
+; capability's config offset. CF set if absent or not a usable memory BAR.
+; Keeps every other register.
+vio_find_cap:
+    push ecx
+    push edx
+    mov dl, al
+    mov di, PCI_STATUS
+    call pci_read16
+    test al, PCI_STATUS_CAPS
+    jz .none
+    mov di, PCI_CAP_PTR
+    call pci_read8
+    mov cx, 48                      ; a bound on the list
+.cap:
+    and al, 0xFC
+    jz .none
+    movzx di, al
+    call pci_read8                  ; the ID
+    cmp al, VCAP_VENDOR
+    jne .next
+    add di, 3
+    call pci_read8                  ; cfg_type
+    sub di, 3
+    cmp al, dl
+    je .found
+.next:
+    inc di
+    call pci_read8                  ; the next pointer
+    dec di
+    loop .cap
+.none:
+    pop edx
+    pop ecx
+    stc
+    ret
+.found:
+    push di
+    add di, 4
+    call pci_read8                  ; bar
+    cmp al, 5
+    ja .bad
+    movzx di, al
+    shl di, 2
+    add di, PCI_BAR0
+    call pci_read32
+    test al, 1
+    jnz .bad                        ; an I/O BAR: not used here
+    and eax, 0xFFFFFFF0
+    jz .bad                         ; POST could not place it
+    mov ecx, eax
+    pop di
+    push di
+    add di, 8
+    call pci_read32                 ; offset
+    add eax, ecx
+    pop di
+    pop edx
+    pop ecx
+    clc
+    ret
+.bad:
+    pop di
+    jmp .none
+
+; The modern device at BX: find its structures, reset it, negotiate
+; VERSION_1 only, set up queue 0 in the EBDA and read its size. CF set on
+; failure (the device is reset again). ES = VBLK_SEG on return.
+; Clobbers EAX, ECX, EDX, ESI, DI.
+vblk_modern_init:
+    push word VBLK_SEG
+    pop es
+    mov [es:VBLK_BDF], bx
+    mov al, VCAP_COMMON
+    call vio_find_cap
+    jc .absent
+    mov [es:VBLK_COMMON], eax
+    mov al, VCAP_DEVICE
+    call vio_find_cap
+    jc .absent
+    mov [es:VBLK_DEVCFG], eax
+    mov al, VCAP_NOTIFY
+    call vio_find_cap
+    jc .absent
+    mov [es:VBLK_NOTIFY], eax
+    add di, 16
+    call pci_read32                 ; notify_off_multiplier
+    mov [es:VBLK_NOTIFY_MUL], eax
+    mov di, PCI_CMD
+    call pci_read16
+    or ax, PCI_CMD_MEM | PCI_CMD_MASTER
+    mov cx, ax
+    call pci_write16
+    call flat_gs
+    mov esi, [es:VBLK_COMMON]
+    mov byte [gs:esi + VC_STATUS], 0        ; reset; done when it reads 0
+    mov cx, 100
+.reset:
+    cmp byte [gs:esi + VC_STATUS], 0
+    je .reset_done
+    push cx
+    mov cx, 1
+    call delay_ms
+    pop cx
+    loop .reset
+    jmp .fail
+.reset_done:
+    mov byte [gs:esi + VC_STATUS], VIO_ACK
+    mov byte [gs:esi + VC_STATUS], VIO_ACK | VIO_DRIVER
+    mov dword [gs:esi + VC_DFSEL], 1
+    test dword [gs:esi + VC_DF], VIO_F_VERSION_1
+    jz .fail
+    mov dword [gs:esi + VC_GFSEL], 0
+    mov dword [gs:esi + VC_GF], 0
+    mov dword [gs:esi + VC_GFSEL], 1
+    mov dword [gs:esi + VC_GF], VIO_F_VERSION_1
+    mov byte [gs:esi + VC_STATUS], VIO_ACK | VIO_DRIVER | VIO_FEATURES_OK
+    test byte [gs:esi + VC_STATUS], VIO_FEATURES_OK
+    jz .fail
+    mov word [gs:esi + VC_QSEL], 0
+    mov ax, [gs:esi + VC_QSIZE]
+    cmp ax, VBLK_QMAX                       ; a modern queue may be made smaller
+    jbe .qsize
+    mov ax, VBLK_QMAX
+    mov [gs:esi + VC_QSIZE], ax
+.qsize:
+    call vblk_queue_setup
+    jc .fail
+    mov dword [gs:esi + VC_QDESC], EBDA_BASE + VBLK_QUEUE
+    mov dword [gs:esi + VC_QDESC + 4], 0
+    movzx eax, word [es:VBLK_AVAIL]
+    add eax, EBDA_BASE
+    mov [gs:esi + VC_QDRIVER], eax
+    mov dword [gs:esi + VC_QDRIVER + 4], 0
+    movzx eax, word [es:VBLK_USED]
+    add eax, EBDA_BASE
+    mov [gs:esi + VC_QDEVICE], eax
+    mov dword [gs:esi + VC_QDEVICE + 4], 0
+    movzx eax, word [gs:esi + VC_QNOTIFY_OFF]
+    mul dword [es:VBLK_NOTIFY_MUL]
+    add [es:VBLK_NOTIFY], eax
+    mov word [gs:esi + VC_QENABLE], 1
+    mov edx, [es:VBLK_DEVCFG]
+    mov eax, [gs:edx]                       ; capacity
+    mov [es:VBLK_SECTORS], eax
+    mov eax, [gs:edx + 4]
+    mov [es:VBLK_SECTORS + 4], eax
+    or eax, [es:VBLK_SECTORS]
+    jz .fail                                ; no medium
+    mov byte [gs:esi + VC_STATUS], VIO_ACK | VIO_DRIVER | VIO_FEATURES_OK | VIO_DRIVER_OK
+    mov byte [es:VBLK_MODERN], 1
+    clc
+    ret
+.fail:
+    mov byte [gs:esi + VC_STATUS], 0
+.absent:
+    stc
     ret
