@@ -4,13 +4,18 @@
 ; Written from the VESA BIOS Extension Core Functions Standard 3.0 and
 ; the Bochs/QEMU display interface (the "DISPI" registers at ports
 ; 1CEh/1CFh) that QEMU's standard VGA (PCI 1234:1111) has. The modes are
-; 16- and 32-bit direct colour, reached only through the linear frame
-; buffer (the VGA function's BAR0); there are no banked windows. Mode 3
-; (BX = 0003h) returns to the 80x25 text mode that POST set up.
+; 8-bit packed pixel (through the VGA DAC palette) and 16- and 32-bit
+; direct colour, reached through the linear frame buffer (the VGA
+; function's BAR0, mode bit 14) or through a 64 KB window at A000h whose
+; position in video memory moves in 64 KB steps (DISPI bank register),
+; with 4F05h or the far window function 4F01h gives. Mode 3 (BX = 0003h)
+; returns to the 80x25 text mode that POST set up.
 ;
 ; Functions: 4F00h controller information, 4F01h mode information,
-; 4F02h set mode, 4F03h current mode, 4F06h scan line length (get only),
-; 4F07h display start. Others answer AX = 0100h (not supported).
+; 4F02h set mode, 4F03h current mode, 4F05h window control, 4F06h scan
+; line length (get only), 4F07h display start, 4F08h DAC width (6 bits
+; only), 4F09h palette data (primary palette). Others answer AX = 0100h
+; (not supported).
 
 VBE_INDEX       equ 0x01CE
 VBE_DATA        equ 0x01CF
@@ -19,6 +24,7 @@ DISPI_XRES      equ 1
 DISPI_YRES      equ 2
 DISPI_BPP       equ 3
 DISPI_ENABLE    equ 4
+DISPI_BANK      equ 5
 DISPI_VWIDTH    equ 6
 DISPI_VHEIGHT   equ 7
 DISPI_XOFF      equ 8
@@ -34,6 +40,11 @@ VBE_MODE        equ 0x00E0          ; EBDA word: current mode, as 4F03h
 
 ; The modes: number, width, height, bits per pixel
 vbe_modes:
+    dw 0x0100, 640, 400, 8
+    dw 0x0101, 640, 480, 8
+    dw 0x0103, 800, 600, 8
+    dw 0x0105, 1024, 768, 8
+    dw 0x0107, 1280, 1024, 8
     dw 0x0111, 640, 480, 16
     dw 0x0112, 640, 480, 32
     dw 0x0114, 800, 600, 16
@@ -64,10 +75,16 @@ vbe_handler:
     je vbe_set_mode
     cmp al, 0x03
     je vbe_get_mode
+    cmp al, 0x05
+    je vbe_window
     cmp al, 0x06
     je vbe_scanline
     cmp al, 0x07
     je vbe_start
+    cmp al, 0x08
+    je vbe_dac
+    cmp al, 0x09
+    je vbe_palette
 .none:
     mov ax, 0x0100
     pop bp
@@ -277,8 +294,16 @@ vbe_mode_info:
     rep stosw
     pop cx
     ; Supported, extended information, colour, graphics, not VGA,
-    ; no windows, linear frame buffer
-    mov word [es:bx], 0x00FB
+    ; windows, linear frame buffer
+    mov word [es:bx], 0x00BB
+    ; Window A: 64 KB at A000h, readable and writable, moved in 64 KB
+    ; steps by 4F05h or the window function
+    mov byte [es:bx + 2], 0x07
+    mov word [es:bx + 4], 64
+    mov word [es:bx + 6], 64
+    mov word [es:bx + 8], 0xA000
+    mov word [es:bx + 12], vbe_winfunc
+    mov [es:bx + 14], cs
     mov ax, [cs:si + 2]
     mov [es:bx + 18], ax                ; width
     mov dx, [cs:si + 6]                 ; bits per pixel
@@ -296,6 +321,10 @@ vbe_mode_info:
     mov [es:bx + 25], al                ; bits per pixel
     mov byte [es:bx + 26], 1            ; banks
     mov byte [es:bx + 27], 6            ; direct colour
+    cmp byte [cs:si + 6], 8
+    jne .direct
+    mov byte [es:bx + 27], 4            ; packed pixel
+.direct:
     mov byte [es:bx + 30], 1
     ; Image pages: how many screens the video memory holds, less one
     movzx eax, cx
@@ -320,6 +349,8 @@ vbe_mode_info:
     mov [es:bx + 29], al
     mov [es:bx + 52], al
     mov [es:bx + 53], al
+    cmp byte [cs:si + 6], 8
+    je .lfb                             ; no colour fields: the palette
     ; Colour fields: R, G, B, reserved (size, position)
     mov eax, 0x050B0605                 ; 16: R 5 at 11, G 6 at 5
     mov edx, 0x00000005                 ;     B 5 at 0
@@ -343,6 +374,7 @@ vbe_mode_info:
     xchg dl, dh
     mov [es:bx + 37], dx                ; reserved size, position
     mov [es:bx + 60], dx
+.lfb:
     call vbe_lfb
     mov [es:bx + 40], eax
     pop di
@@ -361,8 +393,8 @@ vbe_mode_info:
     pop eax
     jmp vbe_fail
 
-; 4F02h: set mode BX (bit 14 linear frame buffer, which these modes
-; need; bit 15 keep the video memory). BX = 3 returns to text mode.
+; 4F02h: set mode BX (bit 14 linear frame buffer, else the window at
+; A000h; bit 15 keep the video memory). BX = 3 returns to text mode.
 vbe_set_mode:
     push bx
     push cx
@@ -373,8 +405,6 @@ vbe_set_mode:
     je .text
     call vbe_find
     jc .fail
-    test bx, 0x4000
-    jz .fail                            ; no banked windows
     push bx
     xor bx, bx
     mov al, DISPI_ENABLE
@@ -395,11 +425,17 @@ vbe_set_mode:
     call vbe_write
     mov al, DISPI_YOFF
     call vbe_write
+    mov al, DISPI_BANK                  ; the window at the start
+    call vbe_write
     pop bx
     mov cx, bx
     and cx, 0x41FF                      ; what 4F03h reports
     mov ax, bx
-    mov bx, DISPI_ON | DISPI_LFB
+    mov bx, DISPI_ON
+    test ax, 0x4000
+    jz .banked
+    or bx, DISPI_LFB
+.banked:
     test ax, 0x8000
     jz .enable
     or bx, DISPI_NOCLEAR
@@ -531,3 +567,132 @@ vbe_cur:
     pop cx
     stc
     ret
+
+; 4F05h: BH = 00h set window BL (only A, 0) to DX 64 KB units into video
+; memory; BH = 01h get it into DX. Fails in text mode.
+vbe_window:
+    call vbe_window_do
+    jc vbe_fail
+    jmp vbe_ok
+
+; The window function 4F01h names (WinFuncPtr): the same registers as
+; 4F05h, called far. Returns AX = 004Fh, or 014Fh.
+vbe_winfunc:
+    call vbe_window_do
+    mov ax, 0x004F
+    jnc .ret
+    mov ax, 0x014F
+.ret:
+    retf
+
+; Shared by both: CF set on failure. Keeps every register but DX (get).
+vbe_window_do:
+    push si
+    call vbe_cur
+    pop si
+    jc .fail
+    test bl, bl
+    jnz .fail
+    cmp bh, 1
+    je .get
+    test bh, bh
+    jnz .fail
+    push ax
+    push bx
+    push dx
+    mov al, DISPI_VRAM64K
+    call vbe_read
+    test ax, ax
+    jnz .limit
+    mov ax, 0x0100
+.limit:
+    cmp dx, ax
+    pop dx
+    jae .bad_pos                        ; past the video memory
+    mov bx, dx
+    mov al, DISPI_BANK
+    call vbe_write
+    pop bx
+    pop ax
+    clc
+    ret
+.bad_pos:
+    pop bx
+    pop ax
+.fail:
+    stc
+    ret
+.get:
+    push ax
+    mov al, DISPI_BANK
+    call vbe_read
+    mov dx, ax
+    pop ax
+    clc
+    ret
+
+; 4F08h: BL = 00h set the DAC width to BH bits, 01h get it. Only the
+; VGA's 6 bits: BH = 6 either way.
+vbe_dac:
+    cmp bl, 1
+    ja vbe_fail
+    mov bh, 6
+    jmp vbe_ok
+
+; 4F09h: BL = 00h/80h set, 01h get CX entries of the primary palette
+; from entry DX, at ES:DI as blue, green, red, 0 (6 bits each). The
+; secondary palette (02h/03h) is not supported.
+vbe_palette:
+    cmp dx, 256
+    jae vbe_fail
+    push ax
+    mov ax, dx
+    add ax, cx
+    cmp ax, 256
+    pop ax
+    ja vbe_fail
+    test bl, 0x7F
+    jz .set
+    cmp bl, 1
+    jne vbe_fail
+    ; Get
+    jcxz .done
+    pushad
+    mov al, dl
+    mov dx, 0x3C7                       ; read index
+    out dx, al
+    mov dx, 0x3C9
+.get:
+    in al, dx                           ; red, green, blue
+    mov [es:di + 2], al
+    in al, dx
+    mov [es:di + 1], al
+    in al, dx
+    mov [es:di], al
+    mov byte [es:di + 3], 0
+    add di, 4
+    loop .get
+    popad
+.done:
+    jmp vbe_ok
+.set:
+    jcxz .done
+    pushad
+    mov al, dl
+    mov dx, 0x3C8                       ; write index
+    out dx, al
+    inc dx
+.put:
+    mov al, [es:di + 2]
+    and al, 0x3F
+    out dx, al
+    mov al, [es:di + 1]
+    and al, 0x3F
+    out dx, al
+    mov al, [es:di]
+    and al, 0x3F
+    out dx, al
+    add di, 4
+    loop .put
+    popad
+    jmp vbe_ok
