@@ -307,6 +307,8 @@ boxes in [TODO.md](TODO.md).
     per line, input from the same host), until ExitBootServices
 - [ ] **F4** Diskless cluster boot of many nodes from one image server.
   Test: QEMU `-smp 256 -numa ...`; `make linux-big` already covers part.
+  - [x] `f4-multinode`: four x86_64 UEFI nodes netboot the same image at
+    once from one TFTP server behind a router (simulated network)
 
 ### Squirrel-OS/2 hand-off on every platform
 
