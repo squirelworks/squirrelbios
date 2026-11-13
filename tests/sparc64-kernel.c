@@ -7,6 +7,9 @@
 #include "fwlib.h"
 
 uint64_t get_pstate(void), get_tl(void), get_tba(void), get_lsu(void);
+uint64_t cif_keeps_globals(void *cif, uint64_t *args);
+uint64_t dtlb_data(uint64_t i), dtlb_tag(uint64_t i);
+extern uint8_t hdrs[];
 
 static int64_t (*cif_fn)(uint64_t *);
 static uint64_t stdout_ih;
@@ -86,7 +89,6 @@ static int deep(int n)
 
 void kmain(uint64_t cif_entry, uint64_t initrd, uint64_t initrd_size)
 {
-    (void)initrd, (void)initrd_size;
     cif_fn = (int64_t (*)(uint64_t *))(uintptr_t)cif_entry;
     int entry_ok = cif_entry >= 0xf0000000 && cif_entry < 0xf0400000;
     int state = (get_pstate() & 0x04) && !(get_pstate() & 0x02) && get_tl() == 0;
@@ -175,6 +177,41 @@ void kmain(uint64_t cif_entry, uint64_t initrd, uint64_t initrd_size)
     fw_printf("MMU translate=%s translations=%s method=%s claim=%s ms=%s interpret=%s\n",
               ok(translate), ok(fw_mapped), ok(method_fail), ok(claim), ok(t1 >= t0 + 20),
               ok(iout[0] != 0));
+    /* What Linux needs besides: the client's %g1-%g7 survive a call */
+    uint64_t gargs[5] = { U("test"), 1, 1, U("getprop"), 0 };
+    uint64_t gbad = cif_keeps_globals((void *)(uintptr_t)cif_entry, gargs);
+
+    /* The 1:1 RAM mappings are not locked (they would shadow user
+     * addresses once an OS runs processes); only the firmware's is */
+    int unlocked = 1;
+    for (uint64_t i = 0; i < 64; i++) {
+        uint64_t d = dtlb_data(i), t = dtlb_tag(i) & ~0x1fffull;
+        if ((d >> 63) && (d & 0x40) && t < 0xf0000000)
+            unlocked = 0;
+    }
+    /* SUNW,dtlb-load writes the entry the OS names (args: virt, data,
+     * index, as Linux passes them) */
+    uint64_t tte = (1ull << 63) | (3ull << 61) | 0x1c00000 | 0x40 | 0x20 | 0x10 | 0x4 | 0x2;
+    uint64_t lin[5] = { U("SUNW,dtlb-load"), mmu_ih, 0x1c00000, tte, 7 }, lout[1] = { 1 };
+    cif("call-method", 5, 1, lin, lout);
+    int tlbload = lout[0] == 0 && (dtlb_data(7) & 0x1ffffffe000ull) == 0x1c00000 &&
+                  (dtlb_tag(7) & ~0x1fffull) == 0x1c00000;
+
+    /* -initrd: the firmware filled the HdrS header the way Linux reads it
+     * (image64 - 0x400000 + lowest available address = the initrd) */
+    const char *hd = "none";
+    if (initrd_size) {
+        uint64_t low = ~0ull;
+        for (int i = 0; i + 1 < al / 8; i += 2)
+            if (avail[i] < low)
+                low = avail[i];
+        uint64_t img64 = fw_get_be64(hdrs + 40);
+        hd = ok(fw_get_be32(hdrs + 16) == 0 && fw_get_be32(hdrs + 20) == initrd_size &&
+                img64 - 0x400000 + low == initrd);
+    }
+    fw_printf("LINUX globals=%s unlocked=%s tlbload=%s hdrs=%s\n", ok(gbad == 0), ok(unlocked),
+              ok(tlbload), hd);
+
     fw_printf("OS-DONE sparc64, exiting to the firmware\n");
     cif("exit", 0, 0, a, o);
     for (;;)

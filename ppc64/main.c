@@ -82,6 +82,11 @@ static uint64_t xscom_read(uint32_t pcba)
     return v;
 }
 
+/* ECCB transactions that never finished. They cannot be reported on
+ * the console, which is itself on LPC: the prompt's info shows them. */
+static uint32_t eccb_timeouts;
+
+/* Runs one transaction; returns its status, or 0 when it timed out */
 static uint64_t eccb(uint64_t ctl)
 {
     xscom_write(ECCB_CTL, ctl);
@@ -90,6 +95,7 @@ static uint64_t eccb(uint64_t ctl)
         if (st & ECCB_STAT_DONE)
             return st;
     }
+    eccb_timeouts++;
     return 0;
 }
 
@@ -98,6 +104,8 @@ static inline uint8_t in8(uint64_t a)
     if (!xscom_base)
         return mmio_in8(a);
     uint64_t st = eccb(ECCB_CTL_READ | ECCB_CTL_SZ1 | (LPC_IO_OPB + (uint32_t)a));
+    if (!st)
+        return 0xff;    /* nothing answered, as on a floating bus */
     return (uint8_t)(((st >> 26) & 0xffffffffull) >> 24);
 }
 
@@ -602,6 +610,8 @@ static void pa_features(struct fdt_writer *w, const void *src, int node)
     int n = len > (int)sizeof(buf) ? (int)sizeof(buf) : len;
     memset(buf, 0, sizeof(buf));
     memcpy(buf, p, n);
+    if (buf[0] > sizeof(buf) - 2)
+        buf[0] = sizeof(buf) - 2;   /* the length byte may claim more than we keep */
     uint32_t pvr = dtb_prop_u32(src, node, "cpu-version", 0);
     int p9_or_later = (pvr >> 16) >= 0x004e;
     if (p9_or_later) {
@@ -769,6 +779,9 @@ static void cmd_info(int argc, char **argv)
     fw_printf("model: %s\n", (const char *)dtb_prop(fdt_in, dtb_root(fdt_in), "model", 0));
     fw_printf("ram: %lu MB, firmware at 0x%lx (%lu KB)\n", ram_size >> 20, FW_BASE, FW_SIZE >> 10);
     fw_printf("cpus: %d threads, boot PIR 0x%x\n", ncpus, boot_pir);
+    if (xscom_base)
+        fw_printf("lpc: through XSCOM at 0x%lx, %u timed-out transactions\n", xscom_base,
+                  eccb_timeouts);
     for (int i = 0; i < ncpus; i++)
         fw_printf("  PIR 0x%x %s\n", cpus[i].pir,
                   cpus[i].pir == boot_pir ? "boot" :

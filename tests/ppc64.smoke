@@ -47,6 +47,10 @@ ppc64_case ppc64-smt "cpu: 4 threads|$PPC64_OK|SMP cpus=4 started=6 smp=ok retur
 SERIAL_IN=$TEST_DIR/ppc64-prompt.keys
 ppc64_case ppc64-prompt "boot: no kernel at 0x20000000|sq> |commands:|  poweroff|cpus: 2 threads, boot PIR|parked|~20[0-9]{2}-[01][0-9]-[0-3][0-9] [0-2][0-9]:|chosen {|bootargs|unknown command 'bogus'|powering off|@exit=0|!trap:" \
     "$QEMU_PPC64" -M powernv9 -smp 2 -bios $PPC64_FW
+# The same on POWER8, typed and answered through XSCOM: no LPC
+# transaction timed out
+ppc64_case ppc64-p8-prompt "boot: no kernel at 0x20000000|sq> |commands:|lpc: through XSCOM at 0x3fc0000000000, 0 timed-out transactions|unknown command 'bogus'|powering off|@exit=0|!trap:" \
+    "$QEMU_PPC64" -M powernv8 -bios $PPC64_FW
 SERIAL_IN=
 
 # A kernel linked over the firmware's region, and a file that is not ELF,
