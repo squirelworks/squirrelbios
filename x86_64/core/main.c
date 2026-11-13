@@ -6,6 +6,7 @@
 #include "secure.h"
 #include "vars.h"
 #include "tpm.h"
+#include "mgmt.h"
 #include "smm.h"
 
 extern char __fw_start[], __fw_end[];
@@ -144,6 +145,7 @@ void fw_main(void)
     smp_init();                         /* before the MADT and SRAT */
     smm_init();                         /* before the HEST and EINJ */
     tpm_init();                         /* before the TPM2 table */
+    ipmi_init();                        /* before the SPMI table, SMBIOS 38 and 42 */
     acpi_init();
     smbios_init();
     efi_dump_memory_map();

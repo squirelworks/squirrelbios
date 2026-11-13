@@ -39,7 +39,11 @@
 # (from the matching linux-modules package; needs zstd) and injects a
 # correctable memory error through debugfs twice, from CPU 0 and CPU 1:
 # on q35 the kernel must report both from the GHES the SMI handler
-# writes; on pc there is no EINJ table and loading einj must fail. Logs are
+# writes; on pc there is no EINJ table and loading einj must fail.
+# LINUX_IPMI=1 (F3) adds QEMU's simulated BMC on KCS and the kernel's
+# ipmi_msghandler and ipmi_si modules (same package; needs zstd): ipmi_si
+# must find the BMC from the firmware's SMBIOS type 38 and SPMI table and
+# bring the KCS interface up. Logs are
 # build/linux-uefi/linux-uefi-<machine>.log.
 
 set -eu
@@ -55,6 +59,7 @@ PXB=${LINUX_PXB:-0}
 NV=${LINUX_NV:-0}
 TPM=${LINUX_TPM:-0}
 EINJ=${LINUX_EINJ:-0}
+IPMI=${LINUX_IPMI:-0}
 MIRROR=${UBUNTU_ARCHIVE:-http://archive.ubuntu.com/ubuntu}
 OLD_MIRROR=${UBUNTU_OLD_RELEASES:-http://old-releases.ubuntu.com/ubuntu}
 
@@ -101,7 +106,7 @@ unpack() {
 
 fetch "$KERNEL_DEB" "$KERNEL_SHA"
 fetch "$BUSYBOX_DEB" "$BUSYBOX_SHA"
-[ "$EINJ" = 1 ] && fetch "$MODULES_DEB" "$MODULES_SHA"
+{ [ "$EINJ" = 1 ] || [ "$IPMI" = 1 ]; } && fetch "$MODULES_DEB" "$MODULES_SHA"
 
 kernel=$WORK/vmlinuz-$KERNEL_VER.efi
 if [ ! -f "$kernel" ]; then
@@ -160,6 +165,12 @@ if [ -f /einj.ko ]; then
         echo "squirrel: einj: none"
     fi
 fi
+if [ -f /ipmi_si.ko ]; then
+    insmod /ipmi_msghandler.ko && insmod /ipmi_si.ko
+    sleep 2
+    v=$(cat /sys/devices/platform/ipmi_bmc.*/ipmi_version 2>/dev/null)
+    echo "squirrel: ipmi: ${v:-none}"
+fi
 poweroff -f
 INIT
 chmod 755 "$root/init"
@@ -168,6 +179,15 @@ if [ "$EINJ" = 1 ]; then
     mods=$WORK/modules-deb
     unpack "$(pwd)/$WORK/$(basename "$MODULES_DEB")" "$mods"
     zstd -d -q -f "$mods/lib/modules/$KERNEL_VER/kernel/drivers/acpi/apei/einj.ko.zst" -o "$root/einj.ko"
+    rm -rf "$mods"
+fi
+if [ "$IPMI" = 1 ]; then
+    command -v zstd >/dev/null || die "zstd not found (LINUX_IPMI needs it for the ipmi modules)"
+    mods=$WORK/modules-deb
+    unpack "$(pwd)/$WORK/$(basename "$MODULES_DEB")" "$mods"
+    for m in ipmi_msghandler ipmi_si; do
+        zstd -d -q -f "$mods/lib/modules/$KERNEL_VER/kernel/drivers/char/ipmi/$m.ko.zst" -o "$root/$m.ko"
+    done
     rm -rf "$mods"
 fi
 initrd=$WORK/initramfs.cpio.gz
@@ -228,7 +248,9 @@ for machine in q35 pc; do
             die "swtpm failed"
         tpm_args="-chardev socket,id=chrtpm,path=$tpm/sock -tpmdev emulator,id=tpm0,chardev=chrtpm -device tpm-tis,tpmdev=tpm0"
     fi
-    "$QEMU_X86" -M "$machine" $fw_args -m "$MEM" -smp "$SMP" $numa_args $pxb_args $tpm_args -no-reboot \
+    ipmi_args=
+    [ "$IPMI" = 1 ] && ipmi_args="-device ipmi-bmc-sim,id=bmc0 -device isa-ipmi-kcs,bmc=bmc0"
+    "$QEMU_X86" -M "$machine" $fw_args -m "$MEM" -smp "$SMP" $numa_args $pxb_args $tpm_args $ipmi_args -no-reboot \
         -fw_cfg name=opt/org.squirrelworks/boot.efi,file="$kernel" \
         -fw_cfg name=opt/org.squirrelworks/initrd,file="$initrd" \
         -fw_cfg "name=opt/org.squirrelworks/cmdline,string=$cmdline" \
@@ -281,6 +303,11 @@ for machine in q35 pc; do
         [ "$(grep -c "mce: \[Hardware Error\]: Machine check events logged" "$log")" -ge 2 ] || ok=0
     elif [ "$EINJ" = 1 ]; then
         grep -qF "squirrel: einj: none" "$log" || ok=0
+    fi
+    if [ "$IPMI" = 1 ]; then
+        grep -qF "squirrel: ipmi: 2.0" "$log" || ok=0
+        grep -qE "ACPI: SPMI 0x[0-9A-F]+ 000041 \(v05 SQRLWK" "$log" || ok=0
+        grep -qE "ipmi_si.*IPMI kcs interface initialized" "$log" || ok=0
     fi
     if [ "$NV" = 1 ]; then
         grep -qF "squirrel: nv before: " "$log.1" || ok=0

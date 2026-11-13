@@ -1725,6 +1725,19 @@ for smoke in tests/*.smoke; do
     [ -f "$smoke" ] && . "./$smoke"
 done
 [ "$skipped" -eq 0 ] || echo "$skipped skipped"
+# x86-64 firmware: platform management (F3). With QEMU's simulated BMC on
+# KCS (0xCA2) the firmware asks it for its device ID, and describes it in
+# the SPMI table and SMBIOS type 38; with a NIC as well, a Redfish host
+# interface (SMBIOS type 42) names that NIC and the service's addresses.
+# x86_64-ipmi reads all three as an OS would and talks to the BMC itself.
+BMC="-device ipmi-bmc-sim,id=bmc0,guid=5b3c1f6e-7d2a-4e9b-8c41-0a1b2c3d4e5f -device isa-ipmi-kcs,bmc=bmc0"
+run x86_64-ipmi "ipmi: BMC on KCS at 0xca2, device 0x20 rev 0, firmware 0.0, IPMI 2.0|acpi: FACP APIC HPET MCFG BERT HEST EINJ SPMI DSDT|APP ipmi spmi=ok smbios38=ok kcs=ok redfish=ok|efi: image returned 0x0|!=bad" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd $BMC -nic user,model=virtio-net-pci -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-ipmi.efi
+run x86_64-ipmi-pc "APP ipmi spmi=ok smbios38=ok kcs=ok redfish=none|!=bad" \
+    "$QEMU_X86_64" -M pc -bios x86_64/squirrel-bios.fd $BMC -nic none -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-ipmi.efi
+run x86_64-ipmi-none "ipmi: none|APP ipmi none|!SPMI" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-ipmi.efi
+
 # E3 stretch ports: LoongArch64 on QEMU virt and MIPS on QEMU Malta. Each
 # reaches its prompt and hands off to a test kernel: by autoboot, through
 # the prompt (help, info, an unknown command, backspace, boot), and with
