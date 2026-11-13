@@ -577,13 +577,18 @@ static struct {
     char err[64];
 } tf;
 
-static int tf_grow(u32 need)
+/* Room for need bytes, doubling; no more than NET_FILE_MAX */
+static int tf_grow(u64 need)
 {
     if (need <= tf.cap)
         return 1;
-    u32 cap = tf.cap ? tf.cap : 65536;
+    if (need > NET_FILE_MAX)
+        return 0;
+    u64 cap = tf.cap ? tf.cap : 65536;
     while (cap < need)
         cap *= 2;
+    if (cap > NET_FILE_MAX)
+        cap = NET_FILE_MAX;
     void *nb;
     if (efi_allocate_pool(EfiBootServicesData, cap, &nb) != EFI_SUCCESS)
         return 0;
@@ -592,8 +597,14 @@ static int tf_grow(u32 need)
         efi_free_pool(tf.buf);
     }
     tf.buf = nb;
-    tf.cap = cap;
+    tf.cap = (u32)cap;
     return 1;
+}
+
+static void tf_fail(const char *why)
+{
+    u32 n = (u32)strlen(why);
+    memcpy(tf.err, why, n + 1);
 }
 
 static u32 tf_num(const u8 *s, u32 n)
@@ -655,8 +666,8 @@ static void tftp_input(u32 src, u16 sport, const u8 *d, u32 len)
             u32 n = len - 4;
             if (n > tf.blksize)
                 return;
-            if (!tf_grow(tf.size + n)) {
-                memcpy(tf.err, "out of memory", 14);
+            if (!tf_grow((u64)tf.size + n)) {
+                tf_fail((u64)tf.size + n > NET_FILE_MAX ? "file too large" : "out of memory");
                 tf.done = -1;
                 return;
             }
@@ -711,8 +722,8 @@ int net_tftp_get(const struct net_cfg *cfg, const char *name, void **buf, u32 *s
         if (tf.done)
             break;
         if (tf.progress) {
-            if (tf.oack && tf.tsize && !tf.size && !tf_grow(tf.tsize + 1)) {
-                memcpy(tf.err, "out of memory", 14);
+            if (tf.oack && tf.tsize && !tf.size && !tf_grow((u64)tf.tsize + 1)) {
+                tf_fail((u64)tf.tsize + 1 > NET_FILE_MAX ? "file too large" : "out of memory");
                 tf.done = -1;
                 break;
             }
