@@ -347,3 +347,7 @@ See `common/handoff.md` for the contract each architecture provides.
 [ROADMAP.md](ROADMAP.md) is where this firmware is going.
 [TODO.md](TODO.md) is the list of small changes that get there.
 One item in that list is one PR, branched from `main`.
+
+## License
+
+SquirrelBIOS is released into the public domain under [the Unlicense](LICENSE).
