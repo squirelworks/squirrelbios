@@ -157,7 +157,12 @@ cd_int13:
 ;   AH = 4Bh  AL = 00h terminate the emulation / 01h status: the 13h-byte
 ;             specification packet to DS:SI
 
-CD_EMUL         equ 0x00E4      ; EBDA byte: 0, or the emulated media (1-3)
+CD_EMUL         equ 0x00E4      ; EBDA byte: 0, or the emulated media (1-4)
+CD_HD_SPT       equ 0x00E8      ; EBDA byte: media 4, sectors per track
+CD_HD_HEADS     equ 0x00E9      ; EBDA byte: heads
+CD_HD_CYLS      equ 0x00EA      ; EBDA word: cylinders
+CD_HD_TOTAL     equ 0x00EC      ; EBDA dword: sectors
+CD_HD_DRIVE     equ 0x80
 CD_BOUNCE       equ 0x1000      ; EBDA offset: one 2048-byte block
 CD_EMUL_DRIVE   equ 0x00
 ST_WRPROT       equ 0x03
@@ -168,20 +173,34 @@ cd_emu_geom:
     db 18, 80, 4                ; 1.44 MB
     db 36, 80, 6                ; 2.88 MB
 
-; CF clear when DL is the emulated diskette. Keeps every register.
+; CF clear when DL is the emulated diskette (00h, media 1-3) or hard
+; disk (80h, media 4). Keeps every register.
 cd_emu_owns:
-    cmp dl, CD_EMUL_DRIVE
-    jne .no
     cmp byte [ss:CD_SEL], 0
     je .no
+    push ax
     push ds
     push word EBDA_BASE >> 4
     pop ds
-    cmp byte [CD_EMUL], 0
+    mov al, [CD_EMUL]
     pop ds
-    je .no
+    test al, al
+    jz .no_ax
+    cmp al, 4
+    je .hd
+    cmp dl, CD_EMUL_DRIVE
+    jne .no_ax
+    pop ax
     clc
     ret
+.hd:
+    cmp dl, CD_HD_DRIVE
+    jne .no_ax
+    pop ax
+    clc
+    ret
+.no_ax:
+    pop ax
 .no:
     stc
     ret
@@ -231,6 +250,8 @@ cd_emu_sector:
 ; INT 13h for DL = 00h while the emulation is on: the frame as for
 ; cd_int13 (pushad, DS, ES; BP = SP + 4).
 cd_emu_int13:
+    cmp dl, CD_HD_DRIVE
+    je cd_hd_int13
     push fs
     xor ax, ax
     mov fs, ax
@@ -401,4 +422,279 @@ cd_emu_int13:
     mov [si + 16], ah                   ; sectors per track (and cyl bits 8-9 = 0)
     mov [si + 17], al                   ; last cylinder
     mov byte [si + 18], 1               ; last head
+    jmp .ok
+
+; --- Hard disk emulation -------------------------------------------------
+;
+; A boot entry of media type 4 is a hard disk image: drive 80h, read-only,
+; with the geometry cd_hd_geometry found (CD_HD_*), sectors read through
+; cd_emu_sector as for the diskette.
+;   AH = 00h, 0Dh, 10h, 11h  reset, ready, recalibrate: CF clear
+;   AH = 01h  status of the last call (always 00h here)
+;   AH = 02h  read AL sectors from CH/CL/DH to ES:BX
+;   AH = 03h, 43h  write: AH = 03h (write-protected)
+;   AH = 04h, 0Ch, 44h  verify, seek: CF clear
+;   AH = 08h  parameters: CH/CL/DH the last cylinder, sector and head,
+;             DL = 1 drive
+;   AH = 15h  AH = 03h, a hard disk of CX:DX sectors
+;   AH = 41h  EDD 3.0, fixed disk access subset
+;   AH = 42h  read the packet's sectors to its buffer
+;   AH = 48h  parameters: CHS, sectors, 512 bytes per sector
+;   AH = 4Bh  AL = 00h terminate the emulation / 01h status: the 13h-byte
+;             specification packet to DS:SI
+
+; INT 13h for DL = 80h while a media 4 emulation is on: the frame as for
+; cd_int13 (pushad, DS, ES; BP = SP + 4).
+cd_hd_int13:
+    push fs
+    push gs
+    xor ax, ax
+    mov fs, ax
+    push word EBDA_BASE >> 4
+    pop gs
+    mov ah, [bp + 29]
+    cmp ah, 0x02
+    je .read
+    cmp ah, 0x08
+    je .params
+    cmp ah, 0x15
+    je .type
+    cmp ah, 0x41
+    je .check
+    cmp ah, 0x42
+    je .ext_read
+    cmp ah, 0x48
+    je .ext_params
+    cmp ah, 0x4B
+    je .spec
+    cmp ah, 0x03
+    je .wrprot
+    cmp ah, 0x43
+    je .wrprot
+    cmp ah, 0x00
+    je .ok
+    cmp ah, 0x01
+    je .ok
+    cmp ah, 0x04
+    je .ok
+    cmp ah, 0x0C
+    je .ok
+    cmp ah, 0x0D
+    je .ok
+    cmp ah, 0x10
+    je .ok
+    cmp ah, 0x11
+    je .ok
+    cmp ah, 0x44
+    je .ok
+.bad:
+    mov byte [bp + 29], ST_BAD
+    jmp .fail
+.wrprot:
+    mov byte [bp + 29], ST_WRPROT
+    jmp .fail
+.notfound:
+    mov byte [bp + 29], ST_NOTFOUND
+.fail:
+    or word [bp + 36], 1
+    jmp .out
+.ok:
+    mov byte [bp + 29], ST_OK
+    and word [bp + 36], 0xFFFE
+.out:
+    pop gs
+    pop fs
+    pop es
+    pop ds
+    popad
+    iret
+
+.type:
+    mov byte [bp + 29], 0x03            ; a hard disk
+    mov eax, [gs:CD_HD_TOTAL]
+    mov [bp + 20], ax                   ; DX = low word
+    shr eax, 16
+    mov [bp + 24], ax                   ; CX = high word
+    and word [bp + 36], 0xFFFE
+    jmp .out
+
+.params:
+    mov word [bp + 28], 0               ; AX = 0
+    mov ax, [gs:CD_HD_CYLS]
+    dec ax                              ; the last cylinder
+    mov [bp + 25], al                   ; CH = its low 8 bits
+    shl ah, 6
+    or ah, [gs:CD_HD_SPT]
+    mov [bp + 24], ah                   ; CL = sectors, cylinder bits 8-9
+    mov al, [gs:CD_HD_HEADS]
+    dec al
+    mov [bp + 21], al                   ; DH = the last head
+    mov byte [bp + 20], 1               ; DL = drives
+    jmp .ok
+
+.check:
+    cmp word [bp + 16], 0x55AA
+    jne .bad
+    mov word [bp + 16], 0xAA55
+    mov word [bp + 24], EDD_SUBSET_FIXED
+    mov byte [bp + 29], EDD_VERSION
+    and word [bp + 36], 0xFFFE
+    jmp .out
+
+.read:
+    ; LBA = (cylinder * heads + head) * sectors + sector - 1
+    movzx ecx, byte [bp + 28]            ; AL = count
+    test cx, cx
+    jz .bad
+    mov byte [bp + 28], 0
+    movzx eax, byte [bp + 24]
+    and al, 0x3F
+    jz .notfound
+    cmp al, [gs:CD_HD_SPT]
+    ja .notfound
+    dec ax
+    mov edi, eax                        ; EDI = sector - 1
+    movzx eax, byte [bp + 24]
+    shr al, 6
+    mov ah, al
+    mov al, [bp + 25]                   ; EAX = the cylinder
+    cmp ax, [gs:CD_HD_CYLS]
+    jae .notfound
+    mov dl, [bp + 21]
+    cmp dl, [gs:CD_HD_HEADS]
+    jae .notfound
+    movzx edx, byte [gs:CD_HD_HEADS]
+    imul eax, edx
+    movzx edx, byte [bp + 21]
+    add eax, edx
+    movzx edx, byte [gs:CD_HD_SPT]
+    imul eax, edx
+    add eax, edi                        ; EAX = the first LBA
+    mov edx, eax
+    add edx, ecx
+    cmp edx, [gs:CD_HD_TOTAL]
+    ja .notfound
+    mov di, [bp + 16]                   ; ES:BX, the caller's ES
+.sector:
+    call .normal
+    call cd_emu_sector
+    jc .notfound
+    add di, 512
+    inc byte [bp + 28]
+    inc eax
+    loop .sector
+    jmp .ok
+
+; ES:DI normalised so that 512 bytes never wrap DI. Keeps every other
+; register.
+.normal:
+    push ax
+    push dx
+    mov ax, di
+    shr ax, 4
+    mov dx, es
+    add ax, dx
+    mov es, ax
+    and di, 0x000F
+    pop dx
+    pop ax
+    ret
+
+.ext_read:
+    cmp byte [si], 0x10
+    jb .bad
+    movzx ecx, word [si + 2]
+    mov word [si + 2], 0
+    test cx, cx
+    jz .ok
+    cmp cx, 127
+    ja .bad
+    cmp dword [si + 12], 0
+    jne .notfound
+    mov eax, [si + 8]
+    mov edx, eax
+    add edx, ecx
+    jc .notfound
+    cmp edx, [gs:CD_HD_TOTAL]
+    ja .notfound
+    push es
+    mov di, [si + 6]
+    mov es, di
+    mov di, [si + 4]
+.ext_sector:
+    call .normal
+    call cd_emu_sector
+    jc .ext_fail
+    add di, 512
+    inc word [si + 2]
+    inc eax
+    loop .ext_sector
+    pop es
+    jmp .ok
+.ext_fail:
+    pop es
+    jmp .notfound
+
+.ext_params:
+    mov ax, [si]
+    cmp ax, 0x1A
+    jb .bad
+    mov word [si + 2], 0x0002           ; flags: the CHS values are valid
+    movzx eax, word [gs:CD_HD_CYLS]
+    mov [si + 4], eax
+    movzx eax, byte [gs:CD_HD_HEADS]
+    mov [si + 8], eax
+    movzx eax, byte [gs:CD_HD_SPT]
+    mov [si + 12], eax
+    mov eax, [gs:CD_HD_TOTAL]
+    mov [si + 16], eax
+    mov dword [si + 20], 0
+    mov word [si + 24], 512
+    mov cx, 0x1A
+    cmp word [si], 0x1E
+    jb .ext_size
+    mov dword [si + 26], 0xFFFFFFFF     ; no DPTE
+    mov cx, 0x1E
+.ext_size:
+    mov [si], cx
+    jmp .ok
+
+.spec:
+    cmp byte [bp + 28], 0x01
+    ja .bad
+    cmp byte [bp + 28], 0
+    jne .keep
+    mov byte [gs:CD_EMUL], 0            ; terminate
+.keep:
+    mov byte [si], 0x13
+    mov byte [si + 1], 4                ; media: hard disk
+    mov byte [si + 2], CD_HD_DRIVE
+    xor al, al
+    cmp word [fs:CD_BASE], ATAPI_PRI
+    je .ctrl
+    inc al
+.ctrl:
+    mov [si + 3], al
+    mov eax, [fs:CD_IMAGE_LBA]
+    mov [si + 4], eax
+    xor ax, ax
+    cmp byte [fs:CD_SEL], 0xB0
+    jne .dev
+    inc ax
+.dev:
+    mov [si + 8], ax
+    mov word [si + 10], 0
+    mov ax, [fs:CD_LOAD_SEG]
+    mov [si + 12], ax
+    mov ax, [fs:CD_COUNT]
+    mov [si + 14], ax
+    mov ax, [gs:CD_HD_CYLS]
+    dec ax
+    shl ah, 6
+    or ah, [gs:CD_HD_SPT]
+    mov [si + 16], ah                   ; sectors, cylinder bits 8-9
+    mov [si + 17], al                   ; the last cylinder's low bits
+    mov al, [gs:CD_HD_HEADS]
+    dec al
+    mov [si + 18], al                   ; the last head
     jmp .ok

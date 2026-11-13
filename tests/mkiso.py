@@ -4,9 +4,11 @@
 #
 # Usage: mkiso.py BOOT.bin OUT.iso
 #        mkiso.py --floppy FLOPPY.img OUT.iso
+#        mkiso.py --hdd DISK.img OUT.iso
 #
 # With --floppy the default entry is a 1.44 MB diskette emulation image
-# (media type 2, one sector loaded) instead, FLOPPY.img at block 20.
+# (media type 2, one sector loaded) instead, FLOPPY.img at block 20; with
+# --hdd a hard disk emulation image (media type 4, its MBR loaded).
 #
 # Layout, in 2048-byte blocks (ISO 9660 and El Torito 1.0):
 #   16  Primary Volume Descriptor (just enough to be one)
@@ -28,10 +30,11 @@ IMAGE = 20
 def main():
     args = sys.argv[1:]
     floppy = args[:1] == ['--floppy']
-    if floppy:
+    hdd = args[:1] == ['--hdd']
+    if floppy or hdd:
         args = args[1:]
     if len(args) != 2:
-        sys.exit('usage: mkiso.py [--floppy] BOOT.bin OUT.iso')
+        sys.exit('usage: mkiso.py [--floppy | --hdd] BOOT.bin OUT.iso')
     boot = open(args[0], 'rb').read()
     sectors = (len(boot) + 511) // 512
     image_blocks = (len(boot) + BLOCK - 1) // BLOCK
@@ -40,6 +43,10 @@ def main():
         if len(boot) != 1474560:
             sys.exit('mkiso.py: --floppy needs a 1.44 MB image')
         media, sectors = 2, 1
+    if hdd:
+        if len(boot) % 512 or boot[510:512] != b'\x55\xaa':
+            sys.exit('mkiso.py: --hdd needs a disk image with an MBR')
+        media, sectors = 4, 1
     blocks = max(BLOCKS, IMAGE + image_blocks + 4)
     iso = bytearray(blocks * BLOCK)
 
