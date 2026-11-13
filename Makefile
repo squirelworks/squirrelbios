@@ -65,7 +65,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/x86-osload.bin $(TEST_DIR)/x86-int13.bin \
              $(TEST_DIR)/x86-bda.bin $(TEST_DIR)/x86-a20.bin \
              $(TEST_DIR)/x86-pit.bin $(TEST_DIR)/x86-kbd.bin $(TEST_DIR)/x86-kbd-many.bin $(TEST_DIR)/x86-mouse.bin \
-             $(TEST_DIR)/x86-vbe.bin $(TEST_DIR)/x86-vbe-text.bin $(TEST_DIR)/x86-vbe-bank.bin \
+             $(TEST_DIR)/x86-vbe.bin $(TEST_DIR)/x86-vbe-text.bin $(TEST_DIR)/x86-vbe-bank.bin $(TEST_DIR)/x86-vbe-pmi.bin \
              $(TEST_DIR)/x86-usbfault.rom \
              $(TEST_DIR)/x86-time.bin $(TEST_DIR)/x86-vid.bin \
              $(TEST_DIR)/x86-write.bin $(TEST_DIR)/x86-int15a20.bin \
@@ -449,6 +449,8 @@ $(TEST_DIR)/x86-vbe-text.bin: tests/x86-vbe.asm | $(TEST_DIR)
 	$(NASM) -f bin -DTEXT $< -o $@
 # VBE: 640x480x8 through the banked window at A000h, and the palette
 $(TEST_DIR)/x86-vbe-bank.bin: tests/x86-vbe-bank.asm | $(TEST_DIR)
+	$(NASM) -f bin $< -o $@
+$(TEST_DIR)/x86-vbe-pmi.bin: tests/x86-vbe-pmi.asm | $(TEST_DIR)
 	$(NASM) -f bin $< -o $@
 # The legacy BIOS with a fault: its 8th USB disk command (a read at
 # runtime) goes out with a bad CBW signature, for stall recovery's tests

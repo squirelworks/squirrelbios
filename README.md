@@ -92,6 +92,7 @@ boots each firmware under QEMU with a small stand-in OS image from
 | `x86-netboot-missing`, `x86-netboot-huge` | A boot file the server does not have, and one too large for the memory below `0x40000`: each says why and the boot halts |
 | `x86-vbe`, `x86-vbe-text` | VBE 3.0: controller and mode information, mode 112h (640x480x32) set with a linear frame buffer that the test fills through unreal mode, checked on QEMU's screen; then back to 80x25 text with `4F02h` `BX=3` |
 | `x86-vbe-bank` | VBE banked window and palette: mode 101h (640x480x8) without the linear frame buffer, window A at A000h in 64 KB steps, a 6-bit DAC (`4F08h`), palette entries set and read back (`4F09h`), the screen filled one window at a time with `4F05h` and drawn through the far window function, checked on QEMU's screen |
+| `x86-vbe-pmi` | VBE `4F0Ah`: the protected-mode interface table (offsets inside it, a port list), copied and called from 32-bit protected mode to set the window, the display start and a palette entry, all read back in real mode |
 | `x86-nvme-osload` | The 192-sector S2OK kernel load from NVMe on q35, past its empty AHCI controller |
 | `x86-usb` | A PIIX3 UHCI controller with a hub on root port 1 (a keyboard and a USB disk behind it) and a mouse on root port 2: each device is listed with its address, place, IDs and class, and the IDE disk then boots with the memory map intact |
 | `x86-usb-ohci` | An OHCI controller: a keyboard and a second hub behind a hub on root port 1, a tablet behind the second hub, a mouse on root port 3 |

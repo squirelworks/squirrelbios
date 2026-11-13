@@ -422,6 +422,12 @@ fi
 # buffer, palette entries 1 (red) and 2 (blue) set and read back, the
 # screen filled with 2 one 64 KB window at a time (4F05h), a red square
 # and a red line on row 300 drawn through the far window function
+# VBE 4F0Ah: the protected-mode interface table, copied and called from
+# 32-bit protected mode (window, display start, palette), read back in
+# real mode
+run x86-vbe-pmi "pmi=ok|!pmi=bad" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -drive format=raw,file=$TEST_DIR/x86-vbe-pmi.bin,if=ide,snapshot=on
 if VBE_NAME=x86-vbe-bank VBE_SCREEN="640 480 0,0=0000ff 9,10=0000ff 50,50=ff0000 109,109=ff0000 110,110=0000ff 0,300=ff0000 639,300=ff0000 639,299=0000ff 639,479=0000ff" \
    tests/x86-vbe-run.sh; then
     pass=$((pass + 1))
