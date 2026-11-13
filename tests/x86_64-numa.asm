@@ -2,14 +2,17 @@
 ; Original code. Walks the XSDT from the ACPI 2.0 configuration table and
 ; reports on COM1:
 ;   APP numa sums=ok madt=L/X srat=C cpu=D,D,... mem=D:B+S,... slit=N:dd,dd,...
+;            hmat=I>M,... lb=N cache=N
 ;   APP numa bert=N hest=S/B
 ; L/X   local APIC / local x2APIC entries in the MADT
 ; C     processor affinity entries in the SRAT; cpu= their domains in order
 ; mem   memory affinity entries: domain, base and size in MB
 ; slit  locality count, then the matrix row by row
+; hmat  initiator>memory domain per attributes structure, then the
+;       number of latency/bandwidth (lb) and memory-side cache structures
 ; bert  boot error records in the BERT region
 ; hest  error sources (IA-32 MCE and CMC) / banks each, or 0
-; (srat=none, slit=none when the tables are absent; bad on a malformed
+; (srat=none, slit=none, hmat=none when the tables are absent; bad on a malformed
 ; table) then returns 0.
 
         bits 64
@@ -223,7 +226,7 @@ entry:
         jnz .slit_have
         lea rsi, [rel s_none]
         call puts
-        jmp .ras
+        jmp .hmat
 .slit_have:
         mov rbx, rax
         mov r8, [rbx + 36]              ; localities
@@ -234,7 +237,7 @@ entry:
         xor r9d, r9d                    ; row
 .row:
         cmp r9, r8
-        jae .ras
+        jae .hmat
         test r9, r9
         jz .row_first
         mov al, ','
@@ -254,6 +257,76 @@ entry:
 .row_next:
         inc r9
         jmp .row
+
+        ; HMAT: each memory proximity domain attributes structure as
+        ; initiator>memory (-> for no initiator), then the counts of
+        ; latency/bandwidth and memory-side cache structures
+.hmat:
+        lea rsi, [rel s_hmat]
+        call puts
+        mov eax, 'HMAT'
+        call table
+        test rax, rax
+        jnz .hmat_have
+        lea rsi, [rel s_none]
+        call puts
+        jmp .ras
+.hmat_have:
+        mov ecx, [rax + 4]
+        lea r15, [rax + rcx]            ; end
+        lea rsi, [rax + 40]
+        xor r8d, r8d                    ; latency/bandwidth structures
+        xor r9d, r9d                    ; caches
+        xor r10d, r10d                  ; printed any
+.hs:    cmp rsi, r15
+        jae .hs_done
+        mov eax, [rsi + 4]
+        cmp eax, 8
+        jb fail
+        movzx eax, word [rsi]
+        cmp eax, 1
+        je .hs_lb
+        cmp eax, 2
+        je .hs_cache
+        test eax, eax
+        jnz .hs_next
+        test r10d, r10d
+        jz .hs_first
+        mov al, ','
+        call putc
+.hs_first:
+        mov r10d, 1
+        test byte [rsi + 8], 1
+        jz .hs_noinit
+        mov eax, [rsi + 12]
+        call putd
+        jmp .hs_mem
+.hs_noinit:
+        mov al, '-'
+        call putc
+.hs_mem:
+        mov al, '>'
+        call putc
+        mov eax, [rsi + 16]
+        call putd
+        jmp .hs_next
+.hs_lb: inc r8d
+        jmp .hs_next
+.hs_cache:
+        inc r9d
+.hs_next:
+        mov eax, [rsi + 4]
+        add rsi, rax
+        jmp .hs
+.hs_done:
+        lea rsi, [rel s_lb]
+        call puts
+        mov eax, r8d
+        call putd
+        lea rsi, [rel s_cache]
+        call puts
+        mov eax, r9d
+        call putd
 
 .ras:
         lea rsi, [rel s_nl]
@@ -474,6 +547,9 @@ s_srat: db ' srat=', 0
 s_cpu:  db ' cpu=', 0
 s_mem:  db ' mem=', 0
 s_slit: db ' slit=', 0
+s_hmat: db ' hmat=', 0
+s_lb:   db ' lb=', 0
+s_cache: db ' cache=', 0
 s_bert: db ' bert=', 0
 s_hest: db ' hest=', 0
 s_none: db 'none', 0

@@ -1119,7 +1119,7 @@ numa_nodes() {     # numa_nodes N MB_PER_NODE CPUS_PER_NODE
     done
 }
 NUMA_APP="-fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-numa.efi"
-run x86_64-numa "numa: 2 nodes: 96 MB 160 MB|acpi: FACP APIC HPET MCFG SRAT SLIT BERT HEST DSDT|APP numa sums=ok madt=4/0 srat=4 cpu=0,0,1,1 mem=0:0+96,1:96+160 slit=2:1020,2010|APP numa bert=0 hest=2/10|!=bad" \
+run x86_64-numa "numa: 2 nodes: 96 MB 160 MB|acpi: FACP APIC HPET MCFG SRAT SLIT HMAT BERT HEST DSDT|APP numa sums=ok madt=4/0 srat=4 cpu=0,0,1,1 mem=0:0+96,1:96+160 slit=2:1020,2010 hmat=0>0,1>1 lb=0 cache=0|APP numa bert=0 hest=2/10|!=bad" \
     "$QEMU_X86_64" -M q35 -m 256 -smp 4,sockets=2,cores=2 \
     -object memory-backend-ram,id=nm0,size=96M -numa node,nodeid=0,cpus=0-1,memdev=nm0 \
     -object memory-backend-ram,id=nm1,size=160M -numa node,nodeid=1,cpus=2-3,memdev=nm1 \
@@ -1134,7 +1134,31 @@ run x86_64-numa-64 "smp: 64 CPUs|numa: 4 nodes|APP numa sums=ok madt=64/0 srat=6
 run x86_64-numa-dist "APP numa sums=ok madt=2/0 srat=2 cpu=0,1 mem=0:0+128,1:128+128 slit=2:1031,3110|!=bad" \
     "$QEMU_X86_64" -M pc -m 256 -smp 2 $(numa_nodes 2 128 1) -bios x86_64/squirrel-bios.fd $NUMA_APP \
     -fw_cfg name=opt/org.squirrelworks/numa-distance,file=$TEST_DIR/x86_64-numa-dist.bin
-run x86_64-numa-none "APP numa sums=ok madt=2/0 srat=none slit=none|APP numa bert=0 hest=2/10|!=bad" \
+# HMAT (F1): QEMU's own HMAT and SLIT (-machine hmat=on, -numa hmat-lb,
+# hmat-cache and dist) are taken from the tables it offers in
+# etc/acpi/tables; node 2 has memory and no CPUs. Without hmat=on the
+# HMAT names each node's initiator, the memory-only node getting the
+# nearest node with CPUs by the SLIT.
+NUMA3="-object memory-backend-ram,id=nm0,size=128M -object memory-backend-ram,id=nm1,size=128M -object memory-backend-ram,id=nm2,size=64M"
+HMAT_LB="-numa hmat-lb,initiator=0,target=0,hierarchy=memory,data-type=access-latency,latency=5 -numa hmat-lb,initiator=0,target=0,hierarchy=memory,data-type=access-bandwidth,bandwidth=400M \
+    -numa hmat-lb,initiator=0,target=1,hierarchy=memory,data-type=access-latency,latency=10 -numa hmat-lb,initiator=0,target=1,hierarchy=memory,data-type=access-bandwidth,bandwidth=200M \
+    -numa hmat-lb,initiator=0,target=2,hierarchy=memory,data-type=access-latency,latency=30 -numa hmat-lb,initiator=0,target=2,hierarchy=memory,data-type=access-bandwidth,bandwidth=100M \
+    -numa hmat-lb,initiator=1,target=0,hierarchy=memory,data-type=access-latency,latency=10 -numa hmat-lb,initiator=1,target=0,hierarchy=memory,data-type=access-bandwidth,bandwidth=200M \
+    -numa hmat-lb,initiator=1,target=1,hierarchy=memory,data-type=access-latency,latency=5 -numa hmat-lb,initiator=1,target=1,hierarchy=memory,data-type=access-bandwidth,bandwidth=400M \
+    -numa hmat-lb,initiator=1,target=2,hierarchy=memory,data-type=access-latency,latency=40 -numa hmat-lb,initiator=1,target=2,hierarchy=memory,data-type=access-bandwidth,bandwidth=100M"
+run x86_64-numa-hmat "numa: HMAT from QEMU (-numa hmat-lb)|acpi: FACP APIC HPET MCFG SRAT SLIT HMAT BERT HEST DSDT|APP numa sums=ok madt=2/0 srat=2 cpu=0,1 mem=0:0+128,1:128+128,2:256+64 slit=3:103117,311028,172810 hmat=0>0,1>1,0>2 lb=2 cache=1|!=bad" \
+    "$QEMU_X86_64" -M q35,hmat=on -m 320 -smp 2 $NUMA3 \
+    -numa node,nodeid=0,cpus=0,memdev=nm0,initiator=0 -numa node,nodeid=1,cpus=1,memdev=nm1,initiator=1 \
+    -numa node,nodeid=2,memdev=nm2,initiator=0 \
+    -numa dist,src=0,dst=1,val=31 -numa dist,src=0,dst=2,val=17 -numa dist,src=1,dst=2,val=28 \
+    $HMAT_LB -numa hmat-cache,node-id=2,size=8M,level=1,associativity=direct,policy=write-back,line=64 \
+    -bios x86_64/squirrel-bios.fd $NUMA_APP
+run x86_64-numa-initiator "numa: HMAT with the initiator of each node|APP numa sums=ok madt=2/0 srat=2 cpu=0,1 mem=0:0+128,1:128+128,2:256+64 slit=3:102140,211017,401710 hmat=0>0,1>1,1>2 lb=0 cache=0|!=bad" \
+    "$QEMU_X86_64" -M pc -m 320 -smp 2 $NUMA3 \
+    -numa node,nodeid=0,cpus=0,memdev=nm0 -numa node,nodeid=1,cpus=1,memdev=nm1 -numa node,nodeid=2,memdev=nm2 \
+    -numa dist,src=0,dst=1,val=21 -numa dist,src=0,dst=2,val=40 -numa dist,src=1,dst=2,val=17 \
+    -bios x86_64/squirrel-bios.fd $NUMA_APP
+run x86_64-numa-none "APP numa sums=ok madt=2/0 srat=none slit=none hmat=none|APP numa bert=0 hest=2/10|!=bad" \
     "$QEMU_X86_64" -M q35 -smp 2 -bios x86_64/squirrel-bios.fd $NUMA_APP
 
 # x86-64 firmware: machine checks left in the banks survive a reset and

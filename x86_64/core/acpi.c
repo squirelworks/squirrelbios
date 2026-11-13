@@ -482,7 +482,8 @@ void acpi_init(void)
     printf("acpi: FACP APIC%s%s", hpet ? " HPET" : "", cs->q35 && cs->mcfg_base ? " MCFG" : "");
     for (int i = 0; i < n; i++)
         if (!memcmp(tables[i], "SRAT", 4) || !memcmp(tables[i], "SLIT", 4) ||
-            !memcmp(tables[i], "BERT", 4) || !memcmp(tables[i], "HEST", 4))
+            !memcmp(tables[i], "HMAT", 4) || !memcmp(tables[i], "BERT", 4) ||
+            !memcmp(tables[i], "HEST", 4))
             printf(" %c%c%c%c", tables[i][0], tables[i][1], tables[i][2], tables[i][3]);
     printf(" DSDT (%u bytes of AML) FACS\n", dsdt_len - 36);
 }
