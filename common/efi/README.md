@@ -28,6 +28,8 @@ virtio_pci.c    virtio-blk on PCI, the modern interface (capabilities)
 nvme.c          NVMe namespace 1, one polled I/O queue, PRP lists
 ahci.c          SATA disks on AHCI ports (LBA48, 512-byte sectors),
                 polled; ATAPI ports passed over
+xhci.c          USB mass storage (bulk-only SCSI) on xHCI root ports:
+                polled command, event and transfer rings; no hubs, no UAS
                 (pci_disk_add in disk.c picks the driver; x86_64 finds
                 the functions with platform/pcidisk.c)
 disk.c, fat.c   Block I/O for each disk and its GPT/MBR partitions, a

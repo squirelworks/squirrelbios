@@ -129,8 +129,8 @@ static int function(uptr ecam, u8 dev, u8 fn)
     p.vendor = (u16)id;
     p.device = (u16)(id >> 16);
     p.class_rev = mmio_read32(cfg + CFG_CLASS);
-    if (p.class_rev >> 24 != 0x01)
-        return 0;                           /* not mass storage */
+    if (p.class_rev >> 24 != 0x01 && p.class_rev >> 8 != 0x0C0330)
+        return 0;                           /* not mass storage or xHCI */
 
     u16 cmd = mmio_read16(cfg + CFG_COMMAND);
     mmio_write16(cfg + CFG_COMMAND, cmd & ~(CMD_MEMORY | 1));

@@ -26,8 +26,8 @@ core/      start.asm (clears .bss, calls fw_main), main.c, arch.c (the
 platform/  fwcfg.c (QEMU fw_cfg over I/O ports), memmap.c (etc/e820,
            CMOS as a fallback), pci.c (config space, I/O and memory
            BAR assignment below 4 GB), virtio_blk.c (legacy
-           virtio-blk), pcidisk.c (NVMe, AHCI and modern virtio-blk
-           through common/efi's drivers),
+           virtio-blk), pcidisk.c (NVMe, AHCI, modern virtio-blk and
+           xHCI USB disks through common/efi's drivers),
            chipset.c (PIIX4 / ICH9 PM block, q35 ECAM, PCI interrupt
            routing)
 csm/       csm.c, csm.asm: the CSM (roadmap C3), the legacy x86-pc ROM
@@ -81,8 +81,9 @@ mode. Input turns terminal escape sequences into UEFI scan codes
 (arrows, Home/End, Insert/Delete, Page Up/Down, F1-F12, Esc).
 
 Disk: one transitional virtio-blk function (legacy I/O BAR, assigned
-from `0xC000`), then every NVMe namespace 1, AHCI SATA disk and modern
-virtio-blk on any bus through the shared drivers. GPT ESP partitions and
+from `0xC000`), then every NVMe namespace 1, AHCI SATA disk, modern
+virtio-blk and USB bulk-only disk on an xHCI root port, on any bus,
+through the shared drivers. GPT ESP partitions and
 MBR type `0xEF`/`0x0C` get child Block I/O handles; a whole-disk FAT
 volume is also tried. The Simple File System matches 8.3 and long
 names, and can write (common/efi/fat.c).
