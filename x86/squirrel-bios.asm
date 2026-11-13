@@ -386,6 +386,7 @@ msg_nvme    db 'disk: NVMe disk (namespace 1)', 0
 %endif
 %if CONFIG_VIRTIO
 msg_virtio  db 'disk: virtio disk', 0
+msg_virtio_v1 db ' (modern interface)', 0
 %endif
 %if CONFIG_NETBOOT
 msg_net_mac db 'net: virtio-net, MAC ', 0
@@ -396,7 +397,9 @@ msg_net_got db 'net: loaded ', 0
 msg_net_bytes db ' bytes', 0
 msg_net_nodhcp db 'net: no DHCP answer', 0
 msg_net_nofile db 'net: DHCP gave no boot file', 0
-msg_net_noarp db 'net: the boot server does not answer ARP', 0
+msg_net_noarp db 'net: the boot server (or its router) does not answer ARP', 0
+msg_net_via db 'net: boot server on another network, through router ', 0
+msg_net_noroute db 'net: the boot server is on another network and DHCP gave no router', 0
 msg_net_timeout db 'net: TFTP timed out', 0
 msg_net_refused db 'net: the TFTP server refused the file', 0
 msg_net_big db 'net: the boot file does not fit below 0x40000', 0
@@ -407,7 +410,8 @@ msg_cdread  db 'cd: read of the CD failed', 0
 msg_cdnoboot db 'cd: no El Torito boot record', 0
 msg_cdcatalog db 'cd: boot catalog is invalid', 0
 msg_cdnotboot db 'cd: default entry is not bootable', 0
-msg_cdemul  db 'cd: only no-emulation boot images are supported', 0
+msg_cdemul  db 'cd: only no-emulation and diskette emulation boot images are supported', 0
+msg_cdemu_boot db 'booting from CD-ROM (El Torito, diskette emulation as A:)', 0
 msg_cdrange db 'cd: boot image load address is out of range', 0
 %endif
 msg_overlap db 'disk: load overlaps firmware data', 0

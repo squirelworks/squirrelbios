@@ -2,8 +2,8 @@
 ; Original code.
 ;
 ; 4F00h with 'VBE2': 'VESA', version 3.0, 0112h in the mode list. 4F01h
-; for 0112h: linear frame buffer, 640x480, 32 bits, its address. 4F02h for 0112h without bit 14 is refused,
-; with it accepted; 4F03h reports 4112h. Then, through unreal mode, the
+; for 0112h: linear frame buffer, 640x480, 32 bits, its address. 4F02h for 0112h without bit 14 (the
+; banked window) and with it are both accepted; 4F03h reports 4112h. Then, through unreal mode, the
 ; screen is filled with 336699h and a red square drawn at (10,10)-(109,
 ; 109); tests/x86-vbe-run.sh checks the screen QEMU shows. Built with
 ; -DTEXT, 4F02h BX=3 then goes back to text mode, 4F03h reports 3, and a
@@ -69,7 +69,7 @@ start:
     mov ax, 0x4F02
     mov bx, 0x0112
     int 0x10
-    cmp ax, 0x014F
+    cmp ax, 0x004F
     jne bad
     mov ax, 0x4F02
     mov bx, 0x4112
