@@ -284,9 +284,17 @@ uhci_hid_start:
     pop dx
     mov al, USBK_KIND_UHCI
     call usb_hid_begin
+    ; A USB disk (msd.inc) gets the last queue head, with no work until a
+    ; command hangs its TDs there
+    mov ebp, TD_T               ; EBP = the next queue head's link
+    cmp byte [fs:USBD_ADDR], 0
+    je .devices
+    mov dword [es:USBD_UQH], TD_T
+    mov dword [es:USBD_UQH + 4], TD_T
+    mov ebp, (EBDA_BASE + USBD_UQH) | TD_Q
+.devices:
     ; Each device: a queue head with one TD, IN from its endpoint, DATA0
     ; first. The queue heads are chained, the last one ends the frame.
-    mov ebp, TD_T               ; EBP = the next queue head's link
     mov bx, 1
 .dev:
     push bx
