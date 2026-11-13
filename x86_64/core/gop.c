@@ -1,6 +1,14 @@
 /* SquirrelBIOS x86_64-uefi: Graphics Output Protocol on QEMU std VGA.
  * Original code. Uses the Bochs DISPI registers (0x01CE/0x01CF) and the
- * linear frame buffer in the VGA PCI function's BAR0. */
+ * linear frame buffer in the VGA PCI function's BAR0.
+ *
+ * DISPI alone does not light the screen: the VGA attribute controller's
+ * palette address source bit (PAS, bit 5 of the index at 0x3C0) must be
+ * set, or the adapter shows nothing, whatever mode it is in. After reset
+ * it is clear, so every mode set sets it again. The miscellaneous output
+ * register's colour bit goes on first: with it off the status register
+ * (which resets the 3C0 flip-flop) is at 3BAh, not 3DAh where a BIOS's
+ * colour adapter has it. */
 #include "efi.h"
 
 const EFI_GUID efi_gop_guid = EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID;
@@ -18,6 +26,15 @@ const EFI_GUID efi_gop_guid = EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID;
 #define DISPI_YOFF 9
 #define DISPI_ON   0x01
 #define DISPI_LFB  0x40
+
+#define VGA_AR_INDEX  0x3C0
+#define VGA_AR_PAS    0x20
+#define VGA_INPUT_ST1 0x3DA             /* reading it resets the 3C0 flip-flop */
+#define VGA_MISC_W    0x3C2             /* bit 0: colour, ports at 3Dx not 3Bx */
+#define VGA_MISC_R    0x3CC
+#define VGA_SEQ_INDEX 0x3C4
+#define VGA_SEQ_DATA  0x3C5
+#define VGA_SEQ_CLOCK 0x01              /* bit 5: screen off */
 
 #define VGA_VENDOR 0x1234
 #define VGA_DEVICE 0x1111
@@ -80,6 +97,11 @@ static void set_dispi(const struct gop_mode *m)
     dispi_write(DISPI_XOFF, 0);
     dispi_write(DISPI_YOFF, 0);
     dispi_write(DISPI_ENABLE, DISPI_ON | DISPI_LFB);
+    outb(VGA_MISC_W, (u8)(inb(VGA_MISC_R) | 0x01));    /* CRTC and status at 3Dx */
+    outb(VGA_SEQ_INDEX, VGA_SEQ_CLOCK);
+    outb(VGA_SEQ_DATA, inb(VGA_SEQ_DATA) & ~0x20);
+    (void)inb(VGA_INPUT_ST1);
+    outb(VGA_AR_INDEX, VGA_AR_PAS);
 }
 
 static EFI_STATUS EFIAPI gop_query(EFI_GRAPHICS_OUTPUT_PROTOCOL *this, u32 mode,
@@ -111,6 +133,7 @@ static EFI_STATUS EFIAPI gop_set(EFI_GRAPHICS_OUTPUT_PROTOCOL *this, u32 mode)
     gop_mode.frame_buffer_size = (UINTN)modes[mode].w * modes[mode].h * 4;
     if (gop_mode.frame_buffer_size > lfb_size)
         gop_mode.frame_buffer_size = lfb_size;
+    memset((void *)(uptr)lfb_base, 0, gop_mode.frame_buffer_size);     /* black, as SetMode says */
     return EFI_SUCCESS;
 }
 
@@ -192,7 +215,7 @@ static u32 find_vga_lfb(void)
     if (!base)
         return 0;
     u16 cmd = pci_read16(bus, dev, fn, 0x04);
-    pci_write16(bus, dev, fn, 0x04, cmd | 0x02);        /* memory space */
+    pci_write16(bus, dev, fn, 0x04, cmd | 0x03);        /* I/O (the VGA ports) and memory */
     return base;
 }
 

@@ -97,7 +97,13 @@ virtio-blk and USB bulk-only disk on an xHCI root port, on any bus,
 through the shared drivers. GPT ESP partitions and
 MBR type `0xEF`/`0x0C` get child Block I/O handles; a whole-disk FAT
 volume is also tried. The Simple File System matches 8.3 and long
-names, and can write (common/efi/fat.c).
+names, and can write (common/efi/fat.c). A file read takes whole
+clusters that follow each other on disk in one request (up to 1 MB),
+and the legacy virtio-blk driver waits for each request by the clock
+(30 s), not a count of polls: under QEMU's TCG a request takes about
+10 ms however small, so a 3 MB loader on an ESP of 512-byte clusters
+once took a minute, or gave up and fell back to the CSM
+(`x86_64-bigload`).
 
 Memory: allocations come from the top of the highest free range below
 4 GB (the limit of the 1:1 mapping). The UEFI memory map keeps page 0 and
@@ -108,10 +114,18 @@ reserved. Services not written yet answer `EFI_UNSUPPORTED`.
 GOP: QEMU std VGA (PCI `1234:1111`) through Bochs DISPI (`0x01CE`/
 `0x01CF`) and the linear frame buffer in BAR0. Modes 800×600, 640×480
 and 1024×768 at 32 bpp (BGRX); `QueryMode`/`SetMode`/`Blt` (fill,
-buffer↔video, video↔video). Runtime: `GetTime` from the CMOS RTC,
+buffer↔video, video↔video). Every mode set also sets the VGA
+miscellaneous output register's colour bit and the attribute
+controller's palette address source bit, without which the adapter
+shows nothing, and clears the frame buffer. Runtime: `GetTime` from the CMOS RTC,
 the variable services (below), `ResetSystem` (ACPI
 shutdown or keyboard-controller reset), and `ExitBootServices` (signals
-exit-boot events, nulls `BootServices`, reseals the system table). The
+exit-boot events, nulls `BootServices`, reseals the system table). At
+ExitBootServices, and before the CSM, the PC is left as a BIOS leaves
+it for an OS that drives the 8259s: the PICs at vectors 08h/70h, all
+masked but the cascade; the BSP's local APIC in virtual wire mode
+(LINT0 ExtINT, LINT1 NMI, timer and error masked); the 8042 with its
+keyboard interrupt and set 1 translation on (`x86_64-handoff`). The
 1:1 map stays; `SetVirtualAddressMap` is a no-op after exit.
 
 CSM (roadmap C3): when no `BOOTX64.EFI` and no fw_cfg image boots, the

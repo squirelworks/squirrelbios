@@ -152,6 +152,7 @@ void fw_main(void)
     printf("efi: memory services %s\n", efi_memory_selftest() ? "ok" : "FAILED");
     printf("efi: TSC at %lu MHz, console on COM1\n", efi_counter_hz() / 1000000);
     efi_gop_init();
+    chipset_ebs_init();
 
     efi_initrd_init();
     vars_init();

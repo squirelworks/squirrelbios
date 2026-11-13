@@ -115,6 +115,8 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/x86_64-einj.efi \
              $(TEST_DIR)/x86_64-smmlock.efi \
              $(TEST_DIR)/x86_64-ipmi.efi \
+             $(TEST_DIR)/x86_64-bigload.img \
+             $(TEST_DIR)/x86_64-handoff.efi \
              $(TEST_DIR)/arm-efi-app.efi $(TEST_DIR)/arm-efi-app-exit.efi \
              $(TEST_DIR)/arm-efi-app-ebs.efi $(TEST_DIR)/arm-efi-initrd.img \
              $(TEST_DIR)/riscv-efi-app.efi $(TEST_DIR)/riscv-efi-app-exit.efi \
@@ -454,6 +456,17 @@ $(TEST_DIR)/x86_64-smmlock.efi: tests/x86_64-smmlock.c tests/efi-app.ld tests/mk
 	python3 tests/mkpe.py x86_64 $(@:.efi=.elf) $@
 # The BMC as an OS sees it: SPMI, SMBIOS 38 and 42, KCS
 $(TEST_DIR)/x86_64-ipmi.efi: tests/x86_64-ipmi.c tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)
+	$(CC64) $(X64_APP_CFLAGS) $< -o $(@:.efi=.elf)
+	python3 tests/mkpe.py x86_64 $(@:.efi=.elf) $@
+# A 3 MB BOOTX64.EFI on an ESP with 512-byte clusters: the disk read path
+$(TEST_DIR)/x86_64-bigload.efi: tests/x86_64-bigload.c tests/fillblob.py tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)
+	$(CC64) $(X64_APP_CFLAGS) $< -o $(@:.efi=.elf)
+	python3 tests/fillblob.py $(@:.efi=.elf) 0x300000
+	python3 tests/mkpe.py x86_64 $(@:.efi=.elf) $@
+$(TEST_DIR)/x86_64-bigload.img: tests/mkesp.py $(TEST_DIR)/x86_64-bigload.efi | $(TEST_DIR)
+	python3 tests/mkesp.py $(TEST_DIR)/x86_64-bigload.efi $@
+# The PIC, local APIC, 8042 and VGA state an OS gets
+$(TEST_DIR)/x86_64-handoff.efi: tests/x86_64-handoff.c tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)
 	$(CC64) $(X64_APP_CFLAGS) $< -o $(@:.efi=.elf)
 	python3 tests/mkpe.py x86_64 $(@:.efi=.elf) $@
 $(TEST_DIR)/arm-fat.img: tests/mkesp.py $(TEST_DIR)/arm-efi-fat.efi | $(TEST_DIR)

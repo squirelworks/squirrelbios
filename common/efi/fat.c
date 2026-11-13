@@ -953,6 +953,34 @@ static EFI_STATUS EFIAPI file_read(EFI_FILE_PROTOCOL *this, UINTN *size, void *b
     u8 *dst = buf;
     UINTN left = want;
     while (s == EFI_SUCCESS && left) {
+        if (!skip && left >= cb && !((uptr)dst & 3)) {
+            /* Whole clusters go straight to dst, as many as follow each
+             * other on disk (up to 1 MB) in one request: a cluster at a
+             * time costs a disk request each, and a request is slow on
+             * some disks (virtio-blk under QEMU's TCG, about 10 ms) */
+            u32 first = clus, n = 1, next;
+            for (;;) {
+                if (clus < 2 || clus > v->max_clus || fat_get(v, clus, &next) != EFI_SUCCESS) {
+                    s = EFI_VOLUME_CORRUPTED;
+                    break;
+                }
+                if (next != clus + 1 || next > v->max_clus || (UINTN)(n + 1) * cb > left ||
+                    (n + 1) * cb > (1u << 20))
+                    break;
+                clus = next;
+                n++;
+            }
+            if (s == EFI_SUCCESS)
+                s = bio_read(v, clus_lba(v, first), dst, (UINTN)n * cb);
+            if (s != EFI_SUCCESS)
+                break;
+            dst += (UINTN)n * cb;
+            left -= (UINTN)n * cb;
+            clus = next;
+            if (left && clus == EOC)
+                s = EFI_DEVICE_ERROR;
+            continue;
+        }
         s = read_clus(v, clus, cbuf);
         if (s != EFI_SUCCESS)
             break;

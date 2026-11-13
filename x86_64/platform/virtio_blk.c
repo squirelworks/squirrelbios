@@ -1,6 +1,8 @@
 /* SquirrelBIOS x86_64-uefi: virtio-blk (legacy PCI interface).
  * Original code, from the VIRTIO 1.1 legacy description (I/O BAR0).
- * One request at a time on descriptors 0-2. */
+ * One request at a time on descriptors 0-2, waited for by the clock:
+ * QEMU finishes a request in its I/O thread, so how long a large read
+ * takes has nothing to do with how often the used ring is polled. */
 #include "efi.h"
 
 #define VBLK_VENDOR 0x1AF4
@@ -13,6 +15,7 @@
 #define VIO_QSEL     0x0E
 #define VIO_QNOTIFY  0x10
 #define VIO_STATUS   0x12
+#define VIO_ISR      0x13
 #define VIO_CONFIG   0x14
 
 #define VIO_ACK      0x01
@@ -30,6 +33,7 @@ struct vblk {
     u8 bus, dev, fn;
     u16 qsize;
     u16 last_used;
+    int broken;                 /* a request timed out: no more */
     u64 sectors;
     u8 *queue;                  /* three pages: desc + avail + used */
     u8 *hdr;
@@ -108,7 +112,7 @@ static int vblk_init(struct vblk *v, u16 io, u8 bus, u8 dev, u8 fn)
 
 static int vblk_xfer(struct vblk *v, u64 lba, void *buf, u32 bytes, int write)
 {
-    if (!bytes || (bytes & 511) || !buf)
+    if (!bytes || (bytes & 511) || !buf || v->broken)
         return 0;
     /* Header: type, reserved, sector */
     memset(v->hdr, 0, 16);
@@ -127,20 +131,27 @@ static int vblk_xfer(struct vblk *v, u64 lba, void *buf, u32 bytes, int write)
     u16 zero = 0;
     memcpy(avail + 4 + slot * 2, &zero, 2);
     idx++;
+    __asm__ volatile("" ::: "memory");  /* the ring before its index */
     memcpy(avail + 2, &idx, 2);
-
+    __asm__ volatile("" ::: "memory");  /* and both before the notify */
     w16(v->io + VIO_QNOTIFY, 0);
 
-    u8 *used = v->queue + v->used_off;
-    for (int i = 0; i < 1000000; i++) {
-        u16 ui;
-        memcpy(&ui, used + 2, 2);
-        if (ui != v->last_used) {
-            v->last_used = ui;
-            return *v->status_byte == 0;
+    /* Wait for the used index to move, up to 30 s. A request given up on
+     * would still finish later and leave the ring out of step with
+     * last_used, so a timeout also takes the disk out of service. */
+    volatile u16 *used_idx = (volatile u16 *)(v->queue + v->used_off + 2);
+    u64 end = arch_counter() + arch_counter_hz() * 30;
+    while (*used_idx == v->last_used) {
+        if (arch_counter() > end) {
+            printf("disk: virtio-blk request at LBA %lu timed out\n", lba);
+            v->broken = 1;
+            return 0;
         }
+        (void)inb(v->io + VIO_ISR);     /* a port read lets QEMU's main loop in */
     }
-    return 0;
+    v->last_used = *used_idx;
+    __asm__ volatile("" ::: "memory");  /* the status after the index */
+    return *(volatile u8 *)v->status_byte == 0;
 }
 
 static int vblk_read(struct sq_blk *b, u64 lba, void *buf, u32 bytes)

@@ -3,7 +3,8 @@
  *
  * xAPIC mode uses the registers at the APIC base (FEE00000h on QEMU),
  * x2APIC mode the MSRs from 800h. The firmware only reads its ID and
- * sends IPIs (INIT and STARTUP); interrupts stay off. */
+ * sends IPIs (INIT and STARTUP); interrupts stay off. At hand-off the
+ * BSP's LVTs are set as a BIOS leaves them (apic_legacy_lvt). */
 #include "smp.h"
 
 #define MSR_APIC_BASE   0x1B
@@ -52,6 +53,30 @@ void apic_enable(int x2)
         wrmsr(MSR_X2APIC_SVR, rdmsr(MSR_X2APIC_SVR) | 0x1FF);
     else
         *xapic(XAPIC_SVR) |= 0x1FF;
+}
+
+/* What a PC BIOS leaves on the BSP for an OS that drives the 8259s:
+ * virtual wire mode, LINT0 ExtINT (the PIC's INTR) and LINT1 NMI, the
+ * timer and error entries masked. The LVTs come out of reset masked, and
+ * the APIC is enabled here, so without this no PIC interrupt arrives. */
+#define LVT_MASKED      0x10000u
+#define LVT_EXTINT      0x700u
+#define LVT_NMI         0x400u
+void apic_legacy_lvt(void)
+{
+    if (!(rdmsr(MSR_APIC_BASE) & APIC_BASE_EN))
+        return;
+    if (apic_is_x2apic()) {
+        wrmsr(0x832, LVT_MASKED);       /* timer */
+        wrmsr(0x835, LVT_EXTINT);       /* LINT0 */
+        wrmsr(0x836, LVT_NMI);          /* LINT1 */
+        wrmsr(0x837, LVT_MASKED);       /* error */
+        return;
+    }
+    *xapic(0x320) = LVT_MASKED;
+    *xapic(0x350) = LVT_EXTINT;
+    *xapic(0x360) = LVT_NMI;
+    *xapic(0x370) = LVT_MASKED;
 }
 
 u32 apic_id(void)
