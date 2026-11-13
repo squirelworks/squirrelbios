@@ -16,7 +16,7 @@ sparc64_case() {
     fi
 }
 
-SPARC64_OK="OS-ENTRY sparc64 cif=ok state=ok mmu=ok tba=ok windows=ok|CIF test=ok unknown=ok mem=ok walk=ok nodes=9 missing=ok alias=ok|MMU translate=ok translations=ok method=ok claim=ok ms=ok interpret=ok|cif: exit|sq> "
+SPARC64_OK="OS-ENTRY sparc64 cif=ok state=ok mmu=ok tba=ok windows=ok|CIF test=ok unknown=ok mem=ok walk=ok nodes=9 missing=ok alias=ok|MMU translate=ok translations=ok method=ok claim=ok ms=ok interpret=ok|LINUX globals=ok unlocked=ok tlbload=ok hdrs=|cif: exit|sq> "
 
 # The firmware copies itself from the PROM to the top 4 MB of RAM, runs
 # there at 0xf0000000 with the MMUs on, and enters the test kernel (an
@@ -29,6 +29,11 @@ sparc64_case sparc64-boot "SquirrelBIOS SPARC|firmware at 0xf0000000 (physical 0
     "$QEMU_SPARC64" -M sun4u -bios $SPARC64_FW -kernel $TEST_DIR/sparc64-kernel.elf -append quiet
 
 # More RAM: the firmware moves to the new top
+# -initrd: the firmware writes its address into the kernel's "HdrS"
+# header, the way Linux on sparc64 looks for it
+sparc64_case sparc64-initrd "boot: initrd at 0x|in the kernel's HdrS header|$SPARC64_OK|hdrs=ok|!=bad|!trap:" \
+    "$QEMU_SPARC64" -M sun4u -bios $SPARC64_FW -kernel $TEST_DIR/sparc64-kernel.elf -initrd $TEST_DIR/x86-boot.bin
+
 sparc64_case sparc64-512m "firmware at 0xf0000000 (physical 0x1fc00000)|mem: 512 MB|$SPARC64_OK|!=bad|!trap:" \
     "$QEMU_SPARC64" -M sun4u -m 512 -bios $SPARC64_FW -kernel $TEST_DIR/sparc64-kernel.elf
 
