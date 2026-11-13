@@ -26,6 +26,7 @@ static int nmap;
 static UINTN map_key = 1;
 
 extern char __fw_start[], __fw_end[];
+extern char __rt_code_start[], __rt_code_end[], __rt_data_start[], __rt_data_end[];
 
 static u64 end_of(const struct range *r) { return r->start + r->pages * PAGE; }
 
@@ -152,10 +153,18 @@ void efi_memory_init(void)
     set_type(0xA0000, 0x60, EfiReservedMemoryType, 0);                   /* VGA, ROMs */
     set_type(0x100000, 0x100, EfiBootServicesData, EFI_MEMORY_WB);       /* stack */
     u64 fs = (u64)(uptr)__fw_start, fe = ((u64)(uptr)__fw_end + PAGE - 1) & ~(PAGE - 1);
-    /* The image holds the runtime services, their table and the
-     * variable store, so it stays the OS's to keep after
-     * ExitBootServices (Linux calls GetVariable/SetVariable later). */
-    set_type(fs, (fe - fs) / PAGE, EfiRuntimeServicesCode, EFI_MEMORY_WB | EFI_MEMORY_RUNTIME);
+    /* The image is boot services code, except for the runtime pages
+     * (link.ld): the runtime services, the variable store, the system
+     * and runtime services tables and the configuration tables, which
+     * the OS keeps after ExitBootServices (Linux calls GetVariable and
+     * SetVariable later). The rest is the OS's to reuse. */
+    set_type(fs, (fe - fs) / PAGE, EfiBootServicesCode, EFI_MEMORY_WB);
+    u64 cs = (u64)(uptr)__rt_code_start, ce = (u64)(uptr)__rt_code_end;
+    u64 ds = (u64)(uptr)__rt_data_start, de = (u64)(uptr)__rt_data_end;
+    if (ce > cs)
+        set_type(cs, (ce - cs) / PAGE, EfiRuntimeServicesCode, EFI_MEMORY_WB | EFI_MEMORY_RUNTIME);
+    if (de > ds)
+        set_type(ds, (de - ds) / PAGE, EfiRuntimeServicesData, EFI_MEMORY_WB | EFI_MEMORY_RUNTIME);
 }
 
 static int valid_alloc_type(EFI_MEMORY_TYPE t)

@@ -5,10 +5,13 @@
  * are filled in as later steps of roadmap C1 add them. */
 #include "efi.h"
 
-static EFI_SYSTEM_TABLE st;
+/* The system table, the runtime services table and the vendor string
+ * stay valid after ExitBootServices: they live in the runtime pages */
+#define RT_DATA __attribute__((section(".rt.data.tables")))
+static EFI_SYSTEM_TABLE st RT_DATA;
 static EFI_BOOT_SERVICES bs;
-static EFI_RUNTIME_SERVICES rt;
-static CHAR16 vendor[] = u"SquirrelBIOS";
+static EFI_RUNTIME_SERVICES rt RT_DATA;
+static CHAR16 vendor[] RT_DATA = u"SquirrelBIOS";
 static EFI_TPL current_tpl = 4;         /* TPL_APPLICATION */
 
 EFI_SYSTEM_TABLE *efi_st;

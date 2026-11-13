@@ -24,7 +24,8 @@ struct handle {
 };
 
 static struct handle *handles;
-static EFI_CONFIGURATION_TABLE config[CONFIG_MAX];
+/* In the runtime pages: the OS reads it after ExitBootServices */
+static EFI_CONFIGURATION_TABLE config[CONFIG_MAX] __attribute__((section(".rt.data.config")));
 
 const EFI_GUID efi_loaded_image_guid = EFI_LOADED_IMAGE_PROTOCOL_GUID;
 
