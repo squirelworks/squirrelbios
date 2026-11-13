@@ -14,6 +14,10 @@ int13_handler:
     mov bp, sp
     push ds
     push es
+%if CONFIG_CDBOOT
+    call cd_emu_owns            ; DL 00h is the CD's diskette image
+    jnc cd_emu_int13
+%endif
 %if CONFIG_FLOPPY
     test dl, 0x80
     jz fd_int13                 ; DL 0x00 / 0x01: diskettes

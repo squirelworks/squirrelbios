@@ -407,7 +407,8 @@ msg_cdread  db 'cd: read of the CD failed', 0
 msg_cdnoboot db 'cd: no El Torito boot record', 0
 msg_cdcatalog db 'cd: boot catalog is invalid', 0
 msg_cdnotboot db 'cd: default entry is not bootable', 0
-msg_cdemul  db 'cd: only no-emulation boot images are supported', 0
+msg_cdemul  db 'cd: only no-emulation and diskette emulation boot images are supported', 0
+msg_cdemu_boot db 'booting from CD-ROM (El Torito, diskette emulation as A:)', 0
 msg_cdrange db 'cd: boot image load address is out of range', 0
 %endif
 msg_overlap db 'disk: load overlaps firmware data', 0

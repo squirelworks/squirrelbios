@@ -3,6 +3,10 @@
 # Original code.
 #
 # Usage: mkiso.py BOOT.bin OUT.iso
+#        mkiso.py --floppy FLOPPY.img OUT.iso
+#
+# With --floppy the default entry is a 1.44 MB diskette emulation image
+# (media type 2, one sector loaded) instead, FLOPPY.img at block 20.
 #
 # Layout, in 2048-byte blocks (ISO 9660 and El Torito 1.0):
 #   16  Primary Volume Descriptor (just enough to be one)
@@ -22,25 +26,35 @@ IMAGE = 20
 
 
 def main():
-    if len(sys.argv) != 3:
-        sys.exit('usage: mkiso.py BOOT.bin OUT.iso')
-    boot = open(sys.argv[1], 'rb').read()
+    args = sys.argv[1:]
+    floppy = args[:1] == ['--floppy']
+    if floppy:
+        args = args[1:]
+    if len(args) != 2:
+        sys.exit('usage: mkiso.py [--floppy] BOOT.bin OUT.iso')
+    boot = open(args[0], 'rb').read()
     sectors = (len(boot) + 511) // 512
     image_blocks = (len(boot) + BLOCK - 1) // BLOCK
-    iso = bytearray(BLOCKS * BLOCK)
+    media = 0                                   # no emulation
+    if floppy:
+        if len(boot) != 1474560:
+            sys.exit('mkiso.py: --floppy needs a 1.44 MB image')
+        media, sectors = 2, 1
+    blocks = max(BLOCKS, IMAGE + image_blocks + 4)
+    iso = bytearray(blocks * BLOCK)
 
     def put(block, data, at=0):
         o = block * BLOCK + at
         iso[o:o + len(data)] = data
 
-    for b in range(BLOCKS):
+    for b in range(blocks):
         if b < 16 or b >= IMAGE + image_blocks:
             put(b, b'LBA:' + struct.pack('<I', b))
 
     pvd = bytearray(BLOCK)
     pvd[0:7] = b'\x01CD001\x01'
     pvd[40:72] = b'SQUIRRELBIOS_TEST'.ljust(32)
-    pvd[80:88] = struct.pack('<I', BLOCKS) + struct.pack('>I', BLOCKS)
+    pvd[80:88] = struct.pack('<I', blocks) + struct.pack('>I', blocks)
     pvd[120:124] = struct.pack('<H', 1) + struct.pack('>H', 1)
     pvd[124:128] = struct.pack('<H', 1) + struct.pack('>H', 1)
     pvd[128:132] = struct.pack('<H', BLOCK) + struct.pack('>H', BLOCK)
@@ -64,14 +78,14 @@ def main():
     val[28:30] = struct.pack('<H', (-sum(words)) & 0xFFFF)
     entry = bytearray(32)
     entry[0] = 0x88                             # bootable
-    entry[1] = 0                                # no emulation
+    entry[1] = media
     entry[2:4] = struct.pack('<H', 0)           # load segment: default
     entry[6:8] = struct.pack('<H', sectors)
     entry[8:12] = struct.pack('<I', IMAGE)
     put(19, bytes(val) + bytes(entry))
 
     put(IMAGE, boot)
-    open(sys.argv[2], 'wb').write(iso)
+    open(args[1], 'wb').write(iso)
 
 
 if __name__ == '__main__':
