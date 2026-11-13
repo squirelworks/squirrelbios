@@ -304,6 +304,7 @@ The older polish items stay valid and fold into Phase D when it starts:
 - [ ] RISC-V: `DBCN`, device-tree-derived UART/CLINT addresses, SSE once
   QEMU can inject corrected errors, `aplic-imsic` when the hypervisor
   stack allows a shell.
+  - [x] `DBCN` (SBI 2.0 debug console; Linux `earlycon=sbi`)
 - [ ] AArch64: firmware PSCI/GIC only if QEMU's built-ins are disabled for a
   test; otherwise leave them.
 

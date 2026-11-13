@@ -983,7 +983,7 @@ function returns `SBI_ERR_NOT_SUPPORTED` (`-2`).
 
 | Item | Value |
 |------|-------|
-| Spec version | `0x01000000` (SBI 1.0) |
+| Spec version | `0x02000000` (SBI 2.0; Linux probes DBCN only from 2.0) |
 | Implementation ID | `0x5351` (`"SQ"`, SquirrelBIOS). Not registered with RISC-V International. |
 | Implementation version | `1` |
 
@@ -995,6 +995,7 @@ function returns `SBI_ERR_NOT_SUPPORTED` (`-2`).
 | RFENCE | `0x52464E43` | `remote_fence_i` (0), `remote_sfence_vma` (1), `remote_sfence_vma_asid` (2) |
 | HSM | `0x48534D` | `hart_start` (0), `hart_stop` (1), `hart_get_status` (2) |
 | SRST | `0x53525354` | `system_reset` (0) |
+| DBCN | `0x4442434E` | `console_write` (0), `console_read` (1), `console_write_byte` (2): on the UART; `a0` = bytes, `a1`/`a2` = physical address low/high (high must be 0), returns the bytes done in `a1` |
 
 `set_timer(a0)`, on a hart with Sstc (`menvcfg.STCE` set, as on QEMU's
 default CPU), writes the absolute time `a0` to `stimecmp`: the

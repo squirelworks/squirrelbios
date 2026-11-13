@@ -1,6 +1,9 @@
 /* Smoke-test image for SquirrelBIOS RISC-V, linked at 0x80200000.
  * Calls the SBI base extension and prints sbi=ok when every answer is
  * right and no register other than a0 and a1 changed across any call.
+ * The debug console (DBCN) writes dbcn=o with console_write and k and a
+ * newline with console_write_byte, so the log shows dbcn=ok only when
+ * both work.
  * On a wrong answer it prints sbi=bad and the number of the failed check.
  * Original code.
  */
@@ -13,6 +16,7 @@
         .equ SBI_EXT_RFENCE,    0x52464e43
         .equ SBI_EXT_HSM,       0x48534d
         .equ SBI_EXT_SRST,      0x53525354
+        .equ SBI_EXT_DBCN,      0x4442434e
         .equ SBI_IMPL_ID,       0x5351      /* as recorded in common/handoff.md */
         .equ SBI_ERR_NOT_SUPPORTED, -2
 
@@ -40,7 +44,7 @@ _start:
 
         sbi SBI_EXT_BASE, 0                 /* get_spec_version */
         expect a0, 0, 1
-        expect a1, 0x01000000, 1
+        expect a1, 0x02000000, 1
 
         sbi SBI_EXT_BASE, 1                 /* get_impl_id */
         expect a0, 0, 2
@@ -74,6 +78,35 @@ _start:
 
         sbi 0x0a000000, 0                   /* no such extension */
         expect a0, SBI_ERR_NOT_SUPPORTED, 9
+
+        sbi SBI_EXT_BASE, 3, SBI_EXT_DBCN   /* present */
+        expect a0, 0, 10
+        li t2, 10
+        beqz a1, bad
+        li a7, SBI_EXT_DBCN                 /* console_write(6, msg_dbcn, 0) */
+        li a6, 0
+        li a0, 6
+        la a1, msg_dbcn
+        li a2, 0
+        ecall
+        expect a0, 0, 11
+        expect a1, 6, 11
+        li a7, SBI_EXT_DBCN                 /* console_write_byte('k') */
+        li a6, 2
+        li a0, 'k'
+        ecall
+        expect a0, 0, 12
+        li a7, SBI_EXT_DBCN
+        li a6, 2
+        li a0, '\n'
+        ecall
+        li a7, SBI_EXT_DBCN                 /* a high address half on RV64 */
+        li a6, 0
+        li a0, 1
+        la a1, msg_dbcn
+        li a2, 1
+        ecall
+        expect a0, -3, 13
 
         la t0, clobbered
         ld t0, 0(t0)
@@ -151,6 +184,7 @@ puts:
 2:      ret
 
 msg_entry:      .asciz "OS-ENTRY riscv sbi\n"
+msg_dbcn: .ascii "dbcn=o"
 msg_ok:         .asciz "sbi=ok\n"
 msg_bad:        .asciz "sbi=bad "
 
