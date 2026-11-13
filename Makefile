@@ -25,7 +25,10 @@ RISCV_BIN := riscv/squirrel-bios.bin
 # (C and NASM) linked to run from RAM at X64_FW_BASE, and the 4 KB reset
 # stub (x86_64/reset/reset.asm) at its top
 X64_FD      := x86_64/squirrel-bios.fd
-X64_C       := $(wildcard x86_64/*/*.c)
+# runtime.c and lib.c are built on their own, their sections renamed .rt.*:
+# link.ld puts them in the pages the OS keeps after ExitBootServices
+X64_RT_C    := x86_64/core/runtime.c x86_64/core/lib.c
+X64_C       := $(filter-out $(X64_RT_C),$(wildcard x86_64/*/*.c))
 X64_H       := $(wildcard x86_64/include/*.h)
 X64_FLASH   := 0x100000
 X64_FW_BASE := 0x200000
@@ -99,6 +102,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/x86_64-mp.efi \
              $(TEST_DIR)/x86_64-acpi.efi \
              $(TEST_DIR)/sb/sb-signed.efi $(TEST_DIR)/x86_64-sb-esp.img \
+             $(TEST_DIR)/x86_64-numa.efi $(TEST_DIR)/x86_64-numa-dist.bin \
              $(TEST_DIR)/arm-efi-app.efi $(TEST_DIR)/arm-efi-app-exit.efi \
              $(TEST_DIR)/arm-efi-app-ebs.efi $(TEST_DIR)/arm-efi-initrd.img \
              $(TEST_DIR)/riscv-efi-app.efi $(TEST_DIR)/riscv-efi-app-exit.efi \
@@ -148,8 +152,11 @@ define X64_BUILD
 	@mkdir -p $(1)
 	$(NASM) -f elf64 x86_64/core/start.asm -o $(1)/start.o
 	$(NASM) -f elf64 -DLEGACY_ROM='"$(X86_ROM)"' x86_64/csm/csm.asm -o $(1)/csm.o
+	for f in $(X64_RT_C); do o=$(1)/rt-$$(basename $$f .c).o; \
+	    $(CC64) $(X64_CFLAGS) $(2) -c $$f -o $$o && objcopy --prefix-alloc-sections=.rt $$o || exit 1; done
 	$(CC64) $(X64_CFLAGS) $(2) -Wl,-T,x86_64/link.ld -Wl,--defsym,FW_BASE=$(X64_FW_BASE) \
-	    -Wl,--build-id=none -Wl,--no-warn-rwx-segments $(1)/start.o $(1)/csm.o $(X64_C) -o $(1)/body.elf
+	    -Wl,--build-id=none -Wl,--no-warn-rwx-segments $(1)/start.o $(1)/csm.o \
+	    $(patsubst x86_64/core/%.c,$(1)/rt-%.o,$(X64_RT_C)) $(X64_C) -o $(1)/body.elf
 	objcopy -O binary $(1)/body.elf $(1)/body.bin
 	@size=$$(stat -c %s $(1)/body.bin); \
 	if [ $$size -gt $$(($(X64_FLASH) - 0x1000)) ]; then \
@@ -163,7 +170,7 @@ define X64_BUILD
 endef
 
 # The CSM (x86_64/csm/) carries the legacy x86-pc ROM inside the image
-$(X64_FD): x86_64/core/start.asm x86_64/reset/reset.asm x86_64/link.ld $(X64_C) $(X64_H) \
+$(X64_FD): x86_64/core/start.asm x86_64/reset/reset.asm x86_64/link.ld $(X64_C) $(X64_RT_C) $(X64_H) \
 		x86_64/csm/csm.asm $(X86_ROM)
 	$(call X64_BUILD,build/x86_64,)
 
@@ -255,7 +262,7 @@ build/x86-pc/%/squirrel-bios.rom: x86/squirrel-bios.asm $(X86_SRCS) \
 	$(NASM) -f bin -DSQ_CONFIG -i $(@D)/ -i x86/ $< -o $@
 
 build/x86_64-uefi/%/squirrel-bios.fd: x86_64/core/start.asm x86_64/reset/reset.asm x86_64/link.ld \
-		$(X64_C) $(X64_H) x86_64/csm/csm.asm $(X86_ROM) build/x86_64-uefi/%/config.h
+		$(X64_C) $(X64_RT_C) $(X64_H) x86_64/csm/csm.asm $(X86_ROM) build/x86_64-uefi/%/config.h
 	$(call X64_BUILD,$(@D)/obj,-DSQ_CONFIG -I$(@D))
 
 build/aarch64-virt/%/squirrel-bios.o: arm/squirrel-bios.S build/aarch64-virt/%/config.inc build/aarch64-virt/%/config.h
@@ -347,6 +354,11 @@ $(TEST_DIR)/x86_64-mp.efi: tests/x86_64-mp.asm tests/x86_64-pe.inc | $(TEST_DIR)
 # acpidump-style self-check of the ACPI and SMBIOS tables (C2)
 $(TEST_DIR)/x86_64-acpi.efi: tests/x86_64-acpi.asm tests/x86_64-pe.inc | $(TEST_DIR)
 	$(NASM) -f bin -i tests/ $< -o $@
+# SRAT/SLIT/MADT/BERT/HEST self-check (F1/F2), and a 2x2 SLIT override
+$(TEST_DIR)/x86_64-numa.efi: tests/x86_64-numa.asm tests/x86_64-pe.inc | $(TEST_DIR)
+	$(NASM) -f bin -i tests/ $< -o $@
+$(TEST_DIR)/x86_64-numa-dist.bin: | $(TEST_DIR)
+	printf '\012\037\037\012' > $@
 
 # Secure Boot (C4): the app signed with test keys made from fixed seeds,
 # and db/dbx signature lists (tests/mksigned.py, plain Python); a GPT ESP

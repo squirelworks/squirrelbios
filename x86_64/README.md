@@ -34,12 +34,18 @@ csm/       csm.c, csm.asm: the CSM (roadmap C3), the legacy x86-pc ROM
 smp/       smp.c (AP bring-up with INIT-SIPI-SIPI, AP parking, the MP
            services protocol), apic.c (local APIC in xAPIC or x2APIC
            mode), mptable.c (MPS 1.4 table), roadmap C4
+acpi/      numa.c (SRAT and SLIT from QEMU -numa), ras.c (BERT and
+           HEST stubs), roadmap F1/F2; the other ACPI tables are in core/
 secure/    secure.c (Secure Boot policy, db/dbx, the Authenticode PE
            hash), sha256.c, rsa.c (RSASSA-PKCS1-v1_5 verify), der.c
            (X.509 keys, Authenticode PKCS#7), roadmap C4
 include/   sq.h, efi.h (UEFI types and tables, from the specification),
            acpi.h
-link.ld    the body, linked at FW_BASE
+link.ld    the body, linked at FW_BASE; core/runtime.c and core/lib.c
+           (built apart, sections renamed .rt.*) go in page-aligned
+           runtime code and data, the only part of the image the OS
+           keeps after ExitBootServices, with the system, runtime
+           services and configuration tables
 ```
 
 Flash layout: the body from offset 0, zero padding, the stub in the
@@ -136,8 +142,20 @@ certificates. With a db, Secure Boot is on: `SecureBoot` reads 1 and
 answers `EFI_SECURITY_VIOLATION` unless the image's Authenticode SHA-256
 is in db, or one of its PKCS#7 signatures (SHA-256 with RSA) is verified
 by a db key; a hash or a signing key in dbx always refuses it. The key
-must be in db itself: certificate chains are not walked. The databases
+must be in db itself: certificate chains are not walked. A db or dbx
+that is given but does not parse refuses every image (fail closed). The databases
 cannot be changed at run time (no PK/KEK authenticated writes), and the
 CSM stays off. `tests/mksigned.py` signs test images with two RSA-2048
 test keys made from fixed seeds; `osslsigncode verify` accepts its
 signatures and the firmware accepts `osslsigncode sign` output.
+
+NUMA (F1/F2): with QEMU `-numa`, fw_cfg item 0x0D gives the node of each
+APIC ID and each node's memory; the SRAT gets a processor affinity entry
+per CPU the SMP code brought up (x2APIC affinity past ID 254) and memory
+affinity entries laid over guest RAM in node order, split around the PCI
+hole. The SLIT is 10/20 unless `opt/org.squirrelworks/numa-distance`
+gives the N x N bytes (QEMU keeps `-numa dist` to its own ACPI). The
+MADT lists the same CPUs in processor-number order, with x2APIC entries
+past APIC ID 254. BERT (an empty boot error region) and HEST (no error
+sources) are stubs. `LINUX_SMP=4 LINUX_NUMA=2 make linux-uefi` boots
+Linux on two nodes.

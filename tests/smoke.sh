@@ -1053,9 +1053,9 @@ run x86_64-x2apic-cfg "~^smp: 4 CPUs, x2?APIC( \(the CPU has no x2APIC\))?, BSP 
 # tables, checks every checksum, the FADT's DSDT (generated AML) and
 # FACS, counts the MADT's CPUs and walks the SMBIOS structures. q35 has
 # an MCFG for its ECAM window; i440fx has none.
-run x86_64-acpi "acpi: FACP APIC HPET MCFG DSDT|~^acpi: RSDP at 0x[0-9a-f]+, XSDT at 0x[0-9a-f]+, 2 CPUs, q35 \(ICH9\), PM at 0x600|smbios: 3.0 entry point at|APP acpi rsdp=ok xsdt=ok sums=ok facp=ok dsdt=ok facs=ok madt=ok cpus=2|APP acpi hpet=ok mcfg=ok|APP smbios sm3=ok walk=ok types=ok|efi: image returned 0x0|!=bad" \
+run x86_64-acpi "acpi: FACP APIC HPET MCFG BERT HEST DSDT|~^acpi: RSDP at 0x[0-9a-f]+, XSDT at 0x[0-9a-f]+, 2 CPUs, q35 \(ICH9\), PM at 0x600|smbios: 3.0 entry point at|APP acpi rsdp=ok xsdt=ok sums=ok facp=ok dsdt=ok facs=ok madt=ok cpus=2|APP acpi hpet=ok mcfg=ok|APP smbios sm3=ok walk=ok types=ok|efi: image returned 0x0|!=bad" \
     "$QEMU_X86_64" -M q35 -smp 2 -bios x86_64/squirrel-bios.fd -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-acpi.efi
-run x86_64-acpi-pc "acpi: FACP APIC HPET DSDT|i440fx (PIIX4), PM at 0x600|APP acpi rsdp=ok xsdt=ok sums=ok facp=ok dsdt=ok facs=ok madt=ok cpus=3|APP acpi hpet=ok mcfg=none|APP smbios sm3=ok walk=ok types=ok|!=bad" \
+run x86_64-acpi-pc "acpi: FACP APIC HPET BERT HEST DSDT|i440fx (PIIX4), PM at 0x600|APP acpi rsdp=ok xsdt=ok sums=ok facp=ok dsdt=ok facs=ok madt=ok cpus=3|APP acpi hpet=ok mcfg=none|APP smbios sm3=ok walk=ok types=ok|!=bad" \
     "$QEMU_X86_64" -M pc -smp 3 -bios x86_64/squirrel-bios.fd -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-acpi.efi
 # ResetSystem(EfiResetShutdown) without isa-debug-exit: SLP_TYP from
 # \_S5 on the PM block the firmware opened powers QEMU off (exit 0)
@@ -1100,8 +1100,49 @@ run x86_64-sb-esp "fs: FAT32 on partition|efi: booting \\EFI\\BOOT\\BOOTX64.EFI|
 run x86_64-sb-nocsm "secure: Secure Boot on (verify-only)|csm: off while Secure Boot is on|!csm: leaving long mode" \
     "$QEMU_X86_64" -M pc -bios x86_64/squirrel-bios.fd -fw_cfg $SB_DB,file=$SB/sb-db-x509.esl \
     -drive format=raw,file=$TEST_DIR/x86-osload.bin,if=ide,snapshot=on
-run x86_64-sb-baddb "secure: opt/org.squirrelworks/db is not a list of EFI_SIGNATURE_LISTs|secure: Secure Boot off (bad db)|$SB_APP" \
-    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd -fw_cfg $SB_DB,file=$TEST_DIR/x86-boot.bin -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-app.efi
+run x86_64-sb-baddb "secure: opt/org.squirrelworks/db is not a list of EFI_SIGNATURE_LISTs|secure: Secure Boot on (verify-only), but a key database is unreadable: every image is refused|secure: image refused: the db or dbx given could not be read, so nothing is trusted|$SB_NO" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd -fw_cfg $SB_DB,file=$TEST_DIR/x86-boot.bin -fw_cfg $X64_BOOT,file=$SB/sb-signed.efi
+run x86_64-sb-baddbx "secure: opt/org.squirrelworks/dbx is not a list of EFI_SIGNATURE_LISTs|secure: image refused: the db or dbx given could not be read, so nothing is trusted|$SB_NO" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd -fw_cfg $SB_DB,file=$SB/sb-db-x509.esl -fw_cfg $SB_DBX,file=$TEST_DIR/x86-boot.bin -fw_cfg $X64_BOOT,file=$SB/sb-signed.efi
+
+# x86-64 firmware: NUMA and error tables (F1/F2). With QEMU -numa the
+# SRAT gives each CPU its node and each node's RAM (split around the PCI
+# hole with 4 GB), the SLIT 10/20 or the distances given through fw_cfg;
+# the MADT follows the CPUs SMP brought up; BERT and HEST are empty
+# stubs. Without -numa there is no SRAT or SLIT. An app checks it all.
+numa_nodes() {     # numa_nodes N MB_PER_NODE CPUS_PER_NODE
+    i=0
+    while [ "$i" -lt "$1" ]; do
+        printf ' -object memory-backend-ram,id=nm%d,size=%dM -numa node,nodeid=%d,cpus=%d-%d,memdev=nm%d' \
+            $i $2 $i $((i * $3)) $((i * $3 + $3 - 1)) $i
+        i=$((i + 1))
+    done
+}
+NUMA_APP="-fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-numa.efi"
+run x86_64-numa "numa: 2 nodes: 96 MB 160 MB|acpi: FACP APIC HPET MCFG SRAT SLIT BERT HEST DSDT|APP numa sums=ok madt=4/0 srat=4 cpu=0,0,1,1 mem=0:0+96,1:96+160 slit=2:1020,2010|APP numa bert=ok hest=ok|!=bad" \
+    "$QEMU_X86_64" -M q35 -m 256 -smp 4,sockets=2,cores=2 \
+    -object memory-backend-ram,id=nm0,size=96M -numa node,nodeid=0,cpus=0-1,memdev=nm0 \
+    -object memory-backend-ram,id=nm1,size=160M -numa node,nodeid=1,cpus=2-3,memdev=nm1 \
+    -bios x86_64/squirrel-bios.fd $NUMA_APP
+# shellcheck disable=SC2046
+run x86_64-numa-4g "numa: 4 nodes: 1024 MB 1024 MB 1024 MB 1024 MB|APP numa sums=ok madt=8/0 srat=8 cpu=0,0,1,1,2,2,3,3 mem=0:0+1024,1:1024+1024,2:4096+1024,3:5120+1024 slit=4:10202020,20102020,20201020,20202010|!=bad" \
+    "$QEMU_X86_64" -M q35 -m 4G -smp 8 $(numa_nodes 4 1024 2) -bios x86_64/squirrel-bios.fd $NUMA_APP
+# shellcheck disable=SC2046
+run x86_64-numa-64 "smp: 64 CPUs|numa: 4 nodes|APP numa sums=ok madt=64/0 srat=64 cpu=0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,|,3,3 mem=0:0+128,1:128+128,2:256+128,3:384+128 slit=4:|APP numa bert=ok hest=ok|!=bad" \
+    "$QEMU_X86_64" -M q35 -m 512 -smp 64 $(numa_nodes 4 128 16) -bios x86_64/squirrel-bios.fd $NUMA_APP
+# shellcheck disable=SC2046
+run x86_64-numa-dist "APP numa sums=ok madt=2/0 srat=2 cpu=0,1 mem=0:0+128,1:128+128 slit=2:1031,3110|!=bad" \
+    "$QEMU_X86_64" -M pc -m 256 -smp 2 $(numa_nodes 2 128 1) -bios x86_64/squirrel-bios.fd $NUMA_APP \
+    -fw_cfg name=opt/org.squirrelworks/numa-distance,file=$TEST_DIR/x86_64-numa-dist.bin
+run x86_64-numa-none "APP numa sums=ok madt=2/0 srat=none slit=none|APP numa bert=ok hest=ok|!=bad" \
+    "$QEMU_X86_64" -M q35 -smp 2 -bios x86_64/squirrel-bios.fd $NUMA_APP
+
+# x86-64 firmware: only the runtime pages stay the OS's after
+# ExitBootServices (runtime services code, then their data with the
+# system and configuration tables); the rest of the image is boot
+# services code. The GOP case above calls ResetSystem after exit.
+run x86_64-rt-split "efi: 0000000000200000-|~^efi: 0000000000[0-9a-f]{6}-0000000000[0-9a-f]{6} RT code|~^efi: 0000000000[0-9a-f]{6}-0000000000[0-9a-f]{6} RT data|~^efi: 0000000000200000-0000000000[0-9a-f]{6} BS code|efi: memory services ok" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd
 
 # AArch64 UEFI-class firmware (roadmap D1, PLATFORM=aarch64-uefi): the
 # shared UEFI core in common/efi on QEMU virt. It copies itself from flash
