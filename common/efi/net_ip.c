@@ -34,8 +34,8 @@ static int arp_next;
 
 static const u8 bcast[6] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
 
-static net_udp_fn udp_fn;
-static u16 udp_port;
+static net_udp_fn udp_fn, udp_extra_fn;
+static u16 udp_port, udp_extra_port;
 void (*net_tcp_input)(u32 src_ip, const u8 *seg, u32 len);
 
 /* -------------------------------------------------------------- helpers */
@@ -264,6 +264,8 @@ static void udp_input(u32 src, const u8 *d, u32 len)
     if (udp_fn && get16(d + 2) == udp_port) {
         udp_fn(src, get16(d), d + UDP_HDR, ul - UDP_HDR);
         delivered = 1;
+    } else if (udp_extra_fn && get16(d + 2) == udp_extra_port) {
+        udp_extra_fn(src, get16(d), d + UDP_HDR, ul - UDP_HDR);
     }
 }
 
@@ -326,6 +328,25 @@ void net_udp_bind(u16 port, net_udp_fn fn)
 {
     udp_port = port;
     udp_fn = fn;
+}
+
+void net_udp_bind_extra(u16 port, net_udp_fn fn)
+{
+    udp_extra_port = port;
+    udp_extra_fn = fn;
+}
+
+int net_busy(void) { return in_poll > 0; }
+
+int net_resolve(u32 ip, u8 *mac)
+{
+    u32 hop = ip;
+    if (my_mask && (ip & my_mask) != (my_ip & my_mask)) {
+        if (!my_gw)
+            return 0;
+        hop = my_gw;
+    }
+    return arp_resolve(hop, mac);
 }
 
 int net_udp_send(u32 dst, u16 sport, u16 dport, const void *data, u32 len)
@@ -556,13 +577,18 @@ static struct {
     char err[64];
 } tf;
 
-static int tf_grow(u32 need)
+/* Room for need bytes, doubling; no more than NET_FILE_MAX */
+static int tf_grow(u64 need)
 {
     if (need <= tf.cap)
         return 1;
-    u32 cap = tf.cap ? tf.cap : 65536;
+    if (need > NET_FILE_MAX)
+        return 0;
+    u64 cap = tf.cap ? tf.cap : 65536;
     while (cap < need)
         cap *= 2;
+    if (cap > NET_FILE_MAX)
+        cap = NET_FILE_MAX;
     void *nb;
     if (efi_allocate_pool(EfiBootServicesData, cap, &nb) != EFI_SUCCESS)
         return 0;
@@ -571,8 +597,14 @@ static int tf_grow(u32 need)
         efi_free_pool(tf.buf);
     }
     tf.buf = nb;
-    tf.cap = cap;
+    tf.cap = (u32)cap;
     return 1;
+}
+
+static void tf_fail(const char *why)
+{
+    u32 n = (u32)strlen(why);
+    memcpy(tf.err, why, n + 1);
 }
 
 static u32 tf_num(const u8 *s, u32 n)
@@ -634,8 +666,8 @@ static void tftp_input(u32 src, u16 sport, const u8 *d, u32 len)
             u32 n = len - 4;
             if (n > tf.blksize)
                 return;
-            if (!tf_grow(tf.size + n)) {
-                memcpy(tf.err, "out of memory", 14);
+            if (!tf_grow((u64)tf.size + n)) {
+                tf_fail((u64)tf.size + n > NET_FILE_MAX ? "file too large" : "out of memory");
                 tf.done = -1;
                 return;
             }
@@ -690,8 +722,8 @@ int net_tftp_get(const struct net_cfg *cfg, const char *name, void **buf, u32 *s
         if (tf.done)
             break;
         if (tf.progress) {
-            if (tf.oack && tf.tsize && !tf.size && !tf_grow(tf.tsize + 1)) {
-                memcpy(tf.err, "out of memory", 14);
+            if (tf.oack && tf.tsize && !tf.size && !tf_grow((u64)tf.tsize + 1)) {
+                tf_fail((u64)tf.tsize + 1 > NET_FILE_MAX ? "file too large" : "out of memory");
                 tf.done = -1;
                 break;
             }

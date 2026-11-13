@@ -16,6 +16,7 @@ static struct {
     char hdr[HDR_MAX];
     u32 hlen;
     int in_body, done, failed;
+    int too_large;              /* over NET_FILE_MAX */
     int status;
     int chunked;
     u32 clen;                   /* Content-Length, or ~0 */
@@ -38,13 +39,18 @@ static int prefix_ieq(const char *s, const char *p)
     return 1;
 }
 
-static int grow(u32 need)
+/* Room for need bytes, doubling; no more than NET_FILE_MAX */
+static int grow(u64 need)
 {
     if (need <= h.cap)
         return 1;
-    u32 cap = h.cap ? h.cap : 65536;
+    if (need > NET_FILE_MAX)
+        return 0;
+    u64 cap = h.cap ? h.cap : 65536;
     while (cap < need)
         cap *= 2;
+    if (cap > NET_FILE_MAX)
+        cap = NET_FILE_MAX;
     void *nb;
     if (efi_allocate_pool(EfiBootServicesData, cap, &nb) != EFI_SUCCESS)
         return 0;
@@ -53,7 +59,7 @@ static int grow(u32 need)
         efi_free_pool(h.buf);
     }
     h.buf = nb;
-    h.cap = cap;
+    h.cap = (u32)cap;
     return 1;
 }
 
@@ -61,7 +67,8 @@ static void body_bytes(const u8 *d, u32 n)
 {
     if (h.done || !n)
         return;
-    if (!grow(h.size + n)) {
+    if (!grow((u64)h.size + n)) {
+        h.too_large = (u64)h.size + n > NET_FILE_MAX;
         h.failed = 1;
         h.done = 1;
         return;
@@ -182,7 +189,10 @@ static void on_data(const u8 *d, u32 n)
             if (h.status != 200 || h.clen == 0)
                 h.done = 1;     /* nothing more wanted */
             else if (h.clen != ~0u && !grow(h.clen))
+            {
                 h.failed = h.done = 1;
+                h.too_large = h.clen > NET_FILE_MAX;
+            }
         }
     }
     if (!n || h.done)
@@ -330,6 +340,12 @@ int net_http_get(const char *url, void **buf, u32 *size)
                 printf("net: HTTP %d for %s\n", h.status, cur);
             else
                 printf("net: no HTTP answer from %s\n", host);
+            if (h.buf)
+                efi_free_pool(h.buf);
+            return 0;
+        }
+        if (h.too_large) {
+            printf("net: %s is larger than the %u-byte limit\n", cur, NET_FILE_MAX);
             if (h.buf)
                 efi_free_pool(h.buf);
             return 0;

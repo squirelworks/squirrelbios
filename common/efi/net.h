@@ -16,6 +16,7 @@
  *                 a TFTP client
  *   net_tcp.c     a small TCP client (one connection, stop-and-wait out)
  *   net_http.c    an HTTP/1.1 client: Content-Length, chunked, redirects
+ *   net_sol.c     a serial-over-LAN style console mirror over UDP
  *   net_boot.c    PXE-style boot: DHCP, then the boot file over TFTP (or
  *                 HTTP, when DHCP names an http:// URL), loaded and
  *                 started as an EFI image */
@@ -39,6 +40,9 @@ struct net_dev {
     void *priv;
     EFI_DEVICE_PATH_PROTOCOL *dp;   /* the platform's path to it, or NULL */
 };
+
+/* The largest file the TFTP and HTTP clients take (1 GB) */
+#define NET_FILE_MAX 0x40000000u
 
 /* Milliseconds since some fixed point (the architecture's counter) */
 u64 net_ms(void);
@@ -178,6 +182,16 @@ int net_http_get(const char *url, void **buf, u32 *size);
 typedef void (*net_udp_fn)(u32 src_ip, u16 src_port, const u8 *data, u32 len);
 void net_udp_bind(u16 port, net_udp_fn fn);
 int net_udp_send(u32 dst_ip, u16 src_port, u16 dst_port, const void *data, u32 len);
+/* A second, standing port (the console mirror's), beside the clients' */
+void net_udp_bind_extra(u16 port, net_udp_fn fn);
+int net_busy(void);                 /* inside net_poll */
+int net_resolve(u32 ip, u8 *mac);   /* the next hop's Ethernet address: 1 */
+
+/* net_sol.c: the console mirror, when fw_cfg names a host for it */
+void net_sol_init(struct net_dev *nd, EFI_HANDLE nic);
+void net_sol_stop(void);
+/* net_boot.c: an application has the NIC's SNP initialized */
+int net_nic_in_use(EFI_HANDLE nic);
 
 /* --------------------------------------------------------------- booting */
 

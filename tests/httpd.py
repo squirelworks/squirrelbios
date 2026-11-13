@@ -10,6 +10,7 @@
 #   /chunked/NAME    the file in chunked transfer coding (odd chunk sizes)
 #   /close/NAME      the file with neither, ended by closing the connection
 #   /redirect/NAME   302 to /chunked/NAME
+#   /huge/NAME       a Content-Length of 3000000000, the file, then a close
 # Anything else is a 404. Exits on SIGTERM.
 import os
 import socketserver
@@ -28,7 +29,7 @@ class Handler(BaseHTTPRequestHandler):
         mode = parts[0] if len(parts) == 2 else ''
         name = parts[-1]
         path = os.path.join(sys.argv[2], name)
-        if '..' in name or not os.path.isfile(path) or mode not in ('', 'chunked', 'close', 'redirect'):
+        if '..' in name or not os.path.isfile(path) or mode not in ('', 'chunked', 'close', 'redirect', 'huge'):
             body = b'not here\n'
             self.send_response(404)
             self.send_header('Content-Length', str(len(body)))
@@ -55,6 +56,12 @@ class Handler(BaseHTTPRequestHandler):
                 i += len(piece)
                 size = size * 3 // 2 + 7
             self.wfile.write(b'0\r\nX-Trailer: yes\r\n\r\n')
+        elif mode == 'huge':
+            self.send_header('Content-Length', '3000000000')
+            self.send_header('Connection', 'close')
+            self.end_headers()
+            self.wfile.write(data)
+            self.close_connection = True
         elif mode == 'close':
             self.send_header('Connection', 'close')
             self.end_headers()
