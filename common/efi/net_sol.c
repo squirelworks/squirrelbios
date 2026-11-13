@@ -13,7 +13,12 @@
  * waits on ARP or polls; input is polled only when the console asks for
  * a key, nothing else is using the network stack at that moment and no
  * application has the NIC's Simple Network Protocol initialized. It all
- * stops at ExitBootServices. */
+ * stops at ExitBootServices.
+ *
+ * For trusted networks only: nothing is authenticated or encrypted, and
+ * input is taken from any datagram whose source address and port match
+ * the configured host, which anyone on the path can forge (see
+ * common/efi/README.md, Network). */
 #include "net.h"
 
 #define SOL_PORT    6665
