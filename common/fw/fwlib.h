@@ -62,83 +62,8 @@ uint64_t fw_get_be64(const void *p);
 void fw_put_be32(void *p, uint32_t v);
 void fw_put_be64(void *p, uint64_t v);
 
-/* --- fdt.c: flattened device tree (devicetree spec v0.4, version 17) -- */
-#define FDT_MAGIC       0xd00dfeedu
-#define FDT_BEGIN_NODE  1
-#define FDT_END_NODE    2
-#define FDT_PROP        3
-#define FDT_NOP         4
-#define FDT_END         9
-
-/* Reading. A node is named by the offset of its FDT_BEGIN_NODE token in
- * the structure block; -1 means "not found". */
-int fdt_check(const void *fdt);                  /* 0 when the header is sane */
-uint32_t fdt_total_size(const void *fdt);
-int fdt_root(const void *fdt);
-int fdt_path(const void *fdt, const char *path); /* "/cpus/cpu@0"; a unit address may be left out */
-const char *fdt_name(const void *fdt, int node);
-const void *fdt_prop(const void *fdt, int node, const char *name, int *len);
-int fdt_first_child(const void *fdt, int node);
-int fdt_next_sibling(const void *fdt, int node);
-int fdt_parent(const void *fdt, int node);
-/* Next node in document order after 'node' (any depth), -1 at the end */
-int fdt_next_node(const void *fdt, int node, int *depth);
-/* Property iteration: 'prop' is -1 to start; returns the next property's
- * offset (or -1), and sets *name / *data / *len */
-int fdt_next_prop(const void *fdt, int node, int prop, const char **name,
-                  const void **data, int *len);
-int fdt_compatible(const void *fdt, int node, const char *compat);
-int fdt_find_compatible(const void *fdt, int after, const char *compat);
-int fdt_find_device_type(const void *fdt, int after, const char *type);
-uint32_t fdt_prop_u32(const void *fdt, int node, const char *name, uint32_t dflt);
-/* Reads cells (1 or 2) at p as one number */
-uint64_t fdt_cells(const void *p, int cells);
-/* #address-cells / #size-cells that apply to node's children */
-int fdt_addr_cells(const void *fdt, int node);
-int fdt_size_cells(const void *fdt, int node);
-/* reg entry i of node, translated through the parents' ranges to a CPU
- * address; 0 on success. Address cells above 2 (e.g. ISA's space cell)
- * are handled as the space plus a 1- or 2-cell offset. */
-int fdt_reg(const void *fdt, int node, int i, uint64_t *addr, uint64_t *size);
-uint32_t fdt_phandle(const void *fdt, int node);
-int fdt_by_phandle(const void *fdt, uint32_t ph);
-
-/* Writing: a tree is built into a caller buffer, one node at a time. */
-struct fdt_writer {
-    uint8_t *buf;
-    uint32_t size;      /* of buf */
-    uint32_t struct_off, struct_len;
-    uint8_t *strings;   /* built at the end of buf, growing down */
-    uint32_t strings_len;
-    uint32_t rsv_count;
-    uint64_t rsv[2 * 16];
-    int depth;
-    int error;          /* set when buf ran out or nodes are unbalanced */
-};
-void fdtw_init(struct fdt_writer *w, void *buf, uint32_t size);
-void fdtw_reserve(struct fdt_writer *w, uint64_t addr, uint64_t size);  /* before the first node */
-void fdtw_begin(struct fdt_writer *w, const char *name);
-void fdtw_end(struct fdt_writer *w);
-void fdtw_prop(struct fdt_writer *w, const char *name, const void *data, int len);
-void fdtw_prop_u32(struct fdt_writer *w, const char *name, uint32_t v);
-void fdtw_prop_u64(struct fdt_writer *w, const char *name, uint64_t v);
-void fdtw_prop_str(struct fdt_writer *w, const char *name, const char *s);
-/* Two strings, for "compatible" lists */
-void fdtw_prop_str2(struct fdt_writer *w, const char *name, const char *a, const char *b);
-void fdtw_prop_empty(struct fdt_writer *w, const char *name);
-/* Copies node (from another tree, with its properties and children);
- * hook (may be 0) is called after a node's own properties are written,
- * with the source node, so it can add properties and child nodes. A
- * property for which skip returns non-zero is not copied. */
-typedef void (*fdtw_hook)(struct fdt_writer *w, const void *src, int node, void *ctx);
-typedef int (*fdtw_skip)(const void *src, int node, const char *prop, void *ctx);
-void fdtw_copy(struct fdt_writer *w, const void *src, int node, fdtw_hook hook,
-               fdtw_skip skip, void *ctx);
-/* Finishes the blob: returns its size, or 0 when it did not fit */
-uint32_t fdtw_finish(struct fdt_writer *w, uint32_t boot_cpu);
-
-/* Prints the tree under node as text (for the prompt's "dt" command) */
-void fdt_print(const void *fdt, int node);
+/* --- fdt.c: flattened device tree, see fdt.h --------------------------- */
+#include "fdt.h"
 
 /* --- elf.c ----------------------------------------------------------- */
 struct elf_image {

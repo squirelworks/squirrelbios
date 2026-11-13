@@ -12,8 +12,8 @@ PPC64      ?= powerpc64le-linux-gnu-
 HAVE_PPC64 := $(shell command -v $(PPC64)gcc >/dev/null 2>&1 && echo y)
 PPC64_BIN  := ppc64/squirrel-bios.bin
 PPC64_SRCS := ppc64/start.S ppc64/main.c common/fw/string.c common/fw/printf.c \
-              common/fw/fdt.c common/fw/elf.c common/fw/prompt.c
-PPC64_DEPS := $(PPC64_SRCS) ppc64/opal.h ppc64/link.ld common/fw/fwlib.h ppc64/platform.mk
+              common/fw/fdt.c common/fw/fdt_print.c common/fw/elf.c common/fw/prompt.c
+PPC64_DEPS := $(PPC64_SRCS) ppc64/opal.h ppc64/link.ld common/fw/fwlib.h common/fw/fdt.h ppc64/platform.mk
 # Firmware: big-endian ELFv2 (the OPAL convention), no floating point or
 # vector registers (their facilities may be off), linked at FW_BASE
 PPC64_FW_BASE := 0x30000000
@@ -46,13 +46,13 @@ PPC64_TEST_CFLAGS := -mlittle-endian -mabi=elfv2 -mcpu=power8 -msoft-float -mno-
                      -ffreestanding -fno-builtin -fno-pic -fno-pie -fno-stack-protector \
                      -fno-asynchronous-unwind-tables -nostdlib -static -Icommon/fw
 $(TEST_DIR)/ppc64-kernel.elf: tests/ppc64-kernel.c tests/ppc64-start.S tests/ppc64-kernel.ld \
-		common/fw/string.c common/fw/printf.c common/fw/fdt.c common/fw/fwlib.h | $(TEST_DIR)
+		common/fw/string.c common/fw/printf.c common/fw/fdt.c common/fw/fwlib.h common/fw/fdt.h | $(TEST_DIR)
 	$(PPC64)gcc $(PPC64_TEST_CFLAGS) -no-pie -Wl,-T,tests/ppc64-kernel.ld -Wl,--build-id=none \
 	    -Wl,--no-warn-rwx-segments -Wl,--defsym,KBASE=0x10000000 tests/ppc64-start.S \
 	    tests/ppc64-kernel.c common/fw/string.c common/fw/printf.c common/fw/fdt.c -lgcc -o $@
 # The same kernel linked over the firmware's region, which must be refused
 $(TEST_DIR)/ppc64-overlap.elf: tests/ppc64-kernel.c tests/ppc64-start.S tests/ppc64-kernel.ld \
-		common/fw/string.c common/fw/printf.c common/fw/fdt.c common/fw/fwlib.h | $(TEST_DIR)
+		common/fw/string.c common/fw/printf.c common/fw/fdt.c common/fw/fwlib.h common/fw/fdt.h | $(TEST_DIR)
 	$(PPC64)gcc $(PPC64_TEST_CFLAGS) -no-pie -Wl,-T,tests/ppc64-kernel.ld -Wl,--build-id=none \
 	    -Wl,--no-warn-rwx-segments -Wl,--defsym,KBASE=0x30100000 tests/ppc64-start.S \
 	    tests/ppc64-kernel.c common/fw/string.c common/fw/printf.c common/fw/fdt.c -lgcc -o $@
