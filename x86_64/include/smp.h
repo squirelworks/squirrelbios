@@ -61,6 +61,7 @@ void smp_park_aps(void);
 int smp_cpu_count(void);
 int smp_x2apic(void);
 const struct smp_cpu_info *smp_cpu(int n);
+void smp_run_all(EFI_AP_PROCEDURE fn, void *arg);   /* the BSP, then every AP */
 
 /* apic.c: the local APIC, in xAPIC (MMIO) or x2APIC (MSR) mode */
 static inline u64 rdmsr(u32 msr)

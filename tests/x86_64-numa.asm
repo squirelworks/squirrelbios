@@ -2,12 +2,18 @@
 ; Original code. Walks the XSDT from the ACPI 2.0 configuration table and
 ; reports on COM1:
 ;   APP numa sums=ok madt=L/X srat=C cpu=D,D,... mem=D:B+S,... slit=N:dd,dd,...
-;   APP numa bert=ok hest=ok
+;            hmat=I>M,... lb=N cache=N
+;   APP numa bert=N hest=S/B
 ; L/X   local APIC / local x2APIC entries in the MADT
 ; C     processor affinity entries in the SRAT; cpu= their domains in order
 ; mem   memory affinity entries: domain, base and size in MB
 ; slit  locality count, then the matrix row by row
-; (srat=none, slit=none when the tables are absent) then returns 0.
+; hmat  initiator>memory domain per attributes structure, then the
+;       number of latency/bandwidth (lb) and memory-side cache structures
+; bert  boot error records in the BERT region
+; hest  error sources (IA-32 MCE and CMC) / banks each, or 0
+; (srat=none, slit=none, hmat=none when the tables are absent; bad on a malformed
+; table) then returns 0.
 
         bits 64
 IMAGE_BASE      equ 0x10000000
@@ -220,7 +226,7 @@ entry:
         jnz .slit_have
         lea rsi, [rel s_none]
         call puts
-        jmp .ras
+        jmp .hmat
 .slit_have:
         mov rbx, rax
         mov r8, [rbx + 36]              ; localities
@@ -231,7 +237,7 @@ entry:
         xor r9d, r9d                    ; row
 .row:
         cmp r9, r8
-        jae .ras
+        jae .hmat
         test r9, r9
         jz .row_first
         mov al, ','
@@ -252,43 +258,161 @@ entry:
         inc r9
         jmp .row
 
+        ; HMAT: each memory proximity domain attributes structure as
+        ; initiator>memory (-> for no initiator), then the counts of
+        ; latency/bandwidth and memory-side cache structures
+.hmat:
+        lea rsi, [rel s_hmat]
+        call puts
+        mov eax, 'HMAT'
+        call table
+        test rax, rax
+        jnz .hmat_have
+        lea rsi, [rel s_none]
+        call puts
+        jmp .ras
+.hmat_have:
+        mov ecx, [rax + 4]
+        lea r15, [rax + rcx]            ; end
+        lea rsi, [rax + 40]
+        xor r8d, r8d                    ; latency/bandwidth structures
+        xor r9d, r9d                    ; caches
+        xor r10d, r10d                  ; printed any
+.hs:    cmp rsi, r15
+        jae .hs_done
+        mov eax, [rsi + 4]
+        cmp eax, 8
+        jb fail
+        movzx eax, word [rsi]
+        cmp eax, 1
+        je .hs_lb
+        cmp eax, 2
+        je .hs_cache
+        test eax, eax
+        jnz .hs_next
+        test r10d, r10d
+        jz .hs_first
+        mov al, ','
+        call putc
+.hs_first:
+        mov r10d, 1
+        test byte [rsi + 8], 1
+        jz .hs_noinit
+        mov eax, [rsi + 12]
+        call putd
+        jmp .hs_mem
+.hs_noinit:
+        mov al, '-'
+        call putc
+.hs_mem:
+        mov al, '>'
+        call putc
+        mov eax, [rsi + 16]
+        call putd
+        jmp .hs_next
+.hs_lb: inc r8d
+        jmp .hs_next
+.hs_cache:
+        inc r9d
+.hs_next:
+        mov eax, [rsi + 4]
+        add rsi, rax
+        jmp .hs
+.hs_done:
+        lea rsi, [rel s_lb]
+        call puts
+        mov eax, r8d
+        call putd
+        lea rsi, [rel s_cache]
+        call puts
+        mov eax, r9d
+        call putd
+
 .ras:
         lea rsi, [rel s_nl]
         call puts
         lea rsi, [rel s_app]
         call puts
-        ; BERT: 48 bytes, region whose block status is 0
+        ; BERT: 48 bytes; the region's entry count (block status 13:4)
+        ; and data length must agree, 184 bytes an entry
+        lea rsi, [rel s_bert]
+        call puts
         mov eax, 'BERT'
         call table
         test rax, rax
         jz .bert_bad
         cmp dword [rax + 4], 48
         jne .bert_bad
-        cmp dword [rax + 36], 20
-        jb .bert_bad
+        mov ecx, [rax + 36]             ; region length
         mov rax, [rax + 40]
         test rax, rax
         jz .bert_bad
-        cmp dword [rax], 0
-        jmp .bert_done
+        mov edx, [rax]
+        shr edx, 4
+        and edx, 0x3FF                  ; entries
+        imul r8d, edx, 184
+        cmp r8d, [rax + 12]             ; data length
+        jne .bert_bad
+        add r8d, 20
+        cmp ecx, r8d
+        jb .bert_bad
+        test edx, edx
+        jnz .bert_entries
+        cmp dword [rax], 0              ; no error: status 0
+        jne .bert_bad
+.bert_entries:
+        mov eax, edx
+        call putd
+        jmp .hest
 .bert_bad:
-        or eax, 1
-.bert_done:
-        lea rsi, [rel s_bert]
-        call result
+        lea rsi, [rel s_bad]
+        call puts
+.hest:
+        ; HEST: S sources; with any, an IA-32 MCE (type 0) and a CMC
+        ; (type 1) source of B banks each, filling the table: S/B
+        lea rsi, [rel s_hest]
+        call puts
         mov eax, 'HEST'
         call table
         test rax, rax
-        jz .hest_no
-        cmp dword [rax + 4], 40
-        jne .hest_no
+        jz .hest_bad
+        mov ecx, [rax + 4]
+        lea rdx, [rax + rcx]            ; end
+        mov r8d, [rax + 36]             ; sources
+        test r8d, r8d
+        jnz .hest_src
+        cmp ecx, 40
+        jne .hest_bad
         xor eax, eax
+        call putd
         jmp .hest_done
-.hest_no:
-        or eax, 1
+.hest_src:
+        cmp r8d, 2
+        jne .hest_bad
+        lea rsi, [rax + 40]
+        cmp word [rsi], 0
+        jne .hest_bad
+        movzx r9d, byte [rsi + 32]      ; banks
+        imul r10d, r9d, 28
+        lea rsi, [rsi + r10 + 40]
+        cmp word [rsi], 1
+        jne .hest_bad
+        cmp byte [rsi + 44], r9b
+        jne .hest_bad
+        lea rsi, [rsi + r10 + 48]
+        cmp rsi, rdx
+        jne .hest_bad
+        mov eax, r8d
+        call putd
+        mov al, '/'
+        call putc
+        mov eax, r9d
+        call putd
+        jmp .hest_done
+.hest_bad:
+        lea rsi, [rel s_bad]
+        call puts
 .hest_done:
-        lea rsi, [rel s_hest]
-        call result
         lea rsi, [rel s_nl]
         call puts
         xor eax, eax
@@ -423,6 +547,9 @@ s_srat: db ' srat=', 0
 s_cpu:  db ' cpu=', 0
 s_mem:  db ' mem=', 0
 s_slit: db ' slit=', 0
+s_hmat: db ' hmat=', 0
+s_lb:   db ' lb=', 0
+s_cache: db ' cache=', 0
 s_bert: db ' bert=', 0
 s_hest: db ' hest=', 0
 s_none: db 'none', 0

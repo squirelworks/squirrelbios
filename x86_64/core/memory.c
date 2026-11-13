@@ -169,7 +169,7 @@ void efi_memory_init(void)
 
 static int valid_alloc_type(EFI_MEMORY_TYPE t)
 {
-    return (t >= EfiLoaderCode && t <= EfiRuntimeServicesData) ||
+    return (t >= EfiReservedMemoryType && t <= EfiRuntimeServicesData) ||
            t == EfiACPIReclaimMemory || t == EfiACPIMemoryNVS ||
            (u32)t >= 0x80000000u;
 }

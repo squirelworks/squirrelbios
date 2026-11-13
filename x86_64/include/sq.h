@@ -66,6 +66,7 @@ void halt(void) __attribute__((noreturn));
 int fwcfg_present(void);
 int fwcfg_find(const char *name, u16 *select, u32 *size);
 void fwcfg_read(u16 select, void *buf, u32 len);
+void fwcfg_read_at(u16 select, u32 offset, void *buf, u32 len);
 
 /* pci.c */
 u32 pci_read32(u8 bus, u8 dev, u8 fn, u8 off);
