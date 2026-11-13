@@ -1,6 +1,6 @@
 /* SquirrelBIOS x86_64-uefi: firmware main.
  * Original code. */
-#include "efi.h"
+#include "acpi.h"
 
 extern char __fw_start[], __fw_end[];
 
@@ -92,6 +92,7 @@ static void boot_fwcfg_image(void)
         printf("efi: LoadImage failed: 0x%lx, halting\n", s);
         return;
     }
+    efi_set_load_options(h);
     EFI_LOADED_IMAGE_PROTOCOL *li;
     efi_handle_protocol(h, (EFI_GUID *)&efi_loaded_image_guid, (void **)&li);
     printf("efi: image of %u bytes loaded at %p\n", size, li->image_base);
@@ -128,11 +129,15 @@ void fw_main(void)
     efi_console_init();
     printf("efi: system table at %p, UEFI %u.%u, boot services at %p\n", efi_st,
            efi_st->hdr.revision >> 16, efi_st->hdr.revision & 0xFFFF, efi_st->boot_services);
+    chipset_init();
+    acpi_init();
+    smbios_init();
     efi_dump_memory_map();
     printf("efi: memory services %s\n", efi_memory_selftest() ? "ok" : "FAILED");
     printf("efi: TSC at %lu MHz, console on COM1\n", efi_tsc_hz() / 1000000);
     efi_gop_init();
 
+    efi_initrd_init();
     efi_disk_init();
     if (efi_boot_esp()) {
         printf("fw: halting\n");

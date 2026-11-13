@@ -183,6 +183,22 @@ There is no initrd yet, so it stops short of a shell. The pinned package
 Not part of `make test` or CI. `LINUX_TIMEOUT` and `LINUX_MEM` work as
 below; the log is `build/linux-x86/linux-x86.log`.
 
+### Linux on the x86-64 UEFI-class firmware (optional)
+
+```bash
+make linux-uefi                       # prints PASS linux-uefi-q35 and -pc
+```
+
+Boots the same Ubuntu 24.04 amd64 kernel through `x86_64/squirrel-bios.fd`
+as an EFI application (its EFI stub), with a command line and a busybox
+initramfs handed over through fw_cfg (see `x86_64/README.md`), on q35
+and i440fx. It passes when Linux lists our ACPI tables, enables the ACPI
+interpreter, finds `PCI0` from the DSDT, reaches the shell with the
+expected CPU count, reads our SMBIOS vendor, and powers off through
+`\_S5`, with no ACPI errors in the log. The pinned packages (about
+15 MB) are kept in `build/linux-uefi/`; logs are
+`build/linux-uefi/linux-uefi-<machine>.log`.
+
 ### Linux to a shell (RISC-V, optional)
 
 ```bash
