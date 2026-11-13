@@ -32,8 +32,8 @@ X64_RT_C    := common/efi/runtime.c common/efi/lib.c x86_64/core/rt.c x86_64/cor
                x86_64/secure/authvar.c x86_64/secure/der.c x86_64/secure/rsa.c x86_64/secure/sha256.c
 X64_EFI_C   := $(addprefix common/efi/,ahci.c aml.c console.c devicepath.c disk.c event.c fat.c \
                  image.c memory.c nvme.c protocol.c tables.c textcon.c virtio.c virtio_pci.c)
-X64_C       := $(filter-out $(X64_RT_C),$(wildcard x86_64/*/*.c)) $(X64_EFI_C)
-X64_H       := $(wildcard x86_64/include/*.h) $(wildcard common/efi/include/*.h)
+X64_C       := $(filter-out $(X64_RT_C),$(wildcard x86_64/*/*.c)) $(X64_EFI_C) $(wildcard common/efi/net_*.c)
+X64_H       := $(wildcard x86_64/include/*.h) $(wildcard common/efi/include/*.h) common/efi/net.h
 X64_FLASH   := 0x100000
 X64_FW_BASE := 0x200000
 X64_CFLAGS  := -m64 -std=gnu11 -O2 -Wall -Wextra -Werror -ffreestanding -fno-builtin \
@@ -47,7 +47,7 @@ ARM_FD      := arm/uefi/squirrel-bios.fd
 ARM_FW_BASE := 0x40100000
 AARCH64_CC  ?= $(AARCH64)gcc
 EFI_C       := $(wildcard common/efi/*.c)
-EFI_H       := $(wildcard common/efi/include/*.h)
+EFI_H       := $(wildcard common/efi/include/*.h) common/efi/net.h
 EFI_CFLAGS  := -std=gnu11 -O2 -Wall -Wextra -Werror -ffreestanding -fno-builtin \
                -fno-pic -fno-pie -no-pie -fno-stack-protector -fno-asynchronous-unwind-tables \
                -nostdlib -static -Icommon/efi/include
@@ -115,7 +115,8 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/riscv-efi-app-ebs.efi \
              $(TEST_DIR)/arm-esp.img $(TEST_DIR)/riscv-esp.img \
              $(TEST_DIR)/x86_64-rt.efi $(TEST_DIR)/x86_64-nv.efi \
-             $(TEST_DIR)/sb/sb-authrt.efi
+             $(TEST_DIR)/sb/sb-authrt.efi \
+             $(TEST_DIR)/tftp/snp-x64.efi $(TEST_DIR)/tftp/snp-aa64.efi $(TEST_DIR)/tftp/snp-rv64.efi
 
 .PHONY: all x86 x86_64 arm arm-uefi riscv riscv-uefi test linux-shell linux-arm linux-arm-acpi linux-riscv-uefi linux-x86 linux-big linux-stress os-boot clean linux-uefi os-boot-csm
 .DELETE_ON_ERROR:
@@ -418,6 +419,18 @@ $(TEST_DIR)/riscv-efi-app-ebs.efi: tests/efi-app.c tests/efi-app.ld tests/mkpe.p
 # An -initrd for the app started as -kernel: 3000 bytes starting "Sq"
 $(TEST_DIR)/arm-efi-initrd.img: | $(TEST_DIR)
 	python3 -c 'import sys; sys.stdout.buffer.write(b"Sq" + bytes(2998))' > $@
+# The Simple Network Protocol test app (tests/efi-snp.c) for each UEFI
+# firmware, served over TFTP to the firmware's network boot
+SNP_APP_DEPS := tests/efi-snp.c tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)/tftp
+$(TEST_DIR)/tftp/snp-x64.efi: $(SNP_APP_DEPS)
+	$(CC64) $(EFI_APP_CFLAGS) -m64 -fpie -mno-red-zone -mgeneral-regs-only $< -o $(@:.efi=.elf)
+	python3 tests/mkpe.py x86_64 $(@:.efi=.elf) $@
+$(TEST_DIR)/tftp/snp-aa64.efi: $(SNP_APP_DEPS)
+	$(AARCH64_CC) $(ARM_APP_CFLAGS) $< -o $(@:.efi=.elf)
+	python3 tests/mkpe.py aarch64 $(@:.efi=.elf) $@
+$(TEST_DIR)/tftp/snp-rv64.efi: $(SNP_APP_DEPS)
+	$(RISCV64_CC) $(RV_APP_CFLAGS) $< -o $(@:.efi=.elf)
+	python3 tests/mkpe.py riscv64 $(@:.efi=.elf) $@
 
 # GPT disks with the C app as \\EFI\\BOOT\\BOOTAA64.EFI and (a long name)
 # \\EFI\\BOOT\\BOOTRISCV64.EFI

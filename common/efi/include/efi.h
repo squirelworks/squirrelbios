@@ -590,4 +590,9 @@ int arch_kernel(void **image, u32 *size);    /* SetVirtualAddressMap: efi_conver
 int efi_convert_pointer(void *pp);  /* u64 *: 1 when it moved */
 void efi_memory_mark_attr(u64 start, u64 pages, u32 type, u64 attr);
 
+/* common/efi/net_boot.c: the NICs, each with its Simple Network Protocol;
+ * a PXE-style boot from them (1 if an image ran) */
+void efi_net_init(void);
+int efi_net_boot(void);
+
 #endif

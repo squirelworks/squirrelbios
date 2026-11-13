@@ -253,9 +253,9 @@ boxes in [TODO.md](TODO.md).
 - [ ] **C5 (v2.2.x) Real x86 hardware track.** A flashing guide for one
   cheap board; DDR training is research under `boards/` and never a
   merge blocker.
-  - [ ] `c5-nvram`: non-volatile variables in a flash store (QEMU pflash
+  - [x] `c5-nvram`: non-volatile variables in a flash store (QEMU pflash
     unit 1, CFI), kept across boots and written after ExitBootServices
-  - [ ] `c5-authvar`: authenticated writes to PK, KEK, db and dbx; setup
+  - [x] `c5-authvar`: authenticated writes to PK, KEK, db and dbx; setup
     and user mode; keys enrolled at run time
 
 ### Phase D — v2.5: ARM and RISC-V as full firmware
@@ -303,6 +303,10 @@ boxes in [TODO.md](TODO.md).
     (EINJ still open)
 - [ ] **F3** Management: IPMI/Redfish-style BMC stubs, serial-over-LAN, HTTP
   boot.
+  - [x] `f3-uefi-net`: UEFI Simple Network Protocol on virtio-net and a
+    PXE-style DHCP+TFTP boot on x86_64, aarch64 and riscv64 UEFI
+  - [x] `f3-http-boot`: HTTP boot (own TCP, HTTP/1.1 with Content-Length,
+    chunked, close-delimited bodies and redirects; IPv4 hosts, no DNS yet)
 - [ ] **F4** Diskless cluster boot of many nodes from one image server.
   Test: QEMU `-smp 256 -numa ...`; `make linux-big` already covers part.
 
