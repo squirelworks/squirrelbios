@@ -73,7 +73,9 @@ static void boot_fwcfg_image(void)
     u16 sel;
     u32 size;
     if (!fwcfg_find(FWCFG_BOOT, &sel, &size)) {
-        printf("fw: nothing to boot (no %s), halting\n", FWCFG_BOOT);
+        printf("fw: nothing to boot (no %s), trying the CSM\n", FWCFG_BOOT);
+        csm_boot();
+        printf("fw: halting\n");
         return;
     }
     u64 free_before = efi_free_pages_count();

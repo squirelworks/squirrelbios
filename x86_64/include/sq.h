@@ -88,6 +88,9 @@ u8 vblk_fn(void);
 int vblk_read(u64 lba, void *buf, u32 bytes);
 int vblk_write(u64 lba, void *buf, u32 bytes);
 
+/* csm/csm.c: the legacy BIOS, when nothing boots the UEFI way */
+int csm_boot(void);
+
 /* memmap.c */
 struct mem_range {
     u64 base;

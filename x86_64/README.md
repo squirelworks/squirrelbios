@@ -24,6 +24,8 @@ core/      start.asm (clears .bss, calls fw_main), main.c, console.c
 platform/  fwcfg.c (QEMU fw_cfg over I/O ports), memmap.c (etc/e820,
            CMOS as a fallback), pci.c (config space, I/O and 32-bit
            memory BAR assignment), virtio_blk.c (legacy virtio-blk)
+csm/       csm.c, csm.asm: the CSM (roadmap C3), the legacy x86-pc ROM
+           carried in the image and the way back to real mode
 include/   sq.h, efi.h (UEFI types and tables, from the specification)
 link.ld    the body, linked at FW_BASE
 ```
@@ -77,3 +79,21 @@ in-RAM `Get`/`SetVariable` (no flash store), `ResetSystem` (ACPI
 shutdown or keyboard-controller reset), and `ExitBootServices` (signals
 exit-boot events, nulls `BootServices`, reseals the system table). The
 1:1 map stays; `SetVirtualAddressMap` is a no-op after exit.
+
+CSM (roadmap C3): when no `BOOTX64.EFI` and no fw_cfg image boots, the
+firmware starts the 16-bit x86-pc SquirrelBIOS (`x86/squirrel-bios.rom`,
+built into the flash image by `x86_64/csm/csm.asm`). It opens shadow RAM
+at E0000-FFFFF through the host bridge's PAM registers (i440FX `0x59`,
+Q35 `0x90`), clears E0000-EFFFF, copies the ROM to F0000 and makes that
+segment read-only, turns Bochs DISPI off so VGA text mode works again,
+then copies a trampoline to 0x8000 that leaves long mode (compatibility
+mode, paging and EFER.LME off, a 16-bit segment, real mode) and jumps
+to F000:FFF0. The legacy BIOS then runs its whole POST and boots a
+floppy, an MBR disk (IDE, AHCI, NVMe, USB, virtio), a CD or the network,
+exactly as under `qemu-system-i386`. Nothing of the UEFI side survives
+the jump. Squirrel-OS/2's `os.img` and `floppy.img` boot this way:
+
+```
+make os-boot-csm OS_IMG=path/to/os.img
+OS_DRIVE=floppy make os-boot-csm OS_IMG=path/to/floppy.img
+```
