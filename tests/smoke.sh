@@ -353,6 +353,12 @@ run x86-slave "SquirrelBIOS x86|OS-ENTRY x86 dl=ok memmap=ok flags=ok|!dl=bad" \
 run x86-cd "booting from CD-ROM|OS-ENTRY x86 cd cd=ok" \
     "$QEMU_X86" -bios x86/squirrel-bios.rom \
     -cdrom $TEST_DIR/x86-cd.iso
+# El Torito diskette emulation: the x86-floppy checks on a 1.44 MB image
+# that a CD carries (media type 2), booted as drive 00h in place of the
+# empty diskette drive; writes are refused as write-protected
+run x86-cd-floppy "booting from CD-ROM (El Torito, diskette emulation as A:)|OS-ENTRY x86 floppy floppy=ok|!floppy=bad" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -cdrom $TEST_DIR/x86-cd-floppy.iso
 
 # x86: the same CD as primary slave, with no disk on the master
 run x86-cd-slave "booting from CD-ROM|OS-ENTRY x86 cd cd=ok" \
