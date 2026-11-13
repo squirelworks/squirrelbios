@@ -300,9 +300,13 @@ usb_enum:
     ; [bp-12] configuration value
     ; A bulk-only mass storage interface (B8): [bp-13] its bulk IN
     ; endpoint, [bp-14] its bulk OUT endpoint (0: none), [bp-16] word:
-    ; their max packet, [bp-17] 1 if the interface is bulk-only SCSI
+    ; their max packet, [bp-17] 1 if the interface is bulk-only SCSI,
+    ; 2 if it is UAS: then [bp-13] is its status pipe, [bp-14] its
+    ; command pipe, [bp-18] its data-in pipe, [bp-19] its data-out
+    ; pipe, and [bp-20] the endpoint a pipe usage descriptor follows
     mov dword [bp - 12], 0
     mov dword [bp - 16], 0
+    mov dword [bp - 20], 0
     mov byte [bp - 17], 0
     mov byte [bp - 8], 0
     mov [bp - 2], ah
@@ -442,6 +446,8 @@ usb_enum:
 .msd:
     ; Mass storage: SCSI commands (subclass 6) over bulk-only transport
     ; (protocol 50h). Its bulk endpoints, before the next interface.
+    cmp word [fs:USB_BUF + si + 6], 0x6206
+    je .uas
     cmp word [fs:USB_BUF + si + 6], 0x5006
     jne .print
     mov byte [bp - 17], 1
@@ -473,6 +479,56 @@ usb_enum:
     and al, 0x0F
     mov [bp - 14], al
     jmp .bulk
+
+.uas:
+    ; USB Attached SCSI (protocol 62h): four bulk endpoints, each named
+    ; by the pipe usage descriptor (24h) after it
+    mov byte [bp - 17], 2
+.uas_next:
+    movzx ax, byte [fs:USB_BUF + si]
+    test ax, ax
+    jz .print
+    add si, ax
+    cmp si, cx
+    jae .print
+    mov al, [fs:USB_BUF + si + 1]
+    cmp al, 4
+    je .print
+    cmp al, 5
+    je .uas_ep
+    cmp al, 0x24
+    jne .uas_next
+    mov al, [bp - 20]
+    mov ah, [fs:USB_BUF + si + 2]       ; bPipeID
+    mov di, 14                          ; 1: command
+    cmp ah, 1
+    je .uas_pipe
+    mov di, 13                          ; 2: status
+    cmp ah, 2
+    je .uas_pipe
+    mov di, 18                          ; 3: data in
+    cmp ah, 3
+    je .uas_pipe
+    mov di, 19                          ; 4: data out
+    cmp ah, 4
+    jne .uas_next
+.uas_pipe:
+    neg di
+    mov [bp + di], al
+    jmp .uas_next
+.uas_ep:
+    mov byte [bp - 20], 0
+    mov al, [fs:USB_BUF + si + 3]       ; bmAttributes
+    and al, 3
+    cmp al, 2                           ; bulk
+    jne .uas_next
+    mov ax, [fs:USB_BUF + si + 4]       ; wMaxPacketSize
+    and ax, 0x07FF
+    mov [bp - 16], ax
+    mov al, [fs:USB_BUF + si + 2]       ; bEndpointAddress
+    and al, 0x0F
+    mov [bp - 20], al
+    jmp .uas_next
 
 .print:
     ; "usb: device A on root port P: VVVV:PPPP, <class>"
