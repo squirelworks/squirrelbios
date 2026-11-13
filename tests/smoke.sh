@@ -803,11 +803,11 @@ run riscv-no-kernel "boot: no kernel image|boot halted" \
 # -m 4G; i440fx works the same). Then the EFI system table, the UEFI
 # memory map with the firmware's own areas carved out, and the memory
 # services checked through the boot services table
-run x86_64-uefi "SquirrelBIOS 2.0.0-alpha (x86_64-uefi)|~^cpu: .*, long mode, [0-9]+-bit physical addresses|fw: running at 0x0000000000200000-|mem: 0000000000000000-0000000007ffffff usable|mem: 128 MB usable (from fw_cfg)|~^efi: system table at 0x[0-9a-f]{16}, UEFI 2.70, boot services at|efi: 0000000000000000-0000000000006fff BS data|efi: 00000000000a0000-00000000000fffff reserved|efi: 0000000000200000-|~^efi: [0-9]+ descriptors of 48 bytes|efi: memory services ok|fw: nothing to boot (no opt/org.squirrelworks/boot.efi), halting" \
+run x86_64-uefi "SquirrelBIOS 2.0.0-alpha (x86_64-uefi)|~^cpu: .*, long mode, [0-9]+-bit physical addresses|fw: running at 0x0000000000200000-|mem: 0000000000000000-0000000007ffffff usable|mem: 128 MB usable (from fw_cfg)|~^efi: system table at 0x[0-9a-f]{16}, UEFI 2.70, boot services at|efi: 0000000000000000-0000000000006fff BS data|efi: 00000000000a0000-00000000000fffff reserved|efi: 0000000000200000-|~^efi: [0-9]+ descriptors of 48 bytes|efi: memory services ok|fw: nothing to boot (no opt/org.squirrelworks/boot.efi), trying the CSM" \
     "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd
-run x86_64-uefi-4g "mem: 0000000000000000-000000007fffffff usable|mem: 0000000100000000-000000017fffffff usable|mem: 4096 MB usable (from fw_cfg)|efi: 0000000100000000-000000017fffffff free|efi: memory services ok|fw: nothing to boot (no opt/org.squirrelworks/boot.efi), halting" \
+run x86_64-uefi-4g "mem: 0000000000000000-000000007fffffff usable|mem: 0000000100000000-000000017fffffff usable|mem: 4096 MB usable (from fw_cfg)|efi: 0000000100000000-000000017fffffff free|efi: memory services ok|fw: nothing to boot (no opt/org.squirrelworks/boot.efi), trying the CSM" \
     "$QEMU_X86_64" -M q35 -m 4G -bios x86_64/squirrel-bios.fd
-run x86_64-uefi-pc "SquirrelBIOS 2.0.0-alpha (x86_64-uefi)|mem: 128 MB usable (from fw_cfg)|efi: memory services ok|fw: nothing to boot (no opt/org.squirrelworks/boot.efi), halting" \
+run x86_64-uefi-pc "SquirrelBIOS 2.0.0-alpha (x86_64-uefi)|mem: 128 MB usable (from fw_cfg)|efi: memory services ok|fw: nothing to boot (no opt/org.squirrelworks/boot.efi), trying the CSM" \
     "$QEMU_X86_64" -M pc -bios x86_64/squirrel-bios.fd
 
 # x86-64 firmware: a PE32+ EFI application handed over through fw_cfg is
@@ -850,6 +850,25 @@ run x86_64-gop "gop: 800x600x32 at|APP gop mode=ok fb=ok blt=ok time=ok var=ok|e
     "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd \
     -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
     -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-gop.efi
+
+# x86-64 firmware CSM (C3): with nothing to boot the UEFI way, the legacy
+# x86-pc BIOS built into the image goes to shadow RAM at F0000 (PAM on
+# i440FX and Q35), the CPU leaves long mode for its reset vector, and it
+# boots like qemu-system-i386 -bios x86/squirrel-bios.rom: the S2OK
+# stand-in from an IDE disk, a boot sector from q35's AHCI port with VGA
+# text mode back after GOP, the floppy A: and an El Torito CD
+run x86_64-csm "csm: legacy BIOS (64 KB) in shadow RAM at F0000, PAM at 0x59|csm: leaving long mode for F000:FFF0|SquirrelBIOS x86|kernel loaded at 0x00008000, jumping|osload=ok dl=ok flags=ok memmap=ok sig=ok e820=ok disk=absent|!boot halted" \
+    "$QEMU_X86_64" -M pc -bios x86_64/squirrel-bios.fd \
+    -drive format=raw,file=$TEST_DIR/x86-osload.bin,if=ide,snapshot=on
+run x86_64-csm-q35 "gop: 800x600x32 at|csm: legacy BIOS (64 KB) in shadow RAM at F0000, PAM at 0x90|SquirrelBIOS x86|disk: SATA disk on AHCI port 0|OS-ENTRY x86 dl=ok memmap=ok flags=ok vga=ok" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd \
+    -drive format=raw,file=$TEST_DIR/x86-boot.bin,if=ide,snapshot=on
+run x86_64-csm-floppy "csm: leaving long mode for F000:FFF0|booting from floppy A:|OS-ENTRY x86 floppy floppy=ok|!floppy=bad" \
+    "$QEMU_X86_64" -M pc -bios x86_64/squirrel-bios.fd \
+    -drive format=raw,file=$TEST_DIR/x86-floppy.img,if=floppy,snapshot=on
+run x86_64-csm-cd "csm: leaving long mode for F000:FFF0|booting from CD-ROM|OS-ENTRY x86 cd cd=ok" \
+    "$QEMU_X86_64" -M pc -bios x86_64/squirrel-bios.fd \
+    -cdrom $TEST_DIR/x86-cd.iso
 
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

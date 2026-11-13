@@ -76,7 +76,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/x86_64-con.efi $(TEST_DIR)/x86_64-con.keys \
              $(TEST_DIR)/x86_64-esp.img $(TEST_DIR)/x86_64-gop.efi
 
-.PHONY: all x86 x86_64 arm riscv test linux-shell linux-x86 linux-big linux-stress os-boot clean
+.PHONY: all x86 x86_64 arm riscv test linux-shell linux-x86 linux-big linux-stress os-boot os-boot-csm clean
 .DELETE_ON_ERROR:
 
 PLATFORMS := x86-pc x86_64-uefi aarch64-virt riscv64-virt
@@ -114,8 +114,9 @@ $(X86_ROM): x86/squirrel-bios.asm $(X86_SRCS)
 define X64_BUILD
 	@mkdir -p $(1)
 	$(NASM) -f elf64 x86_64/core/start.asm -o $(1)/start.o
+	$(NASM) -f elf64 -DLEGACY_ROM='"$(X86_ROM)"' x86_64/csm/csm.asm -o $(1)/csm.o
 	$(CC64) $(X64_CFLAGS) $(2) -Wl,-T,x86_64/link.ld -Wl,--defsym,FW_BASE=$(X64_FW_BASE) \
-	    -Wl,--build-id=none -Wl,--no-warn-rwx-segments $(1)/start.o $(X64_C) -o $(1)/body.elf
+	    -Wl,--build-id=none -Wl,--no-warn-rwx-segments $(1)/start.o $(1)/csm.o $(X64_C) -o $(1)/body.elf
 	objcopy -O binary $(1)/body.elf $(1)/body.bin
 	@size=$$(stat -c %s $(1)/body.bin); \
 	if [ $$size -gt $$(($(X64_FLASH) - 0x1000)) ]; then \
@@ -128,7 +129,9 @@ define X64_BUILD
 	mv $@.tmp $@
 endef
 
-$(X64_FD): x86_64/core/start.asm x86_64/reset/reset.asm x86_64/link.ld $(X64_C) $(X64_H)
+# The CSM (x86_64/csm/) carries the legacy x86-pc ROM inside the image
+$(X64_FD): x86_64/core/start.asm x86_64/reset/reset.asm x86_64/link.ld $(X64_C) $(X64_H) \
+		x86_64/csm/csm.asm $(X86_ROM)
 	$(call X64_BUILD,build/x86_64,)
 
 arm/squirrel-bios.o: arm/squirrel-bios.S
@@ -176,7 +179,7 @@ build/x86-pc/%/squirrel-bios.rom: x86/squirrel-bios.asm $(X86_SRCS) \
 	$(NASM) -f bin -DSQ_CONFIG -i $(@D)/ -i x86/ $< -o $@
 
 build/x86_64-uefi/%/squirrel-bios.fd: x86_64/core/start.asm x86_64/reset/reset.asm x86_64/link.ld \
-		$(X64_C) $(X64_H) build/x86_64-uefi/%/config.h
+		$(X64_C) $(X64_H) x86_64/csm/csm.asm $(X86_ROM) build/x86_64-uefi/%/config.h
 	$(call X64_BUILD,$(@D)/obj,-DSQ_CONFIG -I$(@D))
 
 build/aarch64-virt/%/squirrel-bios.o: arm/squirrel-bios.S build/aarch64-virt/%/config.inc build/aarch64-virt/%/config.h
@@ -611,6 +614,9 @@ linux-x86: x86
 # script reads the text buffer; serial carries the firmware line.
 os-boot: x86
 	tests/os-boot.sh $(OS_IMG)
+# The same image through the x86_64-uefi firmware's CSM
+os-boot-csm: x86_64
+	OS_BIOS=$(CURDIR)/$(X64_FD) QEMU_X86=$${QEMU_X86_64:-qemu-system-x86_64} tests/os-boot.sh $(OS_IMG)
 
 # Optional, not part of make test: the first step of the large-node
 # milestone in ROADMAP.md. The linux-shell boot, with Ubuntu's 6.14
