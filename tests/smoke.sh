@@ -1388,6 +1388,83 @@ run x86_64-uefi-nvme-pc "disk: NVMe at PCI 00:04.0, 131072 sectors|APP x86_64 st
 run x86_64-uefi-virtio-modern "disk: virtio-blk at PCI 00:03.0 (virtio-pci), 131072 sectors|APP x86_64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|efi: BOOTX64.EFI returned 0x1234|!=bad" \
     "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd \
     -drive if=none,id=esp,format=raw,file=$TEST_DIR/x86_64-esp.img,snapshot=on -device virtio-blk-pci,drive=esp,disable-legacy=on
+# UEFI network boot (roadmap F3): virtio-net with a Simple Network
+# Protocol handle each, then DHCP and the boot file over TFTP from QEMU's
+# user network, started as an EFI image. tests/efi-snp.c drives the SNP
+# itself: Start, Initialize, filters, an ARP exchange with 10.0.2.2
+# through Transmit/GetStatus/WaitForPacket/Receive, the device path's MAC
+# node, Shutdown and Stop. PCI (legacy interface) on x86-64, virtio-mmio
+# v1 (legacy, 10-byte header) on AArch64, v2 (VERSION_1, 12-byte header)
+# on RISC-V.
+SNP_OK="SNP mode=ok start=ok init=ok filter=ok mcast=ok tx=ok txbuf=ok wait=ok small=ok rx=ok arp=ok path=ok stop=ok"
+run x86_64-uefi-netboot "net: virtio-net at PCI 00:05.0, MAC 52:54:00:12:34:56|net: address 10.0.2.15 from 10.0.2.2, boot file snp-x64.efi|net: loaded 16384 bytes|$SNP_OK|efi: snp-x64.efi returned 0x1234|fw: halting|!=bad" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd \
+    -netdev user,id=n0,$NET_TFTP,bootfile=snp-x64.efi -device virtio-net-pci,netdev=n0,addr=5
+run x86_64-uefi-netboot-pc "net: virtio-net at PCI 00:03.0|$SNP_OK|efi: snp-x64.efi returned 0x1234|!=bad" \
+    "$QEMU_X86_64" -M pc -bios x86_64/squirrel-bios.fd \
+    -netdev user,id=n0,$NET_TFTP,bootfile=snp-x64.efi -device virtio-net-pci,netdev=n0
+run aarch64-uefi-netboot "~^net: virtio-net at 0x[0-9a-f]{16} \(mmio v1\), MAC 52:54:00:12:34:56|net: address 10.0.2.15 from 10.0.2.2, boot file snp-aa64.efi|$SNP_OK|efi: snp-aa64.efi returned 0x1234|!=bad" \
+    "$QEMU_ARM" -M virt -cpu cortex-a57 -bios $ARM_FD \
+    -netdev user,id=n0,$NET_TFTP,bootfile=snp-aa64.efi -device virtio-net-device,netdev=n0
+run riscv64-uefi-netboot "net: virtio-net at 0x0000000010008000 (mmio v2), MAC 52:54:00:aa:bb:cc|net: address 10.0.2.15 from 10.0.2.2, boot file snp-rv64.efi|$SNP_OK|efi: snp-rv64.efi returned 0x1234|!=bad" \
+    "$QEMU_RISCV" -M virt -bios $RV_UEFI -global virtio-mmio.force-legacy=false \
+    -netdev user,id=n0,$NET_TFTP,bootfile=snp-rv64.efi -device virtio-net-device,netdev=n0,mac=52:54:00:aa:bb:cc
+# A boot file the server does not have: the x86-64 firmware goes on to
+# the CSM, the others halt; no boot file named at all is said so
+run x86_64-uefi-netboot-missing "net: TFTP of no-such-file.efi failed: |fw: nothing to boot (no opt/org.squirrelworks/boot.efi), trying the CSM" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd \
+    -netdev user,id=n0,$NET_TFTP,bootfile=no-such-file.efi -device virtio-net-pci,netdev=n0
+run aarch64-uefi-netboot-nofile "net: address 10.0.2.15 from 10.0.2.2, no boot file|fw: nothing to boot (no -kernel, no opt/org.squirrelworks/boot.efi, no boot disk), halting" \
+    "$QEMU_ARM" -M virt -cpu cortex-a57 -bios $ARM_FD \
+    -netdev user,id=n0 -device virtio-net-device,netdev=n0
+# Routed (tests/netsim.py): the boot server 192.168.50.5 is reached only
+# through the router DHCP names; without one the firmware says why
+python3 tests/netsim.py $NETSIM_PORT $((NETSIM_PORT + 1)) $TEST_DIR x86_64-app.efi &
+netsim=$!
+sleep 0.3
+run x86_64-uefi-netboot-routed "net: address 10.0.2.15 from 192.168.50.5, boot file x86_64-app.efi|net: boot server on another network, through router 10.0.2.1|net: loaded 12288 bytes|APP x86_64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|efi: x86_64-app.efi returned 0x1234" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd \
+    -netdev socket,id=n0,udp=127.0.0.1:$NETSIM_PORT,localaddr=127.0.0.1:$((NETSIM_PORT + 1)) \
+    -device virtio-net-pci,netdev=n0
+kill $netsim 2>/dev/null; wait $netsim 2>/dev/null
+python3 tests/netsim.py $NETSIM_PORT $((NETSIM_PORT + 1)) $TEST_DIR x86_64-app.efi norouter &
+netsim=$!
+sleep 0.3
+run x86_64-uefi-netboot-norouter "net: the boot server is on another network and DHCP gave no router|trying the CSM|!APP x86_64" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd \
+    -netdev socket,id=n0,udp=127.0.0.1:$NETSIM_PORT,localaddr=127.0.0.1:$((NETSIM_PORT + 1)) \
+    -device virtio-net-pci,netdev=n0
+kill $netsim 2>/dev/null; wait $netsim 2>/dev/null
+
+# UEFI HTTP boot (roadmap F3): DHCP's boot file is an http:// URL, read
+# over the firmware's TCP and HTTP/1.1 client from tests/httpd.py (the
+# host's 127.0.0.1 is 10.0.2.2 to the guest): with Content-Length,
+# chunked, ended by the connection closing, and through a 302 redirect;
+# a 240000-byte file (many segments; not an EFI image), and a 404
+HTTPD_PORT=$((NETSIM_PORT + 2))
+python3 tests/httpd.py $HTTPD_PORT $TEST_DIR/tftp &
+httpd=$!
+sleep 0.3
+HTTP_URL=http://10.0.2.2:$HTTPD_PORT
+run x86_64-uefi-httpboot "net: address 10.0.2.15 from 10.0.2.2, boot file $HTTP_URL/snp-x64.efi|net: loaded 16384 bytes over HTTP|$SNP_OK|efi: $HTTP_URL/snp-x64.efi returned 0x1234|!=bad" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd \
+    -netdev user,id=n0,bootfile=$HTTP_URL/snp-x64.efi -device virtio-net-pci,netdev=n0
+run x86_64-uefi-httpboot-chunked "net: loaded 16384 bytes over HTTP|$SNP_OK|!=bad" \
+    "$QEMU_X86_64" -M pc -bios x86_64/squirrel-bios.fd \
+    -netdev user,id=n0,bootfile=$HTTP_URL/chunked/snp-x64.efi -device virtio-net-pci,netdev=n0
+run aarch64-uefi-httpboot-redirect "net: HTTP 302, to $HTTP_URL/chunked/snp-aa64.efi|net: loaded 16384 bytes over HTTP|$SNP_OK|efi: $HTTP_URL/redirect/snp-aa64.efi returned 0x1234|!=bad" \
+    "$QEMU_ARM" -M virt -cpu cortex-a57 -bios $ARM_FD \
+    -netdev user,id=n0,bootfile=$HTTP_URL/redirect/snp-aa64.efi -device virtio-net-device,netdev=n0
+run riscv64-uefi-httpboot-close "net: loaded 16384 bytes over HTTP|$SNP_OK|!=bad" \
+    "$QEMU_RISCV" -M virt -bios $RV_UEFI \
+    -netdev user,id=n0,bootfile=$HTTP_URL/close/snp-rv64.efi -device virtio-net-device,netdev=n0
+run x86_64-uefi-httpboot-big "net: loaded 240000 bytes over HTTP|efi: LoadImage failed" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd \
+    -netdev user,id=n0,bootfile=$HTTP_URL/chunked/x86-netboot-huge.bin -device virtio-net-pci,netdev=n0
+run x86_64-uefi-httpboot-404 "net: HTTP 404 for $HTTP_URL/no-such-file.efi|trying the CSM" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd \
+    -netdev user,id=n0,bootfile=$HTTP_URL/no-such-file.efi -device virtio-net-pci,netdev=n0
+kill $httpd 2>/dev/null; wait $httpd 2>/dev/null
 
 # FAT write (D4): the app on the ESP makes a directory, writes, appends
 # past the end, truncates, renames, lists, deletes, grows a directory past

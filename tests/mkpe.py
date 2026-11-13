@@ -13,7 +13,8 @@ memory layout. MACHINE is aarch64 or riscv64.
 import struct
 import sys
 
-MACHINES = {"aarch64": (0xAA64, 183, 257), "riscv64": (0x5064, 243, 2)}
+MACHINES = {"aarch64": (0xAA64, 183, 257), "riscv64": (0x5064, 243, 2),
+            "x86_64": (0x8664, 62, 1)}
 ALIGN = 0x1000
 
 

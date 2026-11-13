@@ -261,7 +261,7 @@ boxes in [TODO.md](TODO.md).
 - [ ] **D2** AArch64 boards: Raspberry Pi 4/5 under `boards/rpi4`.
 - [x] **D3** RISC-V `virt`: UEFI-class interface while keeping the SBI;
   `DBCN`, SSE; boards (VisionFive 2, HiFive) under `boards/`.
-- [ ] **D4** Shared drivers across architectures (NVMe, xHCI, virtio, FAT,
+- [x] **D4** Shared drivers across architectures (NVMe, xHCI, virtio, FAT,
   PE/ELF loaders) from the same sources. Test: each QEMU target boots
   Squirrel-OS/2 (once its port exists) and Linux to a shell.
 
@@ -299,6 +299,10 @@ boxes in [TODO.md](TODO.md).
     (EINJ still open)
 - [ ] **F3** Management: IPMI/Redfish-style BMC stubs, serial-over-LAN, HTTP
   boot.
+  - [x] `f3-uefi-net`: UEFI Simple Network Protocol on virtio-net and a
+    PXE-style DHCP+TFTP boot on x86_64, aarch64 and riscv64 UEFI
+  - [x] `f3-http-boot`: HTTP boot (own TCP, HTTP/1.1 with Content-Length,
+    chunked, close-delimited bodies and redirects; IPv4 hosts, no DNS yet)
 - [ ] **F4** Diskless cluster boot of many nodes from one image server.
   Test: QEMU `-smp 256 -numa ...`; `make linux-big` already covers part.
 
