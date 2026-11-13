@@ -1,6 +1,6 @@
 name: Draft release
 
-# Run by hand from the Actions tab. Builds the three firmware images at the
+# Run by hand from the Actions tab. Builds the firmware images at the
 # given commit, runs make test on it, and makes a DRAFT GitHub Release with
 # them, SHA256SUMS.txt and the notes from release-notes/v<version>.md on
 # main. A draft creates no tag: the tag appears only when a person opens
@@ -35,8 +35,12 @@ jobs:
             || { echo "version must look like 1.3.1"; exit 1; }
           echo "$TARGET" | grep -Eq '^[0-9a-f]{7,40}$' \
             || { echo "target must be a commit SHA"; exit 1; }
+          # An existing DRAFT gets its files replaced; a published release is
+          # never touched
           if gh release view "v$VERSION" >/dev/null 2>&1; then
-            echo "a release v$VERSION already exists"; exit 1
+            [ "$(gh release view "v$VERSION" --json isDraft -q .isDraft)" = true ] \
+              || { echo "release v$VERSION is already published"; exit 1; }
+            echo "EXISTING_DRAFT=1" >> "$GITHUB_ENV"
           fi
 
       - name: Check out main (for the notes)
@@ -95,6 +99,13 @@ jobs:
       - name: Make the draft release
         run: |
           title=$(head -n 1 "main/release-notes/v$VERSION.md" | sed 's/^# *//')
+          if [ -n "$EXISTING_DRAFT" ]; then
+            gh release edit "v$VERSION" --draft=true --target "$SHA" --title "$title" \
+              --notes-file "main/release-notes/v$VERSION.md"
+            gh release upload "v$VERSION" --clobber out/*
+            echo "Draft v$VERSION updated with: $(ls out | tr '\n' ' ')" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           url=$(gh release create "v$VERSION" --draft \
             --target "$SHA" \
             --title "$title" \
