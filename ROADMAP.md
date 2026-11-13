@@ -257,6 +257,8 @@ boxes in [TODO.md](TODO.md).
     unit 1, CFI), kept across boots and written after ExitBootServices
   - [x] `c5-authvar`: authenticated writes to PK, KEK, db and dbx; setup
     and user mode; keys enrolled at run time
+  - [x] `c5-tpm`: measured boot with a TPM 2.0 on TIS (PCR extends, the
+    TCG2 protocol and event log, the TPM2 table)
 
 ### Phase D — v2.5: ARM and RISC-V as full firmware
 

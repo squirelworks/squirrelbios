@@ -31,7 +31,11 @@
 # find the PC40 host bridge and the device on bus 0x41. LINUX_NV=1 (C5)
 # boots each machine twice from pflash with a variable store as pflash
 # unit 1: Linux writes a variable through efivarfs and must read it back
-# on the second boot. Logs are
+# on the second boot. LINUX_TPM=1
+# (C5) gives each machine a TPM 2.0 from swtpm: the kernel must find it
+# through the DSDT's MSFT0101 device, and the event log it reads (the
+# TPM2 table's log area) must replay to its SHA-256 PCRs 0-7
+# (tests/tcglog.py). Logs are
 # build/linux-uefi/linux-uefi-<machine>.log.
 
 set -eu
@@ -45,6 +49,7 @@ SMP=${LINUX_SMP:-2}
 NUMA=${LINUX_NUMA:-0}
 PXB=${LINUX_PXB:-0}
 NV=${LINUX_NV:-0}
+TPM=${LINUX_TPM:-0}
 MIRROR=${UBUNTU_ARCHIVE:-http://archive.ubuntu.com/ubuntu}
 OLD_MIRROR=${UBUNTU_OLD_RELEASES:-http://old-releases.ubuntu.com/ubuntu}
 
@@ -116,6 +121,12 @@ echo "squirrel: busybox shell on $(uname -sr), $(grep -c ^processor /proc/cpuinf
 echo "squirrel: acpi tables: $(ls /sys/firmware/acpi/tables | tr '\n' ' ')"
 echo "squirrel: numa nodes: $(ls -d /sys/devices/system/node/node* 2>/dev/null | wc -l)"
 echo "squirrel: dmi: $(cat /sys/class/dmi/id/bios_vendor) / $(cat /sys/class/dmi/id/product_name)"
+if [ -e /sys/class/tpm/tpm0 ]; then
+    mount -t securityfs securityfs /sys/kernel/security
+    echo "squirrel: tpm: $(cat /sys/class/tpm/tpm0/tpm_version_major)"
+    for i in 0 1 2 3 4 5 6 7; do echo "PCR$i=$(cat /sys/class/tpm/tpm0/pcr-sha256/$i)"; done
+    od -An -tx1 -v /sys/kernel/security/tpm0/binary_bios_measurements | sed 's/^/TCGLOG /'
+fi
 if grep -q squirrel.nv /proc/cmdline; then
     mount -t efivarfs efivarfs /sys/firmware/efi/efivars
     # efivarfs makes existing variables immutable, so each boot adds one
@@ -176,7 +187,18 @@ for machine in q35 pc; do
     while [ "$run" -lt "$runs" ]; do
     run=$((run + 1))
     : > "$log"
-    "$QEMU_X86" -M "$machine" $fw_args -m "$MEM" -smp "$SMP" $numa_args $pxb_args -no-reboot \
+    tpm_args=
+    if [ "$TPM" = 1 ]; then
+        tpm=$WORK/tpm-$machine
+        rm -rf "$tpm"
+        mkdir -p "$tpm/state"
+        swtpm_setup --tpm2 --tpmstate "$tpm/state" --pcr-banks sha256 --overwrite >/dev/null ||
+            die "swtpm_setup failed"
+        swtpm socket --tpm2 --tpmstate dir="$tpm/state" --ctrl type=unixio,path="$tpm/sock" --daemon ||
+            die "swtpm failed"
+        tpm_args="-chardev socket,id=chrtpm,path=$tpm/sock -tpmdev emulator,id=tpm0,chardev=chrtpm -device tpm-tis,tpmdev=tpm0"
+    fi
+    "$QEMU_X86" -M "$machine" $fw_args -m "$MEM" -smp "$SMP" $numa_args $pxb_args $tpm_args -no-reboot \
         -fw_cfg name=opt/org.squirrelworks/boot.efi,file="$kernel" \
         -fw_cfg name=opt/org.squirrelworks/initrd,file="$initrd" \
         -fw_cfg "name=opt/org.squirrelworks/cmdline,string=$cmdline" \
@@ -210,6 +232,12 @@ for machine in q35 pc; do
     if [ "$PXB" = 1 ]; then
         grep -qF "ACPI: PCI Root Bridge [PC40] (domain 0000 [bus 40-ff])" "$log" || ok=0
         grep -qE "pci 0000:41:[0-9a-f]{2}\.0: \[1af4:10(05|44)\]" "$log" || ok=0
+    fi
+    if [ "$TPM" = 1 ]; then
+        grep -qF "squirrel: tpm: 2" "$log" || ok=0
+        grep -qE "ACPI: TPM2 0x[0-9A-F]+ 00004C \(v04 SQRLWK" "$log" || ok=0
+        python3 tests/tcglog.py --linux "$log" | sed 's/^/linux-uefi-'"$machine"': /'
+        python3 tests/tcglog.py --linux "$log" >/dev/null || ok=0
     fi
     if [ "$NV" = 1 ]; then
         grep -qF "squirrel: nv before: " "$log.1" || ok=0

@@ -109,6 +109,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/x86_64-acpi.efi \
              $(TEST_DIR)/sb/sb-signed.efi $(TEST_DIR)/x86_64-sb-esp.img \
              $(TEST_DIR)/x86_64-numa.efi $(TEST_DIR)/x86_64-numa-dist.bin \
+             $(TEST_DIR)/x86_64-tpm.efi \
              $(TEST_DIR)/arm-efi-app.efi $(TEST_DIR)/arm-efi-app-exit.efi \
              $(TEST_DIR)/arm-efi-app-ebs.efi $(TEST_DIR)/arm-efi-initrd.img \
              $(TEST_DIR)/riscv-efi-app.efi $(TEST_DIR)/riscv-efi-app-exit.efi \
@@ -379,6 +380,9 @@ $(TEST_DIR)/x86_64-authrt.efi: tests/x86_64-authrt.asm tests/x86_64-pe.inc $(TES
 	$(NASM) -f bin -i tests/ -i $(TEST_DIR)/sb/ $< -o $@
 $(TEST_DIR)/sb/sb-authrt.efi: tests/mksigned.py $(TEST_DIR)/x86_64-authrt.efi
 	python3 tests/mksigned.py --sign $(TEST_DIR)/x86_64-authrt.efi $@
+# Measured boot: the TCG2 protocol, the event log and PCRs (with swtpm)
+$(TEST_DIR)/x86_64-tpm.efi: tests/x86_64-tpm.asm tests/x86_64-pe.inc | $(TEST_DIR)
+	$(NASM) -f bin -i tests/ $< -o $@
 $(TEST_DIR)/x86_64-numa-dist.bin: | $(TEST_DIR)
 	printf '\012\037\037\012' > $@
 
