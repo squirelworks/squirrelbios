@@ -10,6 +10,7 @@
  * an MBR disk, a CD or the network with INT 13h and friends, exactly as
  * on qemu-system-i386 -bios squirrel-bios.rom. */
 #include "efi.h"
+#include "smp.h"
 
 extern const u8 csm_tramp[], csm_tramp_end[];
 extern const u8 csm_legacy_rom[], csm_legacy_rom_end[];
@@ -88,6 +89,7 @@ int csm_boot(void)
            (u64)(LEGACY_SIZE >> 10), pam_base);
     dispi_off();
     printf("csm: leaving long mode for F000:FFF0\n");
+    smp_park_aps();     /* APs back to wait-for-SIPI for the legacy OS */
     memcpy((void *)CSM_TRAMP, csm_tramp, (usize)(csm_tramp_end - csm_tramp));
     ((void (*)(void))(uptr)CSM_TRAMP)();
     return 0;   /* not reached */

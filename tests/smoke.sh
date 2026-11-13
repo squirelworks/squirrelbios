@@ -860,6 +860,10 @@ run x86_64-gop "gop: 800x600x32 at|APP gop mode=ok fb=ok blt=ok time=ok var=ok|e
 run x86_64-csm "csm: legacy BIOS (64 KB) in shadow RAM at F0000, PAM at 0x59|csm: leaving long mode for F000:FFF0|SquirrelBIOS x86|kernel loaded at 0x00008000, jumping|osload=ok dl=ok flags=ok memmap=ok sig=ok e820=ok disk=absent|!boot halted" \
     "$QEMU_X86_64" -M pc -bios x86_64/squirrel-bios.fd \
     -drive format=raw,file=$TEST_DIR/x86-osload.bin,if=ide,snapshot=on
+# ... and with four CPUs, the APs parked (INIT) before long mode ends
+run x86_64-csm-smp "smp: 4 CPUs, xAPIC|csm: leaving long mode for F000:FFF0|kernel loaded at 0x00008000, jumping|osload=ok dl=ok flags=ok memmap=ok sig=ok e820=ok disk=absent|!boot halted" \
+    "$QEMU_X86_64" -M pc -smp 4 -bios x86_64/squirrel-bios.fd \
+    -drive format=raw,file=$TEST_DIR/x86-osload.bin,if=ide,snapshot=on
 run x86_64-csm-q35 "gop: 800x600x32 at|csm: legacy BIOS (64 KB) in shadow RAM at F0000, PAM at 0x90|SquirrelBIOS x86|disk: SATA disk on AHCI port 0|OS-ENTRY x86 dl=ok memmap=ok flags=ok vga=ok" \
     "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd \
     -drive format=raw,file=$TEST_DIR/x86-boot.bin,if=ide,snapshot=on
@@ -869,6 +873,26 @@ run x86_64-csm-floppy "csm: leaving long mode for F000:FFF0|booting from floppy 
 run x86_64-csm-cd "csm: leaving long mode for F000:FFF0|booting from CD-ROM|OS-ENTRY x86 cd cd=ok" \
     "$QEMU_X86_64" -M pc -bios x86_64/squirrel-bios.fd \
     -cdrom $TEST_DIR/x86-cd.iso
+
+# x86-64 firmware: SMP (C4). INIT-SIPI-SIPI brings up every AP; an app
+# drives them through the MP services protocol (all at once, one by one,
+# one AP, WhoAmI on an AP, a timeout that restarts the AP, disabling one)
+# and checks the topology from CPUID and the MPS table. Also 64 CPUs, the
+# PC machine, one CPU, and the x2APIC build (QEMU's TCG before 9.0 has no
+# x2APIC, so it may stay in xAPIC mode and says so)
+MP_OK="flags=ok bsp=ok all=ok single=ok this=ok self=ok timeout=ok disable=ok mps=ok"
+run x86_64-mp "smp: 4 CPUs, xAPIC, BSP APIC ID 0|~^smp: MP table at 0x[0-9a-f]{16}, 23 entries|APP mp n=4 en=4 who=0 info=0:0.0.0,1:0.1.0,2:1.0.0,3:1.1.0 $MP_OK|efi: image returned 0x0|!=bad" \
+    "$QEMU_X86_64" -M q35 -smp 4,sockets=2,cores=2 -bios x86_64/squirrel-bios.fd -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-mp.efi
+run x86_64-mp-smt "APP mp n=8 en=8 who=0 info=0:0.0.0,1:0.0.1,2:0.1.0,3:0.1.1,4:1.0.0,5:1.0.1,6:1.1.0,7:1.1.1 $MP_OK|!=bad" \
+    "$QEMU_X86_64" -M q35 -smp 8,sockets=2,cores=2,threads=2 -bios x86_64/squirrel-bios.fd -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-mp.efi
+run x86_64-mp-64 "smp: 64 CPUs, xAPIC|APP mp n=64 en=64 who=0|,63:3.15.0 $MP_OK|!=bad" \
+    "$QEMU_X86_64" -M q35 -smp 64,sockets=4,cores=16 -bios x86_64/squirrel-bios.fd -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-mp.efi
+run x86_64-mp-pc "smp: 2 CPUs, xAPIC|APP mp n=2 en=2 who=0 info=0:0.0.0,1:0.1.0 $MP_OK|!=bad" \
+    "$QEMU_X86_64" -M pc -smp 2 -bios x86_64/squirrel-bios.fd -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-mp.efi
+run x86_64-mp-up "smp: 1 CPU, xAPIC, BSP APIC ID 0|APP mp n=1 en=1 who=0 info=0:0.0.0 flags=ok bsp=ok aps=none notstarted=ok mps=ok|efi: image returned 0x0|!=bad" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-mp.efi
+run x86_64-x2apic-cfg "~^smp: 4 CPUs, x2?APIC( \(the CPU has no x2APIC\))?, BSP APIC ID 0|APP mp n=4 en=4 who=0 info=|$MP_OK|!=bad" \
+    "$QEMU_X86_64" -M q35 -smp 4 -cpu max -bios build/x86_64-uefi/x2apic/squirrel-bios.fd -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-mp.efi
 
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

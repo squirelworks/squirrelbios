@@ -1,6 +1,7 @@
 /* SquirrelBIOS x86_64-uefi: firmware main.
  * Original code. */
 #include "efi.h"
+#include "smp.h"
 
 extern char __fw_start[], __fw_end[];
 
@@ -132,6 +133,7 @@ void fw_main(void)
     printf("efi: memory services %s\n", efi_memory_selftest() ? "ok" : "FAILED");
     printf("efi: TSC at %lu MHz, console on COM1\n", efi_tsc_hz() / 1000000);
     efi_gop_init();
+    smp_init();
 
     efi_disk_init();
     if (efi_boot_esp()) {
