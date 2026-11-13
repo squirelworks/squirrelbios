@@ -1835,5 +1835,28 @@ else
     SERIAL_IN=
 fi
 
+# x86-64 firmware: what booting Squirrel OS/2's BOOTX64.EFI found. A 3 MB
+# BOOTX64.EFI from an ESP of 512-byte clusters on legacy virtio-blk must
+# load (runs of clusters read at once, every request waited for by the
+# clock) and its data must be right. x86_64-handoff checks the screen is
+# lit (VGA palette address source on) before ExitBootServices, and after
+# it the PC an OS written for a BIOS boot expects: the 8259s at 08h/70h
+# (an IRQ 0 tick arrives at vector 08h), LINT0 ExtINT and LINT1 NMI, and
+# 8042 scan-code translation on.
+run x86_64-bigload "efi: booting \\EFI\\BOOT\\BOOTX64.EFI (3158016 bytes)|APP bigload blob=ok|!trying the CSM|!timed out" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd \
+    -drive if=none,id=big,format=raw,file=$TEST_DIR/x86_64-bigload.img,snapshot=on \
+    -device virtio-blk-pci,drive=big,disable-legacy=off,disable-modern=on
+HANDOFF_OK="APP handoff vga=on|APP handoff lint0=extint lint1=nmi pic=ok irq0=ok kbc=xlate|@exit=1|!=bad|!=off"
+run x86_64-handoff "$HANDOFF_OK" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
+    -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-handoff.efi
+run x86_64-handoff-pc "$HANDOFF_OK" \
+    "$QEMU_X86_64" -M pc -bios x86_64/squirrel-bios.fd -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
+    -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-handoff.efi
+run x86_64-handoff-x2apic "$HANDOFF_OK" \
+    "$QEMU_X86_64" -M q35 -smp 2 -cpu max -bios build/x86_64-uefi/x2apic/squirrel-bios.fd \
+    -device isa-debug-exit,iobase=0xf4,iosize=0x04 -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-handoff.efi
+
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

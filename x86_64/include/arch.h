@@ -76,6 +76,7 @@ const struct chipset *chipset(void);
 u8 chipset_pirq(u8 slot, u8 pin);
 u8 chipset_pirq_irq(u8 pirq);
 void chipset_legacy_handoff(void);
+void chipset_ebs_init(void);    /* the PIC, LINT0/1 and 8042 at ExitBootServices */
 
 /* arch.c, rt.c */
 #define arch_check_image(src, size) x86_check_image(src, size)

@@ -82,6 +82,7 @@ int apic_has_x2apic(void);
 void apic_enable(int x2apic);
 int apic_is_x2apic(void);
 u32 apic_id(void);
+void apic_legacy_lvt(void);              /* BSP: LINT0 ExtINT, LINT1 NMI */
 void apic_send_ipi(u32 dest, u32 low, int all_but_self);
 
 /* mptable.c: the MultiProcessor Specification 1.4 table */

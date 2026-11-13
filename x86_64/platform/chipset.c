@@ -8,6 +8,7 @@
  * chose so the ACPI tables (acpi.c) describe the same hardware. */
 #include "sq.h"
 #include "smm.h"
+#include "smp.h"
 
 #define PM_BASE         0x600
 #define MCFG_BASE_Q35   0xB0000000u     /* 256 MB window: buses 0-255 */
@@ -129,12 +130,99 @@ void chipset_init(void)
     pci_lines();
 }
 
+/* --- the PC as a BIOS leaves it -------------------------------------- */
+
+#define KBC_DATA        0x60
+#define KBC_CMD         0x64
+#define KBC_OBF         0x01
+#define KBC_IBF         0x02
+#define KBC_READ_CB     0x20
+#define KBC_WRITE_CB    0x60
+#define CB_KBD_INT      0x01
+#define CB_SYS          0x04
+#define CB_KBD_OFF      0x10
+#define CB_XLATE        0x40            /* set 2 to set 1 scan codes */
+
+static int kbc_wait(u8 bit, int set)
+{
+    u64 end = arch_counter() + arch_counter_hz() / 10;
+    while (!!(inb(KBC_CMD) & bit) != set)
+        if (arch_counter() > end)
+            return 0;
+    return 1;
+}
+
+/* The 8042 command byte as a BIOS leaves it: keyboard on, its IRQ 1 on,
+ * translation to scan code set 1 on. QEMU's comes out of reset with
+ * translation off, so an OS would read set 2 codes. */
+static void kbc_legacy(void)
+{
+    if (inb(KBC_CMD) == 0xFF)           /* no 8042 */
+        return;
+    for (int i = 0; i < 16 && (inb(KBC_CMD) & KBC_OBF); i++)
+        (void)inb(KBC_DATA);            /* nothing stale in the way */
+    if (!kbc_wait(KBC_IBF, 0))
+        return;
+    outb(KBC_CMD, KBC_READ_CB);
+    if (!kbc_wait(KBC_OBF, 1))
+        return;
+    u8 cb = inb(KBC_DATA);
+    cb = (u8)((cb | CB_KBD_INT | CB_SYS | CB_XLATE) & ~CB_KBD_OFF);
+    if (!kbc_wait(KBC_IBF, 0))
+        return;
+    outb(KBC_CMD, KBC_WRITE_CB);
+    if (!kbc_wait(KBC_IBF, 0))
+        return;
+    outb(KBC_DATA, cb);
+    kbc_wait(KBC_IBF, 0);
+}
+
+/* The 8259s as a BIOS programs them: IRQs 0-7 at vectors 08h-0Fh, 8-15
+ * at 70h-77h, the slave cascaded on IRQ 2, 8086 mode. All masked but the
+ * cascade: the OS unmasks what it uses. The ELCR (level IRQs) is kept. */
+static void pic_legacy(void)
+{
+    outb(0x20, 0x11);
+    outb(0xA0, 0x11);
+    outb(0x21, 0x08);
+    outb(0xA1, 0x70);
+    outb(0x21, 0x04);
+    outb(0xA1, 0x02);
+    outb(0x21, 0x01);
+    outb(0xA1, 0x01);
+    outb(0x21, 0xFB);
+    outb(0xA1, 0xFF);
+}
+
+/* At ExitBootServices, and before the CSM: the 8259s, the local APIC's
+ * LINT0/LINT1 and the keyboard controller as an OS written for a BIOS
+ * boot expects them */
+static void legacy_pc_state(void)
+{
+    pic_legacy();
+    apic_legacy_lvt();
+    kbc_legacy();
+}
+
+static void EFIAPI on_exit_boot_services(EFI_EVENT ev, void *ctx)
+{
+    (void)ev, (void)ctx;
+    legacy_pc_state();
+}
+
+void chipset_ebs_init(void)
+{
+    EFI_EVENT ev;
+    efi_create_event(EVT_SIGNAL_EXIT_BOOT_SERVICES, TPL_CALLBACK, on_exit_boot_services, NULL, &ev);
+}
+
 /* Before the CSM hands the machine to the legacy BIOS: give back what
  * only the UEFI side wanted. The legacy BIOS switches to ACPI mode itself
  * when its OS asks, and does not expect an ECAM window on q35. */
 void chipset_legacy_handoff(void)
 {
     smm_legacy_handoff();
+    legacy_pc_state();
     if (cs.pm_base) {
         u16 cnt = (u16)(cs.pm_base + 4);
         outw(cnt, (u16)(inw(cnt) & ~1u));
