@@ -165,12 +165,15 @@ boots each firmware under QEMU with a small stand-in OS image from
 | `aarch64-uefi-kernel` | The same app as `-kernel` with `-append` and `-initrd`: the command line arrives as LoadOptions and the initrd through LocateDevicePath and LoadFile2 on the Linux initrd media path, as Linux's EFI stub reads them |
 | `aarch64-uefi-ebs` | ExitBootServices, then ResetSystem(shutdown) through the runtime services: PSCI `SYSTEM_OFF`, QEMU exits 0 |
 | `aarch64-uefi-el2` | The same at EL2 (`virtualization=on`) with GICv3 and 2 GB: PSCI through `smc`, the distributor set up and this CPU's redistributor awake |
+| `aarch64-uefi-disk` | A GPT disk on virtio-blk (virtio-mmio, legacy registers): Block I/O, the FAT32 ESP, and boot of `\EFI\BOOT\BOOTAA64.EFI` (the C app) |
 | `aarch64-uefi-wrong-arch` | An x86-64 PE32+ image is refused with `EFI_UNSUPPORTED` |
 | `riscv64-uefi` | The RISC-V UEFI-class firmware: the SBI enters the UEFI core in S-mode at 2 MB; it finds the NS16550A, timebase and goldfish RTC in the device tree, reports SBI 2.0, keeps the SBI's 2 MB reserved, checks the memory services and installs `RISCV_EFI_BOOT_PROTOCOL` |
 | `riscv64-uefi-app`, `riscv64-uefi-app-exit` | The same C stand-in app as on AArch64, built for RISC-V, through fw_cfg |
 | `riscv64-uefi-kernel` | The app as `-kernel` (QEMU puts it at `0x80400000`, the SBI passes it on) with LoadOptions from `/chosen` `bootargs` and the `/chosen` initrd through LoadFile2 |
 | `riscv64-uefi-ebs` | ExitBootServices with 4 harts, then ResetSystem(shutdown) through SBI SRST: QEMU exits 0 |
 | `riscv64-uefi-wrong-arch` | An AArch64 PE32+ image is refused with `EFI_UNSUPPORTED` |
+| `riscv64-uefi-disk` | The same from a disk with the virtio-mmio version 2 registers: `\EFI\BOOT\BOOTRISCV64.EFI` is not 8.3 and is found by its long name |
+| `riscv64-uefi-disk-other-arch` | A disk holding only `BOOTAA64.EFI`: the volume is mounted, nothing boots |
 
 Needs `qemu-system-i386`, `qemu-system-x86_64`, `qemu-system-aarch64` and `qemu-system-riscv64`.
 Serial logs are kept in `build/tests/*.log`. `SMOKE_TIMEOUT` (seconds,

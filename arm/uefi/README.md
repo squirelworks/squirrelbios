@@ -9,7 +9,12 @@ qemu-system-aarch64 -M virt -cpu cortex-a57 -nographic -bios arm/uefi/squirrel-b
     -kernel Image -initrd initrd.img -append "console=ttyAMA0"
 qemu-system-aarch64 -M virt -cpu cortex-a57 -nographic -bios arm/uefi/squirrel-bios.fd \
     -fw_cfg name=opt/org.squirrelworks/boot.efi,file=app.efi
+qemu-system-aarch64 -M virt -cpu cortex-a57 -nographic -bios arm/uefi/squirrel-bios.fd \
+    -drive if=none,file=disk.img,format=raw,id=d0 -device virtio-blk-device,drive=d0
 ```
+
+The last boots `\EFI\BOOT\BOOTAA64.EFI` from the disk's EFI system
+partition (GPT or MBR, FAT12/16/32).
 
 ```
 start.S   reset at 0 (flash): copy the image to RAM at 0x40100000 and

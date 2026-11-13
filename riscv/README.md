@@ -111,9 +111,10 @@ and:
 - starts a `-kernel` PE image as an EFI application with `/chosen`
   `bootargs` as its LoadOptions and the initrd on LoadFile2 (the Linux
   initrd media path), or an image given as
-  `-fw_cfg name=opt/org.squirrelworks/boot.efi,file=...`.
+  `-fw_cfg name=opt/org.squirrelworks/boot.efi,file=...`, or
+  `\EFI\BOOT\BOOTRISCV64.EFI` (a long FAT name) from a virtio-blk disk
+  (`-device virtio-blk-device`, legacy or
+  `-global virtio-mmio.force-legacy=false`).
 
 Linux uses the runtime services after `SetVirtualAddressMap` (`GetTime`
-from the goldfish RTC, variables, reset). Not yet: a disk
-(virtio-mmio Block I/O and `\EFI\BOOT\BOOTRISCV64.EFI`), ACPI (RHCT),
-SSE, and UART/CLINT addresses from the device tree in the SBI itself.
+from the goldfish RTC, variables, reset). Not yet: ACPI (RHCT), SSE, and UART/CLINT addresses from the device tree in the SBI itself.

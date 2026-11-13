@@ -11,7 +11,9 @@
  *      initrd come from /chosen), the way a Linux EFI stub expects it:
  *      the command line as LoadOptions, the initrd through LoadFile2 on
  *      the Linux initrd media device path;
- *   2. an EFI image given as -fw_cfg name=opt/org.squirrelworks/boot.efi.
+ *   2. an EFI image given as -fw_cfg name=opt/org.squirrelworks/boot.efi;
+ *   3. \EFI\BOOT\BOOT<arch>.EFI from a FAT volume on a virtio-blk disk
+ *      (virtio-mmio), GPT, MBR or a whole-disk volume.
  * Otherwise it halts. */
 #include "efi.h"
 
@@ -271,11 +273,12 @@ void efi_main(const void *dtb)
     efi_install_configuration_table((EFI_GUID *)&dtb_guid, (void *)dtb);
     printf("efi: device tree installed as a configuration table\n");
     arch_efi_init();
+    efi_disk_init();
 
-    if (boot_kernel() || boot_fwcfg_file()) {
+    if (boot_kernel() || boot_fwcfg_file() || efi_boot_esp()) {
         printf("fw: halting\n");
         halt();
     }
-    printf("fw: nothing to boot (no -kernel, no %s), halting\n", FWCFG_BOOT);
+    printf("fw: nothing to boot (no -kernel, no %s, no boot disk), halting\n", FWCFG_BOOT);
     halt();
 }

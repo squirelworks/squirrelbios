@@ -15,7 +15,14 @@ main.c          efi_main: console, device tree, memory map, EFI tables,
                 device tree configuration table, then boot: QEMU's
                 -kernel/-initrd/-append from fw_cfg (LoadOptions, initrd
                 through LoadFile2 on the Linux initrd media path), or
-                opt/org.squirrelworks/boot.efi
+                opt/org.squirrelworks/boot.efi, or \EFI\BOOT\BOOT<arch>.EFI
+                from a disk
+virtio_mmio.c   virtio-blk on the virtio-mmio transports the device tree
+                lists, version 1 (legacy) or 2 registers, polled
+disk.c, fat.c   Block I/O for the disk and its GPT/MBR partitions, a
+                read-only FAT12/16/32 Simple File System (8.3 and long
+                names), and the ESP boot; copies of x86_64/core's, with
+                the architecture's boot file name and long-name lookup
 fdt.c           read-only flattened device tree walker
 memmap.c        usable RAM from device_type "memory", /reserved-memory
 fwcfg.c         QEMU fw_cfg, memory-mapped, with DMA for big reads

@@ -391,6 +391,13 @@ EFI_DEVICE_PATH_PROTOCOL *efi_dp_hd(u32 part, u64 start, u64 size, const u8 uuid
 
 /* disk.c / fat.c: virtio-blk Block I/O, GPT/MBR partitions, FAT SFS */
 void efi_disk_init(void);
+/* virtio_mmio.c: the virtio-blk disk disk.c serves */
+int vblk_probe(void);
+int vblk_present(void);
+u64 vblk_sectors(void);
+EFI_DEVICE_PATH_PROTOCOL *vblk_path(void);
+int vblk_read(u64 lba, void *buf, u32 bytes);
+int vblk_write(u64 lba, void *buf, u32 bytes);
 int efi_boot_esp(void);
 int fat_install(EFI_HANDLE handle, EFI_BLOCK_IO_PROTOCOL *bio);
 

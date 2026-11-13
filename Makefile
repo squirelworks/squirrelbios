@@ -102,7 +102,8 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/arm-efi-app.efi $(TEST_DIR)/arm-efi-app-exit.efi \
              $(TEST_DIR)/arm-efi-app-ebs.efi $(TEST_DIR)/arm-efi-initrd.img \
              $(TEST_DIR)/riscv-efi-app.efi $(TEST_DIR)/riscv-efi-app-exit.efi \
-             $(TEST_DIR)/riscv-efi-app-ebs.efi
+             $(TEST_DIR)/riscv-efi-app-ebs.efi \
+             $(TEST_DIR)/arm-esp.img $(TEST_DIR)/riscv-esp.img
 
 .PHONY: all x86 x86_64 arm arm-uefi riscv riscv-uefi test linux-shell linux-arm linux-riscv-uefi linux-x86 linux-big linux-stress os-boot clean linux-uefi os-boot-csm
 .DELETE_ON_ERROR:
@@ -385,6 +386,13 @@ $(TEST_DIR)/riscv-efi-app-ebs.efi: tests/efi-app.c tests/efi-app.ld tests/mkpe.p
 # An -initrd for the app started as -kernel: 3000 bytes starting "Sq"
 $(TEST_DIR)/arm-efi-initrd.img: | $(TEST_DIR)
 	python3 -c 'import sys; sys.stdout.buffer.write(b"Sq" + bytes(2998))' > $@
+
+# GPT disks with the C app as \\EFI\\BOOT\\BOOTAA64.EFI and (a long name)
+# \\EFI\\BOOT\\BOOTRISCV64.EFI
+$(TEST_DIR)/arm-esp.img: tests/mkesp.py $(TEST_DIR)/arm-efi-app.efi | $(TEST_DIR)
+	python3 tests/mkesp.py $(TEST_DIR)/arm-efi-app.efi $@ BOOTAA64.EFI
+$(TEST_DIR)/riscv-esp.img: tests/mkesp.py $(TEST_DIR)/riscv-efi-app.efi | $(TEST_DIR)
+	python3 tests/mkesp.py $(TEST_DIR)/riscv-efi-app.efi $@ BOOTRISCV64.EFI
 
 # GPT disk with a FAT32 ESP holding \\EFI\\BOOT\\BOOTX64.EFI (the app)
 $(TEST_DIR)/x86_64-esp.img: tests/mkesp.py $(TEST_DIR)/x86_64-app.efi | $(TEST_DIR)
