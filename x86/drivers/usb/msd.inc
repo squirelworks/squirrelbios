@@ -19,7 +19,9 @@
 ; schedule on only until it is done (usbd_ehci_xfer). A high-speed UAS
 ; interface (USB Attached SCSI, protocol 62h) is taken on EHCI too: its
 ; four pipes are four bulk endpoints, used one at a time without streams
-; (usbd_uas_scsi). That
+; (usbd_uas_scsi). So is one at super speed on xHCI, where the status and
+; data pipes use streams: each has a stream context array whose stream 1
+; is its ring, and every command is tag 1 (xhci_msd_config). That
 ; controller then keeps running after POST, alongside a USB keyboard or
 ; mouse on the same controller, and its state that the transfers need
 ; (registers, event ring position, the disk's rings or data toggles) is
@@ -64,11 +66,12 @@ USBD_IFACE      equ 0x1F5C          ; byte: its interface (Bulk-Only Reset)
 USBD_MPS0       equ 0x1F5D          ; byte: endpoint 0 max packet
 USBD_FAULTN     equ 0x1F5E          ; byte: commands so far (USBD_FAULT builds)
 USBD_SETUP      equ 0x38            ; from USBD_BUFS: a control request's 8 bytes
-USBD_UAS        equ 0x1F63          ; byte: 1 if it speaks UAS, not bulk-only
+USBD_UAS        equ 0x1F63          ; byte: 1 if it speaks UAS, not bulk-only;
+                                    ; 2 UAS with streams (xHCI, super speed)
 USBD_EPDIN      equ 0x1F7B          ; byte: UAS data-in pipe's endpoint
 USBD_EPDOUT     equ 0x1F7C          ; byte: UAS data-out pipe's endpoint
-USBD_DINST      equ 0x1F7D          ; byte: data-in pipe's data toggle
-USBD_DOUTST     equ 0x1F7E          ; byte: data-out pipe's data toggle
+USBD_DINST      equ 0x1F56          ; data-in pipe: ring state or data toggle
+USBD_DOUTST     equ 0x1F58          ; data-out pipe: the same
 ; On UAS, USBD_EPOUT is the command pipe and USBD_EPIN the status pipe
 ; On UHCI and EHCI, USBD_OUTST and USBD_INST hold each endpoint's next
 ; data toggle
@@ -156,7 +159,14 @@ usb_disk_claim:
     jmp .usb_bufs               ; on its own: no keyboard shares it
 .hc:
     cmp byte [bp - 17], 1
-    jne .out                    ; UAS on EHCI only
+    je .hc_bot
+    cmp byte [fs:USB_HC], USB_HC_XHCI
+    jne .out                    ; UAS on EHCI and xHCI only
+    cmp byte [bp - 18], 0       ; all four pipes
+    je .out
+    cmp byte [bp - 19], 0
+    je .out
+.hc_bot:
     cmp byte [fs:USBD_ADDR], 0
     jne .out
     cmp byte [bp - 13], 0
@@ -180,10 +190,12 @@ usb_disk_claim:
     mov word [fs:USBD_OUTST], 0         ; DATA0 on both after configuring
     mov word [fs:USBD_INST], 0
     mov word [fs:USBD_DINST], 0
+    mov word [fs:USBD_DOUTST], 0
     jmp .config
 .xhci:
     cmp dword [fs:XHCI_BASE], XHCI_EBDA
     jne .out                    ; its block will not survive POST
+    call .uas_vars
     mov al, [bp - 1]
     mov cl, [bp - 13]
     mov ch, [bp - 14]
@@ -213,13 +225,7 @@ usb_disk_claim:
     mov [fs:USBD_IFACE], al
     mov al, [bp - 3]
     mov [fs:USBD_MPS0], al
-    mov al, [bp - 17]
-    dec al
-    mov [fs:USBD_UAS], al
-    mov al, [bp - 18]
-    mov [fs:USBD_EPDIN], al
-    mov al, [bp - 19]
-    mov [fs:USBD_EPDOUT], al
+    call .uas_vars
     mov dword [fs:USBD_TAG], 0
     mov dword [fs:USBD_SECTORS], 0
     mov ax, [fs:USB_BDF]
@@ -231,6 +237,28 @@ usb_disk_claim:
     mov [fs:USB_KBD_BDF], ax    ; the keyboard and mouse must join it
 .out:
     popad
+    ret
+
+; USBD_UAS (0 bulk-only, 1 UAS, 2 UAS with streams: on xHCI at super
+; speed), USBD_EPDIN and USBD_EPDOUT from usb_enum's frame. Keeps every
+; register.
+.uas_vars:
+    push ax
+    mov al, [bp - 17]
+    dec al
+    jz .uas_kind
+    cmp byte [bp - 2], 3
+    jne .uas_kind
+    cmp byte [fs:USB_HC], USB_HC_XHCI
+    jne .uas_kind
+    inc al
+.uas_kind:
+    mov [fs:USBD_UAS], al
+    mov al, [bp - 18]
+    mov [fs:USBD_EPDIN], al
+    mov al, [bp - 19]
+    mov [fs:USBD_EPDOUT], al
+    pop ax
     ret
 
 ; The controller with the disk keeps running (xhci_bus, FS = USB_SEG):
@@ -626,8 +654,20 @@ usbd_xfer:
     shl eax, 1
     cmp di, USBD_OUTST
     je .door
+    movzx eax, byte [fs:USBD_EPDOUT]
+    shl eax, 1
+    cmp di, USBD_DOUTST
+    je .stream
+    movzx eax, byte [fs:USBD_EPDIN]
+    lea eax, [eax * 2 + 1]
+    cmp di, USBD_DINST
+    je .stream
     movzx eax, byte [fs:USBD_EPIN]
     lea eax, [eax * 2 + 1]
+.stream:
+    cmp byte [fs:USBD_UAS], 2
+    jne .door
+    or eax, 1 << 16             ; UAS with streams: stream 1, the tag
 .door:
     mov ecx, [fs:XHCI_EV0]      ; ECX = the last TRB
     movzx ebx, word [fs:USBD_SLOT]
@@ -1345,24 +1385,28 @@ usbd_ehci_xfer:
     stc
     ret
 
-; usbd_scsi for a UAS disk (on EHCI, without streams): the command IU on
-; the command pipe; with data, the device's READ READY or WRITE READY IU
-; on the status pipe, then the data on the data-in or data-out pipe; then
-; the SENSE IU on the status pipe. The IUs use the block's CBW and CSW
+; usbd_scsi for a UAS disk: the command IU on the command pipe; with
+; data, the device's READ READY or WRITE READY IU on the status pipe
+; (not with streams, where the data and status transfers wait on stream
+; 1, the tag), then the data on the data-in or data-out pipe; then the
+; SENSE IU on the status pipe. The IUs use the block's CBW and CSW
 ; space: the command at +40h (its CDB taken from usbd_cdb's block), what
 ; the status pipe sends at +0. Same registers and results as usbd_scsi.
 usbd_uas_scsi:
     pushad
     mov ebx, [fs:USBD_BUFS]
-    ; A new tag, never 0; SI = it big-endian, as the IUs carry it
+    ; A new tag, never 0; with streams always 1, the stream
     mov edx, [fs:USBD_TAG]
     inc dx
     jnz .tag
     inc dx
 .tag:
+    cmp byte [fs:USBD_UAS], 2
+    jne .tag_set
+    mov dx, 1
+.tag_set:
     mov [fs:USBD_TAG], edx
-    xchg dl, dh
-    mov si, dx
+    xchg dl, dh                 ; big-endian, as the IUs carry it
     ; The command IU: ID 1, the tag, a simple task, LUN 0, the CDB
     movzx edx, dx
     shl edx, 16
@@ -1385,12 +1429,20 @@ usbd_uas_scsi:
     lea eax, [ebx + 0x40]
     mov ecx, 32
     mov di, USBD_OUTST
+    call .ring
     call usbd_xfer
     pop ecx
     pop eax
     jc .fail
     test ecx, ecx
     jz .status
+    mov di, USBD_DINST
+    test al, USBD_IN
+    jnz .pipe
+    mov di, USBD_DOUTST
+.pipe:
+    cmp byte [fs:USBD_UAS], 2
+    je .data
     ; READ READY (6) or WRITE READY (7); a SENSE IU instead means the
     ; command ended before any data
     call .iu
@@ -1399,15 +1451,15 @@ usbd_uas_scsi:
     cmp dl, 3
     je .sense
     mov dh, 6
-    mov di, USBD_DINST
-    test al, USBD_IN
-    jnz .ready
+    cmp di, USBD_DINST
+    je .ready
     mov dh, 7
-    mov di, USBD_DOUTST
 .ready:
     cmp dl, dh
     jne .fail
+.data:
     mov eax, ebp
+    call .ring
     call usbd_xfer
     jc .fail
 .status:
@@ -1442,15 +1494,35 @@ usbd_uas_scsi:
     mov eax, ebx
     mov ecx, 0x40
     mov di, USBD_INST
+    call .ring
     call usbd_xfer
     jc .iu_out
-    cmp [gs:ebx + 2], si
+    mov cx, [fs:USBD_TAG]
+    xchg cl, ch
+    cmp [gs:ebx + 2], cx
     je .iu_out                  ; CF clear
     stc
 .iu_out:
     pop di
     pop ecx
     pop eax
+    ret
+
+; On xHCI, ESI = the ring of the pipe whose state is at FS:DI (the other
+; controllers ignore ESI). Keeps every other register.
+.ring:
+    mov esi, [fs:XHCI_BASE]
+    add esi, XHCI_BOUT
+    cmp di, USBD_OUTST
+    je .ring_ok
+    add esi, XHCI_BIN - XHCI_BOUT
+    cmp di, USBD_INST
+    je .ring_ok
+    add esi, XHCI_DIN - XHCI_BIN
+    cmp di, USBD_DINST
+    je .ring_ok
+    add esi, XHCI_DOUT - XHCI_DIN
+.ring_ok:
     ret
 
 ; The POST line for the USB disk: SI = it. Keeps every other register.
