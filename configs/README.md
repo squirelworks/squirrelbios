@@ -91,8 +91,11 @@ The C sources include `config.h` when built with `-DSQ_CONFIG`.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `CONFIG_UART_BASE` | `0x10000000` | NS16550A console |
+| `CONFIG_UART_BASE` | `0x10000000` | NS16550A console when the device tree has no `ns16550a` node |
+| `CONFIG_CLINT_BASE` | `0x02000000` | CLINT (msip, mtimecmp at +0x4000, mtime at +0xbff8) when the device tree has no `riscv,clint0`, `sifive,clint0` or ACLINT nodes |
 | `CONFIG_MAX_HARTS` | `512` | Hart IDs the SBI tracks; higher IDs park |
 
 `riscv64-virt/small.cfg` (8 harts) shows a non-default build; `make test`
-boots it as `config-riscv-small`.
+boots it as `config-riscv-small`. `riscv64-virt/dt.cfg` points both
+addresses at nothing, so the device tree has to supply them; `make test`
+boots it as `config-riscv-dt-*`.

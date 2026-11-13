@@ -8,7 +8,8 @@ qemu-system-riscv64 -M virt -nographic -bios riscv/squirrel-bios.bin -kernel ima
 ```
 
 - One hart boots: the one `fw_dynamic_info.boot_hart` names when it is below 512, otherwise hart 0 (QEMU's `-kernel` path always names 0); other harts park in `wfi` until the OS starts them with `sbi_hart_start`; `sbi_hart_stop` sends a hart back
-- Initialises the NS16550A UART (`0x10000000`, 115200 8N1) and prints `SquirrelBIOS RISC-V`
+- Takes the NS16550A UART and the CLINT (or, with `aclint=on`, the ACLINT MSWI and MTIMER) from the device tree QEMU passes in `a1`, the lowest when there are several; the build's addresses (`0x10000000`, `0x02000000`) stay only for what the tree does not name. It prints `dt: UART at ..., CLINT msip at ..., mtime at ...`
+- Initialises the UART (115200 8N1) and prints `SquirrelBIOS RISC-V`
 - Finds the `-kernel` image QEMU loaded (via the `fw_dynamic_info` block in `a2`)
 - Enters it in the mode QEMU's `next_mode` asks for, S-mode for `-kernel`,
   with PMP closing the firmware region (`0x80000000`–`0x801FFFFF`) to S-mode and opening the rest of memory, `a0` = hart ID, `a1` = device tree
@@ -75,8 +76,9 @@ Known limits:
   (Ubuntu's 7.0 kernel, for example) stops early with `this kernel does
   not parse "riscv,isa"`: QEMU 8.2 writes only `riscv,isa`. That is the
   QEMU version, not the firmware; a newer QEMU writes both.
-- Only QEMU `virt` is supported: the firmware assumes its CLINT, UART,
-  test device and memory layout.
+- Only QEMU `virt` is supported: the UART and CLINT come from the device
+  tree, but the firmware still assumes virt's test device and memory
+  layout.
 
 Linux is not part of `make test` or CI, and no kernel, busybox or
 initramfs is kept in the repo.
@@ -117,4 +119,4 @@ and:
   `-global virtio-mmio.force-legacy=false`).
 
 Linux uses the runtime services after `SetVirtualAddressMap` (`GetTime`
-from the goldfish RTC, variables, reset). Not yet: ACPI (RHCT), SSE, and UART/CLINT addresses from the device tree in the SBI itself.
+from the goldfish RTC, variables, reset). Not yet: ACPI (RHCT) and SSE.

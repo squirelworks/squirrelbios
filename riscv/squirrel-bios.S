@@ -31,6 +31,9 @@
         .ifndef CONFIG_MAX_HARTS
         .equ CONFIG_MAX_HARTS, 512
         .endif
+        .ifndef CONFIG_CLINT_BASE
+        .equ CONFIG_CLINT_BASE, 0x02000000
+        .endif
 
         .equ UART_BASE,     CONFIG_UART_BASE /* NS16550A */
         .equ UART_THR,      0
@@ -127,10 +130,12 @@
         .equ MENVCFG_STCE,      (1 << 63)   /* Sstc: stimecmp */
         .equ MENVCFG_S,         MENVCFG_CBIE_FLUSH | MENVCFG_CBCFE | MENVCFG_CBZE | MENVCFG_STCE
 
-        /* CLINT: one msip and one mtimecmp per hart, one mtime */
-        .equ CLINT_MSIP,        0x02000000
-        .equ CLINT_MTIMECMP,    0x02004000
-        .equ CLINT_MTIME,       0x0200bff8
+        /* CLINT: one msip and one mtimecmp per hart, one mtime. These and
+         * UART_BASE are where the SBI looks when the device tree does not
+         * say (dt_devices); the tree's nodes win. */
+        .equ CLINT_MSIP,        CONFIG_CLINT_BASE
+        .equ CLINT_MTIMECMP,    CONFIG_CLINT_BASE + 0x4000
+        .equ CLINT_MTIME,       CONFIG_CLINT_BASE + 0xbff8
         /* With -numa, QEMU virt makes each NUMA node a socket with its own
          * CLINT, CLINT_SOCKET bytes after the previous one, whose msip and
          * mtimecmp slots count from the lowest hart ID in that socket. */
@@ -245,11 +250,27 @@ _start:
         add t0, t0, t1
         sd zero, HART_STATE(t0)
 
+        mv a0, s1                           /* UART and CLINT addresses */
+        call dt_devices
         call uart_init
         mv a0, s1                           /* per-socket CLINTs (-numa) */
         call clint_layout
         la a0, banner
         call puts
+        la a0, msg_dt_uart
+        call puts
+        ld a0, uart_base
+        call puthex
+        la a0, msg_dt_msip
+        call puts
+        ld a0, clint_msip
+        call puthex
+        la a0, msg_dt_mtime
+        call puts
+        ld a0, clint_mtime
+        call puthex
+        li a0, '\n'
+        call putc
 
         .ifdef UEFI
         /* The UEFI core, in S-mode; s6 = the -kernel image for it, or 0 */
@@ -614,14 +635,14 @@ sbi_hsm:
          * can be after the OS is already running. Give a hart that has not
          * checked in HSM_CHECKIN_WAIT to do so; after that it does not
          * exist. */
-        li t2, CLINT_MTIME
+        ld t2, clint_mtime
         ld t3, 0(t2)
         li t2, HSM_CHECKIN_WAIT
         add t3, t3, t2                      /* t3 = deadline */
 1:      ld t1, HART_STATE(t0)
         li t2, HSM_ABSENT
         bne t1, t2, 2f
-        li t2, CLINT_MTIME
+        ld t2, clint_mtime
         ld t2, 0(t2)
         bltu t2, t3, 1b
         j sbi_invalid_param
@@ -743,7 +764,7 @@ check_mask:
 6:      ld t5, HART_STATE(t3)
         li t6, HSM_ABSENT
         bne t5, t6, 4f
-        li t6, CLINT_MTIME                  /* not at park yet: wait, as sbi_hsm does */
+        ld t6, clint_mtime                  /* not at park yet: wait, as sbi_hsm does */
         ld t5, 0(t6)
         bnez a2, 7f
         li t6, HSM_CHECKIN_WAIT
@@ -870,7 +891,7 @@ sbi_srst:
         bgtu a0, t1, sbi_invalid_param
 2:      li t1, TEST_FINISHER
         sw t0, 0(t1)
-        li t1, CLINT_MTIME
+        ld t1, clint_mtime
         ld t2, 0(t1)
         li t0, SRST_WAIT
         add t2, t2, t0
@@ -921,7 +942,7 @@ sbi_dbcn:
         addi a1, a1, 1
         j 1b
 2:      beq a1, a3, sbi_ok
-        li t0, UART_BASE
+        ld t0, uart_base
         lbu t1, UART_LSR(t0)
         andi t1, t1, 1                      /* data ready */
         beqz t1, sbi_ok
@@ -1000,7 +1021,7 @@ trap_fatal:
         la a0, msg_halted
         call puts
         /* Let parked harts leave S-mode before the finisher kills QEMU. */
-        li t1, CLINT_MTIME
+        ld t1, clint_mtime
         ld t2, 0(t1)
         li t0, RAS_SHUTDOWN_WAIT
         add t2, t2, t0
@@ -1270,20 +1291,20 @@ clint_layout:
         sd a1, 0(t1)
         j 51f
 52:     sub t2, a1, t2                      /* pass 1: slot in the socket */
-        li t1, CLINT_SOCKET
-        mul t1, t1, a2
-        li t3, CLINT_MSIP
-        add t1, t1, t3                      /* t1 = the socket's CLINT */
+        li a3, CLINT_SOCKET                 /* (a3 is free outside properties) */
+        mul a3, a3, a2                      /* a3 = the socket's offset */
         slli t3, a1, HART_ENTRY_SHIFT
         la a0, hart_table
         add t3, t3, a0                      /* t3 = the hart's entry */
-        slli a0, t2, 2
+        ld a0, clint_msip
+        add a0, a0, a3
+        slli t1, t2, 2
         add a0, a0, t1
         sd a0, HART_MSIP(t3)
-        slli a0, t2, 3
+        ld a0, clint_mtimecmp
+        add a0, a0, a3
+        slli t1, t2, 3
         add a0, a0, t1
-        li t2, CLINT_OFF_MTIMECMP
-        add a0, a0, t2
         sd a0, HART_MTIMECMP(t3)
 51:     li t2, 2
         bne t5, t2, 53f
@@ -1498,6 +1519,184 @@ aia_setup:
         addi sp, sp, 80
         ret
 
+/* a0 = device tree.  The NS16550A UART and the CLINT come from it (with
+ * -M virt,aclint=on, the ACLINT MSWI and MTIMER), lowest address first
+ * when there are several (one CLINT per socket with -numa); clint_layout
+ * then counts sockets from there.  What the tree does not name keeps the
+ * QEMU virt address the build was configured with.  Every hart_table
+ * entry's msip and mtimecmp slot follows the CLINT found.  Runs on the
+ * boot hart before the UART is set up and before any other hart starts. */
+dt_devices:
+        addi sp, sp, -16
+        sd ra, 0(sp)
+        sd s9, 8(sp)
+        mv s9, a0
+        la a1, str_ns16550a
+        call dt_reg_of
+        beqz a0, 1f
+        sd a0, uart_base, t0
+1:      mv a0, s9
+        la a1, str_riscv_clint0
+        call dt_reg_of
+        bnez a0, 2f
+        mv a0, s9
+        la a1, str_sifive_clint0
+        call dt_reg_of
+        beqz a0, 3f
+2:      sd a0, clint_msip, t0               /* a CLINT: msip, mtimecmp, mtime */
+        li t1, CLINT_MTIMECMP - CLINT_MSIP
+        add t1, a0, t1
+        sd t1, clint_mtimecmp, t0
+        li t1, CLINT_MTIME - CLINT_MSIP
+        add t1, a0, t1
+        sd t1, clint_mtime, t0
+        j 5f
+3:      mv a0, s9                           /* an ACLINT: MSWI, then MTIMER */
+        la a1, str_aclint_mswi
+        call dt_reg_of
+        beqz a0, 5f
+        sd a0, clint_msip, t0
+        mv a0, s9
+        la a1, str_aclint_mtimer
+        call dt_reg_of
+        beqz a0, 5f
+        bnez a1, 4f                         /* one region: mtimecmp, mtime after */
+        li t1, CLINT_MTIME - CLINT_MTIMECMP
+        add a1, a0, t1
+4:      bltu a0, a1, 41f                    /* two: mtimecmp is the lower */
+        mv t1, a0
+        mv a0, a1
+        mv a1, t1
+41:     sd a0, clint_mtimecmp, t0
+        sd a1, clint_mtime, t0
+5:      ld t0, clint_msip                   /* the one-socket slots */
+        ld t1, clint_mtimecmp
+        la t2, hart_table
+        li t3, MAX_HARTS
+6:      sd t0, HART_MSIP(t2)
+        sd t1, HART_MTIMECMP(t2)
+        addi t0, t0, 4
+        addi t1, t1, 8
+        addi t2, t2, 1 << HART_ENTRY_SHIFT
+        addi t3, t3, -1
+        bnez t3, 6b
+        ld ra, 0(sp)
+        ld s9, 8(sp)
+        addi sp, sp, 16
+        ret
+
+/* a0 = device tree, a1 = a compatible string.  Of the nodes whose
+ * compatible list holds it, the one with the lowest first reg address:
+ * a0 = that address, a1 = its second reg address or 0.  a0 = 0 when there
+ * is none or the tree does not parse.  reg is read as two address and two
+ * size cells, as under QEMU virt's /soc.  Uses t0-t6, a0-a7. */
+dt_reg_of:
+        addi sp, sp, -32
+        sd s7, 0(sp)
+        sd s8, 8(sp)
+        sd s10, 16(sp)
+        sd s11, 24(sp)
+        li s10, 0                           /* s10, s11 = the best so far */
+        li s11, 0
+        mv a7, a1                           /* a7 = the string */
+        beqz a0, 9f
+        andi t0, a0, 3
+        bnez t0, 9f
+        ldbe t0, 0, a0, t1
+        li t1, FDT_MAGIC
+        bne t0, t1, 9f
+        ldbe t0, FDT_OFF_STRUCT, a0, t1
+        add a4, a0, t0                      /* a4 = structure block */
+        ldbe t1, FDT_SIZE_STRUCT, a0, t2
+        add a5, a4, t1                      /* a5 = its end */
+        ldbe t0, FDT_OFF_STRINGS, a0, t1
+        add a6, a0, t0                      /* a6 = strings block */
+        mv t0, a4                           /* t0 = token */
+        li t5, 0                            /* t5 = 1: the node so far matches */
+        li a2, 0                            /* a2, a3 = its reg addresses */
+        li a3, 0
+1:      bgeu t0, a5, 9f
+        ldbe t1, 0, t0, t2
+        addi t0, t0, 4
+        li t2, FDT_PROP
+        beq t1, t2, 3f
+        li t2, FDT_NOP
+        beq t1, t2, 1b
+        li t2, FDT_BEGIN_NODE
+        beq t1, t2, 2f
+        li t2, FDT_END_NODE
+        bne t1, t2, 9f                      /* FDT_END or anything else */
+        jal t4, 7f                          /* a node's properties end */
+        j 1b
+2:      jal t4, 7f                          /* so do its parent's */
+21:     lbu t1, 0(t0)                       /* skip the name */
+        addi t0, t0, 1
+        bnez t1, 21b
+        addi t0, t0, 3
+        andi t0, t0, -4
+        j 1b
+
+3:      ldbe t6, 0, t0, t2                  /* a property: t6 = length */
+        ldbe t1, 4, t0, t2
+        add a0, a6, t1
+        la t1, str_compatible
+        jal t4, name_is
+        beqz t3, 5f
+        addi s7, t0, 8                      /* walk the string list */
+        add s8, s7, t6
+4:      bgeu s7, s8, 6f
+        mv a0, s7
+        mv t1, a7
+        jal t4, name_is
+        beqz t3, 41f
+        li t5, 1
+        j 6f
+41:     lbu t1, 0(s7)
+        addi s7, s7, 1
+        bnez t1, 41b
+        j 4b
+5:      ldbe t1, 4, t0, t2
+        add a0, a6, t1
+        la t1, str_reg
+        jal t4, name_is
+        beqz t3, 6f
+        li t2, 16
+        bltu t6, t2, 6f
+        ldbe t1, 8, t0, t2
+        ldbe t3, 12, t0, t2
+        slli t1, t1, 32
+        or a2, t1, t3
+        li t2, 32
+        bltu t6, t2, 6f
+        ldbe t1, 24, t0, t2
+        ldbe t3, 28, t0, t2
+        slli t1, t1, 32
+        or a3, t1, t3
+6:      addi t6, t6, 8 + 3                  /* skip length, name and value */
+        andi t6, t6, -4
+        add t0, t0, t6
+        j 1b
+
+7:      beqz t5, 72f                        /* the node done matched: keep */
+        beqz a2, 72f                        /* the lowest */
+        beqz s10, 71f
+        bgeu a2, s10, 72f
+71:     mv s10, a2
+        mv s11, a3
+72:     li t5, 0
+        li a2, 0
+        li a3, 0
+        jr t4
+
+9:      mv a0, s10
+        mv a1, s11
+        ld s7, 0(sp)
+        ld s8, 8(sp)
+        ld s10, 16(sp)
+        ld s11, 24(sp)
+        addi sp, sp, 32
+        ret
+
 /* t3 = 1 if the NUL-terminated string at a0 equals the one at t1, else 0.
  * Uses a0, t1 and t2; returns through t4. */
 name_is:
@@ -1515,7 +1714,7 @@ name_is:
 /* ------------------------------------------------------------------ */
 
 uart_init:
-        li t0, UART_BASE
+        ld t0, uart_base
         sb zero, UART_IER(t0)
         li t1, UART_LCR_DLAB                /* 115200: divisor latch */
         sb t1, UART_LCR(t0)
@@ -1532,7 +1731,7 @@ uart_init:
 /* a0 = character.  Gives up after UART_TIMEOUT polls so a stuck UART
  * cannot hang the firmware. */
 putc:
-        li t0, UART_BASE
+        ld t0, uart_base
         li t2, UART_TIMEOUT
 1:      lbu t1, UART_LSR(t0)
         andi t1, t1, UART_LSR_THRE
@@ -1603,6 +1802,15 @@ msg_dt_room:    .asciz "dt: firmware region not reserved: no room to grow the de
 str_reserved_memory: .asciz "reserved-memory"
 str_cpus:       .asciz "cpus"
 str_reg:        .asciz "reg"
+str_compatible: .asciz "compatible"
+str_ns16550a:   .asciz "ns16550a"
+str_riscv_clint0: .asciz "riscv,clint0"
+str_sifive_clint0: .asciz "sifive,clint0"
+str_aclint_mswi: .asciz "riscv,aclint-mswi"
+str_aclint_mtimer: .asciz "riscv,aclint-mtimer"
+msg_dt_uart:    .asciz "dt: UART at 0x"
+msg_dt_msip:    .asciz ", CLINT msip at 0x"
+msg_dt_mtime:   .asciz ", mtime at 0x"
 str_numa_node_id: .asciz "numa-node-id"
 str_riscv_delegate: .asciz "riscv,delegate"
 str_riscv_children: .asciz "riscv,children"
@@ -1622,6 +1830,16 @@ trap_stacks:
     .align 3
 sstc_on:                                    /* 1 once enter_s found Sstc */
     .dword 0
+    /* Device addresses: QEMU virt's (and the build's CONFIG_UART_BASE)
+     * until dt_devices reads the device tree */
+uart_base:
+    .dword UART_BASE
+clint_msip:
+    .dword CLINT_MSIP
+clint_mtimecmp:
+    .dword CLINT_MTIMECMP
+clint_mtime:
+    .dword CLINT_MTIME
     /* Each entry starts with the one-socket CLINT slots; clint_layout
      * moves them for harts in other sockets. */
 hart_table:
