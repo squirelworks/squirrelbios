@@ -101,6 +101,7 @@ void arch_memory_reserve(void)
 /* Secure Boot decides whether an image may run (secure.c) */
 u64 x86_check_image(const void *src, u64 size)
 {
+    smm_lock();                         /* nothing but the firmware may reach SMRAM */
     u64 s = secure_check_image(src, size);
     if (s == EFI_SUCCESS)
         tpm_measure_image(src, size);

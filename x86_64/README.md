@@ -246,8 +246,10 @@ SMBASE (0x30000, saved and put back) whose stub moves its SMBASE into
 TSEG; the firmware then checks that TSEG reads back closed and that the
 handler answers a ping, or turns SMM off again. SMIs come only from
 writes to the APM port 0xB2 (`APMC_EN`); `D_LCK` locks the SMRAM
-controls at ExitBootServices, and before the CSM's legacy boot TSEG and
-the SMIs are turned off. Up to 112 CPUs. The EINJ table drives a
+controls before anything but the firmware runs: the first image given
+to `LoadImage` (ESP, fw_cfg or network), ExitBootServices or the CSM,
+whichever comes first. Before the CSM's legacy boot the SMIs are turned
+off and CMOS 34h/35h are lowered so the legacy RAM size ends at TSEG. Up to 112 CPUs. The EINJ table drives a
 mailbox page: `SET_ERROR_TYPE` writes the type, `EXECUTE_OPERATION`
 writes `0xE1` to port 0xB2, and the handler, for a correctable memory
 error (the one type `GET_ERROR_TYPE` offers), copies a CPER record
