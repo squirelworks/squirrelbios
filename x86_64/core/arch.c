@@ -101,10 +101,12 @@ u64 x86_check_image(const void *src, u64 size)
     return secure_check_image(src, size);
 }
 
-/* The transitional virtio-blk on PCI (virtio_blk.c) */
+/* The transitional virtio-blk (virtio_blk.c), then NVMe, AHCI and
+ * modern virtio-blk through the shared drivers (pcidisk.c) */
 int arch_disk_probe(void)
 {
-    return vblk_probe();
+    int n = vblk_probe();
+    return n + pci_disk_probe();
 }
 
 /* image_call(entry, handle, system table, &saved_rsp): call the entry

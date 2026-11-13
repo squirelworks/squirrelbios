@@ -1349,5 +1349,28 @@ run riscv64-uefi-virtio-pci "disk: virtio-blk at PCI 00:01.0 (virtio-pci), 13107
     "$QEMU_RISCV" -M virt -bios $RV_UEFI \
     -drive if=none,file=$TEST_DIR/riscv-esp.img,format=raw,id=d0 -device virtio-blk-pci,drive=d0
 
+# AHCI SATA disks (D4) on every architecture, and the shared NVMe and
+# modern virtio-blk-pci drivers on x86-64 (q35's own ICH9 AHCI; a CD on
+# AHCI port 0 is passed over)
+run aarch64-uefi-ahci "disk: AHCI at PCI 00:02.0 port 2, 131072 sectors|disk: partition 1 LBA 2048..131038 (ESP)|APP aarch64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|efi: BOOTAA64.EFI returned 0x1234|!=bad|!port 0" \
+    "$QEMU_ARM" -M virt -cpu cortex-a57 -bios $ARM_FD -device ahci,id=ahci \
+    -drive if=none,id=cd,media=cdrom -device ide-cd,drive=cd,bus=ahci.0 \
+    -drive if=none,file=$TEST_DIR/arm-esp.img,format=raw,id=d0 -device ide-hd,drive=d0,bus=ahci.2
+run riscv64-uefi-ahci "disk: AHCI at PCI 00:01.0 port 0, 131072 sectors|APP riscv64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|efi: BOOTRISCV64.EFI returned 0x1234|!=bad" \
+    "$QEMU_RISCV" -M virt -bios $RV_UEFI -device ahci,id=ahci \
+    -drive if=none,file=$TEST_DIR/riscv-esp.img,format=raw,id=d0 -device ide-hd,drive=d0,bus=ahci.0
+run x86_64-uefi-ahci-q35 "disk: AHCI at PCI 00:1f.2 port 1, 131072 sectors|disk: partition 1 LBA 2048..131038 (ESP)|APP x86_64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|efi: BOOTX64.EFI returned 0x1234|!=bad" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd \
+    -drive if=none,id=esp,format=raw,file=$TEST_DIR/x86_64-esp.img,snapshot=on -device ide-hd,drive=esp,bus=ide.1
+run x86_64-uefi-nvme-q35 "disk: NVMe at PCI 00:03.0, 131072 sectors|APP x86_64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|efi: BOOTX64.EFI returned 0x1234|!=bad" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd \
+    -drive if=none,id=esp,format=raw,file=$TEST_DIR/x86_64-esp.img,snapshot=on -device nvme,drive=esp,serial=sq1
+run x86_64-uefi-nvme-pc "disk: NVMe at PCI 00:04.0, 131072 sectors|APP x86_64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|efi: BOOTX64.EFI returned 0x1234|!=bad" \
+    "$QEMU_X86_64" -M pc -bios x86_64/squirrel-bios.fd \
+    -drive if=none,id=esp,format=raw,file=$TEST_DIR/x86_64-esp.img,snapshot=on -device nvme,drive=esp,serial=sq1
+run x86_64-uefi-virtio-modern "disk: virtio-blk at PCI 00:03.0 (virtio-pci), 131072 sectors|APP x86_64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|efi: BOOTX64.EFI returned 0x1234|!=bad" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd \
+    -drive if=none,id=esp,format=raw,file=$TEST_DIR/x86_64-esp.img,snapshot=on -device virtio-blk-pci,drive=esp,disable-legacy=on
+
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

@@ -189,6 +189,8 @@ boots each firmware under QEMU with a small stand-in OS image from
 | `riscv64-uefi-disk-other-arch` | A disk holding only `BOOTAA64.EFI`: the volume is mounted, nothing boots |
 | `aarch64-uefi-nvme`, `riscv64-uefi-nvme` | The same ESP on an NVMe disk behind the device tree's PCIe ECAM host bridge (BARs placed by the firmware) |
 | `aarch64-uefi-virtio-pci`, `riscv64-uefi-virtio-pci` | The same on virtio-blk-pci (the modern virtio PCI interface) |
+| `aarch64-uefi-ahci`, `riscv64-uefi-ahci` | The ESP on a SATA disk behind an AHCI controller (on AArch64 with a CD on port 0, passed over) |
+| `x86_64-uefi-ahci-q35`, `x86_64-uefi-nvme-q35`, `x86_64-uefi-nvme-pc`, `x86_64-uefi-virtio-modern` | The x86-64 firmware through the same shared drivers: q35's own AHCI, NVMe on q35 and pc, a modern-only virtio-blk-pci |
 | `aarch64-uefi-two-disks` | An NVMe disk with only `BOOTRISCV64.EFI` and a virtio-blk-pci disk with `BOOTAA64.EFI`: both are published, the second boots |
 
 Needs `qemu-system-i386`, `qemu-system-x86_64`, `qemu-system-aarch64` and `qemu-system-riscv64`.

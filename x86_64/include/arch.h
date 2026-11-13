@@ -57,6 +57,8 @@ int pci_extra_roots(u8 *roots, int max);     /* pxb / pxb-pcie root bus numbers 
 
 /* virtio_blk.c: one transitional virtio-blk disk, published */
 int vblk_probe(void);
+/* pcidisk.c: the other PCI disks, through common/efi's drivers */
+int pci_disk_probe(void);
 
 /* csm/csm.c: the legacy BIOS, when nothing boots the UEFI way */
 int csm_boot(void);
