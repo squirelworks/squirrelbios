@@ -13,10 +13,12 @@ x86_64/     1 MB flash image — x86-64 UEFI-class firmware in progress (roadmap
             reset to long mode, EFI tables, memory, PE32+ images, events, serial
             console, virtio-blk Block I/O, FAT Simple File System, ESP boot, GOP,
             runtime services, ExitBootServices
-arm/        AArch64 QEMU virt — PL011 banner + fw_cfg kernel load, DTB in x0
+arm/        AArch64 QEMU virt — PL011 banner + fw_cfg kernel load, DTB in x0;
+            arm/uefi: UEFI-class firmware on the shared core (roadmap D1)
 riscv/      RISC-V QEMU virt — UART banner + S-mode entry to -kernel, DTB in a1, SBI
 tests/      stand-in OS images and smoke tests (make test)
-common/     hand-off contract
+common/     hand-off contract; common/efi: the UEFI core shared by the
+            device-tree machines (from x86_64/core)
 configs/    build configurations, one directory per platform (make PLATFORM= CONFIG=)
 tools/      build helpers (mkconfig.sh: .cfg to config.inc / config.h)
 release-notes/  tagged releases (v0.2.0, v0.3.0, v1.0.0, …)
@@ -31,6 +33,7 @@ make          # all
 make x86
 make x86_64
 make arm
+make arm-uefi # arm/uefi/squirrel-bios.fd, AArch64 UEFI-class firmware
 make riscv
 make clean    # remove all build and test outputs
 
@@ -39,12 +42,12 @@ make PLATFORM=riscv64-virt CONFIG=small    # build/riscv64-virt/small/squirrel-b
 make PLATFORM=x86_64-uefi CONFIG=default   # build/x86_64-uefi/default/squirrel-bios.fd
 ```
 
-`PLATFORM` is `x86-pc`, `x86_64-uefi`, `aarch64-virt` or `riscv64-virt`, and `CONFIG`
+`PLATFORM` is `x86-pc`, `x86_64-uefi`, `aarch64-virt`, `riscv64-virt` or `aarch64-uefi`, and `CONFIG`
 names a file in `configs/<platform>/` (default `default`). Plain `make`
 builds the same bytes as each platform's `default.cfg`; `make test`
 checks that. Keys and format: [configs/README.md](configs/README.md).
 
-Requires: `nasm`, a host `gcc` that targets x86-64 (`CC64`), `aarch64-linux-gnu-as`/`ld`/`objcopy`, `riscv64-linux-gnu-as`/`ld`/`objcopy`.
+Requires: `nasm`, a host `gcc` that targets x86-64 (`CC64`), `aarch64-linux-gnu-as`/`ld`/`objcopy`, `riscv64-linux-gnu-as`/`ld`/`objcopy`, and for `aarch64-uefi` and its test app `aarch64-linux-gnu-gcc` (`AARCH64_CC`) and `python3`.
 Other cross prefixes work too: `make AARCH64=aarch64-elf- RISCV64=riscv64-elf-`.
 
 ## Test
@@ -155,6 +158,12 @@ boots each firmware under QEMU with a small stand-in OS image from
 | `x86_64-app-junk` | A file that is not PE32+ is refused with `EFI_LOAD_ERROR` |
 | `x86_64-fat` | A GPT disk with a FAT32 ESP on virtio-blk: Block I/O, Simple File System, and boot of `\EFI\BOOT\BOOTX64.EFI` (the PE32+ test app) |
 | `x86_64-gop` | An EFI app sets GOP mode 800×600×32, Blt-fills a rectangle, GetTime and Set/GetVariable, then ExitBootServices and ResetSystem (shutdown via isa-debug-exit, QEMU status 1) |
+| `aarch64-uefi` | The AArch64 UEFI-class firmware on QEMU virt: copied from flash to RAM, identity map with caches on, PL011, PL031, PSCI and GICv2 found in the device tree, the UEFI memory map built from `/memory` (firmware as runtime code, the RTC as runtime MMIO), memory services checked, the device tree installed as a configuration table |
+| `aarch64-uefi-app`, `aarch64-uefi-app-exit` | The stand-in EFI app in C (`tests/efi-app.c`, wrapped as PE32+ by `tests/mkpe.py`) through fw_cfg: relocated from 256 MB; checks the tables, loaded image, relocation, pool, memory map, ConOut, a timer event, GetTime, variables and the device tree table; returns `1234h`, then calls `Exit(5678h)` |
+| `aarch64-uefi-kernel` | The same app as `-kernel` with `-append` and `-initrd`: the command line arrives as LoadOptions and the initrd through LocateDevicePath and LoadFile2 on the Linux initrd media path, as Linux's EFI stub reads them |
+| `aarch64-uefi-ebs` | ExitBootServices, then ResetSystem(shutdown) through the runtime services: PSCI `SYSTEM_OFF`, QEMU exits 0 |
+| `aarch64-uefi-el2` | The same at EL2 (`virtualization=on`) with GICv3 and 2 GB: PSCI through `smc`, the distributor set up and this CPU's redistributor awake |
+| `aarch64-uefi-wrong-arch` | An x86-64 PE32+ image is refused with `EFI_UNSUPPORTED` |
 
 Needs `qemu-system-i386`, `qemu-system-x86_64`, `qemu-system-aarch64` and `qemu-system-riscv64`.
 Serial logs are kept in `build/tests/*.log`. `SMOKE_TIMEOUT` (seconds,
@@ -182,6 +191,27 @@ There is no initrd yet, so it stops short of a shell. The pinned package
 (about 15 MB, checked against its SHA-256) is kept in `build/linux-x86/`.
 Not part of `make test` or CI. `LINUX_TIMEOUT` and `LINUX_MEM` work as
 below; the log is `build/linux-x86/linux-x86.log`.
+
+### Linux to a shell through UEFI (AArch64, optional)
+
+```bash
+make linux-arm                        # prints PASS linux-arm
+tests/arm-linux.sh --interactive      # the same boot, with the shell for you
+LINUX_MACHINE=virt,virtualization=on,gic-version=3 LINUX_CPU=max LINUX_SMP=2 tests/arm-linux.sh
+```
+
+Boots Ubuntu 24.04's arm64 kernel (6.8) on the AArch64 UEFI-class
+firmware (`arm/uefi/squirrel-bios.fd`) with a busybox initramfs. QEMU's
+`-kernel`, `-initrd` and `-append` reach the firmware through fw_cfg;
+the kernel's EFI stub runs as an EFI application, gets the initrd
+through LoadFile2, calls ExitBootServices and SetVirtualAddressMap, and
+Linux uses the runtime services afterwards. The check passes when the
+shell prompt appears with `/sys/firmware/efi` present, a typed command
+runs, and `poweroff` makes QEMU exit with status 0 (PSCI). Packages
+(about 20 MB, pinned SHA-256) are kept in `build/linux-arm/`; needs
+`curl`, `cpio` and `qemu-system-aarch64`. Not part of `make test` or CI.
+`LINUX_MACHINE`, `LINUX_CPU`, `LINUX_SMP`, `LINUX_MEM` and
+`LINUX_TIMEOUT` change the run; the log is `build/linux-arm/linux-arm.log`.
 
 ### Linux to a shell (RISC-V, optional)
 

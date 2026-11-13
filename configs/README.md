@@ -9,6 +9,7 @@
 | `aarch64-virt` | `squirrel-bios.bin` | QEMU AArch64 `virt` (`-bios`) |
 | `riscv64-virt` | `squirrel-bios.bin` | QEMU RISC-V `virt` (`-bios`) |
 | `x86_64-uefi` | `squirrel-bios.fd` | QEMU q35 or PC, 64-bit (`qemu-system-x86_64 -bios`) |
+| `aarch64-uefi` | `squirrel-bios.fd` | QEMU AArch64 `virt`, UEFI-class (`-bios`) |
 
 A `.cfg` file is `KEY=VALUE` lines; `#` starts a comment line. Keys are
 `CONFIG_*`; values are decimal or `0x` hex numbers, or `y` / `n` (1 / 0).
@@ -62,6 +63,15 @@ The C sources include `config.h` when built with `-DSQ_CONFIG`.
 |---|---|---|
 | `CONFIG_UART_BASE` | `0x09000000` | PL011 console |
 | `CONFIG_FWCFG_BASE` | `0x09020000` | QEMU fw_cfg MMIO |
+
+### aarch64-uefi
+
+| Key | Default | Meaning |
+|---|---|---|
+| `CONFIG_UART_BASE` | `0x09000000` | PL011 console until the device tree is read (its `arm,pl011` node wins) |
+| `CONFIG_FWCFG_BASE` | `0x09020000` | QEMU fw_cfg MMIO when the device tree has no `qemu,fw-cfg-mmio` node |
+
+The C sources include `config.h` when built with `-DSQ_CONFIG`.
 
 ### riscv64-virt
 
