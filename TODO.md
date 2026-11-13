@@ -397,7 +397,9 @@ roadmap item, run under QEMU in `make test`.
   - [x] Bulk-only transport on UHCI and OHCI (full speed) and EHCI (high
     speed): `INT 13h`, EDD and booting as DL 80h; a full-speed keyboard on
     an ICH9 UHCI companion keeps working while the disk is on EHCI.
-  - [ ] UAS
+  - [x] UAS: a high-speed UAS disk on EHCI as DL 80h (boot, `INT 13h`
+    read/write, EDD), without streams. On xHCI a UAS device is listed and
+    left alone until streams are supported.
 - [x] `x86-virtio-net-boot` — virtio-blk/net and an original TFTP boot
   of `SQBL`.
   - [x] virtio-blk (legacy interface) as DL 80h, after NVMe. One
