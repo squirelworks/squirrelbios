@@ -26,6 +26,9 @@ platform/  fwcfg.c (QEMU fw_cfg over I/O ports), memmap.c (etc/e820,
            memory BAR assignment), virtio_blk.c (legacy virtio-blk)
 csm/       csm.c, csm.asm: the CSM (roadmap C3), the legacy x86-pc ROM
            carried in the image and the way back to real mode
+smp/       smp.c (AP bring-up with INIT-SIPI-SIPI, AP parking, the MP
+           services protocol), apic.c (local APIC in xAPIC or x2APIC
+           mode), mptable.c (MPS 1.4 table), roadmap C4
 include/   sq.h, efi.h (UEFI types and tables, from the specification)
 link.ld    the body, linked at FW_BASE
 ```
@@ -97,3 +100,21 @@ the jump. Squirrel-OS/2's `os.img` and `floppy.img` boot this way:
 make os-boot-csm OS_IMG=path/to/os.img
 OS_DRIVE=floppy make os-boot-csm OS_IMG=path/to/floppy.img
 ```
+
+SMP (C4): after GOP, the BSP copies a trampoline into the highest free
+page below 640 KB and broadcasts INIT, STARTUP, STARTUP. Each AP goes
+from real mode to long mode on the BSP's page tables, takes a slot and
+a 16 KB stack and parks, spinning on its mailbox. The firmware waits
+until as many CPUs as fw_cfg reports (`FW_CFG_NB_CPUS`) are up, or 2 s.
+Processor numbers: 0 is the BSP, the APs follow in APIC ID order;
+package, core and thread come from CPUID leaf 0Bh. The MP services
+protocol has `GetNumberOfProcessors`, `GetProcessorInfo`,
+`StartupAllAPs` (together or one by one), `StartupThisAP`,
+`EnableDisableAP` and `WhoAmI`; only blocking calls (`WaitEvent` NULL),
+and an AP that runs past the timeout is INIT'ed and started again in
+its slot. `SwitchBSP` answers `EFI_UNSUPPORTED`. The local APICs go to
+x2APIC mode when the CPU has it and more than 255 CPUs are present, or
+with `CONFIG_X2APIC=y`. The MPS 1.4 table (processors with APIC IDs up
+to 254, the ISA bus, the I/O APIC, ISA IRQs and LINT0/1) is the MPS EFI
+configuration table. At ExitBootServices, and before the CSM leaves
+long mode, every AP gets an INIT and waits for the OS's STARTUP.

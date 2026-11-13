@@ -53,6 +53,10 @@ platform's `default.cfg` writes the defaults out, and `make test`
 | Key | Default | Meaning |
 |---|---|---|
 | `CONFIG_COM1_BASE` | `0x3F8` | I/O port of the serial console |
+| `CONFIG_X2APIC` | `n` | Put every local APIC in x2APIC mode when the CPU has it; with `n` only when more than 255 CPUs are present (`x86_64/smp/`) |
+
+`x86_64-uefi/x2apic.cfg` turns `CONFIG_X2APIC` on; `make test` boots it
+with four CPUs (`x86_64-x2apic-cfg`).
 
 The C sources include `config.h` when built with `-DSQ_CONFIG`.
 
