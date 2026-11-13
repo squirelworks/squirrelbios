@@ -67,17 +67,43 @@ finds the calls where it expects them.
 | 10 | `OPAL_POLL_EVENTS` | no events |
 | 41, 42 | `OPAL_START_CPU`, `OPAL_QUERY_CPU_STATUS` | started thread gets `r3` = its PIR, big-endian |
 | 69 | `OPAL_RETURN_CPU` | the calling thread parks again and can be restarted |
-| 70 | `OPAL_REINIT_CPUS` | accepted |
+| 70 | `OPAL_REINIT_CPUS` | `HILE_LE` / `HILE_BE`: on POWER8 sets or clears HID0[HILE] on the caller and on every thread started later (POWER9 and later keep the bit in LPCR, which the OS sets) |
 | 80 | `OPAL_CHECK_TOKEN` | 1 for the tokens above, else 0 |
 
 Any other token returns `OPAL_PARAMETER` (-1).
 
+## Linux
+
+A stock distribution `vmlinux` (Ubuntu's 6.8 ppc64el kernel was used)
+boots on `powernv8` with 1, 2 or 4 cores to the point where it wants a
+root file system:
+
+    qemu-system-ppc64 -M powernv8 -smp 2 -m 2G -bios ppc64/squirrel-bios.bin \
+        -kernel vmlinux -append console=hvc0
+
+What it takes, besides the calls above:
+
+- POWER8 reaches its LPC bus (serial console, BMC) only through XSCOM:
+  the firmware drives the LPC controller's ECCB registers, one byte per
+  transaction. POWER9 and POWER10 map LPC into memory.
+- Every thread is handed to the OS with LPCR[LPES0] clear, so external
+  interrupts arrive as hypervisor interrupts (HSRR0/1), which is what a
+  hypervisor-mode OS handles. QEMU's POWER8 resets with the bit set.
+- The boot thread's CPU node comes first in the device tree: Linux makes
+  the first node it meets logical CPU 0.
+- On POWER9 and later, `ibm,pa-features` advertises radix MMU and GTSE,
+  so Linux picks radix.
+
 ## Limits (next steps)
 
-- POWER8 (`powernv8`) reaches its LPC bus only through XSCOM; not yet.
-- No interrupt controller (XIVE) or PCIe (PHB) calls, so a stock Linux
-  `vmlinux` does not get far yet; booting Linux to a shell is the next
-  step of E1.
+- POWER9/POWER10: no interrupt controller (XIVE) calls, so Linux stops at
+  "XICS: Cannot find a Presentation Controller"; POWER8 Linux drives its
+  XICS itself.
+- POWER8 with more than one thread per core (`-smp N,threads=2`): Linux
+  starts the sibling threads but then soft-locks; one thread per core
+  works.
+- No PCIe (PHB) calls: Linux sees no PCI devices, so a root file system
+  must come from an initramfs.
 - One firmware region at `0x30000000`: RAM must be at least 1 GB (QEMU's
   default).
 
@@ -92,7 +118,10 @@ Any other token returns `OPAL_PARAMETER` (-1).
 or the cross compiler): the little-endian test kernel `tests/ppc64-kernel.c`
 checks the hand-off, calls every OPAL service, starts, returns and
 restarts the other threads and powers off; the prompt, a refused
-overlapping kernel and a non-ELF file are checked too.
+overlapping kernel and a non-ELF file are checked too. On `powernv8` it
+also checks HID0[HILE] and LPCR on every thread and the boot CPU's place
+in the tree, and reboots once through the BMC first, so the parked
+thread has to come back after a warm reset.
 
 Original code; the OPAL interface numbers come from its public
 documentation, not from another firmware's source.

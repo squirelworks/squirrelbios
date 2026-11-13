@@ -12,11 +12,14 @@
 #define OPAL_CONSOLE_READ               2
 #define OPAL_RTC_READ                   3
 #define OPAL_CEC_POWER_DOWN             5
+#define OPAL_CEC_REBOOT                 6
 #define OPAL_POLL_EVENTS                10
 #define OPAL_CONSOLE_WRITE_BUFFER_SPACE 25
 #define OPAL_START_CPU                  41
 #define OPAL_QUERY_CPU_STATUS           42
 #define OPAL_RETURN_CPU                 69
+#define OPAL_REINIT_CPUS                70
+#define OPAL_REINIT_CPUS_HILE_LE        2
 #define OPAL_CHECK_TOKEN                80
 
 #define MSR_SF (1ull << 63)
@@ -25,6 +28,8 @@
 #define MSR_IR (1ull << 5)
 #define MSR_DR (1ull << 4)
 #define MSR_LE 1ull
+#define HID0_HILE (1ull << (63 - 19))   /* POWER8 */
+#define LPCR_LPES0 (1ull << (63 - 60))
 
 int64_t opal_call(uint64_t token, uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3);
 uint64_t get_msr(void);
@@ -57,6 +62,37 @@ int fw_getc(void)
     return -1;
 }
 
+static inline uint64_t mfspr_hid0(void)
+{
+    uint64_t v;
+    __asm__ volatile("mfspr %0,1008" : "=r"(v));
+    return v;
+}
+
+static inline uint64_t mfspr_lpcr(void)
+{
+    uint64_t v;
+    __asm__ volatile("mfspr %0,318" : "=r"(v));
+    return v;
+}
+
+static int is_power8(void)
+{
+    uint32_t pvr;
+    __asm__ volatile("mfpvr %0" : "=r"(pvr));
+    return (pvr >> 16) >= 0x004b && (pvr >> 16) <= 0x004d;
+}
+
+/* What every thread should see once the OS asked for little-endian
+ * interrupts: HID0[HILE] on POWER8, and external interrupts going to the
+ * hypervisor (LPCR[LPES0] clear) */
+static int thread_state_ok(void)
+{
+    return (!is_power8() || (mfspr_hid0() & HID0_HILE)) && !(mfspr_lpcr() & LPCR_LPES0);
+}
+
+static volatile uint32_t bad_thread_state;
+
 static const char *ok(int good)
 {
     return good ? "ok" : "bad";
@@ -70,6 +106,8 @@ void ksecondary(uint32_t pir)
     uint32_t n = __atomic_fetch_add(&started, 1, __ATOMIC_SEQ_CST);
     if (n < 64)
         seen_pir[n] = pir;
+    if (!thread_state_ok())
+        bad_thread_state = 1;
     __atomic_thread_fence(__ATOMIC_SEQ_CST);
     opal_call(OPAL_RETURN_CPU, 0, 0, 0, 0);
     for (;;)
@@ -131,6 +169,23 @@ void kmain(const void *fdt, uint64_t r4, uint64_t r5, uint64_t r8, uint64_t r9, 
     fw_printf("OS-ENTRY ppc64 dtb=%s regs=%s msr=%s le=%s opal-dt=%s console=%s rsv=%s\n",
               ok(dtb), ok(regs), ok(msr_ok), ok(le), ok(opal_dt), ok(con), ok(rsv));
 
+    /* "warm-reset" on the command line: reboot once through OPAL first,
+     * leaving a mark in RAM (which a reset keeps), so the run that powers
+     * off is the one after a warm reset */
+    const char *args = dtb ? dtb_prop(fdt, dtb_path(fdt, "/chosen"), "bootargs", 0) : 0;
+    volatile uint64_t *mark = (volatile uint64_t *)0x3f000000;
+    if (args && !strcmp(args, "warm-reset")) {
+        if (*mark != 0x5741524d52535421ull) {     /* "WARMRST!" */
+            *mark = 0x5741524d52535421ull;
+            fw_printf("WARM-RESET rebooting\n");
+            opal_call(OPAL_CEC_REBOOT, 0, 0, 0, 0);
+            for (;;)
+                opal_call(OPAL_POLL_EVENTS, 0, 0, 0, 0);
+        }
+        *mark = 0;
+        fw_printf("WARM-RESET again\n");
+    }
+
     /* Services */
     int token = opal_call(OPAL_CHECK_TOKEN, OPAL_CONSOLE_WRITE, 0, 0, 0) == 1 &&
                 opal_call(OPAL_CHECK_TOKEN, OPAL_START_CPU, 0, 0, 0) == 1 &&
@@ -158,6 +213,15 @@ void kmain(const void *fdt, uint64_t r4, uint64_t r5, uint64_t r8, uint64_t r9, 
                              (uint64_t)(uintptr_t)rbuf, 0) == -1;
     fw_printf("OPAL token=%s rtc=%s poll=%s space=%s read=%s term=%s\n", ok(token), ok(rtc),
               ok(poll), ok(sp), ok(rd), ok(bad_term));
+
+    /* Interrupt endianness, and the boot thread is the first CPU node
+     * (Linux makes the first one logical CPU 0) */
+    int hile = opal_call(OPAL_REINIT_CPUS, OPAL_REINIT_CPUS_HILE_LE, 0, 0, 0) == 0 &&
+               thread_state_ok();
+    int first_cpu = dtb_find_device_type(fdt, -1, "cpu");
+    const uint8_t *fs = dtb_prop(fdt, first_cpu, "ibm,ppc-interrupt-server#s", &len);
+    int first = fs && len >= 4 && fw_get_be32(fs) == get_pir();
+    fw_printf("CPU p8=%s hile=%s first=%s\n", is_power8() ? "yes" : "no", ok(hile), ok(first));
 
     /* Other threads: every server number in the device tree but ours */
     uint32_t pirs[64] = { 0 };
@@ -190,8 +254,8 @@ void kmain(const void *fdt, uint64_t r4, uint64_t r5, uint64_t r8, uint64_t r9, 
             found |= seen_pir[j] == pirs[i];
         pir_ok &= found;
     }
-    fw_printf("SMP cpus=%d started=%u smp=%s return=%s pir=%s self=%s\n", total, started,
-              ok(smp), ok(again), ok(pir_ok), ok(wrong));
+    fw_printf("SMP cpus=%d started=%u smp=%s return=%s pir=%s self=%s state=%s\n", total,
+              started, ok(smp), ok(again), ok(pir_ok), ok(wrong), ok(!bad_thread_state));
 
     fw_printf("OS-DONE ppc64, powering off\n");
     opal_call(OPAL_CEC_POWER_DOWN, 0, 0, 0, 0);
