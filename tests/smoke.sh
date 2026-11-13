@@ -723,7 +723,7 @@ run riscv-deleg "OS-ENTRY riscv deleg|deleg=ok|ecall=ok|!trap mcause=" \
     -kernel $TEST_DIR/riscv-deleg.bin
 
 # RISC-V: SBI base extension answers, with only a0 and a1 changed
-run riscv-sbi "OS-ENTRY riscv sbi|sbi=ok|!trap mcause=" \
+run riscv-sbi "OS-ENTRY riscv sbi|dbcn=ok|sbi=ok|!trap mcause=" \
     "$QEMU_RISCV" -M virt -bios riscv/squirrel-bios.bin \
     -kernel $TEST_DIR/riscv-sbi.bin
 
@@ -1001,6 +1001,80 @@ run x86_64-sb-nocsm "secure: Secure Boot on (verify-only)|csm: off while Secure 
     -drive format=raw,file=$TEST_DIR/x86-osload.bin,if=ide,snapshot=on
 run x86_64-sb-baddb "secure: opt/org.squirrelworks/db is not a list of EFI_SIGNATURE_LISTs|secure: Secure Boot off (bad db)|$SB_APP" \
     "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd -fw_cfg $SB_DB,file=$TEST_DIR/x86-boot.bin -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-app.efi
+
+# AArch64 UEFI-class firmware (roadmap D1, PLATFORM=aarch64-uefi): the
+# shared UEFI core in common/efi on QEMU virt. It copies itself from flash
+# to RAM, maps memory 1:1 with caches on, finds the PL011, PL031, PSCI and
+# the GIC in the device tree, builds the UEFI memory map from /memory,
+# and halts with nothing to boot.
+ARM_FD=arm/uefi/squirrel-bios.fd
+run aarch64-uefi "SquirrelBIOS 2.0.0-alpha (aarch64-uefi)|fdt: device tree at 0x0000000040000000|~^cpu: Arm part d07 .*, EL1, 44-bit physical addresses|mmu: identity map, caches on|psci: v1.1 via hvc|rtc: PL031 at 0x0000000009010000|gic: v2, distributor at 0x0000000008000000|fw: running at 0x0000000040100000-|mem: 0000000040000000-0000000047ffffff usable|mem: 128 MB usable (from the device tree)|fw_cfg: present|~^efi: system table at 0x[0-9a-f]{16}, UEFI 2.70|efi: 0000000040000000-00000000400fffff BS data|~^efi: 0000000040100000-[0-9a-f]{16} RT code|~^efi: 0000000009010000-0000000009010fff MMIO|efi: memory services ok|efi: device tree installed as a configuration table|fw: nothing to boot (no -kernel, no opt/org.squirrelworks/boot.efi, no boot disk), halting" \
+    "$QEMU_ARM" -M virt -cpu cortex-a57 -bios $ARM_FD
+# The C stand-in app (tests/efi-app.c) through fw_cfg: relocated from 256
+# MB, it checks the tables, its loaded image, the relocation, pool and
+# memory map, ConOut, a timer event, GetTime, variables and the device
+# tree configuration table; then returns, or calls Exit
+run aarch64-uefi-app "efi: image of 28672 bytes loaded at|APP aarch64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|APP con=ok timer=ok time=ok var=ok dtb=ok|efi: image returned 0x1234|efi: image unloaded, its memory given back|fw: halting|!=bad|!APP opts" \
+    "$QEMU_ARM" -M virt -cpu cortex-a57 -bios $ARM_FD -fw_cfg $X64_BOOT,file=$TEST_DIR/arm-efi-app.efi
+run aarch64-uefi-app-exit "APP con=ok timer=ok time=ok var=ok dtb=ok|efi: image returned 0x5678|efi: image unloaded, its memory given back|!=bad|!exit=returned" \
+    "$QEMU_ARM" -M virt -cpu cortex-a57 -bios $ARM_FD -fw_cfg $X64_BOOT,file=$TEST_DIR/arm-efi-app-exit.efi
+# As -kernel with -append and -initrd, the way Linux's EFI stub is
+# started: LoadOptions, and the initrd through LocateDevicePath + LoadFile2
+run aarch64-uefi-kernel "fw: -kernel image, 28672 bytes|fw: -initrd, 3000 bytes|APP aarch64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|APP opts=\"console=ttyAMA0 squirrel=1\" initrd=3000 data=ok|efi: image returned 0x1234|!=bad" \
+    "$QEMU_ARM" -M virt -cpu cortex-a57 -bios $ARM_FD -kernel $TEST_DIR/arm-efi-app.efi \
+    -initrd $TEST_DIR/arm-efi-initrd.img -append "console=ttyAMA0 squirrel=1"
+# ExitBootServices, then ResetSystem(shutdown) through the runtime
+# services: PSCI SYSTEM_OFF, so QEMU exits 0. At EL2 (virtualization=on)
+# with GICv3 and 2 GB, PSCI goes through smc.
+run aarch64-uefi-ebs "APP con=ok timer=ok time=ok var=ok dtb=ok|efi: ExitBootServices|@exit=0|!=bad" \
+    "$QEMU_ARM" -M virt -cpu cortex-a57 -bios $ARM_FD -fw_cfg $X64_BOOT,file=$TEST_DIR/arm-efi-app-ebs.efi
+run aarch64-uefi-el2 "~^cpu: .*, EL2, |psci: v1.1 via smc|gic: v3 (arch 3), distributor at 0x0000000008000000, 288 interrupt lines, redistributor awake|mem: 2048 MB usable (from the device tree)|APP aarch64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|APP con=ok timer=ok time=ok var=ok dtb=ok|efi: ExitBootServices|@exit=0|!=bad" \
+    "$QEMU_ARM" -M virt,virtualization=on,gic-version=3 -cpu max -m 2G -bios $ARM_FD \
+    -fw_cfg $X64_BOOT,file=$TEST_DIR/arm-efi-app-ebs.efi
+# An x86-64 image is a PE32+ for another machine: refused
+run aarch64-uefi-wrong-arch "efi: LoadImage failed: 0x8000000000000003, halting" \
+    "$QEMU_ARM" -M virt -cpu cortex-a57 -bios $ARM_FD -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-app.efi
+
+# From a virtio-blk disk on virtio-mmio (the legacy register layout, QEMU's
+# default): GPT, the FAT32 ESP, \EFI\BOOT\BOOTAA64.EFI
+run aarch64-uefi-disk "~^disk: virtio-blk at 0x[0-9a-f]{16} \(virtio-mmio v1\), 131072 sectors|disk: partition 1 LBA 2048..131038 (ESP)|fs: FAT32 on partition|efi: booting \\EFI\\BOOT\\BOOTAA64.EFI (28672 bytes)|APP aarch64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|APP con=ok timer=ok time=ok var=ok dtb=ok|efi: BOOTAA64.EFI returned 0x1234|!=bad" \
+    "$QEMU_ARM" -M virt -cpu cortex-a57 -bios $ARM_FD \
+    -drive if=none,file=$TEST_DIR/arm-esp.img,format=raw,id=d0 -device virtio-blk-device,drive=d0
+
+# RISC-V UEFI-class firmware (roadmap D3, PLATFORM=riscv64-uefi): the SBI
+# in M-mode enters the shared UEFI core in S-mode at 2 MB. The core finds
+# the NS16550A, the timebase and the goldfish RTC in the device tree,
+# talks to the SBI (spec 2.0), keeps the SBI's region reserved, installs
+# RISCV_EFI_BOOT_PROTOCOL, and halts with nothing to boot.
+RV_UEFI=riscv/uefi/squirrel-bios.bin
+run riscv64-uefi "SquirrelBIOS RISC-V|entering the UEFI core at 0x0000000080200000, next_mode=1|dt: firmware region 0x80000000-0x801fffff reserved (no-map)|SquirrelBIOS 2.0.0-alpha (riscv64-uefi)|cpu: hart 0, S-mode, SBI 2.0 implementation 0x5351|uart: NS16550A at 0x0000000010000000|timer: time CSR at 10000000 Hz|rtc: goldfish at 0x0000000000101000|fw: running at 0x0000000080200000-|mem: 128 MB usable (from the device tree)|efi: 0000000080000000-00000000801fffff reserved|~^efi: 0000000080200000-[0-9a-f]{16} RT code|efi: memory services ok|efi: device tree installed as a configuration table|efi: RISCV_EFI_BOOT_PROTOCOL installed (boot hart 0)|fw: nothing to boot (no -kernel, no opt/org.squirrelworks/boot.efi, no boot disk), halting" \
+    "$QEMU_RISCV" -M virt -bios $RV_UEFI
+# The C stand-in app through fw_cfg, returning and calling Exit
+run riscv64-uefi-app "efi: image of 28672 bytes loaded at|APP riscv64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|APP con=ok timer=ok time=ok var=ok dtb=ok|efi: image returned 0x1234|efi: image unloaded, its memory given back|fw: halting|!=bad|!APP opts" \
+    "$QEMU_RISCV" -M virt -bios $RV_UEFI -fw_cfg $X64_BOOT,file=$TEST_DIR/riscv-efi-app.efi
+run riscv64-uefi-app-exit "APP con=ok timer=ok time=ok var=ok dtb=ok|efi: image returned 0x5678|efi: image unloaded, its memory given back|!=bad|!exit=returned" \
+    "$QEMU_RISCV" -M virt -bios $RV_UEFI -fw_cfg $X64_BOOT,file=$TEST_DIR/riscv-efi-app-exit.efi
+# As -kernel: QEMU loads it at the 2 MB boundary after the firmware file
+# and the SBI passes it on; command line and initrd come from /chosen
+run riscv64-uefi-kernel "fw: -kernel PE image at 0x0000000080400000, 28672 bytes|fw: -append \"console=ttyS0 squirrel=1\" (/chosen bootargs)|fw: -initrd, 3000 bytes|APP riscv64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|APP opts=\"console=ttyS0 squirrel=1\" initrd=3000 data=ok|efi: image returned 0x1234|!=bad" \
+    "$QEMU_RISCV" -M virt -bios $RV_UEFI -kernel $TEST_DIR/riscv-efi-app.efi \
+    -initrd $TEST_DIR/arm-efi-initrd.img -append "console=ttyS0 squirrel=1"
+# ExitBootServices, then ResetSystem(shutdown): SBI SRST, QEMU exits 0;
+# with 4 harts, the secondaries stay parked in the SBI
+run riscv64-uefi-ebs "APP con=ok timer=ok time=ok var=ok dtb=ok|efi: ExitBootServices|@exit=0|!=bad" \
+    "$QEMU_RISCV" -M virt -smp 4 -bios $RV_UEFI -fw_cfg $X64_BOOT,file=$TEST_DIR/riscv-efi-app-ebs.efi
+# An AArch64 image is refused
+run riscv64-uefi-wrong-arch "efi: LoadImage failed: 0x8000000000000003, halting" \
+    "$QEMU_RISCV" -M virt -bios $RV_UEFI -fw_cfg $X64_BOOT,file=$TEST_DIR/arm-efi-app.efi
+# From a virtio-blk disk with the version 2 registers: BOOTRISCV64.EFI is
+# not 8.3, so it is found by its long name. A disk holding only
+# BOOTAA64.EFI has nothing for RISC-V.
+run riscv64-uefi-disk "disk: virtio-blk at 0x0000000010008000 (virtio-mmio v2), 131072 sectors|disk: partition 1 LBA 2048..131038 (ESP)|efi: booting \\EFI\\BOOT\\BOOTRISCV64.EFI (28672 bytes)|APP riscv64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|APP con=ok timer=ok time=ok var=ok dtb=ok|efi: BOOTRISCV64.EFI returned 0x1234|!=bad" \
+    "$QEMU_RISCV" -M virt -bios $RV_UEFI -global virtio-mmio.force-legacy=false \
+    -drive if=none,file=$TEST_DIR/riscv-esp.img,format=raw,id=d0 -device virtio-blk-device,drive=d0
+run riscv64-uefi-disk-other-arch "disk: virtio-blk at 0x0000000010008000 (virtio-mmio v1)|fs: FAT32 on partition|fw: nothing to boot (no -kernel, no opt/org.squirrelworks/boot.efi, no boot disk), halting|!APP riscv64" \
+    "$QEMU_RISCV" -M virt -bios $RV_UEFI \
+    -drive if=none,file=$TEST_DIR/arm-esp.img,format=raw,id=d0 -device virtio-blk-device,drive=d0
 
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

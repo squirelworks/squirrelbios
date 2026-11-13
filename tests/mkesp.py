@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
-"""Build a GPT disk with a FAT32 EFI System Partition for x86_64-uefi tests.
+"""Build a GPT disk with a FAT32 EFI System Partition for the UEFI tests.
 Original code.
 
-  tests/mkesp.py BOOTX64.EFI OUT.img
+  tests/mkesp.py BOOTX64.EFI OUT.img [NAME]
+
+NAME is the file's name in \\EFI\\BOOT (BOOTX64.EFI when left out). A name
+that is not 8.3, such as BOOTRISCV64.EFI, gets long-name entries and a
+BOOTRI~1.EFI alias.
 
 The image is 64 MiB: protective MBR, GPT header and entries, then a FAT32
-ESP starting at LBA 2048 holding \\EFI\\BOOT\\BOOTX64.EFI (8.3 names only).
+ESP starting at LBA 2048 holding the boot file.
 FAT32 needs at least 65525 clusters; 64 MiB with 512-byte clusters covers that.
 """
 import math
@@ -46,8 +50,40 @@ def guid_bytes(u: uuid.UUID) -> bytes:
     return b
 
 
-def make_fat32(esp_secs: int, efi_file: bytes) -> bytearray:
-    """A FAT32 volume of esp_secs sectors containing EFI/BOOT/BOOTX64.EFI."""
+def short_name(name: str) -> bytes:
+    """The 8.3 directory name for name, or a ~1 alias when it is not 8.3."""
+    base, _, ext = name.upper().rpartition('.')
+    if not base:
+        base, ext = ext, ''
+    if len(base) <= 8 and len(ext) <= 3:
+        return (base.ljust(8) + ext.ljust(3)).encode()
+    return (base[:6] + '~1').ljust(8).encode() + ext[:3].ljust(3).encode()
+
+
+def lfn_entries(name: str, short: bytes) -> list:
+    """Long-name entries for name, in on-disk order (last part first)."""
+    csum = 0
+    for b in short:
+        csum = (((csum & 1) << 7) + (csum >> 1) + b) & 0xFF
+    chars = [ord(c) for c in name] + [0]
+    chars += [0xFFFF] * (-len(chars) % 13)
+    parts = len(chars) // 13
+    out = []
+    for n in range(parts, 0, -1):
+        c = chars[(n - 1) * 13:n * 13]
+        e = bytearray(32)
+        e[0] = n | (0x40 if n == parts else 0)
+        e[1:11] = b''.join(u16(x) for x in c[0:5])
+        e[11] = 0x0F
+        e[13] = csum
+        e[14:26] = b''.join(u16(x) for x in c[5:11])
+        e[28:32] = b''.join(u16(x) for x in c[11:13])
+        out.append(bytes(e))
+    return out
+
+
+def make_fat32(esp_secs: int, efi_file: bytes, name: str = 'BOOTX64.EFI') -> bytearray:
+    """A FAT32 volume of esp_secs sectors containing EFI/BOOT/<name>."""
     bps = 512
     spc = 1                                  # 512-byte clusters: enough for FAT32 in 64 MiB
     reserved = 32
@@ -148,10 +184,17 @@ def make_fat32(esp_secs: int, efi_file: bytes) -> bytearray:
     write_dir_entry(efi_clus, 0, b'.          ', 0x10, efi_clus, 0)
     write_dir_entry(efi_clus, 1, b'..         ', 0x10, 2, 0)
     write_dir_entry(efi_clus, 2, b'BOOT       ', 0x10, boot_clus, 0)
-    # BOOT: BOOTX64.EFI
+    # BOOT: the boot file, with long-name entries when it is not 8.3
     write_dir_entry(boot_clus, 0, b'.          ', 0x10, boot_clus, 0)
     write_dir_entry(boot_clus, 1, b'..         ', 0x10, efi_clus, 0)
-    write_dir_entry(boot_clus, 2, b'BOOTX64 EFI', 0x20, file_first, len(efi_file))
+    short = short_name(name)
+    index = 2
+    if b'~' in short:
+        for e in lfn_entries(name, short):
+            off = (data_start + (boot_clus - 2) * spc) * bps + index * 32
+            vol[off:off + 32] = e
+            index += 1
+    write_dir_entry(boot_clus, index, short, 0x20, file_first, len(efi_file))
 
     # File payload
     payload_off = (data_start + (file_first - 2) * spc) * bps
@@ -219,7 +262,7 @@ def make_gpt(esp: bytes) -> bytearray:
 def main():
     efi = open(sys.argv[1], 'rb').read()
     out = sys.argv[2]
-    esp = make_fat32(ESP_SECS, efi)
+    esp = make_fat32(ESP_SECS, efi, sys.argv[3] if len(sys.argv) > 3 else 'BOOTX64.EFI')
     img = make_gpt(esp)
     open(out, 'wb').write(img)
     print(f'mkesp: wrote {out} ({len(img)} bytes), ESP {ESP_SECS} sectors, file {len(efi)} bytes')
