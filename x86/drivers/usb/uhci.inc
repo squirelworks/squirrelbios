@@ -49,6 +49,7 @@ TD_ACTIVE       equ 0x00800000
 TD_ERRORS       equ 0x007E0000 & ~0x00080000   ; stalled, buffer, babble, CRC/timeout, bitstuff
 TD_LS           equ 0x04000000
 TD_CERR3        equ 0x18000000
+TD_SPD          equ 0x20000000      ; short packet detect
 PID_SETUP       equ 0x2D
 PID_IN          equ 0x69
 PID_OUT         equ 0xE1
@@ -171,6 +172,7 @@ uhci_bus:
     call usb_hid_here
     jc .halt_it
     call uhci_hid_start
+    call usbd_keep              ; the disk's copy of the controller's state
     call usb_hid_announce       ; after: it needs ES:DI, the console cursor
     jmp .out
 .halt_it:

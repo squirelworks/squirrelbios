@@ -1,14 +1,19 @@
 ; SquirrelBIOS x86 — USB disk: boot and INT 13h from a USB mass storage device
 ; Original code. Included by x86/squirrel-bios.asm when CONFIG_USB.
 ;
+;
 ; Written from the USB Mass Storage Class Bulk-Only Transport 1.0 and the
 ; SCSI Block Commands (READ CAPACITY(10), READ(10), WRITE(10)). The first
 ; bulk-only SCSI interface that usb_enum finds on an xHCI whose block is
-; in the EBDA is configured: both bulk endpoints get a ring in the block
-; and are added to the device's slot. That controller then keeps running
-; after POST (xhci.inc), alongside a USB keyboard or mouse on the same
-; controller, and its state that the transfers need (registers, event
-; ring position, the disk's rings) is copied into the EBDA's first page.
+; in the EBDA, or at full speed on a UHCI, is configured. On xHCI both
+; bulk endpoints get a ring in the block and are added to the device's
+; slot. On UHCI the disk gets a queue head of its own after the keyboard's
+; and mouse's in the frame list hid.inc moves into the EBDA, and each
+; transfer is a chain of TDs hung from it (usbd_uhci_xfer). That
+; controller then keeps running after POST, alongside a USB keyboard or
+; mouse on the same controller, and its state that the transfers need
+; (registers, event ring position, the disk's rings or data toggles) is
+; copied into the EBDA's first page.
 ;
 ; At boot, when no IDE, SATA or NVMe disk answered, usbd_detect asks the
 ; disk whether it is ready (INQUIRY, TEST UNIT READY, REQUEST SENSE) and
@@ -21,7 +26,8 @@
 ; (if any) straight to or from the caller's buffer, then the 13-byte
 ; status wrapper (CSW) on bulk IN. Each waits for its own transfer event,
 ; told apart by its TRB pointer: the keyboard's and mouse's transfers
-; post none. A stalled endpoint is not recovered yet: the command fails.
+; post none (UHCI: polled TD by TD). A stalled endpoint is not recovered
+; yet: the command fails.
 ;
 ; Runtime code reaches the copy with FS = USBD_FSEG, a segment whose
 ; offsets 1F00h-1F7Fh are the copy, so xhci.inc's xhci_put and
@@ -37,6 +43,24 @@ USBD_OUTST      equ 0x1F68          ; bulk OUT ring: index, cycle bit
 USBD_INST       equ 0x1F6A          ; bulk IN ring: index, cycle bit
 USBD_TAG        equ 0x1F6C          ; dword: last CBW tag
 USBD_SECTORS    equ 0x1F70          ; dword: capacity (usbd_detect)
+USBD_BUFS       equ 0x1F74          ; dword: linear CBW; CSW and SCSI data after
+; On UHCI, USBD_OUTST and USBD_INST hold each endpoint's next data toggle
+
+; Offsets from USBD_BUFS: on xHCI they are the block's XHCI_CBW, XHCI_CSW
+; and XHCI_SCSIBUF; on UHCI they are in the EBDA (USBD_UBUF), followed by
+; the TDs. That EBDA range is NVMe's and virtio's, unused when DL 80h is
+; a USB disk.
+USBD_CBW        equ 0x00
+USBD_CSW        equ 0x40
+USBD_SCSIBUF    equ 0x80
+USBD_UBUF       equ 0x1000              ; EBDA offset (UHCI)
+USBD_UTD        equ 0x1100              ; EBDA offset: the TDs, 16 bytes each
+USBD_UTD_MAX    equ 256                 ; TDs per pass: 16 KB at full speed
+USBD_UQH        equ USBK_AREA + 2 * USBK_AREA_SZ   ; EBDA offset: the queue head
+
+%if USBD_UTD + USBD_UTD_MAX * 16 > 0x5000
+%error "the USB disk's TDs must end below the frame list"
+%endif
 
 USBD_SNAP       equ 0x0F80          ; the copy of 1F00h-1F7Fh, in the EBDA
 ; Its own stack, in the EBDA too: POST's stack below 0600h is too shallow
@@ -73,7 +97,12 @@ SCSI_WRITE10    equ 0x2A
 usb_disk_claim:
     pushad
     cmp byte [fs:USB_HC], USB_HC_XHCI
+    je .hc
+    cmp byte [fs:USB_HC], USB_HC_UHCI
     jne .out
+    cmp byte [bp - 2], 0
+    jne .out                    ; UHCI: full speed only (no bulk at low)
+.hc:
     cmp byte [fs:USBD_ADDR], 0
     jne .out
     cmp byte [bp - 13], 0
@@ -90,6 +119,13 @@ usb_disk_claim:
     cmp ax, [fs:USB_KBD_BDF]
     jne .out                    ; the keyboard or mouse runs elsewhere
 .first:
+    cmp byte [fs:USB_HC], USB_HC_UHCI
+    jne .xhci
+    mov dword [fs:USBD_BUFS], EBDA_BASE + USBD_UBUF
+    mov word [fs:USBD_OUTST], 0         ; DATA0 on both after configuring
+    mov word [fs:USBD_INST], 0
+    jmp .config
+.xhci:
     cmp dword [fs:XHCI_BASE], XHCI_EBDA
     jne .out                    ; its block will not survive POST
     mov al, [bp - 1]
@@ -97,6 +133,10 @@ usb_disk_claim:
     mov ch, [bp - 14]
     call xhci_msd_config
     jc .out
+    mov eax, [fs:XHCI_BASE]
+    add eax, XHCI_CBW
+    mov [fs:USBD_BUFS], eax
+.config:
     ; SET_CONFIGURATION
     mov ax, USB_REQ_SET_CONFIG << 8
     movzx cx, byte [bp - 12]
@@ -213,12 +253,12 @@ usbd_find:
     cmp byte [fs:USBD_ADDR], 0
     je .none
     call flat_gs
-    mov ebx, [fs:XHCI_BASE]
-    lea ebp, [ebx + XHCI_SCSIBUF]
+    mov ebx, [fs:USBD_BUFS]
+    lea ebp, [ebx + USBD_SCSIBUF]
     ; INQUIRY: some devices want it first
     mov al, SCSI_INQUIRY
     call usbd_cdb
-    mov byte [gs:ebx + XHCI_CBW + 15 + 4], 36
+    mov byte [gs:ebx + USBD_CBW + 15 + 4], 36
     mov ax, (6 << 8) | USBD_IN
     mov ecx, 36
     call usbd_scsi
@@ -258,11 +298,11 @@ usbd_find:
     jnz .cap
     jmp .none
 .size:
-    mov eax, [gs:ebx + XHCI_SCSIBUF + 4]
+    mov eax, [gs:ebx + USBD_SCSIBUF + 4]
     bswap eax
     cmp eax, 512
     jne .none                   ; 512-byte blocks only
-    mov eax, [gs:ebx + XHCI_SCSIBUF]
+    mov eax, [gs:ebx + USBD_SCSIBUF]
     bswap eax
     add eax, 1
     jnc .count
@@ -295,11 +335,11 @@ usbd_find:
 ; every register.
 usbd_sense:
     pushad
-    mov ebx, [fs:XHCI_BASE]
-    lea ebp, [ebx + XHCI_SCSIBUF]
+    mov ebx, [fs:USBD_BUFS]
+    lea ebp, [ebx + USBD_SCSIBUF]
     mov al, SCSI_SENSE
     call usbd_cdb
-    mov byte [gs:ebx + XHCI_CBW + 15 + 4], 18
+    mov byte [gs:ebx + USBD_CBW + 15 + 4], 18
     mov ax, (6 << 8) | USBD_IN
     mov ecx, 18
     call usbd_scsi
@@ -310,12 +350,12 @@ usbd_sense:
 ; flat. Keeps every register.
 usbd_cdb:
     push edi
-    mov edi, [fs:XHCI_BASE]
-    mov dword [gs:edi + XHCI_CBW + 15], 0
-    mov dword [gs:edi + XHCI_CBW + 19], 0
-    mov dword [gs:edi + XHCI_CBW + 23], 0
-    mov dword [gs:edi + XHCI_CBW + 27], 0
-    mov [gs:edi + XHCI_CBW + 15], al
+    mov edi, [fs:USBD_BUFS]
+    mov dword [gs:edi + USBD_CBW + 15], 0
+    mov dword [gs:edi + USBD_CBW + 19], 0
+    mov dword [gs:edi + USBD_CBW + 23], 0
+    mov dword [gs:edi + USBD_CBW + 27], 0
+    mov [gs:edi + USBD_CBW + 15], al
     pop edi
     ret
 
@@ -327,23 +367,24 @@ usbd_cdb:
 ; phase error). Keeps every other register.
 usbd_scsi:
     pushad
-    mov ebx, [fs:XHCI_BASE]
-    mov dword [gs:ebx + XHCI_CBW], USBD_CBW_SIG
+    mov ebx, [fs:USBD_BUFS]
+    mov dword [gs:ebx + USBD_CBW], USBD_CBW_SIG
     mov edx, [fs:USBD_TAG]
     inc edx
     mov [fs:USBD_TAG], edx
-    mov [gs:ebx + XHCI_CBW + 4], edx
-    mov [gs:ebx + XHCI_CBW + 8], ecx
-    mov [gs:ebx + XHCI_CBW + 12], al
-    mov byte [gs:ebx + XHCI_CBW + 13], 0        ; LUN 0
-    mov [gs:ebx + XHCI_CBW + 14], ah
-    mov dword [gs:ebx + XHCI_CSW], 0
+    mov [gs:ebx + USBD_CBW + 4], edx
+    mov [gs:ebx + USBD_CBW + 8], ecx
+    mov [gs:ebx + USBD_CBW + 12], al
+    mov byte [gs:ebx + USBD_CBW + 13], 0        ; LUN 0
+    mov [gs:ebx + USBD_CBW + 14], ah
+    mov dword [gs:ebx + USBD_CSW], 0
     ; The command block, on bulk OUT
     push eax
     push ecx
-    lea eax, [ebx + XHCI_CBW]
+    lea eax, [ebx + USBD_CBW]
     mov ecx, 31
-    lea esi, [ebx + XHCI_BOUT]
+    mov esi, [fs:XHCI_BASE]
+    add esi, XHCI_BOUT
     mov di, USBD_OUTST
     call usbd_xfer
     pop ecx
@@ -352,11 +393,13 @@ usbd_scsi:
     ; The data, if any, in its direction
     test ecx, ecx
     jz .status
-    lea esi, [ebx + XHCI_BOUT]
+    mov esi, [fs:XHCI_BASE]
+    add esi, XHCI_BOUT
     mov di, USBD_OUTST
     test al, USBD_IN
     jz .data
-    lea esi, [ebx + XHCI_BIN]
+    mov esi, [fs:XHCI_BASE]
+    add esi, XHCI_BIN
     mov di, USBD_INST
 .data:
     mov eax, ebp
@@ -364,18 +407,19 @@ usbd_scsi:
     jc .fail
 .status:
     ; The status wrapper, on bulk IN
-    lea eax, [ebx + XHCI_CSW]
+    lea eax, [ebx + USBD_CSW]
     mov ecx, 13
-    lea esi, [ebx + XHCI_BIN]
+    mov esi, [fs:XHCI_BASE]
+    add esi, XHCI_BIN
     mov di, USBD_INST
     call usbd_xfer
     jc .fail
-    cmp dword [gs:ebx + XHCI_CSW], USBD_CSW_SIG
+    cmp dword [gs:ebx + USBD_CSW], USBD_CSW_SIG
     jne .fail
-    mov eax, [gs:ebx + XHCI_CSW + 4]
+    mov eax, [gs:ebx + USBD_CSW + 4]
     cmp eax, [fs:USBD_TAG]
     jne .fail
-    mov al, [gs:ebx + XHCI_CSW + 12]
+    mov al, [gs:ebx + USBD_CSW + 12]
     mov bp, sp
     mov [bp + 28], al           ; the caller's AL
     popad
@@ -392,6 +436,8 @@ usbd_scsi:
 ; Ring the endpoint's doorbell and wait for the transfer's event. CF set
 ; unless it ended with success or a short packet. Keeps every register.
 usbd_xfer:
+    cmp byte [fs:USB_HC], USB_HC_UHCI
+    je usbd_uhci_xfer
     pushad
     ; EBP = the first TRB, its cycle bit cleared
     xchg eax, ebp
@@ -536,14 +582,14 @@ usbd_rw:
     dec esi
     add esi, eax
     jc .fail
-    mov ebx, [fs:XHCI_BASE]
+    mov ebx, [fs:USBD_BUFS]
     push eax
     mov al, dl
     call usbd_cdb
     pop eax
     bswap eax
-    mov [gs:ebx + XHCI_CBW + 15 + 2], eax       ; the LBA, big-endian
-    mov [gs:ebx + XHCI_CBW + 15 + 8], cl        ; the count's low byte
+    mov [gs:ebx + USBD_CBW + 15 + 2], eax       ; the LBA, big-endian
+    mov [gs:ebx + USBD_CBW + 15 + 8], cl        ; the count's low byte
     shl ecx, 9
     mov ax, 10 << 8
     cmp dl, SCSI_READ10
@@ -604,9 +650,21 @@ usbd_reset:
     push word USBD_FSEG
     pop fs
     call flat_gs
+    cmp byte [fs:USB_HC], USB_HC_UHCI
+    jne .xhci
+    push dx
+    mov dx, [fs:USB_IOBASE]
+    add dx, UHCI_STS
+    in ax, dx
+    pop dx
+    test ax, STS_HALTED | 0x18  ; halted, process or host system error
+    jz .ok
+    jmp .bad
+.xhci:
     mov eax, [fs:USB_MMIO]
     test dword [gs:eax + XHCI_USBSTS], XSTS_HCH | 0x04
     jz .ok
+.bad:
     popf
     pop gs
     pop fs
@@ -646,4 +704,199 @@ usbd_edd_path:
     mov dword [si + 0x3C], 0
     pop es
     pop eax
+    ret
+
+; usbd_xfer on UHCI: ECX bytes (1 to 64 KB) at linear EAX, IN when DI =
+; USBD_INST, else OUT; FS:DI holds that endpoint's data toggle. Max-packet
+; TDs, at most USBD_UTD_MAX per pass, hung from the disk's queue head and
+; polled. An IN transfer stops at a short packet (SPD). CF set on a
+; stall, an error or a 5 s timeout. Keeps every register.
+usbd_uhci_xfer:
+    pushad
+.pass:
+    ; The template: address, endpoint, PID; EDX = the status to arm with
+    movzx ebx, byte [fs:USBD_ADDR]
+    shl ebx, 8
+    mov bl, PID_OUT
+    movzx edx, byte [fs:USBD_EPOUT]
+    cmp di, USBD_INST
+    jne .tmpl
+    mov bl, PID_IN
+    movzx edx, byte [fs:USBD_EPIN]
+.tmpl:
+    shl edx, 15
+    or ebx, edx                 ; EBX = token without length and toggle
+    mov edx, TD_ACTIVE | TD_CERR3
+    cmp di, USBD_INST
+    jne .build
+    or edx, TD_SPD
+.build:
+    ; ESI = the next TD (linear); EBP = bytes in this pass
+    mov esi, EBDA_BASE + USBD_UTD
+    xor ebp, ebp
+.td:
+    push eax
+    push ebx
+    movzx eax, word [fs:USBD_MPS]
+    mov ebx, ecx
+    sub ebx, ebp
+    cmp ebx, eax
+    jbe .len
+    mov ebx, eax
+.len:
+    mov eax, esi
+    add eax, 16
+    or eax, TD_VF
+    mov [gs:esi], eax           ; link: the next TD, depth first
+    mov [gs:esi + 4], edx
+    lea eax, [ebx - 1]
+    shl eax, 21
+    pop ebx
+    push ebx
+    or eax, ebx
+    test byte [fs:di], 1
+    jz .tog
+    or eax, 1 << 19
+.tog:
+    xor byte [fs:di], 1
+    mov [gs:esi + 8], eax
+    pop ebx
+    pop eax
+    push eax
+    add eax, ebp
+    mov [gs:esi + 12], eax      ; the buffer
+    pop eax
+    push ebx
+    mov ebx, [gs:esi + 8]
+    shr ebx, 21
+    inc ebx                     ; this TD's length
+    add ebp, ebx
+    pop ebx
+    add esi, 16
+    cmp ebp, ecx
+    jae .hang
+    cmp esi, EBDA_BASE + USBD_UTD + USBD_UTD_MAX * 16
+    jb .td
+.hang:
+    mov dword [gs:esi - 16], TD_T       ; the chain ends at the last TD
+    ; Hang it: the controller runs it in the next frames
+    push esi
+    mov esi, EBDA_BASE + USBD_UQH
+    mov dword [gs:esi + 4], EBDA_BASE + USBD_UTD
+    pop esi
+    ; Poll up to 5 s: done when the last TD is inactive, or one is
+    ; inactive with an error or a short packet
+    push ecx
+    mov ecx, 5000
+    mov edx, esi                ; EDX = past the last TD
+.poll:
+    test dword [gs:esi - 16 + 4], TD_ACTIVE
+    jz .scan
+    push ecx
+    mov cx, 1
+    call delay_ms
+    pop ecx
+    ; an error or a short packet stops the queue: look for one
+    push esi
+    mov esi, EBDA_BASE + USBD_UTD
+.peek:
+    cmp esi, edx
+    jae .peek_stop
+    mov ebx, [gs:esi + 4]
+    test ebx, TD_ACTIVE
+    jnz .peek_done              ; the controller is still on this one
+    test ebx, TD_ERRORS
+    jnz .peek_stop
+    call .short
+    jc .peek_stop
+    add esi, 16
+    jmp .peek
+.peek_stop:
+    pop esi
+    jmp .scan
+.peek_done:
+    pop esi
+    dec ecx
+    jnz .poll
+    pop ecx
+    jmp .fail
+.scan:
+    pop ecx
+    ; Take the queue head's work away, then count what was done
+    push esi
+    mov esi, EBDA_BASE + USBD_UQH
+    mov dword [gs:esi + 4], TD_T
+    pop esi
+    push ecx
+    mov cx, 2                   ; let the controller leave the chain
+    call delay_ms
+    pop ecx
+    mov edx, esi                ; EDX = past the last TD
+    mov esi, EBDA_BASE + USBD_UTD
+    xor ebp, ebp                ; EBP = bytes moved
+.count:
+    cmp esi, edx
+    jae .whole
+    mov ebx, [gs:esi + 4]
+    test ebx, TD_ACTIVE
+    jnz .undone
+    test ebx, TD_ERRORS
+    jnz .undone
+    and ebx, 0x7FF
+    inc ebx
+    and ebx, 0x7FF              ; 7FFh + 1: no bytes
+    add ebp, ebx
+    call .short
+    jc .short_end
+    add esi, 16
+    jmp .count
+.undone:
+    ; Not run (or failed): its toggle and every later one's were never
+    ; used, so the endpoint's toggle is this TD's
+    mov ebx, [gs:esi + 8]
+    shr ebx, 19
+    and bl, 1
+    mov [fs:di], bl
+    jmp .fail
+.short_end:
+    ; A short packet ends the transfer; the TDs after it never ran
+    mov ebx, [gs:esi + 8]
+    shr ebx, 19
+    and bl, 1
+    xor bl, 1
+    mov [fs:di], bl
+    jmp .ok
+.whole:
+    add eax, ebp
+    sub ecx, ebp
+    ja .pass                    ; more than one pass's worth
+.ok:
+    popad
+    clc
+    ret
+.fail:
+    popad
+    stc
+    ret
+
+; CF set if the inactive TD at GS:ESI moved fewer bytes than it asked
+; for (a short packet). Keeps every register.
+.short:
+    push eax
+    push ebx
+    mov eax, [gs:esi + 4]
+    inc eax
+    and eax, 0x7FF
+    mov ebx, [gs:esi + 8]
+    shr ebx, 21
+    inc ebx
+    and ebx, 0x7FF
+    cmp eax, ebx
+    pop ebx
+    pop eax
+    jb .is_short
+    clc
+    ret
+.is_short:
+    stc
     ret
