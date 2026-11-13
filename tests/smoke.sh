@@ -898,9 +898,9 @@ run x86_64-x2apic-cfg "~^smp: 4 CPUs, x2?APIC( \(the CPU has no x2APIC\))?, BSP 
 # tables, checks every checksum, the FADT's DSDT (generated AML) and
 # FACS, counts the MADT's CPUs and walks the SMBIOS structures. q35 has
 # an MCFG for its ECAM window; i440fx has none.
-run x86_64-acpi "acpi: FACP APIC HPET MCFG DSDT|~^acpi: RSDP at 0x[0-9a-f]+, XSDT at 0x[0-9a-f]+, 2 CPUs, q35 \(ICH9\), PM at 0x600|smbios: 3.0 entry point at|APP acpi rsdp=ok xsdt=ok sums=ok facp=ok dsdt=ok facs=ok madt=ok cpus=2|APP acpi hpet=ok mcfg=ok|APP smbios sm3=ok walk=ok types=ok|efi: image returned 0x0|!=bad" \
+run x86_64-acpi "acpi: FACP APIC HPET MCFG BERT HEST DSDT|~^acpi: RSDP at 0x[0-9a-f]+, XSDT at 0x[0-9a-f]+, 2 CPUs, q35 \(ICH9\), PM at 0x600|smbios: 3.0 entry point at|APP acpi rsdp=ok xsdt=ok sums=ok facp=ok dsdt=ok facs=ok madt=ok cpus=2|APP acpi hpet=ok mcfg=ok|APP smbios sm3=ok walk=ok types=ok|efi: image returned 0x0|!=bad" \
     "$QEMU_X86_64" -M q35 -smp 2 -bios x86_64/squirrel-bios.fd -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-acpi.efi
-run x86_64-acpi-pc "acpi: FACP APIC HPET DSDT|i440fx (PIIX4), PM at 0x600|APP acpi rsdp=ok xsdt=ok sums=ok facp=ok dsdt=ok facs=ok madt=ok cpus=3|APP acpi hpet=ok mcfg=none|APP smbios sm3=ok walk=ok types=ok|!=bad" \
+run x86_64-acpi-pc "acpi: FACP APIC HPET BERT HEST DSDT|i440fx (PIIX4), PM at 0x600|APP acpi rsdp=ok xsdt=ok sums=ok facp=ok dsdt=ok facs=ok madt=ok cpus=3|APP acpi hpet=ok mcfg=none|APP smbios sm3=ok walk=ok types=ok|!=bad" \
     "$QEMU_X86_64" -M pc -smp 3 -bios x86_64/squirrel-bios.fd -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-acpi.efi
 # ResetSystem(EfiResetShutdown) without isa-debug-exit: SLP_TYP from
 # \_S5 on the PM block the firmware opened powers QEMU off (exit 0)
