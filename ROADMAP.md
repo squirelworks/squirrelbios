@@ -253,6 +253,10 @@ boxes in [TODO.md](TODO.md).
 - [ ] **C5 (v2.2.x) Real x86 hardware track.** A flashing guide for one
   cheap board; DDR training is research under `boards/` and never a
   merge blocker.
+  - [ ] `c5-nvram`: non-volatile variables in a flash store (QEMU pflash
+    unit 1, CFI), kept across boots and written after ExitBootServices
+  - [ ] `c5-authvar`: authenticated writes to PK, KEK, db and dbx; setup
+    and user mode; keys enrolled at run time
 
 ### Phase D — v2.5: ARM and RISC-V as full firmware
 
