@@ -19,6 +19,7 @@ core/      start.asm (clears .bss, calls fw_main), main.c, arch.c (the
            against the PIT, the firmware's memory, PE entry calls with
            the Microsoft x64 convention, Secure Boot's image check),
            rt.c (its runtime part: the CMOS clock, ResetSystem),
+           variables.c (the variable services and their flash store),
            gop.c (Graphics Output Protocol on Bochs DISPI), acpi.c
            (ACPI 6.x tables, the DSDT through common/efi/aml.c),
            smbios.c (SMBIOS 3.x), bootopt.c (command line and initrd
@@ -38,13 +39,15 @@ smp/       smp.c (AP bring-up with INIT-SIPI-SIPI, AP parking, the MP
 acpi/      numa.c (SRAT and SLIT from QEMU -numa), ras.c (BERT and
            HEST stubs), roadmap F1/F2; the other ACPI tables are in core/
 secure/    secure.c (Secure Boot policy, db/dbx, the Authenticode PE
-           hash), sha256.c, rsa.c (RSASSA-PKCS1-v1_5 verify), der.c
-           (X.509 keys, Authenticode PKCS#7), roadmap C4
+           hash), authvar.c (authenticated writes to PK, KEK, db and
+           dbx; setup and user mode), sha256.c, rsa.c (RSASSA-PKCS1-v1_5
+           verify), der.c (X.509 keys, Authenticode and detached
+           PKCS#7), roadmap C4/C5
 include/   arch.h (what the shared core needs to know about x86-64, and
            the x86-only helpers), acpi.h; sq.h and efi.h are
            common/efi's
-link.ld    the body, linked at FW_BASE; common/efi/runtime.c, lib.c and
-           core/rt.c
+link.ld    the body, linked at FW_BASE; common/efi/runtime.c, lib.c,
+           core/rt.c, core/variables.c and secure/{authvar,der,rsa,sha256}.c
            (built apart, sections renamed .rt.*) go in page-aligned
            runtime code and data, the only part of the image the OS
            keeps after ExitBootServices, with the system, runtime
@@ -98,7 +101,7 @@ GOP: QEMU std VGA (PCI `1234:1111`) through Bochs DISPI (`0x01CE`/
 `0x01CF`) and the linear frame buffer in BAR0. Modes 800×600, 640×480
 and 1024×768 at 32 bpp (BGRX); `QueryMode`/`SetMode`/`Blt` (fill,
 buffer↔video, video↔video). Runtime: `GetTime` from the CMOS RTC,
-in-RAM `Get`/`SetVariable` (no flash store), `ResetSystem` (ACPI
+the variable services (below), `ResetSystem` (ACPI
 shutdown or keyboard-controller reset), and `ExitBootServices` (signals
 exit-boot events, nulls `BootServices`, reseals the system table). The
 1:1 map stays; `SetVirtualAddressMap` is a no-op after exit.
@@ -148,9 +151,28 @@ answers `EFI_SECURITY_VIOLATION` unless the image's Authenticode SHA-256
 is in db, or one of its PKCS#7 signatures (SHA-256 with RSA) is verified
 by a db key; a hash or a signing key in dbx always refuses it. The key
 must be in db itself: certificate chains are not walked. A db or dbx
-that is given but does not parse refuses every image (fail closed). The databases
-cannot be changed at run time (no PK/KEK authenticated writes), and the
-CSM stays off. `tests/mksigned.py` signs test images with two RSA-2048
+that is given but does not parse refuses every image (fail closed).
+These fixed keys cannot be changed (`EFI_WRITE_PROTECTED`), and the
+CSM stays off.
+
+Enrolled keys (C5): without a fixed db, `PK`, `KEK`, `db` and `dbx` are
+variables (kept in the flash store when there is one) that change only
+through time-based authenticated writes: attributes NV, BS, RT and
+`TIME_BASED_AUTHENTICATED_WRITE_ACCESS` (plus `APPEND_WRITE` except for
+the PK), the data led by an `EFI_VARIABLE_AUTHENTICATION_2` whose
+detached PKCS#7 signs the name, vendor GUID, attributes, timestamp and
+data. With no PK the machine is in setup mode (`SetupMode` 1,
+`SecureBoot` 0, every image runs) and any well-formed write is taken.
+With a PK it is in user mode and Secure Boot is on: a PK or KEK write
+must be signed by the PK, a db or dbx write by a KEK or the PK, a
+replacing write must be newer than the variable, and an empty PK signed
+by the PK goes back to setup mode. The signer is matched by its
+certificate's key (X.509 or RSA-2048 entries). The same rules hold at
+run time, after ExitBootServices. For tests and first enrollment the
+fw_cfg files `opt/org.squirrelworks/enroll/{db,dbx,KEK,PK}` (the bytes
+an OS tool passes to `SetVariable`)
+are written at boot in that order. `tests/mksigned.py` makes the
+`auth-*.auth` test files. `tests/mksigned.py` signs test images with two RSA-2048
 test keys made from fixed seeds; `osslsigncode verify` accepts its
 signatures and the firmware accepts `osslsigncode sign` output.
 
@@ -182,8 +204,29 @@ machine check source, with every bank: CMCI when MCG_CAP has it, else
 polled every second, 10 errors a minute before switching to polling.
 The OS owns the banks (no firmware first) and there is no EINJ.
 
-Runtime pages: only `runtime.c`, `lib.c` and the system, runtime and
-configuration tables stay the OS's after ExitBootServices (link.ld puts
+Variables (C5): the variable services keep every variable in a RAM
+arena and the non-volatile ones also in a flash store on QEMU's second
+pflash unit, 256 KB mapped just below the firmware (0xFFEC0000):
+
+```
+-drive if=pflash,format=raw,unit=0,readonly=on,file=x86_64/squirrel-bios.fd \
+-drive if=pflash,format=raw,unit=1,file=vars.fd    # truncate -s 256K vars.fd
+```
+
+The firmware finds it with the CFI query and writes it with the Intel
+command set (block erase, buffered program). The store has two banks;
+each record is appended and marked valid only once written whole (a
+reset mid-write loses only that record), a replaced or deleted record is marked dead,
+and a full bank is compacted into the other under a higher generation.
+A variable can be up to 32 KB. Without the second unit (`-bios`) the
+firmware says so and variables last until reset. The store is runtime
+MMIO in the memory map, so an OS keeps writing it after
+ExitBootServices (`LINUX_NV=1 make linux-uefi` checks efivarfs across
+two boots).
+
+Runtime pages: only `runtime.c`, `lib.c`, `rt.c`, `variables.c`, the
+Secure Boot code that checks authenticated writes, and the system,
+runtime and configuration tables stay the OS's after ExitBootServices (link.ld puts
 them in `.rt.*` pages); the rest of the image is boot services code.
 `x86_64-rt-after-exit` overwrites every boot services page after
 ExitBootServices, on its own page tables and stack, then calls GetTime,
