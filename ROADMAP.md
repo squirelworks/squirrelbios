@@ -244,6 +244,11 @@ boxes in [TODO.md](TODO.md).
 - [x] **C3 (v2.0.1) CSM.** Legacy BIOS services kept on the x86-64 build.
 - [ ] **C4 (v2.1.x) SMP and Secure Boot.** INIT-SIPI-SIPI, MP table, x2APIC;
   verify-only Secure Boot with our own keys.
+  - [ ] `c4-smp`: AP bring-up (INIT-SIPI-SIPI), AP parking, MP services
+    protocol, MPS table, x2APIC mode; APs parked at ExitBootServices and
+    before the CSM
+  - [ ] `c4-secure-boot`: verify-only Secure Boot with our own keys
+    (Authenticode SHA-256, PKCS#7 RSA-2048 signatures, db/dbx)
 - [ ] **C5 (v2.2.x) Real x86 hardware track.** A flashing guide for one
   cheap board; DDR training is research under `boards/` and never a
   merge blocker.
