@@ -122,8 +122,21 @@ int pci_find(u16 vendor, u16 device, u8 *bus, u8 *dev, u8 *fn)
 /* Extra PCI root buses: QEMU's pxb and pxb-pcie expanders (roadmap F1).
  * fw_cfg etc/extra-pci-roots counts them. Their bus numbers are not in
  * the expanders' config space, so they are found as the populated buses
- * past 0 that no bridge on bus 0 leads to (this firmware numbers no
- * bridges, so normally that is all of them). Ascending bus numbers. */
+ * past 0 that no bridge leads to, on bus 0 or on a root found before
+ * (this firmware numbers no bridges, but an OS or option ROM before a
+ * warm reset may have). Ascending bus numbers. */
+/* Mark the buses that bridges on bus b lead to (as numbered so far) */
+static void mark_behind(u8 b, u8 *behind)
+{
+    for (u8 d = 0; d < 32; d++) {
+        if ((pci_read32(b, d, 0, 0) & 0xFFFF) == 0xFFFF || (pci_read8(b, d, 0, 0x0E) & 0x7F) != 1)
+            continue;
+        u8 sec = pci_read8(b, d, 0, 0x19), sub = pci_read8(b, d, 0, 0x1A);
+        for (u32 x = sec; sec > b && x <= sub; x++)
+            behind[x] = 1;
+    }
+}
+
 int pci_extra_roots(u8 *roots, int max)
 {
     u16 sel;
@@ -133,13 +146,7 @@ int pci_extra_roots(u8 *roots, int max)
         return 0;
     fwcfg_read(sel, &want, 8);
     u8 behind[256] = { 0 };
-    for (u8 d = 0; d < 32; d++) {
-        if ((pci_read32(0, d, 0, 0) & 0xFFFF) == 0xFFFF || (pci_read8(0, d, 0, 0x0E) & 0x7F) != 1)
-            continue;
-        u8 sec = pci_read8(0, d, 0, 0x19), sub = pci_read8(0, d, 0, 0x1A);
-        for (u32 b = sec; sec && b <= sub; b++)
-            behind[b] = 1;
-    }
+    mark_behind(0, behind);
     int n = 0;
     for (u32 b = 1; b < 256 && (u64)n < want && n < max; b++) {
         if (behind[b])
@@ -147,6 +154,7 @@ int pci_extra_roots(u8 *roots, int max)
         for (u8 d = 0; d < 32; d++)
             if ((pci_read32((u8)b, d, 0, 0) & 0xFFFF) != 0xFFFF) {
                 roots[n++] = (u8)b;
+                mark_behind((u8)b, behind);     /* a root's own bridges */
                 break;
             }
     }
