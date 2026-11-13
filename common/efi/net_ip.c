@@ -34,8 +34,8 @@ static int arp_next;
 
 static const u8 bcast[6] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
 
-static net_udp_fn udp_fn;
-static u16 udp_port;
+static net_udp_fn udp_fn, udp_extra_fn;
+static u16 udp_port, udp_extra_port;
 void (*net_tcp_input)(u32 src_ip, const u8 *seg, u32 len);
 
 /* -------------------------------------------------------------- helpers */
@@ -264,6 +264,8 @@ static void udp_input(u32 src, const u8 *d, u32 len)
     if (udp_fn && get16(d + 2) == udp_port) {
         udp_fn(src, get16(d), d + UDP_HDR, ul - UDP_HDR);
         delivered = 1;
+    } else if (udp_extra_fn && get16(d + 2) == udp_extra_port) {
+        udp_extra_fn(src, get16(d), d + UDP_HDR, ul - UDP_HDR);
     }
 }
 
@@ -326,6 +328,25 @@ void net_udp_bind(u16 port, net_udp_fn fn)
 {
     udp_port = port;
     udp_fn = fn;
+}
+
+void net_udp_bind_extra(u16 port, net_udp_fn fn)
+{
+    udp_extra_port = port;
+    udp_extra_fn = fn;
+}
+
+int net_busy(void) { return in_poll > 0; }
+
+int net_resolve(u32 ip, u8 *mac)
+{
+    u32 hop = ip;
+    if (my_mask && (ip & my_mask) != (my_ip & my_mask)) {
+        if (!my_gw)
+            return 0;
+        hop = my_gw;
+    }
+    return arp_resolve(hop, mac);
 }
 
 int net_udp_send(u32 dst, u16 sport, u16 dport, const void *data, u32 len)

@@ -23,6 +23,7 @@ static void EFIAPI net_exit_boot_services(EFI_EVENT ev, void *ctx)
 {
     (void)ev;
     (void)ctx;
+    net_sol_stop();
     for (int i = 0; i < nnics; i++)
         nics[i].nd->stop(nics[i].nd);
 }
@@ -61,6 +62,16 @@ void net_add(struct net_dev *nd, EFI_DEVICE_PATH_PROTOCOL *dp, const char *what)
 void efi_net_init(void)
 {
     net_platform_probe();
+    if (nnics)
+        net_sol_init(nics[0].nd, nics[0].h);
+}
+
+int net_nic_in_use(EFI_HANDLE nic)
+{
+    static const EFI_GUID g = EFI_SIMPLE_NETWORK_PROTOCOL_GUID;
+    EFI_SIMPLE_NETWORK_PROTOCOL *p;
+    return nic && efi_handle_protocol(nic, (EFI_GUID *)&g, (void **)&p) == EFI_SUCCESS &&
+           p->mode->state == 2;
 }
 
 static int http_url(const char *f)
