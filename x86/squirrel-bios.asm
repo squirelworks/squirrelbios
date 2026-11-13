@@ -380,6 +380,7 @@ msg_usb_mouse db 'mouse is device ', 0
 msg_usb_disk db 'disk is device ', 0
 msg_usb_fail db 'no answer from the device on port ', 0
 msg_usbd    db 'disk: USB disk (bulk-only)', 0
+msg_usbd_uas db 'disk: USB disk (UAS)', 0
 %endif
 %if CONFIG_NVME
 msg_nvme    db 'disk: NVMe disk (namespace 1)', 0

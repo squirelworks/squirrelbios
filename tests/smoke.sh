@@ -345,6 +345,31 @@ if KBD_NAME=x86-usbdisk-kbd-ehci KBD_IMG=$TEST_DIR/x86-kbd-many.bin KBD_KEYS=20 
 else
     fail=$((fail + 1))
 fi
+# A UAS disk (USB Attached SCSI) on EHCI: command, status, data-in and
+# data-out pipes found by their pipe usage descriptors, a READ READY or
+# WRITE READY IU before the data and a SENSE IU after it. On xHCI (super
+# speed, streams) it is listed and left alone
+run x86-usbdisk-uas "usb: disk is device 1|disk: USB disk (UAS)|OS-ENTRY x86 dl=ok memmap=ok flags=ok vga=ok" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -device usb-ehci,id=ehci,addr=5 \
+    -drive if=none,id=ud,format=raw,file=$TEST_DIR/x86-boot.bin,snapshot=on \
+    -device usb-uas,id=uas,bus=ehci.0 -device scsi-hd,bus=uas.0,drive=ud
+run x86-usbdisk-uas-int13 "disk: USB disk (UAS)|via-boot-sector|int13=ok tty=ok|!boot halted" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -device usb-ehci,id=ehci,addr=5 \
+    -drive if=none,id=ud,format=raw,file=$TEST_DIR/x86-int13.bin,snapshot=on \
+    -device usb-uas,id=uas,bus=ehci.0 -device scsi-hd,bus=uas.0,drive=ud
+run x86-usbdisk-uas-edd "disk: USB disk (UAS)|OS-ENTRY x86 edd edd=ok" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -device usb-ehci,id=ehci,addr=5 \
+    -drive if=none,id=ud,format=raw,file=$TEST_DIR/x86-usbdisk.img,snapshot=on \
+    -device usb-uas,id=uas,bus=ehci.0 -device scsi-hd,bus=uas.0,drive=ud
+run x86-usbdisk-uas-xhci "usb: device 1 on root port 1: 46F4:0003, mass storage|OS-ENTRY x86 dl=ok memmap=ok flags=ok vga=ok|!disk: USB disk" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -drive format=raw,file=$TEST_DIR/x86-boot.bin,if=ide,snapshot=on \
+    -device qemu-xhci,id=xhci,addr=5 \
+    -drive if=none,id=ud,format=raw,file=$TEST_DIR/x86-one-sector.bin,snapshot=on \
+    -device usb-uas,id=uas,bus=xhci.0 -device scsi-hd,bus=uas.0,drive=ud
 # The disk behind a hub, with a keyboard and a mouse on the same xHCI:
 # all three are kept, and twenty keys still arrive after the boot
 if KBD_NAME=x86-usbdisk-kbd KBD_IMG=$TEST_DIR/x86-kbd-many.bin KBD_KEYS=20 KBD_USBDISK=xhci.0,port=2.3 \
