@@ -40,6 +40,9 @@ struct net_dev {
     EFI_DEVICE_PATH_PROTOCOL *dp;   /* the platform's path to it, or NULL */
 };
 
+/* The largest file the TFTP and HTTP clients take (1 GB) */
+#define NET_FILE_MAX 0x40000000u
+
 /* Milliseconds since some fixed point (the architecture's counter) */
 u64 net_ms(void);
 /* Platform: the DHCP client architecture (RFC 4578: 7 x64 UEFI, 11 arm64

@@ -1464,6 +1464,10 @@ run x86_64-uefi-httpboot-big "net: loaded 240000 bytes over HTTP|efi: LoadImage 
 run x86_64-uefi-httpboot-404 "net: HTTP 404 for $HTTP_URL/no-such-file.efi|trying the CSM" \
     "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd \
     -netdev user,id=n0,bootfile=$HTTP_URL/no-such-file.efi -device virtio-net-pci,netdev=n0
+# A body over the 1 GB limit is refused before any of it is kept
+run x86_64-uefi-httpboot-toolarge "net: $HTTP_URL/huge/snp-x64.efi is larger than the 1073741824-byte limit|trying the CSM|!SNP" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd \
+    -netdev user,id=n0,bootfile=$HTTP_URL/huge/snp-x64.efi -device virtio-net-pci,netdev=n0
 kill $httpd 2>/dev/null; wait $httpd 2>/dev/null
 
 echo "$pass passed, $fail failed"
