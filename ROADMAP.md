@@ -253,6 +253,10 @@ boxes in [TODO.md](TODO.md).
 - [ ] **C5 (v2.2.x) Real x86 hardware track.** A flashing guide for one
   cheap board; DDR training is research under `boards/` and never a
   merge blocker.
+  - [x] `c5-nvram`: non-volatile variables in a flash store (QEMU pflash
+    unit 1, CFI), kept across boots and written after ExitBootServices
+  - [x] `c5-authvar`: authenticated writes to PK, KEK, db and dbx; setup
+    and user mode; keys enrolled at run time
   - [ ] `c5-tpm`: measured boot with a TPM 2.0 on TIS (PCR extends, the
     TCG2 protocol and event log, the TPM2 table)
 
@@ -263,7 +267,7 @@ boxes in [TODO.md](TODO.md).
 - [ ] **D2** AArch64 boards: Raspberry Pi 4/5 under `boards/rpi4`.
 - [x] **D3** RISC-V `virt`: UEFI-class interface while keeping the SBI;
   `DBCN`, SSE; boards (VisionFive 2, HiFive) under `boards/`.
-- [ ] **D4** Shared drivers across architectures (NVMe, xHCI, virtio, FAT,
+- [x] **D4** Shared drivers across architectures (NVMe, xHCI, virtio, FAT,
   PE/ELF loaders) from the same sources. Test: each QEMU target boots
   Squirrel-OS/2 (once its port exists) and Linux to a shell.
 

@@ -1141,7 +1141,7 @@ SB_DB=name=opt/org.squirrelworks/db
 SB_DBX=name=opt/org.squirrelworks/dbx
 SB_APP="APP x86_64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|efi: image returned 0x1234"
 SB_NO="efi: LoadImage failed: 0x800000000000001a, halting|!APP x86_64"
-run x86_64-sb-x509 "secure: Secure Boot on (verify-only)|secure: db: 0 SHA-256, 0 RSA-2048, 1 X.509|secure: image verified: signed by db entry 1 (X.509)|$SB_APP" \
+run x86_64-sb-x509 "secure: Secure Boot on (fixed keys)|secure: db: 0 SHA-256, 0 RSA-2048, 1 X.509|secure: image verified: signed by db entry 1 (X.509)|$SB_APP" \
     "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd -fw_cfg $SB_DB,file=$SB/sb-db-x509.esl -fw_cfg $X64_BOOT,file=$SB/sb-signed.efi
 run x86_64-sb-rsa "secure: db: 0 SHA-256, 1 RSA-2048, 0 X.509|secure: image verified: signed by db entry 1 (RSA-2048)|$SB_APP" \
     "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd -fw_cfg $SB_DB,file=$SB/sb-db-rsa.esl -fw_cfg $X64_BOOT,file=$SB/sb-signed.efi
@@ -1163,10 +1163,10 @@ run x86_64-sb-esp "fs: FAT32 on partition|efi: booting \\EFI\\BOOT\\BOOTX64.EFI|
     "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd -fw_cfg $SB_DB,file=$SB/sb-db-x509.esl \
     -drive if=none,id=esp,format=raw,file=$TEST_DIR/x86_64-sb-esp.img,snapshot=on \
     -device virtio-blk-pci,drive=esp,disable-legacy=off,disable-modern=on
-run x86_64-sb-nocsm "secure: Secure Boot on (verify-only)|csm: off while Secure Boot is on|!csm: leaving long mode" \
+run x86_64-sb-nocsm "secure: Secure Boot on (fixed keys)|csm: off while Secure Boot is on|!csm: leaving long mode" \
     "$QEMU_X86_64" -M pc -bios x86_64/squirrel-bios.fd -fw_cfg $SB_DB,file=$SB/sb-db-x509.esl \
     -drive format=raw,file=$TEST_DIR/x86-osload.bin,if=ide,snapshot=on
-run x86_64-sb-baddb "secure: opt/org.squirrelworks/db is not a list of EFI_SIGNATURE_LISTs|secure: Secure Boot on (verify-only), but a key database is unreadable: every image is refused|secure: image refused: the db or dbx given could not be read, so nothing is trusted|$SB_NO" \
+run x86_64-sb-baddb "secure: opt/org.squirrelworks/db is not a list of EFI_SIGNATURE_LISTs|secure: Secure Boot on (fixed keys), but a key database is unreadable: every image is refused|secure: image refused: the db or dbx given could not be read, so nothing is trusted|$SB_NO" \
     "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd -fw_cfg $SB_DB,file=$TEST_DIR/x86-boot.bin -fw_cfg $X64_BOOT,file=$SB/sb-signed.efi
 run x86_64-sb-baddbx "secure: opt/org.squirrelworks/dbx is not a list of EFI_SIGNATURE_LISTs|secure: image refused: the db or dbx given could not be read, so nothing is trusted|$SB_NO" \
     "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd -fw_cfg $SB_DB,file=$SB/sb-db-x509.esl -fw_cfg $SB_DBX,file=$TEST_DIR/x86-boot.bin -fw_cfg $X64_BOOT,file=$SB/sb-signed.efi
@@ -1465,6 +1465,95 @@ run x86_64-uefi-httpboot-404 "net: HTTP 404 for $HTTP_URL/no-such-file.efi|tryin
     "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd \
     -netdev user,id=n0,bootfile=$HTTP_URL/no-such-file.efi -device virtio-net-pci,netdev=n0
 kill $httpd 2>/dev/null; wait $httpd 2>/dev/null
+
+# Non-volatile variables (C5): the firmware as pflash unit 0 and a store
+# as unit 1. Three boots against one store: a boot counter goes up, an
+# 8000-byte variable set on the first is read back on the next ones, a
+# volatile one is gone, and 200 rewrites of a 1000-byte variable fill a
+# bank and move the store into the other. The runtime services then
+# write flash after ExitBootServices with boot memory overwritten. With
+# -bios there is no store and variables last until reset.
+NV_STORE=$TEST_DIR/x86_64-vars.fd
+NV_FLASH="-drive if=pflash,format=raw,unit=0,readonly=on,file=x86_64/squirrel-bios.fd -drive if=pflash,format=raw,unit=1,file=$NV_STORE"
+rm -f "$NV_STORE"
+truncate -s 256K "$NV_STORE"
+run x86_64-nv-1 "vars: new store in 256 KB of flash at 0x00000000ffec0000|APP nv before=none after=1 big=none vol=none churn=ok|fw: halting|!=bad" \
+    "$QEMU_X86_64" -M q35 $NV_FLASH -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-nv.efi
+run x86_64-nv-2 "~^vars: 3 variables from 256 KB of flash at 0x00000000ffec0000 \(bank 1, generation 2\)|APP nv before=1 after=2 big=ok vol=none churn=ok|fw: halting|!=bad" \
+    "$QEMU_X86_64" -M pc $NV_FLASH -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-nv.efi
+run x86_64-nv-3 "APP nv before=2 after=3 big=ok vol=none churn=ok|fw: halting|!=bad" \
+    "$QEMU_X86_64" -M q35 $NV_FLASH -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-nv.efi
+run x86_64-nv-after-exit "~^vars: 3 variables from|efi: ExitBootServices|APP rt pages=ok time=ok var=ok next=ok|@exit=1|!=bad" \
+    "$QEMU_X86_64" -M q35 $NV_FLASH -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
+    -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-rt.efi
+run x86_64-nv-after-exit-kept "~^vars: 4 variables from|APP nv before=3 after=4 big=ok|!=bad" \
+    "$QEMU_X86_64" -M q35 $NV_FLASH -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-nv.efi
+run x86_64-nv-none "vars: no flash store, variables are kept until reset|APP nv before=none after=1 big=none vol=none churn=ok|!=bad" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-nv.efi
+
+# x86-64 firmware: enrolled Secure Boot keys (C5). Without a fixed db the
+# PK, KEK, db and dbx are variables changed only by authenticated writes
+# (tests/mksigned.py: key A is the PK, key B the KEK). The fw_cfg files
+# enroll/* are written at boot as an OS tool would: in setup mode db, KEK
+# and PK go in and the machine is in user mode, kept in flash for the
+# next boots. Then a db write signed by a key that is not the KEK or PK,
+# or older than the db, is refused; an OS appends an image hash to db
+# after ExitBootServices (a copy with a changed byte is refused) and the
+# unsigned image now runs; an empty PK signed by the PK puts the machine
+# back in setup mode. A fixed db still wins over the store.
+SBE_STORE=$TEST_DIR/x86_64-sb-vars.fd
+SBE_FLASH="-drive if=pflash,format=raw,unit=0,readonly=on,file=x86_64/squirrel-bios.fd -drive if=pflash,format=raw,unit=1,file=$SBE_STORE"
+SBE=name=opt/org.squirrelworks/enroll
+SBE_ON="secure: Secure Boot on (user mode: PK and 1 KEK key enrolled)"
+rm -f "$SBE_STORE"
+truncate -s 256K "$SBE_STORE"
+run x86_64-sbe-enroll "secure: enroll db: enrolled|secure: enroll KEK: enrolled|secure: enroll PK: enrolled|$SBE_ON|secure: db: 0 SHA-256, 0 RSA-2048, 1 X.509|secure: image verified: signed by db entry 1 (X.509)|$SB_APP" \
+    "$QEMU_X86_64" -M q35 $SBE_FLASH -fw_cfg $SBE/db,file=$SB/auth-db.auth -fw_cfg $SBE/KEK,file=$SB/auth-KEK.auth \
+    -fw_cfg $SBE/PK,file=$SB/auth-PK.auth -fw_cfg $X64_BOOT,file=$SB/sb-signed.efi
+run x86_64-sbe-kept "~^vars: 3 variables from|$SBE_ON|secure: image refused: not signed, and its SHA-256 is not in db|$SB_NO" \
+    "$QEMU_X86_64" -M pc $SBE_FLASH -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-app.efi
+run x86_64-sbe-badsigner "secure: enroll db: refused: not signed by a key that may change it, or not newer|$SBE_ON|secure: db: 0 SHA-256, 0 RSA-2048, 1 X.509|$SB_NO" \
+    "$QEMU_X86_64" -M q35 $SBE_FLASH -fw_cfg $SBE/db,file=$SB/auth-db-badsigner.auth -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-app.efi
+run x86_64-sbe-old "secure: enroll db: refused: not signed by a key that may change it, or not newer|secure: db: 0 SHA-256, 0 RSA-2048, 1 X.509|$SB_NO" \
+    "$QEMU_X86_64" -M q35 $SBE_FLASH -fw_cfg $SBE/db,file=$SB/auth-db-old.auth -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-app.efi
+run x86_64-sbe-append-rt "secure: image verified: signed by db entry 1 (X.509)|efi: ExitBootServices|APP authrt pages=ok bad=ok append=ok grown=ok|@exit=1|!=bad" \
+    "$QEMU_X86_64" -M q35 $SBE_FLASH -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
+    -fw_cfg $X64_BOOT,file=$SB/sb-authrt.efi
+run x86_64-sbe-appended "$SBE_ON|secure: db: 1 SHA-256, 0 RSA-2048, 1 X.509|secure: image verified: its SHA-256 is in db|$SB_APP" \
+    "$QEMU_X86_64" -M q35 $SBE_FLASH -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-app.efi
+run x86_64-sbe-fixed-wins "secure: Secure Boot on (fixed keys)|secure: db: 0 SHA-256, 0 RSA-2048, 1 X.509|secure: image refused: not signed, and its SHA-256 is not in db|$SB_NO" \
+    "$QEMU_X86_64" -M q35 $SBE_FLASH -fw_cfg $SB_DB,file=$SB/sb-db-x509.esl -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-app.efi
+run x86_64-sbe-pk-delete "secure: enroll PK: enrolled|secure: setup mode (no PK): Secure Boot off|$SB_APP" \
+    "$QEMU_X86_64" -M q35 $SBE_FLASH -fw_cfg $SBE/PK,file=$SB/auth-PK-delete.auth -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-app.efi
+run x86_64-sbe-setup-kept "~^vars: 2 variables from|secure: setup mode (no PK): Secure Boot off|$SB_APP" \
+    "$QEMU_X86_64" -M q35 $SBE_FLASH -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-app.efi
+
+# FAT write (D4): the app on the ESP makes a directory, writes, appends
+# past the end, truncates, renames, lists, deletes, grows a directory past
+# its first cluster, and leaves a long-named file (tests/efi-fat.c)
+run aarch64-uefi-fat-write "fs: FAT32 on partition|FAT vol=ok mkdir=ok create=ok write=ok read=ok info=ok append=ok gap=ok truncate=ok rename=ok list=ok delete=ok grow=ok rmdir=ok keep=ok|FAT all ok|efi: BOOTAA64.EFI returned 0x1234|!=bad" \
+    "$QEMU_ARM" -M virt -cpu cortex-a57 -bios $ARM_FD \
+    -drive if=none,file=$TEST_DIR/arm-fat.img,format=raw,id=d0,snapshot=on -device virtio-blk-device,drive=d0
+run riscv64-uefi-fat-write "FAT vol=ok mkdir=ok create=ok write=ok read=ok info=ok append=ok gap=ok truncate=ok rename=ok list=ok delete=ok grow=ok rmdir=ok keep=ok|FAT all ok|efi: BOOTRISCV64.EFI returned 0x1234|!=bad" \
+    "$QEMU_RISCV" -M virt -bios $RV_UEFI \
+    -drive if=none,file=$TEST_DIR/riscv-fat.img,format=raw,id=d0,snapshot=on -device nvme,drive=d0,serial=sq1
+
+# USB mass storage on xHCI (D4): boot from a bulk-only disk on a root
+# port; a keyboard on another port is passed over; FAT writes over USB
+run aarch64-uefi-usb "disk: USB at PCI 00:02.0 port 1 (46f4:0001, bulk-only), 131072 sectors|disk: partition 1 LBA 2048..131038 (ESP)|APP aarch64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|efi: BOOTAA64.EFI returned 0x1234|!=bad" \
+    "$QEMU_ARM" -M virt -cpu cortex-a57 -bios $ARM_FD -device qemu-xhci,id=xhci \
+    -drive if=none,file=$TEST_DIR/arm-esp.img,format=raw,id=d0,snapshot=on -device usb-storage,bus=xhci.0,drive=d0
+run riscv64-uefi-usb-fat-write "disk: USB at PCI 00:01.0 port 3 (46f4:0001, bulk-only), 131072 sectors|usb: port 5: 0627:0001, not a bulk-only disk|FAT all ok|efi: BOOTRISCV64.EFI returned 0x1234|!=bad" \
+    "$QEMU_RISCV" -M virt -bios $RV_UEFI -device qemu-xhci,id=xhci -device usb-kbd,bus=xhci.0,port=1 \
+    -drive if=none,file=$TEST_DIR/riscv-fat.img,format=raw,id=d0,snapshot=on -device usb-storage,bus=xhci.0,drive=d0,port=3
+run x86_64-uefi-usb "disk: USB at PCI 00:03.0 port 1 (46f4:0001, bulk-only), 131072 sectors|APP x86_64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|efi: BOOTX64.EFI returned 0x1234|!=bad" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd -device qemu-xhci,id=xhci \
+    -drive if=none,id=esp,format=raw,file=$TEST_DIR/x86_64-esp.img,snapshot=on -device usb-storage,bus=xhci.0,drive=esp
+# The UEFI side has run the xHCI by then: the CSM's legacy BIOS still
+# finds the USB disk and boots it
+run x86_64-csm-usb "disk: USB at PCI 00:03.0 port 1 (46f4:0001, bulk-only), 2 sectors|csm: leaving long mode for F000:FFF0|usb: disk is device 1|OS-ENTRY x86 dl=ok memmap=ok flags=ok vga=ok" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd -device qemu-xhci,id=xhci \
+    -drive if=none,id=ud,format=raw,file=$TEST_DIR/x86-boot.bin,snapshot=on -device usb-storage,bus=xhci.0,drive=ud
 
 # x86-64 firmware: measured boot (C5) with a TPM 2.0 on TIS, from swtpm
 # (skipped without it). The firmware starts the TPM, extends PCR 0 with

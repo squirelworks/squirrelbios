@@ -28,8 +28,11 @@
 # also need the kernel to find N nodes through the SRAT and its SLIT.
 # LINUX_PXB=1 (F1) adds an extra PCI root bus 0x40 (pxb-pcie with a root
 # port on q35, pxb on pc) with a virtio-rng behind it; the kernel must
-# find the PC40 host bridge and the device on bus 0x41. LINUX_TPM=1 (C5)
-# gives each machine a TPM 2.0 from swtpm: the kernel must find it
+# find the PC40 host bridge and the device on bus 0x41. LINUX_NV=1 (C5)
+# boots each machine twice from pflash with a variable store as pflash
+# unit 1: Linux writes a variable through efivarfs and must read it back
+# on the second boot. LINUX_TPM=1
+# (C5) gives each machine a TPM 2.0 from swtpm: the kernel must find it
 # through the DSDT's MSFT0101 device, and the event log it reads (the
 # TPM2 table's log area) must replay to its SHA-256 PCRs 0-7
 # (tests/tcglog.py). Logs are
@@ -45,6 +48,7 @@ MEM=${LINUX_MEM:-512M}
 SMP=${LINUX_SMP:-2}
 NUMA=${LINUX_NUMA:-0}
 PXB=${LINUX_PXB:-0}
+NV=${LINUX_NV:-0}
 TPM=${LINUX_TPM:-0}
 MIRROR=${UBUNTU_ARCHIVE:-http://archive.ubuntu.com/ubuntu}
 OLD_MIRROR=${UBUNTU_OLD_RELEASES:-http://old-releases.ubuntu.com/ubuntu}
@@ -123,6 +127,16 @@ if [ -e /sys/class/tpm/tpm0 ]; then
     for i in 0 1 2 3 4 5 6 7; do echo "PCR$i=$(cat /sys/class/tpm/tpm0/pcr-sha256/$i)"; done
     od -An -tx1 -v /sys/kernel/security/tpm0/binary_bios_measurements | sed 's/^/TCGLOG /'
 fi
+if grep -q squirrel.nv /proc/cmdline; then
+    mount -t efivarfs efivarfs /sys/firmware/efi/efivars
+    # efivarfs makes existing variables immutable, so each boot adds one
+    d=/sys/firmware/efi/efivars
+    g=7d3e1a52-6c0b-4f8e-912a-5503c47e18b6
+    n=$(ls $d | grep -c "^SqLinux.-$g")
+    echo "squirrel: nv before: $(cat $d/SqLinux*-$g 2>/dev/null | tr -d '\007\000' | tr '\n' ' ')"
+    printf '\007\000\000\000run%s;' $((n + 1)) > $d/SqLinux$((n + 1))-$g
+    echo "squirrel: nv after: $(cat $d/SqLinux*-$g | tr -d '\007\000')"
+fi
 poweroff -f
 INIT
 chmod 755 "$root/init"
@@ -158,6 +172,20 @@ for machine in q35 pc; do
         fi
     fi
     log=$WORK/linux-uefi-$machine.log
+    fw_args="-bios $FIRMWARE"
+    cmdline="console=ttyS0 panic=-1"
+    runs=1
+    if [ "$NV" = 1 ]; then
+        vars=$WORK/vars-$machine.fd
+        rm -f "$vars"
+        truncate -s 256K "$vars"
+        fw_args="-drive if=pflash,format=raw,unit=0,readonly=on,file=$FIRMWARE -drive if=pflash,format=raw,unit=1,file=$vars"
+        cmdline="$cmdline squirrel.nv"
+        runs=2
+    fi
+    run=0
+    while [ "$run" -lt "$runs" ]; do
+    run=$((run + 1))
     : > "$log"
     tpm_args=
     if [ "$TPM" = 1 ]; then
@@ -170,10 +198,10 @@ for machine in q35 pc; do
             die "swtpm failed"
         tpm_args="-chardev socket,id=chrtpm,path=$tpm/sock -tpmdev emulator,id=tpm0,chardev=chrtpm -device tpm-tis,tpmdev=tpm0"
     fi
-    "$QEMU_X86" -M "$machine" -bios "$FIRMWARE" -m "$MEM" -smp "$SMP" $numa_args $pxb_args $tpm_args -no-reboot \
+    "$QEMU_X86" -M "$machine" $fw_args -m "$MEM" -smp "$SMP" $numa_args $pxb_args $tpm_args -no-reboot \
         -fw_cfg name=opt/org.squirrelworks/boot.efi,file="$kernel" \
         -fw_cfg name=opt/org.squirrelworks/initrd,file="$initrd" \
-        -fw_cfg "name=opt/org.squirrelworks/cmdline,string=console=ttyS0 panic=-1" \
+        -fw_cfg "name=opt/org.squirrelworks/cmdline,string=$cmdline" \
         -display none -monitor none -serial "file:$log" >/dev/null 2>&1 &
     qemu=$!
     ticks=$((TIMEOUT * 2))
@@ -185,6 +213,8 @@ for machine in q35 pc; do
     done
     [ "$exited" = 1 ] || kill "$qemu" 2>/dev/null || true
     wait "$qemu" 2>/dev/null || true
+    if [ "$run" -lt "$runs" ]; then cp "$log" "$log.1"; fi
+    done
 
     ok=1
     grep -qE "ACPI: RSDP 0x[0-9A-F]+ 000024 \(v02 SQRLWK\)" "$log" || ok=0
@@ -208,6 +238,13 @@ for machine in q35 pc; do
         grep -qE "ACPI: TPM2 0x[0-9A-F]+ 00004C \(v04 SQRLWK" "$log" || ok=0
         python3 tests/tcglog.py --linux "$log" | sed 's/^/linux-uefi-'"$machine"': /'
         python3 tests/tcglog.py --linux "$log" >/dev/null || ok=0
+    fi
+    if [ "$NV" = 1 ]; then
+        grep -qF "squirrel: nv before: " "$log.1" || ok=0
+        grep -qF "squirrel: nv before: run" "$log.1" && ok=0
+        grep -qF "squirrel: nv after: run1;" "$log.1" || ok=0
+        grep -qF "squirrel: nv before: run1;" "$log" || ok=0
+        grep -qF "squirrel: nv after: run1;run2;" "$log" || ok=0
     fi
     grep -qE "ACPI Error|ACPI BIOS Error|Firmware Bug" "$log" && ok=0
     if [ "$ok" = 1 ]; then

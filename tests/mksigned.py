@@ -5,6 +5,7 @@ Python (no OpenSSL), with two RSA-2048 test keys made from fixed seeds so
 every build gives the same bytes. The keys are for tests only.
 
     tests/mksigned.py APP.efi OUTDIR
+    tests/mksigned.py --sign IN.efi OUT.efi     (IN signed with key A)
 
 writes to OUTDIR:
     sb-signed.efi     APP signed with key A (its certificate included)
@@ -16,6 +17,17 @@ writes to OUTDIR:
     sb-db-hash.esl    db: the Authenticode SHA-256 of the unsigned APP
     sb-dbx-hash.esl   dbx: the Authenticode SHA-256 of APP (signed or not, the same)
     sb-dbx-x509.esl   dbx: key A's certificate
+
+and, for enrolled keys, authenticated variable writes (an
+EFI_VARIABLE_AUTHENTICATION_2 then the data, as given to SetVariable).
+Key A is the PK, key B the KEK, key C neither:
+    auth-PK.auth            PK = key A's certificate, signed by A
+    auth-KEK.auth           KEK = key B's certificate, signed by A (ContentInfo form)
+    auth-db.auth            db = key A's certificate, signed by B
+    auth-db-badsigner.auth  db = APP's SHA-256, signed by C
+    auth-db-old.auth        db = APP's SHA-256, signed by B, dated before auth-db.auth
+    auth-db-append.auth     append APP's SHA-256 to db, signed by B
+    auth-PK-delete.auth     an empty PK (back to setup mode), signed by A
 """
 import hashlib
 import os
@@ -120,6 +132,10 @@ SHA256_RSA = seq(oid("1.2.840.113549.1.1.11"), NULL)
 SPC_INDIRECT = "1.3.6.1.4.1.311.2.1.4"
 
 
+def name_der(cn):
+    return name(cn)
+
+
 def name(cn):
     return seq(set_(seq(oid("2.5.4.3"), tlv(0x0C, cn.encode()))))
 
@@ -209,7 +225,40 @@ def esl(kind, entries):
     return kind + struct.pack("<III", 28 + len(body), 0, size) + body
 
 
+# ---------------------------------------------------------------- authenticated variables
+
+PKCS7_GUID = guid("4aafd29d-68df-49ee-8aa9-347d375665a7")
+GLOBAL = guid("8be4df61-93ca-11d2-aa0d-00e098032b8c")
+IMAGE_SECURITY = guid("d719b2cb-3d3a-4596-a3bc-dad00e67656f")
+
+
+def efi_time(year, month, day, hour=0, minute=0, second=0):
+    return struct.pack("<HBBBBBBIhBB", year, month, day, hour, minute, second, 0, 0, 0, 0, 0)
+
+
+def auth2(name, vendor, attrs, when, data, key, cert, issuer, serial, content_info=False):
+    """EFI_VARIABLE_AUTHENTICATION_2 then the data: a detached PKCS#7 over
+    the name (UTF-16, no NUL), vendor, attributes, time and data"""
+    signed_over = name.encode("utf-16-le") + vendor + struct.pack("<I", attrs) + when + data
+    attrs_der = (seq(oid("1.2.840.113549.1.9.3"), set_(oid("1.2.840.113549.1.7.1"))) +
+                 seq(oid("1.2.840.113549.1.9.4"), set_(tlv(0x04, hashlib.sha256(signed_over).digest()))))
+    signer = seq(integer(1), seq(name_der(issuer), integer(serial)), SHA256, tlv(0xA0, attrs_der), RSA_ENC,
+                 tlv(0x04, sign(key, set_(attrs_der))))
+    sd = seq(integer(1), set_(SHA256), seq(oid("1.2.840.113549.1.7.1")), tlv(0xA0, cert), set_(signer))
+    if content_info:
+        sd = seq(oid("1.2.840.113549.1.7.2"), tlv(0xA0, sd))
+    win = struct.pack("<IHH", 24 + len(sd), 0x0200, 0x0EF1) + PKCS7_GUID + sd
+    return when + win + data
+
+
 def main():
+    if sys.argv[1] == "--sign":
+        key_a = rsa_key(0x5153_0001)
+        cert_a = certificate(key_a, "SquirrelBIOS test key A", 0xA1)
+        img = open(sys.argv[2], "rb").read()
+        with open(sys.argv[3], "wb") as f:
+            f.write(authenticode_sign(img, key_a, cert_a, "SquirrelBIOS test key A", 0xA1))
+        return
     app, out = sys.argv[1], sys.argv[2]
     os.makedirs(out, exist_ok=True)
     img = open(app, "rb").read()
@@ -229,6 +278,23 @@ def main():
     files["sb-db-hash.esl"] = esl(CERT_SHA256, [authenticode_hash(img + b"\x00" * (-len(img) % 8))])
     files["sb-dbx-hash.esl"] = esl(CERT_SHA256, [authenticode_hash(signed)])
     files["sb-dbx-x509.esl"] = esl(CERT_X509, [cert_a])
+    # Enrolled keys: A is the PK, B the KEK; C is in neither
+    key_c = rsa_key(0x5153_0003)
+    cert_c = certificate(key_c, "SquirrelBIOS test key C", 0xC3)
+    a_ = (key_a, cert_a, "SquirrelBIOS test key A", 0xA1)
+    b_ = (key_b, cert_b, "SquirrelBIOS test key B", 0xB2)
+    c_ = (key_c, cert_c, "SquirrelBIOS test key C", 0xC3)
+    keys = 0x27
+    t1, t2, t3 = efi_time(2026, 1, 1), efi_time(2026, 6, 1), efi_time(2026, 9, 1)
+    app_hash = authenticode_hash(img + b"\x00" * (-len(img) % 8))
+    files["auth-PK.auth"] = auth2("PK", GLOBAL, keys, t1, esl(CERT_X509, [cert_a]), *a_)
+    files["auth-KEK.auth"] = auth2("KEK", GLOBAL, keys, t1, esl(CERT_X509, [cert_b]), *a_, content_info=True)
+    files["auth-db.auth"] = auth2("db", IMAGE_SECURITY, keys, t1, esl(CERT_X509, [cert_a]), *b_)
+    files["auth-db-badsigner.auth"] = auth2("db", IMAGE_SECURITY, keys, t2, esl(CERT_SHA256, [app_hash]), *c_)
+    files["auth-db-old.auth"] = auth2("db", IMAGE_SECURITY, keys, efi_time(2025, 1, 1),
+                                      esl(CERT_SHA256, [app_hash]), *b_)
+    files["auth-db-append.auth"] = auth2("db", IMAGE_SECURITY, keys | 0x40, t2, esl(CERT_SHA256, [app_hash]), *b_)
+    files["auth-PK-delete.auth"] = auth2("PK", GLOBAL, keys, t3, b"", *a_)
     for fn, data in files.items():
         with open(os.path.join(out, fn), "wb") as f:
             f.write(data)
