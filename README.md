@@ -350,4 +350,4 @@ One item in that list is one PR, branched from `main`.
 
 ## License
 
-SquirrelBIOS is released into the public domain under [the Unlicense](LICENSE).
+SquirrelBIOS is free software under the [GNU General Public License, version 3](LICENSE) (GPL-3.0), the same license as SquirrelSoft.
