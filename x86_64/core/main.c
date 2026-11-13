@@ -6,6 +6,7 @@
 #include "secure.h"
 #include "vars.h"
 #include "tpm.h"
+#include "smm.h"
 
 extern char __fw_start[], __fw_end[];
 
@@ -141,6 +142,7 @@ void fw_main(void)
     chipset_init();
     x86_rt_init(chipset()->pm_base);
     smp_init();                         /* before the MADT and SRAT */
+    smm_init();                         /* before the HEST and EINJ */
     tpm_init();                         /* before the TPM2 table */
     acpi_init();
     smbios_init();

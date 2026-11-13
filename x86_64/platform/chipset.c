@@ -7,6 +7,7 @@
  * router (i440fx). This file does all three, once, and remembers what it
  * chose so the ACPI tables (acpi.c) describe the same hardware. */
 #include "sq.h"
+#include "smm.h"
 
 #define PM_BASE         0x600
 #define MCFG_BASE_Q35   0xB0000000u     /* 256 MB window: buses 0-255 */
@@ -133,6 +134,7 @@ void chipset_init(void)
  * when its OS asks, and does not expect an ECAM window on q35. */
 void chipset_legacy_handoff(void)
 {
+    smm_legacy_handoff();
     if (cs.pm_base) {
         u16 cnt = (u16)(cs.pm_base + 4);
         outw(cnt, (u16)(inw(cnt) & ~1u));

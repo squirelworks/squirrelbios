@@ -16,6 +16,7 @@
  * minute before an OS should switch to polling. No firmware-first
  * handling: the OS owns the banks. */
 #include "acpi.h"
+#include "smm.h"
 
 static void put16(u8 *p, u16 v) { p[0] = (u8)v; p[1] = (u8)(v >> 8); }
 static void put32(u8 *p, u32 v) { put16(p, (u16)v); put16(p + 2, (u16)(v >> 16)); }
@@ -113,7 +114,7 @@ int acpi_ras_tables(u8 **out, acpi_take_fn take)
     u8 *region = (u8 *)(uptr)rbase;
     memset(region, 0, region_len);
     u8 *bert = take(48);
-    u32 hest_len = 40 + (banks ? 40 + banks * 28 + 48 + banks * 28 : 0);
+    u32 hest_len = 40 + (banks ? 40 + banks * 28 + 48 + banks * 28 : 0) + 64;
     u8 *hest = take(hest_len);
     if (!bert || !hest)
         return 0;
@@ -158,10 +159,19 @@ int acpi_ras_tables(u8 **out, acpi_take_fn take)
         p[44] = (u8)banks;
         p = put_banks(p + 48, banks);
     }
-    put32(hest + 36, banks ? 2 : 0);    /* error sources */
+    u32 sources = banks ? 2 : 0;
+    /* The GHES that EINJ's SMI handler writes (smm.c), on q35 */
+    u32 g = smm_hest_ghes(p, (u16)sources);
+    p += g;
+    sources += g ? 1 : 0;
+    put32(hest + 36, sources);          /* error sources */
     acpi_header(hest, "HEST", (u32)(p - hest), 1);
     acpi_seal(hest);
     out[0] = bert;
     out[1] = hest;
-    return 2;
+    u8 *einj = smm_einj_table(take);
+    if (!einj)
+        return 2;
+    out[2] = einj;
+    return 3;
 }

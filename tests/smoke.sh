@@ -1109,7 +1109,7 @@ run x86_64-x2apic-cfg "~^smp: 4 CPUs, x2?APIC( \(the CPU has no x2APIC\))?, BSP 
 # tables, checks every checksum, the FADT's DSDT (generated AML) and
 # FACS, counts the MADT's CPUs and walks the SMBIOS structures. q35 has
 # an MCFG for its ECAM window; i440fx has none.
-run x86_64-acpi "acpi: FACP APIC HPET MCFG BERT HEST DSDT|~^acpi: RSDP at 0x[0-9a-f]+, XSDT at 0x[0-9a-f]+, 2 CPUs, q35 \(ICH9\), PM at 0x600|smbios: 3.0 entry point at|APP acpi rsdp=ok xsdt=ok sums=ok facp=ok dsdt=ok facs=ok madt=ok cpus=2|APP acpi hpet=ok mcfg=ok|APP smbios sm3=ok walk=ok types=ok|efi: image returned 0x0|!=bad" \
+run x86_64-acpi "acpi: FACP APIC HPET MCFG BERT HEST EINJ DSDT|~^acpi: RSDP at 0x[0-9a-f]+, XSDT at 0x[0-9a-f]+, 2 CPUs, q35 \(ICH9\), PM at 0x600|smbios: 3.0 entry point at|APP acpi rsdp=ok xsdt=ok sums=ok facp=ok dsdt=ok facs=ok madt=ok cpus=2|APP acpi hpet=ok mcfg=ok|APP smbios sm3=ok walk=ok types=ok|efi: image returned 0x0|!=bad" \
     "$QEMU_X86_64" -M q35 -smp 2 -bios x86_64/squirrel-bios.fd -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-acpi.efi
 run x86_64-acpi-pc "acpi: FACP APIC HPET BERT HEST DSDT|i440fx (PIIX4), PM at 0x600|APP acpi rsdp=ok xsdt=ok sums=ok facp=ok dsdt=ok facs=ok madt=ok cpus=3|APP acpi hpet=ok mcfg=none|APP smbios sm3=ok walk=ok types=ok|!=bad" \
     "$QEMU_X86_64" -M pc -smp 3 -bios x86_64/squirrel-bios.fd -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-acpi.efi
@@ -1185,7 +1185,7 @@ numa_nodes() {     # numa_nodes N MB_PER_NODE CPUS_PER_NODE
     done
 }
 NUMA_APP="-fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-numa.efi"
-run x86_64-numa "numa: 2 nodes: 96 MB 160 MB|acpi: FACP APIC HPET MCFG SRAT SLIT HMAT BERT HEST DSDT|APP numa sums=ok madt=4/0 srat=4 cpu=0,0,1,1 mem=0:0+96,1:96+160 slit=2:1020,2010 hmat=0>0,1>1 lb=0 cache=0|APP numa bert=0 hest=2/10|!=bad" \
+run x86_64-numa "numa: 2 nodes: 96 MB 160 MB|acpi: FACP APIC HPET MCFG SRAT SLIT HMAT BERT HEST EINJ DSDT|APP numa sums=ok madt=4/0 srat=4 cpu=0,0,1,1 mem=0:0+96,1:96+160 slit=2:1020,2010 hmat=0>0,1>1 lb=0 cache=0|APP numa bert=0 hest=3/10|!=bad" \
     "$QEMU_X86_64" -M q35 -m 256 -smp 4,sockets=2,cores=2 \
     -object memory-backend-ram,id=nm0,size=96M -numa node,nodeid=0,cpus=0-1,memdev=nm0 \
     -object memory-backend-ram,id=nm1,size=160M -numa node,nodeid=1,cpus=2-3,memdev=nm1 \
@@ -1194,7 +1194,7 @@ run x86_64-numa "numa: 2 nodes: 96 MB 160 MB|acpi: FACP APIC HPET MCFG SRAT SLIT
 run x86_64-numa-4g "numa: 4 nodes: 1024 MB 1024 MB 1024 MB 1024 MB|APP numa sums=ok madt=8/0 srat=8 cpu=0,0,1,1,2,2,3,3 mem=0:0+1024,1:1024+1024,2:4096+1024,3:5120+1024 slit=4:10202020,20102020,20201020,20202010|!=bad" \
     "$QEMU_X86_64" -M q35 -m 4G -smp 8 $(numa_nodes 4 1024 2) -bios x86_64/squirrel-bios.fd $NUMA_APP
 # shellcheck disable=SC2046
-run x86_64-numa-64 "smp: 64 CPUs|numa: 4 nodes|APP numa sums=ok madt=64/0 srat=64 cpu=0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,|,3,3 mem=0:0+128,1:128+128,2:256+128,3:384+128 slit=4:|APP numa bert=0 hest=2/10|!=bad" \
+run x86_64-numa-64 "smp: 64 CPUs|numa: 4 nodes|APP numa sums=ok madt=64/0 srat=64 cpu=0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,|,3,3 mem=0:0+128,1:128+128,2:256+128,3:384+128 slit=4:|APP numa bert=0 hest=3/10|!=bad" \
     "$QEMU_X86_64" -M q35 -m 512 -smp 64 $(numa_nodes 4 128 16) -bios x86_64/squirrel-bios.fd $NUMA_APP
 # shellcheck disable=SC2046
 run x86_64-numa-dist "APP numa sums=ok madt=2/0 srat=2 cpu=0,1 mem=0:0+128,1:128+128 slit=2:1031,3110|!=bad" \
@@ -1212,7 +1212,7 @@ HMAT_LB="-numa hmat-lb,initiator=0,target=0,hierarchy=memory,data-type=access-la
     -numa hmat-lb,initiator=1,target=0,hierarchy=memory,data-type=access-latency,latency=10 -numa hmat-lb,initiator=1,target=0,hierarchy=memory,data-type=access-bandwidth,bandwidth=200M \
     -numa hmat-lb,initiator=1,target=1,hierarchy=memory,data-type=access-latency,latency=5 -numa hmat-lb,initiator=1,target=1,hierarchy=memory,data-type=access-bandwidth,bandwidth=400M \
     -numa hmat-lb,initiator=1,target=2,hierarchy=memory,data-type=access-latency,latency=40 -numa hmat-lb,initiator=1,target=2,hierarchy=memory,data-type=access-bandwidth,bandwidth=100M"
-run x86_64-numa-hmat "numa: HMAT from QEMU (-numa hmat-lb)|acpi: FACP APIC HPET MCFG SRAT SLIT HMAT BERT HEST DSDT|APP numa sums=ok madt=2/0 srat=2 cpu=0,1 mem=0:0+128,1:128+128,2:256+64 slit=3:103117,311028,172810 hmat=0>0,1>1,0>2 lb=2 cache=1|!=bad" \
+run x86_64-numa-hmat "numa: HMAT from QEMU (-numa hmat-lb)|acpi: FACP APIC HPET MCFG SRAT SLIT HMAT BERT HEST EINJ DSDT|APP numa sums=ok madt=2/0 srat=2 cpu=0,1 mem=0:0+128,1:128+128,2:256+64 slit=3:103117,311028,172810 hmat=0>0,1>1,0>2 lb=2 cache=1|!=bad" \
     "$QEMU_X86_64" -M q35,hmat=on -m 320 -smp 2 $NUMA3 \
     -numa node,nodeid=0,cpus=0,memdev=nm0,initiator=0 -numa node,nodeid=1,cpus=1,memdev=nm1,initiator=1 \
     -numa node,nodeid=2,memdev=nm2,initiator=0 \
@@ -1224,7 +1224,7 @@ run x86_64-numa-initiator "numa: HMAT with the initiator of each node|APP numa s
     -numa node,nodeid=0,cpus=0,memdev=nm0 -numa node,nodeid=1,cpus=1,memdev=nm1 -numa node,nodeid=2,memdev=nm2 \
     -numa dist,src=0,dst=1,val=21 -numa dist,src=0,dst=2,val=40 -numa dist,src=1,dst=2,val=17 \
     -bios x86_64/squirrel-bios.fd $NUMA_APP
-run x86_64-numa-none "APP numa sums=ok madt=2/0 srat=none slit=none hmat=none|APP numa bert=0 hest=2/10|!=bad" \
+run x86_64-numa-none "APP numa sums=ok madt=2/0 srat=none slit=none hmat=none|APP numa bert=0 hest=3/10|!=bad" \
     "$QEMU_X86_64" -M q35 -smp 2 -bios x86_64/squirrel-bios.fd $NUMA_APP
 # With NUMA, an expander's numa_node becomes its _PXM, read from QEMU's
 # own DSDT
@@ -1243,7 +1243,7 @@ rm -f "$MCE_SOCK"
 python3 tests/monitor.py "$MCE_SOCK" $TEST_DIR/x86_64-mce.log "APP numa bert=0" \
     "mce 1 2 0x9000000000000000 0 0 0" "mce 0 1 0xb600000000000000 0x5 0x123000 0" &
 mce_mon=$!
-run x86_64-mce "mce: 10 banks, CMCI no, 0 errors from before reset|APP numa bert=0 hest=2/10|mce: 10 banks, CMCI no, 2 errors from before reset|mce: APIC ID 0 bank 1 status 0xb600000000000000 addr 0x123000 misc 0x0 (fatal)|mce: APIC ID 1 bank 2 status 0x9000000000000000 addr 0x0 misc 0x0 (corrected)|APP numa bert=2 hest=2/10|!=bad" \
+run x86_64-mce "mce: 10 banks, CMCI no, 0 errors from before reset|APP numa bert=0 hest=3/10|mce: 10 banks, CMCI no, 2 errors from before reset|mce: APIC ID 0 bank 1 status 0xb600000000000000 addr 0x123000 misc 0x0 (fatal)|mce: APIC ID 1 bank 2 status 0x9000000000000000 addr 0x0 misc 0x0 (corrected)|APP numa bert=2 hest=3/10|!=bad" \
     "$QEMU_X86_64" -M q35 -smp 2 -bios x86_64/squirrel-bios.fd $NUMA_APP \
     -chardev socket,id=mon0,path=$MCE_SOCK,server=on,wait=off -mon chardev=mon0,mode=readline
 kill "$mce_mon" 2>/dev/null; wait "$mce_mon" 2>/dev/null
@@ -1686,13 +1686,24 @@ if command -v swtpm >/dev/null 2>&1 && command -v swtpm_setup >/dev/null 2>&1; t
         "$QEMU_X86_64" -M pc -bios x86_64/squirrel-bios.fd $TPM_DEV -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-tpm.efi
     replay x86_64-tpm-banks $TEST_DIR/x86_64-tpm.efi
     start_swtpm sha256
-    run x86_64-tpm-acpi "acpi: FACP APIC HPET MCFG BERT HEST TPM2 DSDT|APP acpi rsdp=ok xsdt=ok sums=ok facp=ok dsdt=ok|!=bad" \
+    run x86_64-tpm-acpi "acpi: FACP APIC HPET MCFG BERT HEST EINJ TPM2 DSDT|APP acpi rsdp=ok xsdt=ok sums=ok facp=ok dsdt=ok|!=bad" \
         "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd $TPM_DEV -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-acpi.efi
 else
     echo "SKIP  x86_64-tpm, x86_64-tpm-banks, x86_64-tpm-acpi (no swtpm)"
 fi
 run x86_64-tpm-none "tpm: none|APP tpm =bad|!TPM 2.0" \
     "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-tpm.efi
+
+# x86-64 firmware: SMM and EINJ (F2). On q35 the top 1 MB of RAM below
+# 4 GB is TSEG, every CPU's SMBASE is moved into it, and an SMI from port
+# 0xB2 serves EINJ: x86_64-einj runs the EINJ actions as an OS would, on
+# the BSP and then on an AP, and reads the corrected memory error the
+# handler leaves in the HEST's GHES block; an uncorrectable type is
+# refused. pc (i440fx) has no TSEG, so no SMM and no EINJ.
+run x86_64-einj "smm: TSEG 1024 KB at 0x7f00000, SMBASE moved there on 4 CPUs|acpi: FACP APIC HPET MCFG BERT HEST EINJ DSDT|APP einj types=0x8 inject=ok ghes=ok ap=ok refused=ok|efi: image returned 0x0|!=bad" \
+    "$QEMU_X86_64" -M q35 -smp 4 -bios x86_64/squirrel-bios.fd -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-einj.efi
+run x86_64-einj-pc "acpi: FACP APIC HPET BERT HEST DSDT|APP einj no EINJ|!smm:" \
+    "$QEMU_X86_64" -M pc -bios x86_64/squirrel-bios.fd -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-einj.efi
 
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

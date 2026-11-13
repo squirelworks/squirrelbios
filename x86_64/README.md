@@ -36,6 +36,8 @@ csm/       csm.c, csm.asm: the CSM (roadmap C3), the legacy x86-pc ROM
 smp/       smp.c (AP bring-up with INIT-SIPI-SIPI, AP parking, the MP
            services protocol), apic.c (local APIC in xAPIC or x2APIC
            mode), mptable.c (MPS 1.4 table), roadmap C4
+smm/       smm.c (SMM in q35's TSEG, SMBASE relocation, the EINJ table
+           and the SMI handler that serves it), roadmap F2
 acpi/      numa.c (SRAT and SLIT from QEMU -numa), ras.c (BERT and
            HEST stubs), roadmap F1/F2; the other ACPI tables are in core/
 secure/    secure.c (Secure Boot policy, db/dbx, the Authenticode PE
@@ -233,7 +235,29 @@ the QEMU monitor; Linux prints it as "BERT: Error records from previous
 boot"). The HEST has the IA-32 machine check source and the corrected
 machine check source, with every bank: CMCI when MCG_CAP has it, else
 polled every second, 10 errors a minute before switching to polling.
-The OS owns the banks (no firmware first) and there is no EINJ.
+The OS owns the banks (no firmware first).
+
+SMM and EINJ (F2, q35 only): the top 1 MB of RAM below 4 GB is TSEG
+(reserved in the memory map; `T_EN` in the MCH's ESMRAMC). It holds a
+GDT, one 32-bit SMI handler, a 512-byte stack per CPU and, 8 KB apart,
+each CPU's SMBASE with an entry stub that enters protected mode and
+jumps to the handler. At boot every CPU takes one SMI at the default
+SMBASE (0x30000, saved and put back) whose stub moves its SMBASE into
+TSEG; the firmware then checks that TSEG reads back closed and that the
+handler answers a ping, or turns SMM off again. SMIs come only from
+writes to the APM port 0xB2 (`APMC_EN`); `D_LCK` locks the SMRAM
+controls at ExitBootServices, and before the CSM's legacy boot TSEG and
+the SMIs are turned off. Up to 112 CPUs. The EINJ table drives a
+mailbox page: `SET_ERROR_TYPE` writes the type, `EXECUTE_OPERATION`
+writes `0xE1` to port 0xB2, and the handler, for a correctable memory
+error (the one type `GET_ERROR_TYPE` offers), copies a CPER record
+built at boot from TSEG into the error status block of a polled (500
+ms) generic hardware error source in the HEST, where the OS reads and
+clears it; other types fail. The handler reads nothing from outside
+SMRAM but the requested type. `x86_64-einj` runs the EINJ actions as an
+OS would, on the BSP and an AP; `LINUX_EINJ=1 make linux-uefi` loads the
+kernel's einj module and injects through debugfs from two CPUs. pc
+(i440fx) has no TSEG, so no SMM and no EINJ.
 
 Variables (C5): the variable services keep every variable in a RAM
 arena and the non-volatile ones also in a flash store on QEMU's second

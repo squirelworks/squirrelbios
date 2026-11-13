@@ -11,7 +11,8 @@
 ; hmat  initiator>memory domain per attributes structure, then the
 ;       number of latency/bandwidth (lb) and memory-side cache structures
 ; bert  boot error records in the BERT region
-; hest  error sources (IA-32 MCE and CMC) / banks each, or 0
+; hest  error sources (IA-32 MCE and CMC, then on q35 the GHES that
+;       EINJ's SMI handler writes) / banks each, or 0
 ; (srat=none, slit=none, hmat=none when the tables are absent; bad on a malformed
 ; table) then returns 0.
 
@@ -388,7 +389,9 @@ entry:
         jmp .hest_done
 .hest_src:
         cmp r8d, 2
-        jne .hest_bad
+        jb .hest_bad
+        cmp r8d, 3
+        ja .hest_bad
         lea rsi, [rax + 40]
         cmp word [rsi], 0
         jne .hest_bad
@@ -400,6 +403,12 @@ entry:
         cmp byte [rsi + 44], r9b
         jne .hest_bad
         lea rsi, [rsi + r10 + 48]
+        cmp r8d, 3                      ; then the GHES EINJ writes (q35)
+        jne .hest_end
+        cmp word [rsi], 9
+        jne .hest_bad
+        add rsi, 64
+.hest_end:
         cmp rsi, rdx
         jne .hest_bad
         mov eax, r8d

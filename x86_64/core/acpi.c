@@ -524,7 +524,7 @@ void acpi_init(void)
     }
     next = area + ((dsdt_len + 15) & ~15u);
 
-    u8 *tables[12];
+    u8 *tables[16];
     int n = 0;
     u8 *fadt = take(276);
     build_fadt(fadt, (u32)(uptr)facs, (u32)(uptr)dsdt);
@@ -580,7 +580,8 @@ void acpi_init(void)
     for (int i = 0; i < n; i++)
         if (!memcmp(tables[i], "SRAT", 4) || !memcmp(tables[i], "SLIT", 4) ||
             !memcmp(tables[i], "HMAT", 4) || !memcmp(tables[i], "BERT", 4) ||
-            !memcmp(tables[i], "HEST", 4) || !memcmp(tables[i], "TPM2", 4))
+            !memcmp(tables[i], "HEST", 4) || !memcmp(tables[i], "EINJ", 4) ||
+            !memcmp(tables[i], "TPM2", 4))
             printf(" %c%c%c%c", tables[i][0], tables[i][1], tables[i][2], tables[i][3]);
     printf(" DSDT (%u bytes of AML) FACS\n", dsdt_len - 36);
 }
