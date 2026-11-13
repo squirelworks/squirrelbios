@@ -255,7 +255,7 @@ boxes in [TODO.md](TODO.md).
 
 ### Phase D — v2.5: ARM and RISC-V as full firmware
 
-- [ ] **D1** AArch64 `virt`: UEFI-class interface, device tree and ACPI
+- [x] **D1** AArch64 `virt`: UEFI-class interface, device tree and ACPI
   (SBBR-like), PSCI, GICv3.
 - [ ] **D2** AArch64 boards: Raspberry Pi 4/5 under `boards/rpi4`.
 - [ ] **D3** RISC-V `virt`: UEFI-class interface while keeping the SBI;
