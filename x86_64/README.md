@@ -41,7 +41,11 @@ secure/    secure.c (Secure Boot policy, db/dbx, the Authenticode PE
            (X.509 keys, Authenticode PKCS#7), roadmap C4
 include/   sq.h, efi.h (UEFI types and tables, from the specification),
            acpi.h
-link.ld    the body, linked at FW_BASE
+link.ld    the body, linked at FW_BASE; core/runtime.c and core/lib.c
+           (built apart, sections renamed .rt.*) go in page-aligned
+           runtime code and data, the only part of the image the OS
+           keeps after ExitBootServices, with the system, runtime
+           services and configuration tables
 ```
 
 Flash layout: the body from offset 0, zero padding, the stub in the

@@ -25,7 +25,10 @@ RISCV_BIN := riscv/squirrel-bios.bin
 # (C and NASM) linked to run from RAM at X64_FW_BASE, and the 4 KB reset
 # stub (x86_64/reset/reset.asm) at its top
 X64_FD      := x86_64/squirrel-bios.fd
-X64_C       := $(wildcard x86_64/*/*.c)
+# runtime.c and lib.c are built on their own, their sections renamed .rt.*:
+# link.ld puts them in the pages the OS keeps after ExitBootServices
+X64_RT_C    := x86_64/core/runtime.c x86_64/core/lib.c
+X64_C       := $(filter-out $(X64_RT_C),$(wildcard x86_64/*/*.c))
 X64_H       := $(wildcard x86_64/include/*.h)
 X64_FLASH   := 0x100000
 X64_FW_BASE := 0x200000
@@ -40,7 +43,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/x86-osload.bin $(TEST_DIR)/x86-int13.bin \
              $(TEST_DIR)/x86-bda.bin $(TEST_DIR)/x86-a20.bin \
              $(TEST_DIR)/x86-pit.bin $(TEST_DIR)/x86-kbd.bin $(TEST_DIR)/x86-kbd-many.bin $(TEST_DIR)/x86-mouse.bin \
-             $(TEST_DIR)/x86-vbe.bin $(TEST_DIR)/x86-vbe-text.bin \
+             $(TEST_DIR)/x86-vbe.bin $(TEST_DIR)/x86-vbe-text.bin $(TEST_DIR)/x86-vbe-bank.bin \
              $(TEST_DIR)/x86-time.bin $(TEST_DIR)/x86-vid.bin \
              $(TEST_DIR)/x86-write.bin $(TEST_DIR)/x86-int15a20.bin \
              $(TEST_DIR)/x86-slave.bin $(TEST_DIR)/x86-acpi.bin \
@@ -48,7 +51,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/x86-optrom.bin \
              $(TEST_DIR)/x86-bzimage-big.bin $(TEST_DIR)/x86-bzimage-toobig.bin \
              $(TEST_DIR)/x86-params.bin $(TEST_DIR)/x86-params-slave.bin \
-             $(TEST_DIR)/x86-floppy.img $(TEST_DIR)/x86-floppy-nosig.img \
+             $(TEST_DIR)/x86-floppy.img $(TEST_DIR)/x86-floppy-nosig.img $(TEST_DIR)/x86-cd-floppy.iso \
              $(TEST_DIR)/x86-pci.bin $(TEST_DIR)/x86-edd.img \
              $(TEST_DIR)/x86-ahci.img $(TEST_DIR)/x86-nvme.img \
              $(TEST_DIR)/x86-usbdisk.img \
@@ -119,8 +122,11 @@ define X64_BUILD
 	@mkdir -p $(1)
 	$(NASM) -f elf64 x86_64/core/start.asm -o $(1)/start.o
 	$(NASM) -f elf64 -DLEGACY_ROM='"$(X86_ROM)"' x86_64/csm/csm.asm -o $(1)/csm.o
+	for f in $(X64_RT_C); do o=$(1)/rt-$$(basename $$f .c).o; \
+	    $(CC64) $(X64_CFLAGS) $(2) -c $$f -o $$o && objcopy --prefix-alloc-sections=.rt $$o || exit 1; done
 	$(CC64) $(X64_CFLAGS) $(2) -Wl,-T,x86_64/link.ld -Wl,--defsym,FW_BASE=$(X64_FW_BASE) \
-	    -Wl,--build-id=none -Wl,--no-warn-rwx-segments $(1)/start.o $(1)/csm.o $(X64_C) -o $(1)/body.elf
+	    -Wl,--build-id=none -Wl,--no-warn-rwx-segments $(1)/start.o $(1)/csm.o \
+	    $(patsubst x86_64/core/%.c,$(1)/rt-%.o,$(X64_RT_C)) $(X64_C) -o $(1)/body.elf
 	objcopy -O binary $(1)/body.elf $(1)/body.bin
 	@size=$$(stat -c %s $(1)/body.bin); \
 	if [ $$size -gt $$(($(X64_FLASH) - 0x1000)) ]; then \
@@ -134,7 +140,7 @@ define X64_BUILD
 endef
 
 # The CSM (x86_64/csm/) carries the legacy x86-pc ROM inside the image
-$(X64_FD): x86_64/core/start.asm x86_64/reset/reset.asm x86_64/link.ld $(X64_C) $(X64_H) \
+$(X64_FD): x86_64/core/start.asm x86_64/reset/reset.asm x86_64/link.ld $(X64_C) $(X64_RT_C) $(X64_H) \
 		x86_64/csm/csm.asm $(X86_ROM)
 	$(call X64_BUILD,build/x86_64,)
 
@@ -183,7 +189,7 @@ build/x86-pc/%/squirrel-bios.rom: x86/squirrel-bios.asm $(X86_SRCS) \
 	$(NASM) -f bin -DSQ_CONFIG -i $(@D)/ -i x86/ $< -o $@
 
 build/x86_64-uefi/%/squirrel-bios.fd: x86_64/core/start.asm x86_64/reset/reset.asm x86_64/link.ld \
-		$(X64_C) $(X64_H) x86_64/csm/csm.asm $(X86_ROM) build/x86_64-uefi/%/config.h
+		$(X64_C) $(X64_RT_C) $(X64_H) x86_64/csm/csm.asm $(X86_ROM) build/x86_64-uefi/%/config.h
 	$(call X64_BUILD,$(@D)/obj,-DSQ_CONFIG -I$(@D))
 
 build/aarch64-virt/%/squirrel-bios.o: arm/squirrel-bios.S build/aarch64-virt/%/config.inc build/aarch64-virt/%/config.h
@@ -308,6 +314,9 @@ $(TEST_DIR)/x86-vbe.bin: tests/x86-vbe.asm | $(TEST_DIR)
 	$(NASM) -f bin $< -o $@
 $(TEST_DIR)/x86-vbe-text.bin: tests/x86-vbe.asm | $(TEST_DIR)
 	$(NASM) -f bin -DTEXT $< -o $@
+# VBE: 640x480x8 through the banked window at A000h, and the palette
+$(TEST_DIR)/x86-vbe-bank.bin: tests/x86-vbe-bank.asm | $(TEST_DIR)
+	$(NASM) -f bin $< -o $@
 $(TEST_DIR)/x86-mouse.bin: tests/x86-mouse.asm | $(TEST_DIR)
 	$(NASM) -f bin $< -o $@
 
@@ -423,6 +432,14 @@ $(TEST_DIR)/x86-floppy.bin: tests/x86-floppy.asm | $(TEST_DIR)
 	$(NASM) -f bin $< -o $@
 $(TEST_DIR)/x86-floppy.img: $(TEST_DIR)/x86-floppy.bin tests/mkfloppy.py
 	tests/mkfloppy.py $< $@
+# The same diskette, write-protected, as the El Torito diskette
+# emulation image of a CD
+$(TEST_DIR)/x86-cd-floppy.bin: tests/x86-floppy.asm | $(TEST_DIR)
+	$(NASM) -f bin -DCDEMU $< -o $@
+$(TEST_DIR)/x86-cd-floppy.img: $(TEST_DIR)/x86-cd-floppy.bin tests/mkfloppy.py
+	tests/mkfloppy.py $< $@
+$(TEST_DIR)/x86-cd-floppy.iso: $(TEST_DIR)/x86-cd-floppy.img tests/mkiso.py
+	tests/mkiso.py --floppy $< $@
 $(TEST_DIR)/x86-floppy-nosig.img: $(TEST_DIR)/x86-floppy.bin tests/mkfloppy.py
 	tests/mkfloppy.py $< $@ --nosig
 

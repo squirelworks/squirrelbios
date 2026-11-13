@@ -294,6 +294,16 @@ if VBE_NAME=x86-vbe-text VBE_SCREEN="720 400" tests/x86-vbe-run.sh; then
 else
     fail=$((fail + 1))
 fi
+# VBE banked window and palette: 640x480x8 without the linear frame
+# buffer, palette entries 1 (red) and 2 (blue) set and read back, the
+# screen filled with 2 one 64 KB window at a time (4F05h), a red square
+# and a red line on row 300 drawn through the far window function
+if VBE_NAME=x86-vbe-bank VBE_SCREEN="640 480 0,0=0000ff 9,10=0000ff 50,50=ff0000 109,109=ff0000 110,110=0000ff 0,300=ff0000 639,300=ff0000 639,299=0000ff 639,479=0000ff" \
+   tests/x86-vbe-run.sh; then
+    pass=$((pass + 1))
+else
+    fail=$((fail + 1))
+fi
 
 # x86: a USB keyboard behind a hub on OHCI; then a full-speed one on an
 # ICH9 EHCI port, handed to its UHCI companion, which keeps it
@@ -343,6 +353,12 @@ run x86-slave "SquirrelBIOS x86|OS-ENTRY x86 dl=ok memmap=ok flags=ok|!dl=bad" \
 run x86-cd "booting from CD-ROM|OS-ENTRY x86 cd cd=ok" \
     "$QEMU_X86" -bios x86/squirrel-bios.rom \
     -cdrom $TEST_DIR/x86-cd.iso
+# El Torito diskette emulation: the x86-floppy checks on a 1.44 MB image
+# that a CD carries (media type 2), booted as drive 00h in place of the
+# empty diskette drive; writes are refused as write-protected
+run x86-cd-floppy "booting from CD-ROM (El Torito, diskette emulation as A:)|OS-ENTRY x86 floppy floppy=ok|!floppy=bad" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -cdrom $TEST_DIR/x86-cd-floppy.iso
 
 # x86: the same CD as primary slave, with no disk on the master
 run x86-cd-slave "booting from CD-ROM|OS-ENTRY x86 cd cd=ok" \
@@ -379,6 +395,21 @@ run x86-virtio "SquirrelBIOS x86|disk: virtio disk|OS-ENTRY x86 edd edd=ok" \
     "$QEMU_X86" -bios x86/squirrel-bios.rom \
     -drive if=none,id=vd,format=raw,file=$TEST_DIR/x86-virtio.img,snapshot=on \
     -device virtio-blk-pci,drive=vd,addr=5
+# The same disks on the modern interface only (device 1042h, its
+# registers in a memory BAR found through the virtio PCI capabilities):
+# on pc and on q35, and the INT 13h write path
+run x86-virtio-modern "disk: virtio disk (modern interface)|OS-ENTRY x86 edd edd=ok" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -drive if=none,id=vd,format=raw,file=$TEST_DIR/x86-virtio.img,snapshot=on \
+    -device virtio-blk-pci,drive=vd,addr=5,disable-legacy=on,disable-modern=off
+run x86-virtio-modern-q35 "disk: virtio disk (modern interface)|kernel loaded at 0x00008000, jumping|osload=ok dl=ok flags=ok memmap=ok sig=ok e820=ok|!boot halted" \
+    "$QEMU_X86" -M q35 -bios x86/squirrel-bios.rom \
+    -drive if=none,id=vd,format=raw,file=$TEST_DIR/x86-osload.bin,snapshot=on \
+    -device virtio-blk-pci,drive=vd,disable-legacy=on,disable-modern=off
+run x86-virtio-modern-write "disk: virtio disk (modern interface)|OS-ENTRY x86 write=ok" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -drive if=none,id=vd,format=raw,file=$TEST_DIR/x86-write.bin,snapshot=on \
+    -device virtio-blk-pci,drive=vd,disable-legacy=on,disable-modern=off
 run x86-virtio-osload "disk: virtio disk|kernel loaded at 0x00008000, jumping|osload=ok dl=ok flags=ok memmap=ok sig=ok e820=ok|!boot halted" \
     "$QEMU_X86" -M q35 -bios x86/squirrel-bios.rom \
     -drive if=none,id=vd,format=raw,file=$TEST_DIR/x86-osload.bin,snapshot=on \
@@ -397,6 +428,29 @@ NET_TFTP="tftp=$TEST_DIR/tftp"
 run x86-netboot "net: virtio-net, MAC 52:54:00:12:34:56|net: address 10.0.2.15 from 10.0.2.2, boot file x86-netboot.bin|net: loaded 5000 bytes|OS-ENTRY x86 netboot=ok" \
     "$QEMU_X86" -bios x86/squirrel-bios.rom \
     -netdev user,id=n0,$NET_TFTP,bootfile=x86-netboot.bin -device virtio-net-pci,netdev=n0,addr=5
+# Routed network boot: on a simulated network (tests/netsim.py, joined
+# through a QEMU UDP socket) the boot server 192.168.50.5 sits behind the
+# router 10.0.2.1 that DHCP names (options 1 and 3). Only the router
+# answers ARP and the server only takes frames sent to the router, so the
+# 200000-byte file arrives only when the firmware routes. Without option
+# 3 the firmware says why it cannot reach the server.
+NETSIM_PORT=$((20000 + $$ % 20000))
+python3 tests/netsim.py $NETSIM_PORT $((NETSIM_PORT + 1)) $TEST_DIR/tftp x86-netboot-big.bin &
+netsim=$!
+sleep 0.3
+run x86-netboot-routed "net: address 10.0.2.15 from 192.168.50.5, boot file x86-netboot-big.bin|net: boot server on another network, through router 10.0.2.1|net: loaded 200000 bytes|OS-ENTRY x86 netboot=ok" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -netdev socket,id=n0,udp=127.0.0.1:$NETSIM_PORT,localaddr=127.0.0.1:$((NETSIM_PORT + 1)) \
+    -device virtio-net-pci,netdev=n0
+kill $netsim 2>/dev/null; wait $netsim 2>/dev/null
+python3 tests/netsim.py $NETSIM_PORT $((NETSIM_PORT + 1)) $TEST_DIR/tftp x86-netboot.bin norouter &
+netsim=$!
+sleep 0.3
+run x86-netboot-norouter "net: the boot server is on another network and DHCP gave no router|!netboot=ok" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -netdev socket,id=n0,udp=127.0.0.1:$NETSIM_PORT,localaddr=127.0.0.1:$((NETSIM_PORT + 1)) \
+    -device virtio-net-pci,netdev=n0
+kill $netsim 2>/dev/null; wait $netsim 2>/dev/null
 run x86-netboot-q35 "net: loaded 2048 bytes|OS-ENTRY x86 netboot=ok" \
     "$QEMU_X86" -M q35 -bios x86/squirrel-bios.rom \
     -netdev user,id=n0,$NET_TFTP,bootfile=x86-netboot-2k.bin -device virtio-net-pci,netdev=n0
@@ -981,6 +1035,13 @@ run x86_64-numa-dist "APP numa sums=ok madt=2/0 srat=2 cpu=0,1 mem=0:0+128,1:128
     -fw_cfg name=opt/org.squirrelworks/numa-distance,file=$TEST_DIR/x86_64-numa-dist.bin
 run x86_64-numa-none "APP numa sums=ok madt=2/0 srat=none slit=none|APP numa bert=ok hest=ok|!=bad" \
     "$QEMU_X86_64" -M q35 -smp 2 -bios x86_64/squirrel-bios.fd $NUMA_APP
+
+# x86-64 firmware: only the runtime pages stay the OS's after
+# ExitBootServices (runtime services code, then their data with the
+# system and configuration tables); the rest of the image is boot
+# services code. The GOP case above calls ResetSystem after exit.
+run x86_64-rt-split "efi: 0000000000200000-|~^efi: 0000000000[0-9a-f]{6}-0000000000[0-9a-f]{6} RT code|~^efi: 0000000000[0-9a-f]{6}-0000000000[0-9a-f]{6} RT data|~^efi: 0000000000200000-0000000000[0-9a-f]{6} BS code|efi: memory services ok" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd
 
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]
