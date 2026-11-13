@@ -275,7 +275,7 @@ boxes in [TODO.md](TODO.md).
 
 - [x] **E1** `PLATFORM=ppc64le-powernv`: OPAL-like runtime interface, device
   tree, boot Linux on QEMU `powernv`.
-- [ ] **E2** `PLATFORM=sparc64-sun4u`: an IEEE 1275-style client interface
+- [x] **E2** `PLATFORM=sparc64-sun4u`: an IEEE 1275-style client interface
   subset (no Forth), boot on QEMU `sun4u`.
 - [ ] **E3** Stretch: `m68k-virt`, `mips-malta`, `loongarch64-virt`, `s390x`
   (IPL only). Test: each reaches a firmware prompt under QEMU and hands

@@ -49,6 +49,7 @@ void fw_enter(uint64_t entry, uint64_t cif, uint64_t o0, uint64_t o1) __attribut
 void fw_set_tba(uint64_t tba);
 extern char trap_table[];
 int64_t cif_handler(uint64_t *args);
+int64_t cif_entry(uint64_t *args);    /* start.S: keeps the client's globals */
 
 static uint64_t fw_pbase, ram_size, tick_hz = 100000000;
 static int ncpus = 1;
@@ -86,6 +87,8 @@ static inline void stxa_mmu(uint64_t va, int asi, uint64_t v)
     case ASI_DMMU: __asm__ volatile("stxa %0, [%1] 0x58; membar #Sync" : : "r"(v), "r"(va) : "memory"); break;
     case ASI_ITLB_DATA_IN: __asm__ volatile("stxa %0, [%1] 0x54; membar #Sync" : : "r"(v), "r"(va) : "memory"); break;
     case ASI_DTLB_DATA_IN: __asm__ volatile("stxa %0, [%1] 0x5c; membar #Sync" : : "r"(v), "r"(va) : "memory"); break;
+    case ASI_ITLB_DATA_ACCESS: __asm__ volatile("stxa %0, [%1] 0x55; membar #Sync" : : "r"(v), "r"(va) : "memory"); break;
+    case ASI_DTLB_DATA_ACCESS: __asm__ volatile("stxa %0, [%1] 0x5d; membar #Sync" : : "r"(v), "r"(va) : "memory"); break;
     case ASI_IMMU_DEMAP: __asm__ volatile("stxa %0, [%1] 0x57; membar #Sync" : : "r"(v), "r"(va) : "memory"); break;
     case ASI_DMMU_DEMAP: __asm__ volatile("stxa %0, [%1] 0x5f; membar #Sync" : : "r"(v), "r"(va) : "memory"); break;
     }
@@ -381,6 +384,23 @@ static void tlb_lock(uint64_t va, uint64_t tte, int itlb, int dtlb)
     }
 }
 
+/* Write one entry of the 64-entry I- or D-TLB: the tag (virtual address,
+ * context 0) goes through TAG_ACCESS, the data to entry 'index' */
+static void tlb_load_at(uint64_t va, uint64_t tte, uint64_t index, int itlb)
+{
+    if (index > 63) {
+        tlb_lock(va, tte, itlb, !itlb);
+        return;
+    }
+    if (itlb) {
+        stxa_mmu(0x30, ASI_IMMU, va & ~0x1fffull);
+        stxa_mmu(index << 3, ASI_ITLB_DATA_ACCESS, tte);
+    } else {
+        stxa_mmu(0x30, ASI_DMMU, va & ~0x1fffull);
+        stxa_mmu(index << 3, ASI_DTLB_DATA_ACCESS, tte);
+    }
+}
+
 static void add_trans(uint64_t va, uint64_t size, uint64_t tte)
 {
     if (ntrans < MAX_TRANS) {
@@ -402,7 +422,7 @@ static uint64_t translate(uint64_t va, int *found)
     return 0;
 }
 
-/* The firmware page, and RAM 1:1 below CONFIG_IDENTITY_MB, in locked 4 MB pages */
+/* The firmware page (locked), and RAM 1:1 below CONFIG_IDENTITY_MB in 4 MB pages */
 static void map_for_os(void)
 {
     uint64_t fw_tte = TTE_V | TTE_4M | TTE_L | TTE_CP | TTE_CV | TTE_P | TTE_W | TTE_G | fw_pbase;
@@ -410,8 +430,11 @@ static void map_for_os(void)
     uint64_t limit = (uint64_t)CONFIG_IDENTITY_MB << 20;
     if (limit > fw_pbase)
         limit = fw_pbase;
+    /* Not locked: these are global, so they would cover the low user
+     * addresses of every process; an OS that installs its own trap table
+     * flushes the unlocked entries and maps what it wants itself */
     for (uint64_t pa = 0; pa < limit; pa += FOUR_MB) {
-        uint64_t tte = TTE_V | TTE_4M | TTE_L | TTE_CP | TTE_CV | TTE_P | TTE_W | TTE_G | pa;
+        uint64_t tte = TTE_V | TTE_4M | TTE_CP | TTE_CV | TTE_P | TTE_W | TTE_G | pa;
         tlb_lock(pa, tte, 1, 1);
         add_trans(pa, FOUR_MB, tte);
     }
@@ -538,8 +561,9 @@ static int call_method(const char *m, uint64_t ih, uint64_t *a, int na, uint64_t
         return 4;
     }
     if (ih == IH_MMU && (!strcmp(m, "SUNW,dtlb-load") || !strcmp(m, "SUNW,itlb-load")) && na >= 3) {
-        /* ( virt data index -- ), last argument first: index, data, virt */
-        tlb_lock(a[2], a[1], m[5] == 'i', m[5] == 'd');
+        /* Arguments as Linux passes them: virt, data, index (the TLB
+         * entry to write) */
+        tlb_load_at(a[0], a[1], a[2], m[5] == 'i');
         return 0;
     }
     if (ih == IH_MEMORY && !strcmp(m, "claim") && na >= 2) {
@@ -719,6 +743,38 @@ void fw_trap(const uint64_t *s)
 
 static uint64_t entry_point;
 
+/* Linux on sparc64 finds its initrd in the "HdrS" header near its start,
+ * which a boot loader fills in: the 32-bit image field (offset 16) and
+ * size (20) and, from header version 0x0300, a 64-bit image field (40).
+ * The address is given relative to the lowest available physical page,
+ * plus the kernel's base 0x400000, the way the header is defined. */
+#define HDRS_KERNBASE 0x400000ull
+
+static int set_hdrs_initrd(void)
+{
+    uint8_t *k = PTR(kernel_addr);
+    for (uint64_t off = 0; off + 48 <= 512 && off + 48 <= kernel_size; off += 4) {
+        if (memcmp(k + off, "HdrS", 4))
+            continue;
+        uint8_t *h = k + off;
+        uint16_t ver = (uint16_t)(h[8] << 8 | h[9]);
+        uint64_t low = ~0ull;
+        for (int i = 0; i < navail; i++)
+            if (avail[i].base < low)
+                low = avail[i].base;
+        uint64_t img = initrd_addr - low + HDRS_KERNBASE;
+        fw_put_be32(h + 20, (uint32_t)initrd_size);
+        if (ver >= 0x0300) {
+            fw_put_be32(h + 16, 0);
+            fw_put_be64(h + 40, img);
+        } else {
+            fw_put_be32(h + 16, (uint32_t)img);
+        }
+        return 1;
+    }
+    return 0;
+}
+
 static void boot_kernel(void)
 {
     if (!kernel_addr || !kernel_size) {
@@ -735,14 +791,17 @@ static void boot_kernel(void)
     /* The kernel's 4 MB-aligned span is in use */
     uint64_t kb = kernel_addr & ~(FOUR_MB - 1);
     avail_remove(kb, ((kernel_addr + kernel_size + FOUR_MB - 1) & ~(FOUR_MB - 1)) - kb);
-    if (initrd_size)
+    if (initrd_size) {
         avail_remove(initrd_addr, initrd_size);
+        fw_printf("boot: initrd at 0x%lx, %lu bytes%s\n", initrd_addr, initrd_size,
+                  set_hdrs_initrd() ? ", in the kernel's HdrS header" : "");
+    }
     build_dt();
     unmap_prom();
     fw_printf("boot: kernel at 0x%lx, %lu bytes, client interface at 0x%lx\n", kernel_addr,
-              kernel_size, (uint64_t)(uintptr_t)cif_handler);
+              kernel_size, (uint64_t)(uintptr_t)cif_entry);
     fw_puts("jumping to kernel\n");
-    fw_enter(entry_point, (uint64_t)(uintptr_t)cif_handler, initrd_addr, initrd_size);
+    fw_enter(entry_point, (uint64_t)(uintptr_t)cif_entry, initrd_addr, initrd_size);
 }
 
 /* --- prompt ------------------------------------------------------------------ */

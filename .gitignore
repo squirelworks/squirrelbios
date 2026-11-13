@@ -18,3 +18,4 @@ mips/*.o
 mips/*.elf
 mips/*.bin
 sparc64/*.bin
+m68k/*.elf

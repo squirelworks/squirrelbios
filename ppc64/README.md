@@ -85,7 +85,9 @@ What it takes, besides the calls above:
 
 - POWER8 reaches its LPC bus (serial console, BMC) only through XSCOM:
   the firmware drives the LPC controller's ECCB registers, one byte per
-  transaction. POWER9 and POWER10 map LPC into memory.
+  transaction (a read nobody answers gives `0xff`; the prompt's `info`
+  counts transactions that timed out). POWER9 and POWER10 map LPC into
+  memory.
 - Every thread is handed to the OS with LPCR[LPES0] clear, so external
   interrupts arrive as hypervisor interrupts (HSRR0/1), which is what a
   hypervisor-mode OS handles. QEMU's POWER8 resets with the bit set.

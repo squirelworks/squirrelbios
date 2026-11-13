@@ -198,6 +198,33 @@ fw_enter:
         jmpl    %g3, %g0
          clr    %o5
 
+/* The client interface entry the OS calls: %o0 = the argument array.
+ * IEEE 1275 firmware leaves the client's global registers alone (Linux
+ * keeps current/thread/per-cpu pointers in %g4-%g6 and calls some
+ * services without saving them), but compiled C may use any of them, so
+ * keep %g1-%g7 in this window's locals around cif_handler. */
+        .globl cif_entry
+cif_entry:
+        save    %sp, -192, %sp
+        mov     %g1, %l1
+        mov     %g2, %l2
+        mov     %g3, %l3
+        mov     %g4, %l4
+        mov     %g5, %l5
+        mov     %g6, %l6
+        mov     %g7, %l7
+        call    cif_handler
+         mov    %i0, %o0
+        mov     %l1, %g1
+        mov     %l2, %g2
+        mov     %l3, %g3
+        mov     %l4, %g4
+        mov     %l5, %g5
+        mov     %l6, %g6
+        mov     %l7, %g7
+        ret
+         restore %o0, 0, %o0
+
 /* void fw_set_tba(uint64_t) */
         .globl fw_set_tba
 fw_set_tba:
