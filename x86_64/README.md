@@ -19,9 +19,10 @@ core/      start.asm (clears .bss, calls fw_main), main.c, arch.c (the
            against the PIT, the firmware's memory, PE entry calls with
            the Microsoft x64 convention, Secure Boot's image check),
            rt.c (its runtime part: the CMOS clock, ResetSystem),
-           gop.c (Graphics Output Protocol on Bochs DISPI), acpi.c (ACPI 6.x tables), aml.c (the AML writer the DSDT is
-           generated with), smbios.c (SMBIOS 3.x), bootopt.c (command
-           line and initrd for the booted image)
+           gop.c (Graphics Output Protocol on Bochs DISPI), acpi.c
+           (ACPI 6.x tables, the DSDT through common/efi/aml.c),
+           smbios.c (SMBIOS 3.x), bootopt.c (command line and initrd
+           for the booted image)
 platform/  fwcfg.c (QEMU fw_cfg over I/O ports), memmap.c (etc/e820,
            CMOS as a fallback), pci.c (config space, I/O and memory
            BAR assignment below 4 GB), virtio_blk.c (legacy

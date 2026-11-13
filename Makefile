@@ -29,7 +29,7 @@ X64_FD      := x86_64/squirrel-bios.fd
 # runtime.c, lib.c and rt.c are built on their own, their sections renamed
 # .rt.*: link.ld puts them in the pages the OS keeps after ExitBootServices
 X64_RT_C    := common/efi/runtime.c common/efi/lib.c x86_64/core/rt.c
-X64_EFI_C   := $(addprefix common/efi/,ahci.c console.c devicepath.c disk.c event.c fat.c \
+X64_EFI_C   := $(addprefix common/efi/,ahci.c aml.c console.c devicepath.c disk.c event.c fat.c \
                  image.c memory.c nvme.c protocol.c tables.c textcon.c virtio.c virtio_pci.c)
 X64_C       := $(filter-out $(X64_RT_C),$(wildcard x86_64/*/*.c)) $(X64_EFI_C)
 X64_H       := $(wildcard x86_64/include/*.h) $(wildcard common/efi/include/*.h)

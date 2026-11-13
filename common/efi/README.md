@@ -36,10 +36,10 @@ disk.c, fat.c   Block I/O for each disk and its GPT/MBR partitions, a
                 file name
 fdt.c           read-only flattened device tree walker
 acpi.c, aml.c   ACPI table store (headers, checksums, XSDT, RSDP as the
-                ACPI 2.0 configuration table) and an AML writer (a copy
-                of x86_64/core/aml.c plus string names, QWord memory,
-                edge interrupts and translated I/O); the architecture
-                builds the tables (arm/uefi/acpi.c)
+                ACPI 2.0 configuration table) and the AML writer every
+                architecture's DSDT is written with; the architecture
+                builds the tables (arm/uefi/acpi.c, x86_64/core/acpi.c,
+                which keeps its own table store)
 memmap.c        usable RAM from device_type "memory", /reserved-memory
 fwcfg.c         QEMU fw_cfg, memory-mapped, with DMA for big reads
 memory.c, protocol.c, image.c, event.c, textcon.c, tables.c,
