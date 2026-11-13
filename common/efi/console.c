@@ -7,23 +7,32 @@
 #include "sq.h"
 #include <stdarg.h>
 
+/* A second console beside the serial port (net_sol.c), when set */
+void (*con_mirror_putc)(u8 c);
+int (*con_mirror_getc)(void);
+
 void con_putc(char c)
 {
     if (c == '\n')
-        arch_con_putc('\r');
-    arch_con_putc((u8)c);
+        con_raw('\r');
+    con_raw(c);
 }
 
 /* A byte as it is, no newline translation */
 void con_raw(char c)
 {
     arch_con_putc((u8)c);
+    if (con_mirror_putc)
+        con_mirror_putc((u8)c);
 }
 
 /* The next received byte, or -1 */
 int con_getc(void)
 {
-    return arch_con_getc();
+    int c = arch_con_getc();
+    if (c < 0 && con_mirror_getc)
+        c = con_mirror_getc();
+    return c;
 }
 
 void con_puts(const char *s)

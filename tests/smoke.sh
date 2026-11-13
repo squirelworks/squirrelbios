@@ -1466,5 +1466,44 @@ run x86_64-uefi-httpboot-404 "net: HTTP 404 for $HTTP_URL/no-such-file.efi|tryin
     -netdev user,id=n0,bootfile=$HTTP_URL/no-such-file.efi -device virtio-net-pci,netdev=n0
 kill $httpd 2>/dev/null; wait $httpd 2>/dev/null
 
+# Serial-over-LAN style console mirror (roadmap F3): fw_cfg names the far
+# end (tests/solcon.py on the host, 10.0.2.2 to the guest). The console
+# app's keys reach it only over the network, and only after its greeting
+# came out over the network: tests/solcon.py sends them when it sees it.
+# Then the mirrored text itself, on AArch64 too; and a bad setting.
+SOL_PORT=$((NETSIM_PORT + 3))
+NETCON=opt/org.squirrelworks/netconsole
+sol_log_check() {
+    if grep -qF -- "$2" "$TEST_DIR/$1.sol" && grep -qF -- "$3" "$TEST_DIR/$1.sol"; then
+        echo "PASS  $1-log"
+        pass=$((pass + 1))
+    else
+        echo "FAIL  $1-log (expected in the mirrored text: $2, $3)"
+        sed 's/^/      | /' "$TEST_DIR/$1.sol"
+        fail=$((fail + 1))
+    fi
+}
+rm -f $TEST_DIR/x86_64-uefi-sol.sol
+python3 tests/solcon.py $SOL_PORT $TEST_DIR/x86_64-uefi-sol.sol "APP con: hello" $TEST_DIR/x86_64-con.keys &
+solcon=$!
+sleep 0.3
+run x86_64-uefi-sol "net: console mirrored to 10.0.2.2:$SOL_PORT from 10.0.2.15:6665|APP con: hello|key=0000/0061 key=0000/0062 key=0001/0000 key=0008/0000 key=0000/0071|efi: image returned 0x0|!=bad" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd -fw_cfg name=$NETCON,string=10.0.2.2:$SOL_PORT \
+    -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-con.efi -netdev user,id=n0 -device virtio-net-pci,netdev=n0
+kill $solcon 2>/dev/null; wait $solcon 2>/dev/null
+sol_log_check x86_64-uefi-sol "APP con: hello" "key=0000/0061 key=0000/0062 key=0001/0000 key=0008/0000 key=0000/0071"
+rm -f $TEST_DIR/aarch64-uefi-sol.sol
+python3 tests/solcon.py $SOL_PORT $TEST_DIR/aarch64-uefi-sol.sol "no trigger" /dev/null &
+solcon=$!
+sleep 0.3
+run aarch64-uefi-sol "net: console mirrored to 10.0.2.2:$SOL_PORT from 10.0.2.15:6665|APP con=ok timer=ok time=ok var=ok dtb=ok|fw: halting" \
+    "$QEMU_ARM" -M virt -cpu cortex-a57 -bios $ARM_FD -fw_cfg name=$NETCON,string=10.0.2.2:$SOL_PORT \
+    -fw_cfg $X64_BOOT,file=$TEST_DIR/arm-efi-app.efi -netdev user,id=n0 -device virtio-net-device,netdev=n0
+kill $solcon 2>/dev/null; wait $solcon 2>/dev/null
+sol_log_check aarch64-uefi-sol "net: console mirrored to 10.0.2.2" "APP aarch64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok"
+run x86_64-uefi-sol-bad "net: console mirror: \"10.0.2.2\" is not A.B.C.D:PORT|trying the CSM" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd -fw_cfg name=$NETCON,string=10.0.2.2 \
+    -netdev user,id=n0 -device virtio-net-pci,netdev=n0
+
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]
