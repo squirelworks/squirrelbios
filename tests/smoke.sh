@@ -370,6 +370,18 @@ run x86-usbdisk-uas-xhci "usb: device 1 on root port 1: 46F4:0003, mass storage|
     -device qemu-xhci,id=xhci,addr=5 \
     -drive if=none,id=ud,format=raw,file=$TEST_DIR/x86-one-sector.bin,snapshot=on \
     -device usb-uas,id=uas,bus=xhci.0 -device scsi-hd,bus=uas.0,drive=ud
+# Stall recovery: a test build sends one command with a bad CBW
+# signature, which the disk stalls. Reset recovery (Bulk-Only Mass
+# Storage Reset, CLEAR_FEATURE(ENDPOINT_HALT) on both bulk endpoints, the
+# host side reset too) and one retry keep INT 13h working, on each of the
+# four controllers
+for hc in xhci:qemu-xhci ehci:usb-ehci ohci:pci-ohci uhci:piix3-usb-uhci; do
+    run x86-usbdisk-stall-${hc%%:*} "disk: USB disk (bulk-only)|via-boot-sector|int13=ok tty=ok|!boot halted" \
+        "$QEMU_X86" -bios $TEST_DIR/x86-usbfault.rom \
+        -device ${hc#*:},id=hc,addr=5 \
+        -drive if=none,id=ud,format=raw,file=$TEST_DIR/x86-int13.bin,snapshot=on \
+        -device usb-storage,bus=hc.0,drive=ud
+done
 # The disk behind a hub, with a keyboard and a mouse on the same xHCI:
 # all three are kept, and twenty keys still arrive after the boot
 if KBD_NAME=x86-usbdisk-kbd KBD_IMG=$TEST_DIR/x86-kbd-many.bin KBD_KEYS=20 KBD_USBDISK=xhci.0,port=2.3 \

@@ -65,6 +65,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/x86-bda.bin $(TEST_DIR)/x86-a20.bin \
              $(TEST_DIR)/x86-pit.bin $(TEST_DIR)/x86-kbd.bin $(TEST_DIR)/x86-kbd-many.bin $(TEST_DIR)/x86-mouse.bin \
              $(TEST_DIR)/x86-vbe.bin $(TEST_DIR)/x86-vbe-text.bin $(TEST_DIR)/x86-vbe-bank.bin \
+             $(TEST_DIR)/x86-usbfault.rom \
              $(TEST_DIR)/x86-time.bin $(TEST_DIR)/x86-vid.bin \
              $(TEST_DIR)/x86-write.bin $(TEST_DIR)/x86-int15a20.bin \
              $(TEST_DIR)/x86-slave.bin $(TEST_DIR)/x86-acpi.bin \
@@ -443,6 +444,10 @@ $(TEST_DIR)/x86-vbe-text.bin: tests/x86-vbe.asm | $(TEST_DIR)
 # VBE: 640x480x8 through the banked window at A000h, and the palette
 $(TEST_DIR)/x86-vbe-bank.bin: tests/x86-vbe-bank.asm | $(TEST_DIR)
 	$(NASM) -f bin $< -o $@
+# The legacy BIOS with a fault: its 8th USB disk command (a read at
+# runtime) goes out with a bad CBW signature, for stall recovery's tests
+$(TEST_DIR)/x86-usbfault.rom: x86/squirrel-bios.asm $(X86_SRCS) | $(TEST_DIR)
+	$(NASM) -f bin -DUSBD_FAULT=8 -i x86/ $< -o $@
 $(TEST_DIR)/x86-mouse.bin: tests/x86-mouse.asm | $(TEST_DIR)
 	$(NASM) -f bin $< -o $@
 
