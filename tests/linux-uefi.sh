@@ -35,7 +35,11 @@
 # (C5) gives each machine a TPM 2.0 from swtpm: the kernel must find it
 # through the DSDT's MSFT0101 device, and the event log it reads (the
 # TPM2 table's log area) must replay to its SHA-256 PCRs 0-7
-# (tests/tcglog.py). Logs are
+# (tests/tcglog.py). LINUX_EINJ=1 (F2) adds the kernel's einj module
+# (from the matching linux-modules package; needs zstd) and injects a
+# correctable memory error through debugfs twice, from CPU 0 and CPU 1:
+# on q35 the kernel must report both from the GHES the SMI handler
+# writes; on pc there is no EINJ table and loading einj must fail. Logs are
 # build/linux-uefi/linux-uefi-<machine>.log.
 
 set -eu
@@ -50,6 +54,7 @@ NUMA=${LINUX_NUMA:-0}
 PXB=${LINUX_PXB:-0}
 NV=${LINUX_NV:-0}
 TPM=${LINUX_TPM:-0}
+EINJ=${LINUX_EINJ:-0}
 MIRROR=${UBUNTU_ARCHIVE:-http://archive.ubuntu.com/ubuntu}
 OLD_MIRROR=${UBUNTU_OLD_RELEASES:-http://old-releases.ubuntu.com/ubuntu}
 
@@ -58,6 +63,8 @@ KERNEL_DEB=pool/main/l/linux/linux-image-unsigned-6.8.0-31-generic_6.8.0-31.31_a
 KERNEL_SHA=35115ceb5ddc1e73034a73d6b064b9c6d38c534f20279fd7229c510515b931d8
 BUSYBOX_DEB=pool/main/b/busybox/busybox-static_1.36.1-6ubuntu3_amd64.deb
 BUSYBOX_SHA=9936a597976a42088f977bfb204b84f02615feb42bb732ff1fdb8bef5b5c13f4
+MODULES_DEB=pool/main/l/linux/linux-modules-6.8.0-31-generic_6.8.0-31.31_amd64.deb
+MODULES_SHA=3f17f2c279257eb50e40da44390bdf8272c440ca078831c348773d1314b5c2fe
 
 die() { echo "linux-uefi: $*" >&2; exit 1; }
 
@@ -94,6 +101,7 @@ unpack() {
 
 fetch "$KERNEL_DEB" "$KERNEL_SHA"
 fetch "$BUSYBOX_DEB" "$BUSYBOX_SHA"
+[ "$EINJ" = 1 ] && fetch "$MODULES_DEB" "$MODULES_SHA"
 
 kernel=$WORK/vmlinuz-$KERNEL_VER.efi
 if [ ! -f "$kernel" ]; then
@@ -137,9 +145,31 @@ if grep -q squirrel.nv /proc/cmdline; then
     printf '\007\000\000\000run%s;' $((n + 1)) > $d/SqLinux$((n + 1))-$g
     echo "squirrel: nv after: $(cat $d/SqLinux*-$g | tr -d '\007\000')"
 fi
+if [ -f /einj.ko ]; then
+    if insmod /einj.ko; then
+        mount -t debugfs debugfs /sys/kernel/debug
+        e=/sys/kernel/debug/apei/einj
+        echo "squirrel: einj types: $(cat $e/available_error_type | tr '\t\n' '  ')"
+        echo 0x8 > $e/error_type
+        taskset 1 sh -c "echo 1 > $e/error_inject" && echo "squirrel: einj injected on CPU 0"
+        sleep 2
+        taskset 2 sh -c "echo 1 > $e/error_inject" && echo "squirrel: einj injected on CPU 1"
+        sleep 2
+        echo 0x10 > $e/error_type 2>/dev/null || echo "squirrel: einj type 0x10 refused"
+    else
+        echo "squirrel: einj: none"
+    fi
+fi
 poweroff -f
 INIT
 chmod 755 "$root/init"
+if [ "$EINJ" = 1 ]; then
+    command -v zstd >/dev/null || die "zstd not found (LINUX_EINJ needs it for einj.ko.zst)"
+    mods=$WORK/modules-deb
+    unpack "$(pwd)/$WORK/$(basename "$MODULES_DEB")" "$mods"
+    zstd -d -q -f "$mods/lib/modules/$KERNEL_VER/kernel/drivers/acpi/apei/einj.ko.zst" -o "$root/einj.ko"
+    rm -rf "$mods"
+fi
 initrd=$WORK/initramfs.cpio.gz
 (cd "$root" && find . | cpio -o -H newc -R 0:0 --quiet) | gzip -9 > "$initrd"
 
@@ -238,6 +268,19 @@ for machine in q35 pc; do
         grep -qE "ACPI: TPM2 0x[0-9A-F]+ 00004C \(v04 SQRLWK" "$log" || ok=0
         python3 tests/tcglog.py --linux "$log" | sed 's/^/linux-uefi-'"$machine"': /'
         python3 tests/tcglog.py --linux "$log" >/dev/null || ok=0
+    fi
+    if [ "$EINJ" = 1 ] && [ "$machine" = q35 ]; then
+        grep -qF "squirrel: einj types: 0x00000008" "$log" || ok=0
+        grep -qF "squirrel: einj injected on CPU 0" "$log" || ok=0
+        grep -qF "squirrel: einj injected on CPU 1" "$log" || ok=0
+        grep -qF "squirrel: einj type 0x10 refused" "$log" || ok=0
+        grep -qF "Hardware error from APEI Generic Hardware Error Source" "$log" || ok=0
+        grep -qF "section_type: memory error" "$log" || ok=0
+        # GHES prints a repeat of the same record once; both reach the
+        # machine-check log
+        [ "$(grep -c "mce: \[Hardware Error\]: Machine check events logged" "$log")" -ge 2 ] || ok=0
+    elif [ "$EINJ" = 1 ]; then
+        grep -qF "squirrel: einj: none" "$log" || ok=0
     fi
     if [ "$NV" = 1 ]; then
         grep -qF "squirrel: nv before: " "$log.1" || ok=0

@@ -110,6 +110,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/sb/sb-signed.efi $(TEST_DIR)/x86_64-sb-esp.img \
              $(TEST_DIR)/x86_64-numa.efi $(TEST_DIR)/x86_64-numa-dist.bin \
              $(TEST_DIR)/x86_64-tpm.efi \
+             $(TEST_DIR)/x86_64-einj.efi \
              $(TEST_DIR)/arm-efi-app.efi $(TEST_DIR)/arm-efi-app-exit.efi \
              $(TEST_DIR)/arm-efi-app-ebs.efi $(TEST_DIR)/arm-efi-initrd.img \
              $(TEST_DIR)/riscv-efi-app.efi $(TEST_DIR)/riscv-efi-app-exit.efi \
@@ -428,6 +429,11 @@ $(TEST_DIR)/arm-efi-fat.efi: tests/efi-fat.c tests/efi-app.ld tests/mkpe.py | $(
 $(TEST_DIR)/riscv-efi-fat.efi: tests/efi-fat.c tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)
 	$(RISCV64_CC) $(RV_APP_CFLAGS) $< -o $(@:.efi=.elf)
 	python3 tests/mkpe.py riscv64 $(@:.efi=.elf) $@
+# EINJ through SMM on q35 (F2): an OS's APEI steps, on the BSP and an AP
+X64_APP_CFLAGS := $(EFI_APP_CFLAGS) -m64 -mno-red-zone -mgeneral-regs-only -mcmodel=large
+$(TEST_DIR)/x86_64-einj.efi: tests/x86_64-einj.c tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)
+	$(CC64) $(X64_APP_CFLAGS) $< -o $(@:.efi=.elf)
+	python3 tests/mkpe.py x86_64 $(@:.efi=.elf) $@
 $(TEST_DIR)/arm-fat.img: tests/mkesp.py $(TEST_DIR)/arm-efi-fat.efi | $(TEST_DIR)
 	python3 tests/mkesp.py $(TEST_DIR)/arm-efi-fat.efi $@ BOOTAA64.EFI
 $(TEST_DIR)/riscv-fat.img: tests/mkesp.py $(TEST_DIR)/riscv-efi-fat.efi | $(TEST_DIR)

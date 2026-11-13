@@ -303,6 +303,9 @@ boxes in [TODO.md](TODO.md).
     from before a reset as CPER records in the BERT, HEST IA-32 MCE and
     corrected machine check sources with CMCI or polling and thresholds
     (EINJ still open)
+  - [ ] `f2-x86-einj`: x86_64 SMM in q35's TSEG (SMBASE relocation on
+    every CPU, locked at ExitBootServices) serving EINJ: a correctable
+    memory error written as CPER into a polled GHES
 - [ ] **F3** Management: IPMI/Redfish-style BMC stubs, serial-over-LAN, HTTP
   boot.
   - [x] `f3-uefi-net`: UEFI Simple Network Protocol on virtio-net and a

@@ -6,6 +6,7 @@
 #include "efi.h"
 #include "secure.h"
 #include "tpm.h"
+#include "smm.h"
 
 #define COM1 CONFIG_COM1_BASE
 
@@ -94,6 +95,7 @@ void arch_memory_reserve(void)
     if (de > ds)
         efi_memory_mark_attr(ds, (de - ds) / 4096, EfiRuntimeServicesData,
                              EFI_MEMORY_WB | EFI_MEMORY_RUNTIME);
+    smm_reserve();                                                      /* q35 TSEG */
 }
 
 /* Secure Boot decides whether an image may run (secure.c) */
