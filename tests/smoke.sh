@@ -1079,6 +1079,16 @@ run x86_64-acpi "acpi: FACP APIC HPET MCFG BERT HEST DSDT|~^acpi: RSDP at 0x[0-9
     "$QEMU_X86_64" -M q35 -smp 2 -bios x86_64/squirrel-bios.fd -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-acpi.efi
 run x86_64-acpi-pc "acpi: FACP APIC HPET BERT HEST DSDT|i440fx (PIIX4), PM at 0x600|APP acpi rsdp=ok xsdt=ok sums=ok facp=ok dsdt=ok facs=ok madt=ok cpus=3|APP acpi hpet=ok mcfg=none|APP smbios sm3=ok walk=ok types=ok|!=bad" \
     "$QEMU_X86_64" -M pc -smp 3 -bios x86_64/squirrel-bios.fd -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-acpi.efi
+# Extra PCI root buses (F1): QEMU pxb-pcie (q35) and pxb (pc) expanders
+# become DSDT host bridges PCxx with _BBN, their buses up to the next
+# root, and I/O and memory windows taken out of PCI0's
+run x86_64-pxb "pci: root bus 40-7f (PC40), I/O 6000-6fff, memory e0000000-e3ffffff|pci: root bus 80-ff (PC80), I/O 7000-7fff, memory e4000000-e7ffffff|APP acpi rsdp=ok xsdt=ok sums=ok facp=ok dsdt=ok facs=ok madt=ok cpus=2|!=bad" \
+    "$QEMU_X86_64" -M q35 -smp 2 -bios x86_64/squirrel-bios.fd -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-acpi.efi \
+    -device pxb-pcie,id=pxb1,bus_nr=0x80,bus=pcie.0 -device pcie-root-port,id=rp1,bus=pxb1,chassis=1 \
+    -device pxb-pcie,id=pxb2,bus_nr=0x40,bus=pcie.0 -device pcie-root-port,id=rp2,bus=pxb2,chassis=2
+run x86_64-pxb-pc "pci: root bus 20-ff (PC20), I/O 6000-6fff, memory e0000000-e3ffffff|APP acpi rsdp=ok xsdt=ok sums=ok facp=ok dsdt=ok facs=ok madt=ok cpus=1|!=bad" \
+    "$QEMU_X86_64" -M pc -bios x86_64/squirrel-bios.fd -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-acpi.efi \
+    -device pxb,id=b1,bus_nr=0x20,bus=pci.0 -device e1000,bus=b1
 # ResetSystem(EfiResetShutdown) without isa-debug-exit: SLP_TYP from
 # \_S5 on the PM block the firmware opened powers QEMU off (exit 0)
 run x86_64-s5 "APP ebs=ok|@exit=0|!=bad" \
@@ -1141,7 +1151,7 @@ numa_nodes() {     # numa_nodes N MB_PER_NODE CPUS_PER_NODE
     done
 }
 NUMA_APP="-fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-numa.efi"
-run x86_64-numa "numa: 2 nodes: 96 MB 160 MB|acpi: FACP APIC HPET MCFG SRAT SLIT BERT HEST DSDT|APP numa sums=ok madt=4/0 srat=4 cpu=0,0,1,1 mem=0:0+96,1:96+160 slit=2:1020,2010|APP numa bert=ok hest=ok|!=bad" \
+run x86_64-numa "numa: 2 nodes: 96 MB 160 MB|acpi: FACP APIC HPET MCFG SRAT SLIT HMAT BERT HEST DSDT|APP numa sums=ok madt=4/0 srat=4 cpu=0,0,1,1 mem=0:0+96,1:96+160 slit=2:1020,2010 hmat=0>0,1>1 lb=0 cache=0|APP numa bert=0 hest=2/10|!=bad" \
     "$QEMU_X86_64" -M q35 -m 256 -smp 4,sockets=2,cores=2 \
     -object memory-backend-ram,id=nm0,size=96M -numa node,nodeid=0,cpus=0-1,memdev=nm0 \
     -object memory-backend-ram,id=nm1,size=160M -numa node,nodeid=1,cpus=2-3,memdev=nm1 \
@@ -1150,14 +1160,54 @@ run x86_64-numa "numa: 2 nodes: 96 MB 160 MB|acpi: FACP APIC HPET MCFG SRAT SLIT
 run x86_64-numa-4g "numa: 4 nodes: 1024 MB 1024 MB 1024 MB 1024 MB|APP numa sums=ok madt=8/0 srat=8 cpu=0,0,1,1,2,2,3,3 mem=0:0+1024,1:1024+1024,2:4096+1024,3:5120+1024 slit=4:10202020,20102020,20201020,20202010|!=bad" \
     "$QEMU_X86_64" -M q35 -m 4G -smp 8 $(numa_nodes 4 1024 2) -bios x86_64/squirrel-bios.fd $NUMA_APP
 # shellcheck disable=SC2046
-run x86_64-numa-64 "smp: 64 CPUs|numa: 4 nodes|APP numa sums=ok madt=64/0 srat=64 cpu=0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,|,3,3 mem=0:0+128,1:128+128,2:256+128,3:384+128 slit=4:|APP numa bert=ok hest=ok|!=bad" \
+run x86_64-numa-64 "smp: 64 CPUs|numa: 4 nodes|APP numa sums=ok madt=64/0 srat=64 cpu=0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,|,3,3 mem=0:0+128,1:128+128,2:256+128,3:384+128 slit=4:|APP numa bert=0 hest=2/10|!=bad" \
     "$QEMU_X86_64" -M q35 -m 512 -smp 64 $(numa_nodes 4 128 16) -bios x86_64/squirrel-bios.fd $NUMA_APP
 # shellcheck disable=SC2046
 run x86_64-numa-dist "APP numa sums=ok madt=2/0 srat=2 cpu=0,1 mem=0:0+128,1:128+128 slit=2:1031,3110|!=bad" \
     "$QEMU_X86_64" -M pc -m 256 -smp 2 $(numa_nodes 2 128 1) -bios x86_64/squirrel-bios.fd $NUMA_APP \
     -fw_cfg name=opt/org.squirrelworks/numa-distance,file=$TEST_DIR/x86_64-numa-dist.bin
-run x86_64-numa-none "APP numa sums=ok madt=2/0 srat=none slit=none|APP numa bert=ok hest=ok|!=bad" \
+# HMAT (F1): QEMU's own HMAT and SLIT (-machine hmat=on, -numa hmat-lb,
+# hmat-cache and dist) are taken from the tables it offers in
+# etc/acpi/tables; node 2 has memory and no CPUs. Without hmat=on the
+# HMAT names each node's initiator, the memory-only node getting the
+# nearest node with CPUs by the SLIT.
+NUMA3="-object memory-backend-ram,id=nm0,size=128M -object memory-backend-ram,id=nm1,size=128M -object memory-backend-ram,id=nm2,size=64M"
+HMAT_LB="-numa hmat-lb,initiator=0,target=0,hierarchy=memory,data-type=access-latency,latency=5 -numa hmat-lb,initiator=0,target=0,hierarchy=memory,data-type=access-bandwidth,bandwidth=400M \
+    -numa hmat-lb,initiator=0,target=1,hierarchy=memory,data-type=access-latency,latency=10 -numa hmat-lb,initiator=0,target=1,hierarchy=memory,data-type=access-bandwidth,bandwidth=200M \
+    -numa hmat-lb,initiator=0,target=2,hierarchy=memory,data-type=access-latency,latency=30 -numa hmat-lb,initiator=0,target=2,hierarchy=memory,data-type=access-bandwidth,bandwidth=100M \
+    -numa hmat-lb,initiator=1,target=0,hierarchy=memory,data-type=access-latency,latency=10 -numa hmat-lb,initiator=1,target=0,hierarchy=memory,data-type=access-bandwidth,bandwidth=200M \
+    -numa hmat-lb,initiator=1,target=1,hierarchy=memory,data-type=access-latency,latency=5 -numa hmat-lb,initiator=1,target=1,hierarchy=memory,data-type=access-bandwidth,bandwidth=400M \
+    -numa hmat-lb,initiator=1,target=2,hierarchy=memory,data-type=access-latency,latency=40 -numa hmat-lb,initiator=1,target=2,hierarchy=memory,data-type=access-bandwidth,bandwidth=100M"
+run x86_64-numa-hmat "numa: HMAT from QEMU (-numa hmat-lb)|acpi: FACP APIC HPET MCFG SRAT SLIT HMAT BERT HEST DSDT|APP numa sums=ok madt=2/0 srat=2 cpu=0,1 mem=0:0+128,1:128+128,2:256+64 slit=3:103117,311028,172810 hmat=0>0,1>1,0>2 lb=2 cache=1|!=bad" \
+    "$QEMU_X86_64" -M q35,hmat=on -m 320 -smp 2 $NUMA3 \
+    -numa node,nodeid=0,cpus=0,memdev=nm0,initiator=0 -numa node,nodeid=1,cpus=1,memdev=nm1,initiator=1 \
+    -numa node,nodeid=2,memdev=nm2,initiator=0 \
+    -numa dist,src=0,dst=1,val=31 -numa dist,src=0,dst=2,val=17 -numa dist,src=1,dst=2,val=28 \
+    $HMAT_LB -numa hmat-cache,node-id=2,size=8M,level=1,associativity=direct,policy=write-back,line=64 \
+    -bios x86_64/squirrel-bios.fd $NUMA_APP
+run x86_64-numa-initiator "numa: HMAT with the initiator of each node|APP numa sums=ok madt=2/0 srat=2 cpu=0,1 mem=0:0+128,1:128+128,2:256+64 slit=3:102140,211017,401710 hmat=0>0,1>1,1>2 lb=0 cache=0|!=bad" \
+    "$QEMU_X86_64" -M pc -m 320 -smp 2 $NUMA3 \
+    -numa node,nodeid=0,cpus=0,memdev=nm0 -numa node,nodeid=1,cpus=1,memdev=nm1 -numa node,nodeid=2,memdev=nm2 \
+    -numa dist,src=0,dst=1,val=21 -numa dist,src=0,dst=2,val=40 -numa dist,src=1,dst=2,val=17 \
+    -bios x86_64/squirrel-bios.fd $NUMA_APP
+run x86_64-numa-none "APP numa sums=ok madt=2/0 srat=none slit=none hmat=none|APP numa bert=0 hest=2/10|!=bad" \
     "$QEMU_X86_64" -M q35 -smp 2 -bios x86_64/squirrel-bios.fd $NUMA_APP
+
+# x86-64 firmware: machine checks left in the banks survive a reset and
+# become BERT records on the next boot (F2). Once the app has seen an
+# empty BERT, the monitor injects a corrected error on CPU 1 and a fatal
+# one on CPU 0; the fatal one resets the machine (CR4.MCE is set and
+# nothing handles #MC), and the next boot finds both.
+MCE_SOCK=$TEST_DIR/x86_64-mce.sock
+rm -f "$MCE_SOCK"
+python3 tests/monitor.py "$MCE_SOCK" $TEST_DIR/x86_64-mce.log "APP numa bert=0" \
+    "mce 1 2 0x9000000000000000 0 0 0" "mce 0 1 0xb600000000000000 0x5 0x123000 0" &
+mce_mon=$!
+run x86_64-mce "mce: 10 banks, CMCI no, 0 errors from before reset|APP numa bert=0 hest=2/10|mce: 10 banks, CMCI no, 2 errors from before reset|mce: APIC ID 0 bank 1 status 0xb600000000000000 addr 0x123000 misc 0x0 (fatal)|mce: APIC ID 1 bank 2 status 0x9000000000000000 addr 0x0 misc 0x0 (corrected)|APP numa bert=2 hest=2/10|!=bad" \
+    "$QEMU_X86_64" -M q35 -smp 2 -bios x86_64/squirrel-bios.fd $NUMA_APP \
+    -chardev socket,id=mon0,path=$MCE_SOCK,server=on,wait=off -mon chardev=mon0,mode=readline
+kill "$mce_mon" 2>/dev/null; wait "$mce_mon" 2>/dev/null
+rm -f "$MCE_SOCK"
 
 # x86-64 firmware: only the runtime pages stay the OS's after
 # ExitBootServices (runtime services code, then their data with the
@@ -1245,6 +1295,16 @@ run riscv64-uefi-disk "disk: virtio-blk at 0x0000000010008000 (virtio-mmio v2), 
 run riscv64-uefi-disk-other-arch "disk: virtio-blk at 0x0000000010008000 (virtio-mmio v1)|fs: FAT32 on partition|fw: nothing to boot (no -kernel, no opt/org.squirrelworks/boot.efi, no boot disk), halting|!APP riscv64" \
     "$QEMU_RISCV" -M virt -bios $RV_UEFI \
     -drive if=none,file=$TEST_DIR/arm-esp.img,format=raw,id=d0 -device virtio-blk-device,drive=d0
+# x86-64 firmware: the runtime services after ExitBootServices, with
+# every boot services page overwritten by the app (as an OS may reuse
+# them) and the app's own page tables and stack. ResetSystem then powers
+# off (isa-debug-exit -> status 1).
+for m in q35 pc; do
+run x86_64-rt-after-exit-$m "efi: ExitBootServices|APP rt pages=ok time=ok var=ok next=ok|@exit=1|!=bad" \
+    "$QEMU_X86_64" -M $m -smp 2 -bios x86_64/squirrel-bios.fd \
+    -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
+    -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-rt.efi
+done
 
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

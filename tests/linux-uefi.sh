@@ -25,7 +25,10 @@
 # LINUX_TIMEOUT (seconds, default 300) bounds each run, LINUX_MEM
 # (default 512M) and LINUX_SMP (default 2) set the guest. LINUX_NUMA=N
 # (F1) splits the CPUs and memory into N QEMU -numa nodes; the runs then
-# also need the kernel to find N nodes through the SRAT and its SLIT. Logs are
+# also need the kernel to find N nodes through the SRAT and its SLIT.
+# LINUX_PXB=1 (F1) adds an extra PCI root bus 0x40 (pxb-pcie with a root
+# port on q35, pxb on pc) with a virtio-rng behind it; the kernel must
+# find the PC40 host bridge and the device on bus 0x41. Logs are
 # build/linux-uefi/linux-uefi-<machine>.log.
 
 set -eu
@@ -37,6 +40,7 @@ TIMEOUT=${LINUX_TIMEOUT:-300}
 MEM=${LINUX_MEM:-512M}
 SMP=${LINUX_SMP:-2}
 NUMA=${LINUX_NUMA:-0}
+PXB=${LINUX_PXB:-0}
 MIRROR=${UBUNTU_ARCHIVE:-http://archive.ubuntu.com/ubuntu}
 OLD_MIRROR=${UBUNTU_OLD_RELEASES:-http://old-releases.ubuntu.com/ubuntu}
 
@@ -134,9 +138,17 @@ fi
 
 fail=0
 for machine in q35 pc; do
+    pxb_args=
+    if [ "$PXB" = 1 ]; then
+        if [ "$machine" = q35 ]; then
+            pxb_args="-device pxb-pcie,id=pxb1,bus_nr=0x40,bus=pcie.0 -device pcie-root-port,id=rp1,bus=pxb1,chassis=1 -device virtio-rng-pci,bus=rp1"
+        else
+            pxb_args="-device pxb,id=pxb1,bus_nr=0x40,bus=pci.0 -device virtio-rng-pci,bus=pxb1"
+        fi
+    fi
     log=$WORK/linux-uefi-$machine.log
     : > "$log"
-    "$QEMU_X86" -M "$machine" -bios "$FIRMWARE" -m "$MEM" -smp "$SMP" $numa_args -no-reboot \
+    "$QEMU_X86" -M "$machine" -bios "$FIRMWARE" -m "$MEM" -smp "$SMP" $numa_args $pxb_args -no-reboot \
         -fw_cfg name=opt/org.squirrelworks/boot.efi,file="$kernel" \
         -fw_cfg name=opt/org.squirrelworks/initrd,file="$initrd" \
         -fw_cfg "name=opt/org.squirrelworks/cmdline,string=console=ttyS0 panic=-1" \
@@ -164,6 +176,10 @@ for machine in q35 pc; do
         grep -qF "squirrel: numa nodes: $NUMA" "$log" || ok=0
         grep -qE "ACPI: SRAT 0x[0-9A-F]+ [0-9A-F]+ \(v03 SQRLWK" "$log" || ok=0
         grep -qE "ACPI: SLIT 0x" "$log" || ok=0
+    fi
+    if [ "$PXB" = 1 ]; then
+        grep -qF "ACPI: PCI Root Bridge [PC40] (domain 0000 [bus 40-ff])" "$log" || ok=0
+        grep -qE "pci 0000:41:[0-9a-f]{2}\.0: \[1af4:10(05|44)\]" "$log" || ok=0
     fi
     grep -qE "ACPI Error|ACPI BIOS Error|Firmware Bug" "$log" && ok=0
     if [ "$ok" = 1 ]; then

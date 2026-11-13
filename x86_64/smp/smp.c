@@ -510,6 +510,14 @@ static void sort_order(int slots)
     }
 }
 
+/* Run fn on the BSP, then on every enabled AP, and wait for them */
+void smp_run_all(EFI_AP_PROCEDURE fn, void *arg)
+{
+    fn(arg);
+    if (ncpus > 1)
+        startup_all_aps(&mp, fn, 0, NULL, 0, arg, NULL);
+}
+
 void smp_init(void)
 {
     u32 want = expected_cpus();
