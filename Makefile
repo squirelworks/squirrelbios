@@ -30,7 +30,7 @@ X64_FD      := x86_64/squirrel-bios.fd
 # .rt.*: link.ld puts them in the pages the OS keeps after ExitBootServices
 X64_RT_C    := common/efi/runtime.c common/efi/lib.c x86_64/core/rt.c
 X64_EFI_C   := $(addprefix common/efi/,ahci.c aml.c console.c devicepath.c disk.c event.c fat.c \
-                 image.c memory.c nvme.c protocol.c tables.c textcon.c virtio.c virtio_pci.c)
+                 image.c memory.c nvme.c protocol.c tables.c textcon.c virtio.c virtio_pci.c xhci.c)
 X64_C       := $(filter-out $(X64_RT_C),$(wildcard x86_64/*/*.c)) $(X64_EFI_C) $(wildcard common/efi/net_*.c)
 X64_H       := $(wildcard x86_64/include/*.h) $(wildcard common/efi/include/*.h) common/efi/net.h
 X64_FLASH   := 0x100000
@@ -113,6 +113,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/riscv-efi-app.efi $(TEST_DIR)/riscv-efi-app-exit.efi \
              $(TEST_DIR)/riscv-efi-app-ebs.efi \
              $(TEST_DIR)/arm-esp.img $(TEST_DIR)/riscv-esp.img \
+             $(TEST_DIR)/arm-fat.img $(TEST_DIR)/riscv-fat.img \
              $(TEST_DIR)/x86_64-rt.efi \
              $(TEST_DIR)/tftp/snp-x64.efi $(TEST_DIR)/tftp/snp-aa64.efi $(TEST_DIR)/tftp/snp-rv64.efi
 
@@ -406,6 +407,17 @@ $(TEST_DIR)/riscv-efi-app-exit.efi: tests/efi-app.c tests/efi-app.ld tests/mkpe.
 $(TEST_DIR)/riscv-efi-app-ebs.efi: tests/efi-app.c tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)
 	$(RISCV64_CC) $(RV_APP_CFLAGS) -DEBS $< -o $(@:.efi=.elf)
 	python3 tests/mkpe.py riscv64 $(@:.efi=.elf) $@
+# The FAT write test app (tests/efi-fat.c) on an ESP of its own (D4)
+$(TEST_DIR)/arm-efi-fat.efi: tests/efi-fat.c tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)
+	$(AARCH64_CC) $(ARM_APP_CFLAGS) $< -o $(@:.efi=.elf)
+	python3 tests/mkpe.py aarch64 $(@:.efi=.elf) $@
+$(TEST_DIR)/riscv-efi-fat.efi: tests/efi-fat.c tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)
+	$(RISCV64_CC) $(RV_APP_CFLAGS) $< -o $(@:.efi=.elf)
+	python3 tests/mkpe.py riscv64 $(@:.efi=.elf) $@
+$(TEST_DIR)/arm-fat.img: tests/mkesp.py $(TEST_DIR)/arm-efi-fat.efi | $(TEST_DIR)
+	python3 tests/mkesp.py $(TEST_DIR)/arm-efi-fat.efi $@ BOOTAA64.EFI
+$(TEST_DIR)/riscv-fat.img: tests/mkesp.py $(TEST_DIR)/riscv-efi-fat.efi | $(TEST_DIR)
+	python3 tests/mkesp.py $(TEST_DIR)/riscv-efi-fat.efi $@ BOOTRISCV64.EFI
 # An -initrd for the app started as -kernel: 3000 bytes starting "Sq"
 $(TEST_DIR)/arm-efi-initrd.img: | $(TEST_DIR)
 	python3 -c 'import sys; sys.stdout.buffer.write(b"Sq" + bytes(2998))' > $@
