@@ -1185,3 +1185,19 @@ Roadmap E1, `PLATFORM=ppc64le-powernv`; details in
 The OS must not assume anything below `0x30000000` other than its own
 image and the initrd survives from the firmware, and must not write the
 firmware's region while it uses the OPAL calls.
+
+## SPARC (QEMU sun4u)
+
+Roadmap E2, `PLATFORM=sparc64-sun4u`; details in
+[sparc64/README.md](../sparc64/README.md).
+
+| | |
+|---|---|
+| Image source | `-kernel`, loaded by QEMU at its ELF addresses (Linux: `0x404000`); address and size from fw_cfg |
+| Entry | the kernel's entry, TL 0, privileged, interrupts off, MMUs on: RAM below 32 MB 1:1 and the firmware at `0xf0000000`, in locked 4 MB TLB entries listed in `/virtual-memory` `translations` |
+| Boot argument | `%o4` = IEEE 1275-style client interface handler, `%o0`/`%o1` = initrd address / size |
+| Memory description | `/memory` `reg` and `available`, through the client interface |
+| Console | 16550 at `0x1fe020003f8` (EBus), also `/chosen` `stdout` |
+| Interrupts | `PSTATE.IE` = 0; the firmware's trap table handles window spills and fills until the OS sets its own (`SUNW,set-trap-table`) |
+| CPUs running | The boot CPU only |
+| Firmware services | the client interface: device tree, console, MMU translate / TLB load, claim / release, milliseconds, exit |

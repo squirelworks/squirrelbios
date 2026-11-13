@@ -2,9 +2,10 @@
  * Original code, written from the DMTF SMBIOS Reference Specification
  * (DSP0134) 3.x: the 64-bit "_SM3_" entry point and structure types 0
  * (firmware), 1 (system), 3 (chassis), 4 (processor), 16/17/19
- * (memory array, device, mapped range), 32 (boot status) and 127 (end).
+ * (memory array, device, mapped range), 32 (boot status), 38 (IPMI
+ * device), 42 (Redfish host interface, DSP0270) and 127 (end).
  * The entry point is published as the SMBIOS 3 configuration table. */
-#include "acpi.h"
+#include "mgmt.h"
 
 static const EFI_GUID smbios3_guid =
     { 0xf2fd1544, 0x9794, 0x4a2c, { 0x99, 0x2e, 0xe5, 0xbb, 0xcf, 0x20, 0xe3, 0x94 } };
@@ -249,6 +250,58 @@ static void memory(u64 ram)
     }
 }
 
+/* Type 38: the BMC on KCS, byte-spaced I/O ports, no interrupt */
+static void type38(void)
+{
+    u8 *s = begin(38, 0x12, NULL);
+    if (!s)
+        return;
+    s[4] = 1;                           /* KCS */
+    s[5] = ipmi_version();
+    s[6] = 0x20;                        /* the BMC's I2C target address */
+    s[7] = 0xFF;                        /* no NV storage device */
+    put64(s + 8, IPMI_KCS_BASE | 1);    /* bit 0: I/O space */
+    s[0x10] = 0x00;                     /* byte boundaries, address bit 0 is 0 */
+    s[0x11] = 0;                        /* no interrupt */
+    strings(NULL, 0);
+}
+
+/* Type 42: a network host interface (40h) on a PCI NIC (descriptor
+ * type 03h), with one Redfish over IP protocol record (04h) */
+static void type42(const struct redfish_hi *hi)
+{
+    u8 name_len = (u8)strlen(hi->hostname);
+    u8 *s = begin(42, (u8)(6 + 9 + 1 + 2 + 91 + name_len), NULL);
+    if (!s)
+        return;
+    s[4] = 0x40;
+    s[5] = 9;
+    u8 *d = s + 6;
+    d[0] = 0x03;
+    put16(d + 1, hi->vendor);
+    put16(d + 3, hi->device);
+    put16(d + 5, hi->sub_vendor);
+    put16(d + 7, hi->sub_device);
+    d += 9;
+    *d++ = 1;                           /* one protocol record */
+    *d++ = 0x04;                        /* Redfish over IP */
+    *d++ = (u8)(91 + name_len);
+    memcpy(d, hi->uuid, 16);
+    d[16] = 1;                          /* host address: static */
+    d[17] = 1;                          /* IPv4 */
+    memcpy(d + 18, hi->host_ip, 4);
+    memcpy(d + 34, hi->mask, 4);
+    d[50] = 1;                          /* service address: static */
+    d[51] = 1;
+    memcpy(d + 52, hi->service_ip, 4);
+    memcpy(d + 68, hi->mask, 4);
+    put16(d + 84, hi->port);
+    put32(d + 86, 0);                   /* no VLAN */
+    d[90] = name_len;
+    memcpy(d + 91, hi->hostname, name_len);
+    strings(NULL, 0);
+}
+
 void smbios_init(void)
 {
     EFI_PHYSICAL_ADDRESS base = 0;
@@ -282,6 +335,11 @@ void smbios_init(void)
     for (u32 i = 0; i < cpus && !full; i++)
         type4(i);
     memory(ram);
+    struct redfish_hi hi;
+    if (ipmi_present())
+        type38();
+    if (redfish_host_interface(&hi))
+        type42(&hi);
     u8 *s = begin(32, 0x0B, NULL);
     if (s)
         strings(NULL, 0);

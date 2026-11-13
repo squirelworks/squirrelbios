@@ -1738,5 +1738,69 @@ for smoke in tests/*.smoke; do
     [ -f "$smoke" ] && . "./$smoke"
 done
 [ "$skipped" -eq 0 ] || echo "$skipped skipped"
+# x86-64 firmware: platform management (F3). With QEMU's simulated BMC on
+# KCS (0xCA2) the firmware asks it for its device ID, and describes it in
+# the SPMI table and SMBIOS type 38; with a NIC as well, a Redfish host
+# interface (SMBIOS type 42) names that NIC and the service's addresses.
+# x86_64-ipmi reads all three as an OS would and talks to the BMC itself.
+BMC="-device ipmi-bmc-sim,id=bmc0,guid=5b3c1f6e-7d2a-4e9b-8c41-0a1b2c3d4e5f -device isa-ipmi-kcs,bmc=bmc0"
+run x86_64-ipmi "ipmi: BMC on KCS at 0xca2, device 0x20 rev 0, firmware 0.0, IPMI 2.0|acpi: FACP APIC HPET MCFG BERT HEST EINJ SPMI DSDT|APP ipmi spmi=ok smbios38=ok kcs=ok redfish=ok|efi: image returned 0x0|!=bad" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd $BMC -nic user,model=virtio-net-pci -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-ipmi.efi
+run x86_64-ipmi-pc "APP ipmi spmi=ok smbios38=ok kcs=ok redfish=none|!=bad" \
+    "$QEMU_X86_64" -M pc -bios x86_64/squirrel-bios.fd $BMC -nic none -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-ipmi.efi
+run x86_64-ipmi-none "ipmi: none|APP ipmi none|!SPMI" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-ipmi.efi
+
+# E3 stretch ports: LoongArch64 on QEMU virt and MIPS on QEMU Malta. Each
+# reaches its prompt and hands off to a test kernel: by autoboot, through
+# the prompt (help, info, an unknown command, backspace, boot), and with
+# no kernel at all. Skipped, not failed, when the firmware was not built
+# (no cross binutils) or QEMU lacks the machine.
+QEMU_LA=${QEMU_LOONGARCH:-qemu-system-loongarch64}
+QEMU_MIPS=${QEMU_MIPS:-qemu-system-mips}
+stretch_missing() {
+    if [ ! -f "$1" ]; then
+        echo "$1 not built: no cross binutils"
+    elif ! command -v "$2" >/dev/null 2>&1; then
+        echo "no $2"
+    elif ! "$2" -M help 2>/dev/null | grep -q "^$3 "; then
+        echo "$2 has no $3 machine"
+    fi
+}
+stretch_skip() {
+    reason=$1
+    shift
+    for n in "$@"; do
+        echo "SKIP  $n ($reason)"
+    done
+}
+why=$(stretch_missing loongarch/squirrel-bios.bin "$QEMU_LA" virt)
+if [ -n "$why" ]; then
+    stretch_skip "$why" loongarch64-virt loongarch64-virt-prompt loongarch64-virt-nokernel
+else
+    run loongarch64-virt "SquirrelBIOS LoongArch64 (virt)|mem: 1024 MB|timer: 100000000 Hz|~^boot: kernel of [0-9]+ bytes at 0x00200000|boot: command line \"console=ttyS0 squirrel=1\"|autoboot in 2 s, press a key for the prompt|boot: jumping to 0x00200000|KERNEL loongarch64 pc=ok mem=ok a2=ok cmdline=\"console=ttyS0 squirrel=1\"" \
+        "$QEMU_LA" -M virt -bios loongarch/squirrel-bios.bin \
+        -kernel $TEST_DIR/loongarch-kernel.bin -append "console=ttyS0 squirrel=1"
+    SERIAL_IN=$TEST_DIR/stretch-keys.txt
+    run loongarch64-virt-prompt "mem: 2048 MB|autoboot stopped|sq> help|commands: help, info, boot|unknown command: foo (try help)|boot: jumping to 0x00200000|KERNEL loongarch64 pc=ok mem=ok a2=ok cmdline=none" \
+        "$QEMU_LA" -M virt -m 2G -bios loongarch/squirrel-bios.bin -kernel $TEST_DIR/loongarch-kernel.bin
+    run loongarch64-virt-nokernel "boot: no -kernel image|sq> help|commands: help, info, boot|boot: no kernel loaded|!KERNEL|!autoboot" \
+        "$QEMU_LA" -M virt -bios loongarch/squirrel-bios.bin
+    SERIAL_IN=
+fi
+why=$(stretch_missing mips/squirrel-bios.bin "$QEMU_MIPS" malta)
+if [ -n "$why" ]; then
+    stretch_skip "$why" mips-malta mips-malta-prompt mips-malta-nokernel
+else
+    run mips-malta "SquirrelBIOS MIPS (malta)|mem: 128 MB|timer: 160000000 Hz|~^boot: kernel of [0-9]+ bytes at 0x80100000, entry 0x80100000|boot: command line \"console=ttyS0 squirrel=1\"|autoboot in 2 s, press a key for the prompt|boot: jumping to 0x80100000|KERNEL mips pc=ok argc=2 memsize=ok env=ok cmdline=\"console=ttyS0 squirrel=1\"" \
+        "$QEMU_MIPS" -M malta -bios $TEST_DIR/mips-flash.img
+    SERIAL_IN=$TEST_DIR/stretch-keys.txt
+    run mips-malta-prompt "mem: 256 MB|autoboot stopped|sq> help|commands: help, info, boot|unknown command: foo (try help)|boot: jumping to 0x80100000|KERNEL mips pc=ok argc=1 memsize=ok env=ok cmdline=none" \
+        "$QEMU_MIPS" -M malta -m 256 -bios $TEST_DIR/mips-flash-nocmd.img
+    run mips-malta-nokernel "boot: no kernel in the flash|sq> help|commands: help, info, boot|boot: no kernel loaded|!KERNEL|!autoboot" \
+        "$QEMU_MIPS" -M malta -bios mips/squirrel-bios.bin
+    SERIAL_IN=
+fi
+
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

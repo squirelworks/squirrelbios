@@ -13,6 +13,7 @@
 #include "acpi.h"
 #include "smp.h"
 #include "tpm.h"
+#include "mgmt.h"
 
 static const EFI_GUID acpi20_guid =
     { 0x8868e871, 0xe4f1, 0x11d3, { 0xbc, 0x22, 0x00, 0x80, 0xc7, 0x3c, 0x88, 0x81 } };
@@ -545,6 +546,7 @@ void acpi_init(void)
     n += acpi_numa_tables(tables + n, take);
     n += acpi_ras_tables(tables + n, take);
     n += tpm_acpi_tables(tables + n, take);
+    n += ipmi_acpi_tables(tables + n, take);
 
     u8 *xsdt = take(36 + 8 * (u32)n);
     u8 *rsdt = take(36 + 4 * (u32)n);
@@ -581,7 +583,7 @@ void acpi_init(void)
         if (!memcmp(tables[i], "SRAT", 4) || !memcmp(tables[i], "SLIT", 4) ||
             !memcmp(tables[i], "HMAT", 4) || !memcmp(tables[i], "BERT", 4) ||
             !memcmp(tables[i], "HEST", 4) || !memcmp(tables[i], "EINJ", 4) ||
-            !memcmp(tables[i], "TPM2", 4))
+            !memcmp(tables[i], "TPM2", 4) || !memcmp(tables[i], "SPMI", 4))
             printf(" %c%c%c%c", tables[i][0], tables[i][1], tables[i][2], tables[i][3]);
     printf(" DSDT (%u bytes of AML) FACS\n", dsdt_len - 36);
 }
