@@ -120,6 +120,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/riscv-efi-app-ebs.efi \
              $(TEST_DIR)/arm-esp.img $(TEST_DIR)/riscv-esp.img \
              $(TEST_DIR)/arm-fat.img $(TEST_DIR)/riscv-fat.img \
+             $(TEST_DIR)/rpi3b.dtb $(TEST_DIR)/arm-esp-ebs.img \
              $(TEST_DIR)/x86_64-rt.efi $(TEST_DIR)/x86_64-nv.efi \
              $(TEST_DIR)/sb/sb-authrt.efi \
              $(TEST_DIR)/tftp/snp-x64.efi $(TEST_DIR)/tftp/snp-aa64.efi $(TEST_DIR)/tftp/snp-rv64.efi
@@ -204,7 +205,7 @@ $(ARM_BIN): arm/squirrel-bios.elf
 define ARM_EFI_BUILD
 	@mkdir -p $(1)
 	$(AARCH64_CC) $(ARM_EFI_CFLAGS) $(2) -c arm/uefi/start.S -o $(1)/start.o
-	$(AARCH64_CC) $(ARM_EFI_CFLAGS) $(2) -Wl,-T,arm/uefi/link.ld -Wl,--defsym,FW_BASE=$(ARM_FW_BASE) \
+	$(AARCH64_CC) $(ARM_EFI_CFLAGS) $(2) -Wl,-T,arm/uefi/link.ld -Wl,--defsym,FW_BASE=$(or $(3),$(ARM_FW_BASE)) \
 	    -Wl,--build-id=none -Wl,--no-warn-rwx-segments $(1)/start.o $(ARM_EFI_C) $(EFI_C) -o $(1)/body.elf
 	$(AARCH64)objcopy -O binary $(1)/body.elf $@
 endef
@@ -293,7 +294,7 @@ build/aarch64-virt/%/squirrel-bios.bin: build/aarch64-virt/%/squirrel-bios.elf
 
 build/aarch64-uefi/%/squirrel-bios.fd: arm/uefi/start.S $(ARM_EFI_C) arm/uefi/arch.h \
 		arm/uefi/link.ld $(EFI_C) $(EFI_H) build/aarch64-uefi/%/config.h
-	$(call ARM_EFI_BUILD,$(@D)/obj,-DSQ_CONFIG -I$(@D))
+	$(call ARM_EFI_BUILD,$(@D)/obj,-DSQ_CONFIG -I$(@D),$(shell sed -n 's/^CONFIG_FW_BASE=//p' configs/aarch64-uefi/$*.cfg))
 
 build/riscv64-uefi/%/config.inc: configs/riscv64-uefi/%.cfg tools/mkconfig.sh
 	@mkdir -p $(@D)
@@ -469,6 +470,12 @@ $(TEST_DIR)/tftp/snp-rv64.efi: $(SNP_APP_DEPS)
 # \\EFI\\BOOT\\BOOTRISCV64.EFI
 $(TEST_DIR)/arm-esp.img: tests/mkesp.py $(TEST_DIR)/arm-efi-app.efi | $(TEST_DIR)
 	python3 tests/mkesp.py $(TEST_DIR)/arm-efi-app.efi $@ BOOTAA64.EFI
+# The Raspberry Pi stand-in (D2): QEMU raspi3b's device tree and an SD
+# card whose boot file calls ExitBootServices and powers off
+$(TEST_DIR)/rpi3b.dtb: tests/mkrpidtb.py | $(TEST_DIR)
+	python3 tests/mkrpidtb.py $@
+$(TEST_DIR)/arm-esp-ebs.img: tests/mkesp.py $(TEST_DIR)/arm-efi-app-ebs.efi | $(TEST_DIR)
+	python3 tests/mkesp.py $(TEST_DIR)/arm-efi-app-ebs.efi $@ BOOTAA64.EFI
 $(TEST_DIR)/riscv-esp.img: tests/mkesp.py $(TEST_DIR)/riscv-efi-app.efi | $(TEST_DIR)
 	python3 tests/mkesp.py $(TEST_DIR)/riscv-efi-app.efi $@ BOOTRISCV64.EFI
 
@@ -847,7 +854,8 @@ $(SRST_IMAGES:=.elf): %.elf: %.o
 $(SRST_IMAGES:=.bin): %.bin: %.elf
 	$(RISCV64)objcopy -O binary $< $@
 
-test: x86 x86_64 arm riscv arm-uefi riscv-uefi config-default $(TEST_BINS) build/x86_64-uefi/x2apic/squirrel-bios.fd
+test: x86 x86_64 arm riscv arm-uefi riscv-uefi config-default $(TEST_BINS) build/x86_64-uefi/x2apic/squirrel-bios.fd \
+		build/aarch64-uefi/rpi3/squirrel-bios.fd
 	tests/smoke.sh
 
 # Optional, not part of make test: downloads Ubuntu 24.04's arm64 kernel

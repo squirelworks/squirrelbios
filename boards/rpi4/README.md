@@ -29,51 +29,67 @@ From the BCM2711 device tree (*verify* against the board's own):
 
 | What | Where | Ours today |
 |---|---|---|
-| RAM | from `0`, 1-8 GB; the first ~1 GB (or ~3 GB) is the "low" range the DMA engines reach | `virt`: RAM from 1 GB |
-| Peripherals ("low peripheral" mode, the default) | `0xFE000000`-`0xFF7FFFFF` | Device memory below 1 GB: matches |
-| UART0 (PL011) | `0xFE201000`, clock 48 MHz | `arm,pl011` from the tree: works as is |
+| RAM | from `0`, 1-8 GB; the first ~1 GB (or ~3 GB) is the "low" range the DMA engines reach | mapped from `/memory`: works |
+| Peripherals ("low peripheral" mode, the default) | `0xFE000000`-`0xFF7FFFFF` | Device memory wherever `/memory` has no RAM: works |
+| UART0 (PL011) | `0xFE201000`, clock 48 MHz | `arm,pl011` from the tree, set-up kept: works |
 | Mini UART (UART1) | `0xFE215040`; the default console on the GPIO header unless `dtoverlay=disable-bt` gives it the PL011 | not supported |
 | GIC-400 (GICv2) | distributor `0xFF841000`, CPU interface `0xFF842000` | `arm,gic-400` is already matched |
 | Generic timer | 54 MHz (`CNTFRQ`, set by the stub) | read from `CNTFRQ`: works |
-| RTC | none | `GetTime` would fail: needs a fallback (e.g. an epoch in a variable) |
-| Power off / reset | the PM watchdog block (`brcm,bcm2835-pm`); no PSCI with the stock stub | PSCI only |
-| SD card | EMMC2 (SDHCI) | none |
+| RTC | none | `GetTime` fails: needs a fallback (e.g. an epoch in a variable) |
+| Power off / reset | the PM watchdog block (`brcm,bcm2835-pm`); no PSCI with the stock stub | the watchdog when there is no PSCI |
+| SD card | EMMC2 (SDHCI) | `sdhci.c` (tested on the Pi 3's SDHCI in QEMU) |
 | USB | VL805 xHCI on PCIe (its firmware loaded through the VideoCore mailbox) | none |
 | PCIe | Broadcom STB host bridge, not ECAM | `pci-host-ecam-generic` only |
 
-## Gaps, file by file
+## What works now (the `rpi4` and `rpi3` builds)
 
-- `arm/uefi/start.S` copies the image from flash at `0` to RAM at
-  `0x40100000`. On the Pi the image is already in RAM at `0x80000`, so it
-  needs an entry path that runs in place (or moves itself) and a link
-  address the build chooses (`FW_BASE` is a link-time symbol already).
-  `x0` carries the device tree, as here; `ARCH_DTB_ADDR` must become the
-  value `x0` had instead of a constant.
-- `arm/uefi/arch.c` builds an identity map with RAM assumed between 1 GB
-  and 256 GB and Device memory below 1 GB. On the Pi, RAM starts at 0 and
-  the peripherals sit just under 4 GB, so the map must come from the
-  device tree's `/memory` (Normal) with everything else Device.
-- Secondary cores: with no PSCI, Linux uses the spin table the stub left.
-  The firmware must keep that region reserved (the stub's page at `0`)
-  and must not install a PSCI method in its ACPI tables. For SBBR/ACPI
-  (and for the `PSCI` the FADT claims), a PSCI provider at EL3 is needed:
-  either our own small EL3 stub (`armstub=`) implementing `CPU_ON`,
-  `SYSTEM_OFF` and `SYSTEM_RESET` over the spin table and the PM
-  watchdog, or a third-party one. The first is original work worth doing
-  if this track continues.
-- `ResetSystem`: with PSCI absent, reset through the PM watchdog
-  (`PM_RSTC`/`PM_WDOG`, *verify* the bit layout in the BCM2835 peripherals
-  manual, which the BCM2711 keeps).
-- Boot media: an SDHCI driver (EMMC2) under `common/efi` would give Block
-  I/O; `disk.c`/`fat.c` already find `\EFI\BOOT\BOOTAA64.EFI` on it. USB
-  needs the Broadcom PCIe bridge, the VL805 firmware load and xHCI: much
-  more work (D4's shared xHCI would help).
-- ACPI: `arm/uefi/acpi.c` builds from the device tree, but it assumes
-  PSCI, a PL011 and an ECAM host; on the Pi, ACPI would be DT-only until
-  PSCI exists, which is what most Pi distributions use anyway.
-- Console: the default `config.txt` gives the PL011 to Bluetooth;
-  `dtoverlay=disable-bt` moves it to GPIO 14/15, which the firmware
-  already drives from the tree.
+`make PLATFORM=aarch64-uefi CONFIG=rpi4` builds
+`build/aarch64-uefi/rpi4/squirrel-bios.fd` for the Pi 4 (`rpi3` for the
+Pi 3, BCM2837). `make test` runs the `rpi3` build on QEMU's `raspi3b`
+machine (QEMU 8 has no `raspi4b`) in the `rpi3-uefi-sd` case, loaded
+the way the Pi's firmware loads `kernel8.img`:
+
+- **Entry in place.** Linked at `0x80000` (`CONFIG_FW_BASE`), so
+  `start.S` copies nothing; the device tree comes from `x0`, which is
+  what the Pi's stub (and QEMU's) passes. The `virt` build still takes it
+  from the start of RAM when `x0` is 0.
+- **Memory map from the tree.** `arch_mmu_init` reads `/memory` before
+  the MMU is on: Normal memory exactly where RAM is, Device elsewhere,
+  with 2 MB blocks in the gigabytes that hold both (RAM from 0, the
+  peripherals at `0x3F000000` on the Pi 3 and `0xFE000000` on the Pi 4).
+  Page 0 (the stub and the spin table) and the tree's `/memreserve/`
+  entries stay reserved.
+- **Devices through `ranges`.** `reg` is translated from the bus
+  addresses (`0x7E...`), so the PL011, the GIC-400 (Pi 4) and the rest
+  are found where the ARM sees them. A PL011 the firmware already
+  enabled (`enable_uart=1`) keeps its clock and baud rate.
+- **Reset and power off without PSCI.** Through the PM watchdog
+  (`brcm,bcm2835-pm-wdt`): a full reset, or reset status partition 63
+  for "halt" (QEMU powers off on it).
+- **SD card.** `common/efi/sdhci.c` with `sdhci_dt.c`: the Pi 3's
+  `brcm,bcm2835-sdhci` and the Pi 4's `brcm,bcm2711-emmc2`, 32-bit
+  register accesses only, PIO. The ESP's `\EFI\BOOT\BOOTAA64.EFI`
+  boots from it.
+
+To try it on a Pi 4 (not yet done on hardware): copy
+`squirrel-bios.fd` to the FAT boot partition, and in `config.txt` set
+`arm_64bit=1`, `kernel=squirrel-bios.fd`, `enable_uart=1` and
+`dtoverlay=disable-bt` (the PL011 on GPIO 14/15). The console is the
+PL011 at 115200.
+
+## Still open
+
+- **On hardware:** everything above has run only on QEMU's `raspi3b`.
+  The EMMC2 on the Pi 4 needs its base clock: the tree's
+  `clock-frequency` if present, else the capabilities, else a 50 MHz
+  guess (*verify*; the firmware mailbox can report the real one).
+- **PSCI.** Linux uses the stub's spin table (the CPUs' `enable-method`
+  stays as the tree says), so SMP works without it, but the ACPI tables
+  need PSCI and are skipped (`acpi: no tables`). An EL3 stub of our own
+  (`armstub=`) could reuse `arm/uefi/el3.c`'s PSCI over the spin table.
+- **RTC.** None: `GetTime` fails (the test app reports `time=bad`).
+- **USB.** The VL805 xHCI sits behind the Broadcom PCIe bridge (not
+  ECAM) and needs its firmware loaded through the mailbox first.
 
 ## Pi 5 (BCM2712)
 
@@ -85,13 +101,6 @@ the cores start through it. The debug UART is a PL011 on the dedicated
 RP1 chip behind PCIe, so SD (on the SoC) is the realistic first boot
 medium. Peripherals above 4 GB mean the identity map must cover the
 whole 40-bit range the tree uses, which the current 1 TB map does.
-
-## A first milestone
-
-`kernel=squirrel-bios.fd` on a Pi 4 with `dtoverlay=disable-bt`, `enable_uart=1`:
-the banner, the memory map from the tree and the GIC on the PL011, then
-"nothing to boot". That needs only the in-place entry, the map from
-`/memory`, and a reset fallback. SDHCI and an EL3 PSCI stub come after.
 
 ## Reading
 

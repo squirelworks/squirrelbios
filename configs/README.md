@@ -9,7 +9,7 @@
 | `aarch64-virt` | `squirrel-bios.bin` | QEMU AArch64 `virt` (`-bios`) |
 | `riscv64-virt` | `squirrel-bios.bin` | QEMU RISC-V `virt` (`-bios`) |
 | `x86_64-uefi` | `squirrel-bios.fd` | QEMU q35 or PC, 64-bit (`qemu-system-x86_64 -bios`) |
-| `aarch64-uefi` | `squirrel-bios.fd` | QEMU AArch64 `virt`, UEFI-class (`-bios`) |
+| `aarch64-uefi` | `squirrel-bios.fd` | QEMU AArch64 `virt`, UEFI-class (`-bios`); Raspberry Pi 3/4 as `kernel8.img` (`rpi3`, `rpi4`) |
 | `riscv64-uefi` | `squirrel-bios.bin` | QEMU RISC-V `virt`, UEFI-class on the SBI (`-bios`) |
 | `ppc64le-powernv` | `squirrel-bios.bin` | QEMU `powernv9` / `powernv10` (`qemu-system-ppc64 -bios`) |
 
@@ -76,7 +76,12 @@ The C sources include `config.h` when built with `-DSQ_CONFIG`.
 | Key | Default | Meaning |
 |---|---|---|
 | `CONFIG_UART_BASE` | `0x09000000` | PL011 console until the device tree is read (its `arm,pl011` node wins) |
-| `CONFIG_FWCFG_BASE` | `0x09020000` | QEMU fw_cfg MMIO when the device tree has no `qemu,fw-cfg-mmio` node |
+| `CONFIG_FWCFG_BASE` | `0x09020000` | QEMU fw_cfg MMIO when the device tree has no `qemu,fw-cfg-mmio` node; `0` for none |
+| `CONFIG_FW_BASE` | `0x40100000` | Link (and run) address; a boot loader that loads the image there (the Raspberry Pi's, at `0x80000`) runs it in place with the device tree in `x0` |
+
+`rpi4.cfg` and `rpi3.cfg` build the Raspberry Pi images
+([boards/rpi4](../boards/rpi4/README.md)); `make test` runs `rpi3` on
+QEMU's `raspi3b`.
 
 The C sources include `config.h` when built with `-DSQ_CONFIG`.
 

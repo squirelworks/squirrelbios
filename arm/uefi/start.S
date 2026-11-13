@@ -7,12 +7,16 @@
  * _start copies the image to RAM at FW_BASE (where it is linked), jumps
  * there, clears .bss, sets the stack and the vector base for the current
  * EL, lets FP/SIMD run, then calls arch_mmu_init (identity map, caches
- * on) and efi_main with the device tree QEMU placed at the start of RAM. */
+ * on) and efi_main with the device tree: the one x0 held at entry (a
+ * boot loader's, such as the Raspberry Pi's, which loads this image to
+ * RAM at its link address so nothing is copied), else the one QEMU virt
+ * places at the start of RAM for -bios. */
 
         .section .text.entry, "ax"
         .globl _start
 _start:
         msr     daifset, #0xf
+        mov     x21, x0                 // a device tree from a boot loader, or 0
         adr     x9, _start              // where we run now (flash)
         ldr     x10, =__fw_start        // where we are linked (RAM)
         ldr     x11, =__image_end
@@ -54,11 +58,14 @@ _start:
         b       6f
 5:      msr     vbar_el3, x1            // EL3: arch_mmu_init reports it
 6:      isb
+        cbnz    x21, 7f
+        mov     x21, #0x40000000        // QEMU virt: at the start of RAM
+7:      mov     x0, x21
         bl      arch_mmu_init
-        mov     x0, #0x40000000         // ARCH_DTB_ADDR
+        mov     x0, x21
         bl      efi_main
-7:      wfi
-        b       7b
+8:      wfi
+        b       8b
         .ltorg
 
 /* image_call(entry, handle, system table, &saved_sp) */

@@ -13,14 +13,15 @@
 #define ARCH_NAME            "aarch64-uefi"
 #define ARCH_PE_MACHINE      0xAA64
 #define ARCH_ALLOC_TOP       0x8000000000ULL    /* 512 GB: the first level-0 entry */
-#define ARCH_TEST_ADDR       0x41000000ULL      /* RAM base + 16 MB */
+#define ARCH_TEST_ADDR       arch_test_addr()   /* RAM base + 16 MB */
+unsigned long long arch_test_addr(void);
 /* The whole image (code, data, stack) stays for the runtime services */
 #define ARCH_FW_MEMORY_TYPE  EfiRuntimeServicesCode
 #define ARCH_FW_MEMORY_ATTR  EFI_MEMORY_RUNTIME
 #define ARCH_BOOT_FILE       u"\\EFI\\BOOT\\BOOTAA64.EFI"
 
-/* QEMU virt puts the device tree at the start of RAM for -bios */
-#define ARCH_DTB_ADDR        0x40000000UL
+/* The device tree: x0 at entry, or QEMU virt's at the start of RAM for
+ * -bios (start.S) */
 
 /* acpi.c: the ACPI tables, from the device tree */
 void arm_acpi_init(void);

@@ -43,10 +43,16 @@ link.ld   linked at FW_BASE (0x40100000), right after the 1 MB device
   (`-M virt,virtualization=on`), where the firmware runs in the EL2
   regime and hands EL2 to the OS (Linux reports `CPU: All CPU(s)
   started at EL2`). EL3 (`secure=on`) is reported and halts.
-- **Memory.** An identity map of the first 1 TB with 1 GB blocks: Device
-  memory below 1 GB and from 256 GB, Normal write-back for 1-256 GB, where
-  `virt` puts RAM; caches on, as the UEFI AArch64 binding requires.
-  Allocations stay below 512 GB.
+- **Memory.** An identity map of the first 1 TB, made from the device
+  tree's `/memory` before the MMU is on: Normal write-back where there is
+  RAM, Device memory everywhere else, with 1 GB blocks and 2 MB blocks in
+  a gigabyte that holds both; caches on, as the UEFI AArch64 binding
+  requires. Allocations stay below 512 GB.
+- **Where it runs.** On `virt` it copies itself from flash to
+  `0x40100000` and finds the device tree at the start of RAM. Linked
+  elsewhere (`CONFIG_FW_BASE`) and loaded there by a boot loader, it runs
+  in place with the tree from `x0`: the Raspberry Pi builds
+  (`configs/aarch64-uefi/rpi4.cfg`, `rpi3.cfg`; see `boards/rpi4`).
 - **Memory map.** RAM from the device tree. The device tree itself is
   boot services data; the whole firmware image is runtime services code
   (`EFI_MEMORY_RUNTIME`) and the PL031 page runtime MMIO, so `GetTime`,

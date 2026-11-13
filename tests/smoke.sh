@@ -1670,6 +1670,18 @@ run x86_64-uefi-sd "disk: SD card at PCI 00:03.0 (SDSC v2, RCA 4567), 131072 sec
 run aarch64-uefi-sd-empty "disk: SD host at PCI 00:02.0: no card|disk: no disks" \
     "$QEMU_ARM" -M virt -cpu cortex-a57 -bios $ARM_FD -device sdhci-pci
 
+# Raspberry Pi bring-up (D2, boards/rpi4) on QEMU's raspi3b, the closest
+# machine QEMU 8 has: the rpi3 build (configs/aarch64-uefi/rpi3.cfg),
+# loaded like kernel8.img at 0x80000 at EL2 with the device tree in x0
+# (tests/mkrpidtb.py). It runs in place, maps RAM from 0 and the
+# peripherals at 0x3F000000 from the tree, boots the app from the SD card
+# on the BCM2835 SDHCI, and with no PSCI powers off through the PM
+# watchdog (reset status partition 63), so QEMU exits 0. No RTC: time=bad.
+RPI_FD=build/aarch64-uefi/rpi3/squirrel-bios.fd
+run rpi3-uefi-sd "SquirrelBIOS 2.1.0 (aarch64-uefi)|~^cpu: Arm part d03 .*, EL2, |uart: PL011 at 0x000000003f201000|psci: none; reset and power-off through the watchdog at 0x000000003f100000|gic: none in the device tree|fw: running at 0x0000000000080000-|mem: 0000000000000000-000000003bffffff usable|efi: 0000000000000000-0000000000000fff reserved|efi: memory services ok|disk: SD card at MMIO 0x003f300000 (SDSC v2, RCA 4567), 131072 sectors|APP aarch64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|APP con=ok timer=ok time=bad var=ok dtb=ok acpi=none|efi: ExitBootServices|@exit=0" \
+    "$QEMU_ARM" -M raspi3b -kernel $RPI_FD -dtb $TEST_DIR/rpi3b.dtb \
+    -drive if=sd,format=raw,file=$TEST_DIR/arm-esp-ebs.img,snapshot=on
+
 # x86-64 firmware: measured boot (C5) with a TPM 2.0 on TIS, from swtpm
 # (skipped without it). The firmware starts the TPM, extends PCR 0 with
 # its flash image, PCR 7 with the Secure Boot variables, PCR 4 with each
