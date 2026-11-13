@@ -9,6 +9,7 @@
  * x64 convention through image_call below, which keeps the stack pointer
  * that Exit returns to. */
 #include "efi.h"
+#include "secure.h"
 
 #define IMAGE_MAGIC 0x6567616d49517153ULL       /* "SqQImage" */
 
@@ -205,6 +206,9 @@ EFI_STATUS EFIAPI efi_load_image(BOOLEAN boot_policy, EFI_HANDLE parent, void *p
         return EFI_INVALID_PARAMETER;
     if (!src)
         return EFI_NOT_FOUND;                   /* loading from a device comes later */
+    EFI_STATUS v = secure_check_image(src, size);
+    if (v != EFI_SUCCESS)
+        return v;
     void *mem;
     if (efi_allocate_pool(EfiBootServicesData, sizeof(struct image), &mem) != EFI_SUCCESS)
         return EFI_OUT_OF_RESOURCES;
