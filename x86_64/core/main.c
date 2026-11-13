@@ -3,6 +3,7 @@
 #include "efi.h"
 #include "smp.h"
 #include "acpi.h"
+#include "secure.h"
 
 extern char __fw_start[], __fw_end[];
 
@@ -141,6 +142,7 @@ void fw_main(void)
     smp_init();
 
     efi_initrd_init();
+    secure_init();
     efi_disk_init();
     if (efi_boot_esp()) {
         printf("fw: halting\n");
