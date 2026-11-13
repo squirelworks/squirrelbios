@@ -17,7 +17,8 @@ jobs:
             make nasm gcc-aarch64-linux-gnu gcc-riscv64-linux-gnu \
             qemu-system-x86 qemu-system-arm qemu-system-misc swtpm swtpm-tools \
             gcc-powerpc64le-linux-gnu qemu-system-ppc \
-            gcc-sparc64-linux-gnu qemu-system-sparc
+            gcc-sparc64-linux-gnu qemu-system-sparc \
+            binutils-loongarch64-linux-gnu binutils-mips-linux-gnu qemu-system-mips
 
       - name: make test
         run: make test
