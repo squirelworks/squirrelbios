@@ -289,18 +289,18 @@ void fw_secondary(uint32_t pir)
 
 static int cpus_from_dt(const void *fdt)
 {
-    for (int n = fdt_find_device_type(fdt, -1, "cpu"); n >= 0;
-         n = fdt_find_device_type(fdt, n, "cpu")) {
+    for (int n = dtb_find_device_type(fdt, -1, "cpu"); n >= 0;
+         n = dtb_find_device_type(fdt, n, "cpu")) {
         int len;
-        const uint8_t *s = fdt_prop(fdt, n, "ibm,ppc-interrupt-server#s", &len);
+        const uint8_t *s = dtb_prop(fdt, n, "ibm,ppc-interrupt-server#s", &len);
         if (!s) {
-            s = fdt_prop(fdt, n, "reg", &len);
+            s = dtb_prop(fdt, n, "reg", &len);
             if (!s)
                 continue;
             len = 4;
         }
         if (tb_freq == 512000000)
-            tb_freq = fdt_prop_u32(fdt, n, "timebase-frequency", 512000000);
+            tb_freq = dtb_prop_u32(fdt, n, "timebase-frequency", 512000000);
         for (int i = 0; i + 4 <= len; i += 4) {
             if (ncpus == CONFIG_MAX_CPUS) {
                 fw_printf("cpu: more than %d threads, the rest stay parked\n", CONFIG_MAX_CPUS);
@@ -466,7 +466,7 @@ static void opal_props(struct fdt_writer *w)
 
 static int is_root_child(const void *fdt, int node, const char *name)
 {
-    return !strcmp(fdt_name(fdt, node), name) && fdt_parent(fdt, node) == fdt_root(fdt);
+    return !strcmp(dtb_name(fdt, node), name) && dtb_parent(fdt, node) == dtb_root(fdt);
 }
 
 static int dt_skip(const void *src, int node, const char *prop, void *vctx)
@@ -488,12 +488,12 @@ static void dt_hook(struct fdt_writer *w, const void *src, int node, void *vctx)
     } else if (is_root_child(src, node, "chosen")) {
         fdtw_prop_str(w, "linux,stdout-path", "/ibm,opal/consoles/serial@0");
         fdtw_prop_str(w, "stdout-path", "/ibm,opal/consoles/serial@0");
-    } else if (node == fdt_root(src)) {
+    } else if (node == dtb_root(src)) {
         /* The root's own properties are done; add ibm,opal if the
          * source tree has none (its children come after this) */
         int has = 0;
-        for (int c = fdt_first_child(src, node); c >= 0; c = fdt_next_sibling(src, c))
-            if (!strcmp(fdt_name(src, c), "ibm,opal"))
+        for (int c = dtb_first_child(src, node); c >= 0; c = dtb_next_sibling(src, c))
+            if (!strcmp(dtb_name(src, c), "ibm,opal"))
                 has = 1;
         if (!has) {
             ctx->saw_opal = 1;
@@ -514,7 +514,7 @@ static void *build_dt(void)
     for (; fw_get_be64(rsv + 8); rsv += 16)
         fdtw_reserve(&w, fw_get_be64(rsv), fw_get_be64(rsv + 8));
     fdtw_reserve(&w, FW_BASE, FW_SIZE);
-    fdtw_copy(&w, fdt_in, fdt_root(fdt_in), dt_hook, dt_skip, &ctx);
+    fdtw_copy(&w, fdt_in, dtb_root(fdt_in), dt_hook, dt_skip, &ctx);
     uint32_t size = fdtw_finish(&w, boot_pir);
     if (!size) {
         fw_puts("dt: device tree does not fit in 256 KB\n");
@@ -577,7 +577,7 @@ static void cmd_info(int argc, char **argv)
 {
     (void)argc, (void)argv;
     fw_printf("SquirrelBIOS %s (ppc64le-powernv)\n", SQ_VERSION);
-    fw_printf("model: %s\n", (const char *)fdt_prop(fdt_in, fdt_root(fdt_in), "model", 0));
+    fw_printf("model: %s\n", (const char *)dtb_prop(fdt_in, dtb_root(fdt_in), "model", 0));
     fw_printf("ram: %lu MB, firmware at 0x%lx (%lu KB)\n", ram_size >> 20, FW_BASE, FW_SIZE >> 10);
     fw_printf("cpus: %d threads, boot PIR 0x%x\n", ncpus, boot_pir);
     for (int i = 0; i < ncpus; i++)
@@ -588,11 +588,11 @@ static void cmd_info(int argc, char **argv)
 
 static void cmd_dt(int argc, char **argv)
 {
-    int node = fdt_path(fdt_in, argc > 1 ? argv[1] : "/");
+    int node = dtb_path(fdt_in, argc > 1 ? argv[1] : "/");
     if (node < 0)
         fw_printf("dt: no node %s\n", argv[1]);
     else
-        fdt_print(fdt_in, node);
+        dtb_print(fdt_in, node);
 }
 
 static void cmd_date(int argc, char **argv)
@@ -645,8 +645,8 @@ static const struct fw_cmd commands[] = {
 static uint64_t node_addr(const void *fdt, const char *compat)
 {
     uint64_t a;
-    int n = fdt_find_compatible(fdt, -1, compat);
-    if (n < 0 || fdt_reg(fdt, n, 0, &a, 0))
+    int n = dtb_find_compatible(fdt, -1, compat);
+    if (n < 0 || dtb_reg(fdt, n, 0, &a, 0))
         return 0;
     return a;
 }
@@ -655,21 +655,21 @@ void fw_main(const void *fdt, uint32_t pir)
 {
     fdt_in = fdt;
     boot_pir = pir;
-    if (fdt_check(fdt))
+    if (dtb_check(fdt))
         for (;;)
             relax();        /* no tree: no console either */
 
-    int serial = fdt_find_compatible(fdt, -1, "ns16550");
-    if (serial >= 0 && !fdt_reg(fdt, serial, 0, &uart, 0))
-        uart_init(fdt_prop_u32(fdt, serial, "clock-frequency", 1843200));
+    int serial = dtb_find_compatible(fdt, -1, "ns16550");
+    if (serial >= 0 && !dtb_reg(fdt, serial, 0, &uart, 0))
+        uart_init(dtb_prop_u32(fdt, serial, "clock-frequency", 1843200));
     fw_printf("\nSquirrelBIOS POWER %s (ppc64le-powernv)\n", SQ_VERSION);
-    fw_printf("model: %s\n", (const char *)fdt_prop(fdt, fdt_root(fdt), "model", 0));
+    fw_printf("model: %s\n", (const char *)dtb_prop(fdt, dtb_root(fdt), "model", 0));
 
     /* RAM */
-    for (int n = fdt_find_device_type(fdt, -1, "memory"); n >= 0;
-         n = fdt_find_device_type(fdt, n, "memory")) {
+    for (int n = dtb_find_device_type(fdt, -1, "memory"); n >= 0;
+         n = dtb_find_device_type(fdt, n, "memory")) {
         uint64_t base, size;
-        for (int i = 0; !fdt_reg(fdt, n, i, &base, &size); i++) {
+        for (int i = 0; !dtb_reg(fdt, n, i, &base, &size); i++) {
             fw_printf("mem: 0x%016lx-0x%016lx\n", base, base + size - 1);
             if (base + size > ram_size)
                 ram_size = base + size;

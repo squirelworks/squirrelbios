@@ -46,8 +46,9 @@ X64_CFLAGS  := -m64 -std=gnu11 -O2 -Wall -Wextra -Werror -ffreestanding -fno-bui
 ARM_FD      := arm/uefi/squirrel-bios.fd
 ARM_FW_BASE := 0x40100000
 AARCH64_CC  ?= $(AARCH64)gcc
-EFI_C       := $(wildcard common/efi/*.c)
-EFI_H       := $(wildcard common/efi/include/*.h) common/efi/net.h
+# common/fw/fdt.c: the device tree reader shared with the Phase E ports
+EFI_C       := $(wildcard common/efi/*.c) common/fw/fdt.c
+EFI_H       := $(wildcard common/efi/include/*.h) common/efi/net.h common/fw/fdt.h
 EFI_CFLAGS  := -std=gnu11 -O2 -Wall -Wextra -Werror -ffreestanding -fno-builtin \
                -fno-pic -fno-pie -no-pie -fno-stack-protector -fno-asynchronous-unwind-tables \
                -nostdlib -static -Icommon/efi/include
