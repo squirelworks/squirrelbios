@@ -12,6 +12,11 @@
  *   make riscv
  * Run:
  *   qemu-system-riscv64 -M virt -nographic -bios riscv/squirrel-bios.bin -kernel image.bin
+ *
+ * Assembled with --defsym UEFI=1 (make riscv-uefi, riscv/uefi/), the boot
+ * hart always enters the UEFI core linked at UEFI_BASE in S-mode instead,
+ * with a2 = the -kernel image QEMU loaded (fw_dynamic_info next_addr) or
+ * 0; the core then starts that image as an EFI application.
  */
 
 /* Build configuration (configs/riscv64-virt/*.cfg, see configs/README.md).
@@ -64,6 +69,7 @@
         .equ FW_BASE,           0x80000000
         .equ FW_SIZE,           0x200000    /* 2 MB */
         .equ FW_PMPADDR,        (FW_BASE >> 2) | ((FW_SIZE / 2 - 1) >> 2)
+        .equ UEFI_BASE,         FW_BASE + FW_SIZE   /* riscv/uefi/link.ld */
 
 /* Flattened device tree (big-endian) */
         .equ FDT_MAGIC,         0xd00dfeed
@@ -185,10 +191,11 @@
         .equ SBI_EXT_RFENCE,    0x52464e43
         .equ SBI_EXT_HSM,       0x48534d
         .equ SBI_EXT_SRST,      0x53525354
+        .equ SBI_EXT_DBCN,      0x4442434e
         /* Not an SBI extension: probe_extension never reports it. The
          * riscv-ras smoke case ecalls it so the SBI path faults in M-mode. */
         .equ SBI_EXT_TEST_FAULT, 0x53515241 /* "SQRA" */
-        .equ SBI_SPEC_VERSION,  0x01000000  /* 1.0 */
+        .equ SBI_SPEC_VERSION,  0x02000000  /* 2.0: Linux probes DBCN only from 2.0 */
         .equ SBI_IMPL_ID,       0x5351      /* "SQ"; not BBL (0) or OpenSBI (1) */
         .equ SBI_IMPL_VERSION,  1
         .equ SBI_ERR_FAILED,    -1
@@ -244,6 +251,18 @@ _start:
         la a0, banner
         call puts
 
+        .ifdef UEFI
+        /* The UEFI core, in S-mode; s6 = the -kernel image for it, or 0 */
+        li s6, 0
+        beqz s2, 5f
+        ld t0, FWDYN_OFF_MAGIC(s2)
+        li t1, FWDYN_MAGIC
+        bne t0, t1, 5f
+        ld s6, FWDYN_OFF_NEXT(s2)
+5:      li s3, UEFI_BASE
+        li s4, MODE_S
+        j 2f
+        .endif
         beqz s2, no_kernel
         ld t0, FWDYN_OFF_MAGIC(s2)
         li t1, FWDYN_MAGIC
@@ -286,6 +305,9 @@ _start:
         mv a0, s0
         mv a1, s1
         li a2, 0
+        .ifdef UEFI
+        mv a2, s6
+        .endif
         fence.i
         li t0, MODE_M
         beq s4, t0, enter_m
@@ -439,6 +461,8 @@ sbi_call:
         beq a7, t0, sbi_hsm
         li t0, SBI_EXT_SRST
         beq a7, t0, sbi_srst
+        li t0, SBI_EXT_DBCN
+        beq a7, t0, sbi_dbcn
 sbi_not_supported:
         li a0, SBI_ERR_NOT_SUPPORTED
         j sbi_ret
@@ -870,6 +894,44 @@ sbi_probe_extension:
         beq a0, t0, sbi_ok
         li t0, SBI_EXT_SRST
         beq a0, t0, sbi_ok
+        li t0, SBI_EXT_DBCN
+        beq a0, t0, sbi_ok
+        li a1, 0
+        j sbi_ok
+
+/* Debug console extension (SBI 2.0), on the UART:
+ *   console_write (0): a0 = bytes, a1/a2 = physical address low/high
+ *   console_read (1): the same; takes what the UART has, maybe nothing
+ *   console_write_byte (2): a0 = the byte
+ * Write and read return a1 = the number of bytes done. On RV64 the high
+ * half of the address must be 0. a2 and a3 are restored by trap_ret. */
+sbi_dbcn:
+        li t0, 2
+        beq a6, t0, 3f
+        bgtu a6, t0, sbi_not_supported
+        bnez a2, sbi_invalid_param
+        mv a2, a1                           /* a2 = address */
+        mv a3, a0                           /* a3 = bytes asked for */
+        li a1, 0                            /* a1 = bytes done */
+        bnez a6, 2f
+1:      beq a1, a3, sbi_ok
+        lbu a0, 0(a2)
+        call putc
+        addi a2, a2, 1
+        addi a1, a1, 1
+        j 1b
+2:      beq a1, a3, sbi_ok
+        li t0, UART_BASE
+        lbu t1, UART_LSR(t0)
+        andi t1, t1, 1                      /* data ready */
+        beqz t1, sbi_ok
+        lbu t1, UART_THR(t0)                /* RBR */
+        sb t1, 0(a2)
+        addi a2, a2, 1
+        addi a1, a1, 1
+        j 2b
+3:      andi a0, a0, 0xff
+        call putc
         li a1, 0
         j sbi_ok
 
@@ -1520,7 +1582,11 @@ puthex:
         ret
 
 banner:         .asciz "SquirrelBIOS RISC-V\n"
+        .ifdef UEFI
+msg_jump:       .asciz "entering the UEFI core at 0x"
+        .else
 msg_jump:       .asciz "jumping to kernel at 0x"
+        .endif
 msg_mode:       .asciz ", next_mode="
 msg_bad_mode:   .asciz "boot: unsupported next_mode "
 msg_no_kernel:  .asciz "boot: no kernel image (pass -kernel to QEMU)\n"

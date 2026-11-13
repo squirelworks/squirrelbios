@@ -4,7 +4,9 @@ x86_64/*.fd
 arm/*.o
 arm/*.elf
 arm/*.bin
+arm/uefi/*.fd
 riscv/*.o
 riscv/*.elf
 riscv/*.bin
+riscv/uefi/*.bin
 build/
