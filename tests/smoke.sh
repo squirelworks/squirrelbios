@@ -428,6 +428,29 @@ NET_TFTP="tftp=$TEST_DIR/tftp"
 run x86-netboot "net: virtio-net, MAC 52:54:00:12:34:56|net: address 10.0.2.15 from 10.0.2.2, boot file x86-netboot.bin|net: loaded 5000 bytes|OS-ENTRY x86 netboot=ok" \
     "$QEMU_X86" -bios x86/squirrel-bios.rom \
     -netdev user,id=n0,$NET_TFTP,bootfile=x86-netboot.bin -device virtio-net-pci,netdev=n0,addr=5
+# Routed network boot: on a simulated network (tests/netsim.py, joined
+# through a QEMU UDP socket) the boot server 192.168.50.5 sits behind the
+# router 10.0.2.1 that DHCP names (options 1 and 3). Only the router
+# answers ARP and the server only takes frames sent to the router, so the
+# 200000-byte file arrives only when the firmware routes. Without option
+# 3 the firmware says why it cannot reach the server.
+NETSIM_PORT=$((20000 + $$ % 20000))
+python3 tests/netsim.py $NETSIM_PORT $((NETSIM_PORT + 1)) $TEST_DIR/tftp x86-netboot-big.bin &
+netsim=$!
+sleep 0.3
+run x86-netboot-routed "net: address 10.0.2.15 from 192.168.50.5, boot file x86-netboot-big.bin|net: boot server on another network, through router 10.0.2.1|net: loaded 200000 bytes|OS-ENTRY x86 netboot=ok" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -netdev socket,id=n0,udp=127.0.0.1:$NETSIM_PORT,localaddr=127.0.0.1:$((NETSIM_PORT + 1)) \
+    -device virtio-net-pci,netdev=n0
+kill $netsim 2>/dev/null; wait $netsim 2>/dev/null
+python3 tests/netsim.py $NETSIM_PORT $((NETSIM_PORT + 1)) $TEST_DIR/tftp x86-netboot.bin norouter &
+netsim=$!
+sleep 0.3
+run x86-netboot-norouter "net: the boot server is on another network and DHCP gave no router|!netboot=ok" \
+    "$QEMU_X86" -bios x86/squirrel-bios.rom \
+    -netdev socket,id=n0,udp=127.0.0.1:$NETSIM_PORT,localaddr=127.0.0.1:$((NETSIM_PORT + 1)) \
+    -device virtio-net-pci,netdev=n0
+kill $netsim 2>/dev/null; wait $netsim 2>/dev/null
 run x86-netboot-q35 "net: loaded 2048 bytes|OS-ENTRY x86 netboot=ok" \
     "$QEMU_X86" -M q35 -bios x86/squirrel-bios.rom \
     -netdev user,id=n0,$NET_TFTP,bootfile=x86-netboot-2k.bin -device virtio-net-pci,netdev=n0
