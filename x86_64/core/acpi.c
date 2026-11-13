@@ -5,10 +5,13 @@
  * FEE00000h, PCI Express ECAM on q35 (chipset.c).
  *
  * Tables: RSDP 2.0, XSDT and RSDT, FADT 6.4, FACS, DSDT (AML generated
- * at boot by aml.c), MADT, HPET (when the timer answers) and MCFG (q35).
+ * at boot by aml.c), MADT (from the SMP list: local APIC entries, x2APIC
+ * ones past ID 254), HPET (when the timer answers), MCFG (q35), and from
+ * x86_64/acpi/: SRAT and SLIT with QEMU -numa, BERT and HEST.
  * They live in ACPI reclaim memory (FACS in ACPI NVS) and the RSDP is
  * published as the ACPI 2.0 and 1.0 configuration tables. */
 #include "acpi.h"
+#include "smp.h"
 
 static const EFI_GUID acpi20_guid =
     { 0x8868e871, 0xe4f1, 0x11d3, { 0xbc, 0x22, 0x00, 0x80, 0xc7, 0x3c, 0x88, 0x81 } };
@@ -19,8 +22,7 @@ static const EFI_GUID acpi10_guid =
 #define IOAPIC_BASE 0xFEC00000u
 #define HPET_BASE   0xFED00000u
 
-#define TABLE_PAGES 16
-#define FW_CFG_NB_CPUS 0x0005
+#define TABLE_PAGES 32
 
 u8 acpi_checksum(const void *p, u32 len)
 {
@@ -48,7 +50,7 @@ static void put16(u8 *p, u16 v) { p[0] = (u8)v; p[1] = (u8)(v >> 8); }
 static void put32(u8 *p, u32 v) { put16(p, (u16)v); put16(p + 2, (u16)(v >> 16)); }
 static void put64(u8 *p, u64 v) { put32(p, (u32)v); put32(p + 4, (u32)(v >> 32)); }
 
-static void header(u8 *t, const char *sig, u32 len, u8 rev)
+void acpi_header(u8 *t, const char *sig, u32 len, u8 rev)
 {
     memcpy(t, sig, 4);
     put32(t + 4, len);
@@ -60,7 +62,7 @@ static void header(u8 *t, const char *sig, u32 len, u8 rev)
     put32(t + 32, 1);
 }
 
-static void seal(u8 *t)
+void acpi_seal(u8 *t)
 {
     u32 len = t[4] | (u32)t[5] << 8 | (u32)t[6] << 16 | (u32)t[7] << 24;
     t[9] = 0;
@@ -77,18 +79,6 @@ static void gas(u8 *g, u8 space, u8 width, u8 access, u64 addr)
     put64(g + 4, addr);
 }
 
-static u32 cpu_count(void)
-{
-    u8 n[2] = { 1, 0 };
-    if (fwcfg_present())
-        fwcfg_read(FW_CFG_NB_CPUS, n, 2);
-    u32 c = n[0] | (u32)n[1] << 8;
-    if (c == 0)
-        c = 1;
-    if (c > 255)
-        c = 255;                        /* xAPIC entries only, for now */
-    return c;
-}
 
 static int hpet_present(void)
 {
@@ -268,23 +258,41 @@ static u32 build_dsdt(u8 *t, u32 cap, int hpet)
     if (a.overflow || a.depth)
         return 0;
     u32 len = 36 + a.len;
-    header(t, "DSDT", len, 2);
-    seal(t);
+    acpi_header(t, "DSDT", len, 2);
+    acpi_seal(t);
     return len;
 }
 
+/* One entry per processor smp.c brought up, in processor-number order,
+ * the UID being that number: local APIC entries for APIC IDs up to 254,
+ * x2APIC entries (and the x2APIC NMI) past that */
 static u32 build_madt(u8 *t, u32 cpus)
 {
     u8 *p = t + 44;
+    int x2 = 0;
     put32(t + 36, LAPIC_BASE);
     put32(t + 40, 1);                   /* PCAT_COMPAT: 8259s present */
     for (u32 i = 0; i < cpus; i++) {
-        p[0] = 0;                       /* processor local APIC */
-        p[1] = 8;
-        p[2] = (u8)i;                   /* processor UID */
-        p[3] = (u8)i;                   /* APIC ID: QEMU numbers them in order */
-        put32(p + 4, 1);                /* enabled */
-        p += 8;
+        const struct smp_cpu_info *ci = smp_cpu((int)i);
+        u32 id = ci ? ci->apic_id : i;
+        u32 on = ci ? (ci->enabled != 0) : 1;
+        if (id < 255 && i < 255) {
+            p[0] = 0;                   /* processor local APIC */
+            p[1] = 8;
+            p[2] = (u8)i;
+            p[3] = (u8)id;
+            put32(p + 4, on);
+            p += 8;
+        } else {
+            p[0] = 9;                   /* processor local x2APIC */
+            p[1] = 16;
+            put16(p + 2, 0);
+            put32(p + 4, id);
+            put32(p + 8, on);
+            put32(p + 12, i);
+            p += 16;
+            x2 = 1;
+        }
     }
     volatile u32 *io = (volatile u32 *)(uptr)IOAPIC_BASE;
     io[0] = 0;                          /* IOAPICID register */
@@ -314,9 +322,17 @@ static u32 build_madt(u8 *t, u32 cpus)
     put16(p + 3, 0);
     p[5] = 1;
     p += 6;
+    if (x2) {
+        p[0] = 0x0A;                    /* local x2APIC NMI on LINT1, all CPUs */
+        p[1] = 12;
+        put16(p + 2, 0);
+        put32(p + 4, 0xFFFFFFFFu);
+        p[8] = 1;
+        p += 12;
+    }
     u32 len = (u32)(p - t);
-    header(t, "APIC", len, 5);
-    seal(t);
+    acpi_header(t, "APIC", len, 5);
+    acpi_seal(t);
     return len;
 }
 
@@ -324,7 +340,7 @@ static void build_fadt(u8 *t, u32 facs, u32 dsdt)
 {
     const struct chipset *cs = chipset();
     u16 pm = cs->pm_base;
-    header(t, "FACP", 276, 6);
+    acpi_header(t, "FACP", 276, 6);
     put32(t + 36, facs);
     put32(t + 40, dsdt);
     t[45] = 0;                          /* preferred PM profile: unspecified */
@@ -353,31 +369,31 @@ static void build_fadt(u8 *t, u32 facs, u32 dsdt)
     gas(t + 208, 1, 32, 3, pm + 8u);
     gas(t + 220, 1, (u8)(cs->gpe0_len * 8), 1, cs->gpe0);
     memcpy(t + 268, "SquirrlB", 8);     /* hypervisor vendor identity */
-    seal(t);
+    acpi_seal(t);
 }
 
 static u32 build_hpet(u8 *t)
 {
     volatile u32 *h = (volatile u32 *)(uptr)HPET_BASE;
-    header(t, "HPET", 56, 1);
+    acpi_header(t, "HPET", 56, 1);
     put32(t + 36, h[0]);                /* event timer block ID */
     gas(t + 40, 0, 64, 0, HPET_BASE);
     t[52] = 0;                          /* HPET number */
     put16(t + 53, 0x0080);              /* minimum tick in periodic mode */
     t[55] = 0;
-    seal(t);
+    acpi_seal(t);
     return 56;
 }
 
 static u32 build_mcfg(u8 *t)
 {
     const struct chipset *cs = chipset();
-    header(t, "MCFG", 60, 1);
+    acpi_header(t, "MCFG", 60, 1);
     put64(t + 44, cs->mcfg_base);
     put16(t + 52, 0);                   /* segment */
     t[54] = 0;
     t[55] = (u8)(cs->mcfg_buses - 1);
-    seal(t);
+    acpi_seal(t);
     return 60;
 }
 
@@ -393,7 +409,9 @@ void acpi_init(void)
     area_end = area + TABLE_PAGES * 4096;
     const struct chipset *cs = chipset();
     int hpet = hpet_present();
-    u32 cpus = cpu_count();
+    u32 cpus = (u32)smp_cpu_count();
+    if (!cpus)
+        cpus = 1;
 
     /* FACS: 64 bytes, 64-byte aligned, in NVS */
     u8 *facs = (u8 *)(uptr)facs_page;
@@ -410,12 +428,12 @@ void acpi_init(void)
     }
     next = area + ((dsdt_len + 15) & ~15u);
 
-    u8 *tables[8];
+    u8 *tables[12];
     int n = 0;
     u8 *fadt = take(276);
     build_fadt(fadt, (u32)(uptr)facs, (u32)(uptr)dsdt);
     tables[n++] = fadt;
-    u8 *madt = take(44 + 255 * 8 + 12 + 5 * 10 + 6);
+    u8 *madt = take(44 + cpus * 16 + 12 + 5 * 10 + 6 + 12);
     build_madt(madt, cpus);
     tables[n++] = madt;
     if (hpet) {
@@ -428,6 +446,8 @@ void acpi_init(void)
         build_mcfg(m);
         tables[n++] = m;
     }
+    n += acpi_numa_tables(tables + n, take);
+    n += acpi_ras_tables(tables + n, take);
 
     u8 *xsdt = take(36 + 8 * (u32)n);
     u8 *rsdt = take(36 + 4 * (u32)n);
@@ -436,14 +456,14 @@ void acpi_init(void)
         printf("acpi: tables do not fit\n");
         return;
     }
-    header(xsdt, "XSDT", 36 + 8 * (u32)n, 1);
-    header(rsdt, "RSDT", 36 + 4 * (u32)n, 1);
+    acpi_header(xsdt, "XSDT", 36 + 8 * (u32)n, 1);
+    acpi_header(rsdt, "RSDT", 36 + 4 * (u32)n, 1);
     for (int i = 0; i < n; i++) {
         put64(xsdt + 36 + 8 * i, (u64)(uptr)tables[i]);
         put32(rsdt + 36 + 4 * i, (u32)(uptr)tables[i]);
     }
-    seal(xsdt);
-    seal(rsdt);
+    acpi_seal(xsdt);
+    acpi_seal(rsdt);
 
     memcpy(rsdp, "RSD PTR ", 8);
     memcpy(rsdp + 9, ACPI_OEM_ID, 6);
@@ -459,6 +479,10 @@ void acpi_init(void)
 
     printf("acpi: RSDP at %p, XSDT at %p, %u CPU%s, %s, PM at 0x%x\n", rsdp, xsdt, cpus,
            cpus == 1 ? "" : "s", cs->q35 ? "q35 (ICH9)" : "i440fx (PIIX4)", cs->pm_base);
-    printf("acpi: FACP APIC%s%s DSDT (%u bytes of AML) FACS\n", hpet ? " HPET" : "",
-           cs->q35 && cs->mcfg_base ? " MCFG" : "", dsdt_len - 36);
+    printf("acpi: FACP APIC%s%s", hpet ? " HPET" : "", cs->q35 && cs->mcfg_base ? " MCFG" : "");
+    for (int i = 0; i < n; i++)
+        if (!memcmp(tables[i], "SRAT", 4) || !memcmp(tables[i], "SLIT", 4) ||
+            !memcmp(tables[i], "BERT", 4) || !memcmp(tables[i], "HEST", 4))
+            printf(" %c%c%c%c", tables[i][0], tables[i][1], tables[i][2], tables[i][3]);
+    printf(" DSDT (%u bytes of AML) FACS\n", dsdt_len - 36);
 }

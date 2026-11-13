@@ -36,6 +36,7 @@ struct sigdb {
 
 static struct sigdb db, dbx;
 static int on;
+static int broken;                     /* a db or dbx was given but cannot be read */
 
 int secure_boot_on(void) { return on; }
 
@@ -194,6 +195,10 @@ EFI_STATUS secure_check_image(const u8 *img, UINTN size)
 {
     if (!on)
         return EFI_SUCCESS;
+    if (broken) {
+        say_refused("the db or dbx given could not be read, so nothing is trusted");
+        return EFI_SECURITY_VIOLATION;
+    }
     u8 h[32];
     if (!pe_authenticode_hash(img, size, h)) {
         say_refused("not a PE32+ image it can hash");
@@ -297,14 +302,15 @@ void secure_init(void)
     if (!CONFIG_SECURE_BOOT)
         return;
     int r = load_db(FWCFG_DB, &db);
-    if (r <= 0) {
-        if (r < 0)
-            printf("secure: Secure Boot off (bad db)\n");
-        return;
-    }
-    load_db(FWCFG_DBX, &dbx);
+    if (r == 0)
+        return;                         /* no db: Secure Boot off */
+    int rx = load_db(FWCFG_DBX, &dbx);
     on = 1;
-    printf("secure: Secure Boot on (verify-only)\n");
+    /* Fail closed: keys were meant to be enforced, so a db or dbx that
+     * does not parse refuses every image rather than allowing all */
+    broken = r < 0 || rx < 0;
+    printf("secure: Secure Boot on (verify-only)%s\n",
+           broken ? ", but a key database is unreadable: every image is refused" : "");
     describe("db", &db);
     describe("dbx", &dbx);
 
@@ -313,9 +319,13 @@ void secure_init(void)
     typedef EFI_STATUS (EFIAPI *set_var_fn)(CHAR16 *, EFI_GUID *, u32, UINTN, void *);
     set_var_fn set = (set_var_fn)efi_st->runtime_services->set_variable;
     u8 one = 1, zero = 0;
-    set(u"SecureBoot", (EFI_GUID *)&global_var, 6, 1, &one);
-    set(u"SetupMode", (EFI_GUID *)&global_var, 6, 1, &zero);
-    set(u"db", (EFI_GUID *)&image_security, 7, db.len, db.data);
-    if (dbx.len)
-        set(u"dbx", (EFI_GUID *)&image_security, 7, dbx.len, dbx.data);
+    EFI_STATUS st;
+    if ((st = set(u"SecureBoot", (EFI_GUID *)&global_var, 6, 1, &one)) != EFI_SUCCESS)
+        printf("secure: SecureBoot variable not set (0x%lx): the OS will not see Secure Boot on\n", st);
+    if ((st = set(u"SetupMode", (EFI_GUID *)&global_var, 6, 1, &zero)) != EFI_SUCCESS)
+        printf("secure: SetupMode variable not set (0x%lx)\n", st);
+    if (db.len && set(u"db", (EFI_GUID *)&image_security, 7, db.len, db.data) != EFI_SUCCESS)
+        printf("secure: db (%u bytes) not published as a variable\n", db.len);
+    if (dbx.len && set(u"dbx", (EFI_GUID *)&image_security, 7, dbx.len, dbx.data) != EFI_SUCCESS)
+        printf("secure: dbx (%u bytes) not published as a variable\n", dbx.len);
 }
