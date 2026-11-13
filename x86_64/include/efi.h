@@ -508,4 +508,9 @@ void efi_tables_init(void);
 void efi_reseal(EFI_TABLE_HEADER *h);
 u32 crc32(const void *buf, usize len);
 
+/* common/efi/net_boot.c: the NICs, each with its Simple Network Protocol;
+ * a PXE-style boot from them (1 if an image ran) */
+void efi_net_init(void);
+int efi_net_boot(void);
+
 #endif

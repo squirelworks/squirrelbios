@@ -274,8 +274,9 @@ void efi_main(const void *dtb)
     printf("efi: device tree installed as a configuration table\n");
     arch_efi_init();
     efi_disk_init();
+    efi_net_init();
 
-    if (boot_kernel() || boot_fwcfg_file() || efi_boot_esp()) {
+    if (boot_kernel() || boot_fwcfg_file() || efi_boot_esp() || efi_net_boot()) {
         printf("fw: halting\n");
         halt();
     }
