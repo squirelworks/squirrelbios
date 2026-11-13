@@ -74,7 +74,8 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/riscv-ras.bin \
              $(TEST_DIR)/x86_64-app.efi $(TEST_DIR)/x86_64-app-exit.efi \
              $(TEST_DIR)/x86_64-con.efi $(TEST_DIR)/x86_64-con.keys \
-             $(TEST_DIR)/x86_64-esp.img $(TEST_DIR)/x86_64-gop.efi
+             $(TEST_DIR)/x86_64-esp.img $(TEST_DIR)/x86_64-gop.efi \
+             $(TEST_DIR)/x86_64-mp.efi
 
 .PHONY: all x86 x86_64 arm riscv test linux-shell linux-x86 linux-big linux-stress os-boot os-boot-csm clean
 .DELETE_ON_ERROR:
@@ -249,6 +250,9 @@ $(TEST_DIR)/x86_64-con.efi: tests/x86_64-con.asm tests/x86_64-pe.inc | $(TEST_DI
 $(TEST_DIR)/x86_64-con.keys: | $(TEST_DIR)
 	printf 'ab\033[A\033[3~q' > $@
 $(TEST_DIR)/x86_64-gop.efi: tests/x86_64-gop.asm tests/x86_64-pe.inc | $(TEST_DIR)
+	$(NASM) -f bin -i tests/ $< -o $@
+# MP services and the MP table (C4)
+$(TEST_DIR)/x86_64-mp.efi: tests/x86_64-mp.asm tests/x86_64-pe.inc | $(TEST_DIR)
 	$(NASM) -f bin -i tests/ $< -o $@
 
 # GPT disk with a FAT32 ESP holding \\EFI\\BOOT\\BOOTX64.EFI (the app)
@@ -595,7 +599,7 @@ $(SRST_IMAGES:=.elf): %.elf: %.o
 $(SRST_IMAGES:=.bin): %.bin: %.elf
 	$(RISCV64)objcopy -O binary $< $@
 
-test: x86 x86_64 arm riscv config-default $(TEST_BINS)
+test: x86 x86_64 arm riscv config-default $(TEST_BINS) build/x86_64-uefi/x2apic/squirrel-bios.fd
 	tests/smoke.sh
 
 # Optional, not part of make test: downloads an Ubuntu riscv64 kernel and
