@@ -16,7 +16,7 @@ sparc64_case() {
     fi
 }
 
-SPARC64_OK="OS-ENTRY sparc64 cif=ok state=ok mmu=ok tba=ok windows=ok|CIF test=ok unknown=ok mem=ok walk=ok nodes=9 missing=ok alias=ok|MMU translate=ok translations=ok method=ok claim=ok ms=ok interpret=ok|LINUX globals=ok unlocked=ok tlbload=ok hdrs=|cif: exit|sq> "
+SPARC64_OK="OS-ENTRY sparc64 cif=ok state=ok mmu=ok tba=ok windows=ok|CIF test=ok unknown=ok mem=ok walk=ok nodes=16 missing=ok alias=ok|MMU translate=ok translations=ok method=ok claim=ok ms=ok interpret=ok|LINUX globals=ok unlocked=ok tlbload=ok hdrs=|IRQ console ino=0x2b reg=ok imap=ok vector=ok|PCI bars=ok ide-ino=0x20 net-ino=0x21 mac=ok atapi=ok ide-irq=ok|OS-DONE sparc64|cif: exit|sq> "
 
 # The firmware copies itself from the PROM to the top 4 MB of RAM, runs
 # there at 0xf0000000 with the MMUs on, and enters the test kernel (an
@@ -25,7 +25,7 @@ SPARC64_OK="OS-ENTRY sparc64 cif=ok state=ok mmu=ok tba=ok windows=ok|CIF test=o
 # window spill/fill traps, then uses only the client interface: device
 # tree walk, properties, an alias, the stdout instance, the MMU's
 # translate, claim, milliseconds; exit returns to the sq> prompt
-sparc64_case sparc64-boot "SquirrelBIOS SPARC|firmware at 0xf0000000 (physical 0x7c00000)|bootargs: quiet|boot: kernel at 0x404000|$SPARC64_OK|!=bad|!trap:" \
+sparc64_case sparc64-boot "SquirrelBIOS SPARC|firmware at 0xf0000000 (physical 0x7c00000)|pci: sabre at 0x1fe00000000, ebus on bus 1, console interrupt 0x2b (imap 0x7eb)|bootargs: quiet|boot: kernel at 0x404000|$SPARC64_OK|!=bad|!trap:" \
     "$QEMU_SPARC64" -M sun4u -bios $SPARC64_FW -kernel $TEST_DIR/sparc64-kernel.elf -append quiet
 
 # More RAM: the firmware moves to the new top
@@ -39,7 +39,7 @@ sparc64_case sparc64-512m "firmware at 0xf0000000 (physical 0x1fc00000)|mem: 512
 
 # No kernel: the firmware prompt, its commands and the device tree
 SERIAL_IN=$TEST_DIR/sparc64-prompt.keys
-sparc64_case sparc64-prompt "boot: no kernel (-kernel)|sq> |commands:|  dt |available: 0x4000-0x7bfffff|chosen {|stdout = <0x51530001>|unknown command 'bogus'|!trap:" \
+sparc64_case sparc64-prompt "boot: no kernel (-kernel)|sq> |commands:|  dt |available: 0x4000-0x7bfffff|chosen {|stdout = <0x51530001>|01:03.0 1095:0646 class 01018f pin 1|  bar 0x10: i/o 0x4000, 8 bytes|01:01.1 108e:1001 class 020000|unknown command 'bogus'|!trap:" \
     "$QEMU_SPARC64" -M sun4u -bios $SPARC64_FW
 SERIAL_IN=
 
@@ -48,3 +48,21 @@ SPARC64_FW=build/sparc64-sun4u/default/squirrel-bios.bin
 sparc64_case config-sparc64-default "SquirrelBIOS SPARC|$SPARC64_OK" \
     "$QEMU_SPARC64" -M sun4u -bios $SPARC64_FW -kernel $TEST_DIR/sparc64-kernel.elf
 SPARC64_FW=sparc64/squirrel-bios.bin
+
+# No -kernel: the firmware boots from the IDE disk. The test kernel's ELF
+# is on the primary master, its segments go to their addresses; the
+# primary slave is the initrd (the HdrS header gets it)
+SPARC64_IDE="-drive file=$TEST_DIR/sparc64-disk.img,if=ide,index=0,format=raw -drive file=$TEST_DIR/x86-boot.bin,if=ide,index=1,format=raw"
+sparc64_case sparc64-ide "ide: master QEMU HARDDISK|ide: slave QEMU HARDDISK, 2 sectors|boot: ELF from the IDE disk at 0x400000-|boot: initrd at 0x|$SPARC64_OK|hdrs=ok|ARGS \"\"|!=bad|!trap:" \
+    "$QEMU_SPARC64" -M sun4u -bios $SPARC64_FW $SPARC64_IDE
+
+# A key waiting keeps the firmware at the prompt; "boot <args>" then
+# boots the disk with that command line
+SERIAL_IN=$TEST_DIR/sparc64-ide.keys
+sparc64_case sparc64-ide-args "boot: key pressed, staying at the prompt|sq> |boot: ELF from the IDE disk|$SPARC64_OK|ARGS \"squirrel disk\"|!=bad|!trap:" \
+    "$QEMU_SPARC64" -M sun4u -bios $SPARC64_FW $SPARC64_IDE
+SERIAL_IN=
+
+# A disk without a sparc64 ELF: refused, the prompt instead
+sparc64_case sparc64-ide-not-elf "ide: master QEMU HARDDISK, 2 sectors|boot: the IDE disk holds no sparc64 ELF|sq> |!jumping" \
+    "$QEMU_SPARC64" -M sun4u -bios $SPARC64_FW -drive file=$TEST_DIR/x86-boot.bin,if=ide,index=0,format=raw

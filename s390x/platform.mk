@@ -37,11 +37,32 @@ $(TEST_DIR)/s390x-kernel.elf: tests/s390x-kernel.c tests/s390x-start.S \
 $(TEST_DIR)/s390x-disk.img: $(TEST_DIR)/s390x-kernel.elf
 	cp $< $@
 	truncate -s %512 $@
+# The same kernel as a Linux-style boot image (64 KB of zeros, then the
+# binary linked at 0x10000), and an initrd disk: "SQRD", zeros, and 0x5a
+# in its last byte
+$(TEST_DIR)/s390x-image.elf: tests/s390x-image.S tests/s390x-kernel.c tests/s390x-start.S \
+		common/fw/string.c common/fw/printf.c common/fw/fwlib.h | $(TEST_DIR)
+	$(S390X)gcc $(S390X_CFLAGS) -DLINUX_IMAGE -fno-pic -fno-pie -static -no-pie $(S390X_LDFLAGS) \
+	    -Wl,-n -Wl,-Ttext=0x10000 -Wl,-e,_image tests/s390x-image.S \
+	    tests/s390x-start.S tests/s390x-kernel.c common/fw/string.c common/fw/printf.c -o $@
+$(TEST_DIR)/s390x-image.img: $(TEST_DIR)/s390x-image.elf
+	$(S390X)objcopy -O binary $< $@.bin
+	head -c 65536 /dev/zero > $@
+	cat $@.bin >> $@
+	rm -f $@.bin
+	truncate -s %512 $@
+$(TEST_DIR)/s390x-initrd.img: | $(TEST_DIR)
+	printf 'SQRD' > $@
+	truncate -s 4095 $@
+	printf 'Z' >> $@
+$(TEST_DIR)/s390x-boot.keys: | $(TEST_DIR)
+	printf '\rboot console=ttysclp0 squirrel\r' > $@
 $(TEST_DIR)/s390x-prompt.keys: | $(TEST_DIR)
 	printf 'help\rinfo\rdevices\rbogus\rpoweroff\r' > $@
 
 .PHONY: s390x-test-files
-s390x-test-files: $(S390X_ELF) $(TEST_DIR)/s390x-disk.img $(TEST_DIR)/s390x-prompt.keys
+s390x-test-files: $(S390X_ELF) $(TEST_DIR)/s390x-disk.img $(TEST_DIR)/s390x-prompt.keys \
+                  $(TEST_DIR)/s390x-image.img $(TEST_DIR)/s390x-initrd.img $(TEST_DIR)/s390x-boot.keys
 test: s390x-test-files
 else
 .PHONY: s390x

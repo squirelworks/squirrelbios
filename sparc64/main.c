@@ -21,6 +21,24 @@
 #define IO_BASE      0x1fe02000000ull   /* the PCI I/O space, via the PBM */
 #define UART         (IO_BASE + 0x3f8)
 #define FWCFG        (IO_BASE + 0x510)
+#define PBM_REGS     0x1fe00000000ull   /* the Sabre (PBM) controller registers */
+#define PBM_CONFIG   0x1fe01000000ull   /* PCI configuration space */
+#define PBM_MEM      0x1ff00000000ull   /* PCI memory space */
+#define PBM_PORTID   0x1f               /* its UPA port id, the interrupt group */
+#define PBM_OBIO_IMAP(ino) (PBM_REGS + 0x1000 + (((ino) & 0x1f) << 3))
+#define PBM_OBIO_ICLR(ino) (PBM_REGS + 0x1800 + (((ino) & 0x1f) << 3))
+#define INO_SERIAL   0x2b               /* the EBus serial line (ISA IRQ 4) */
+#define INO_PBM_UE   0x2e               /* the PBM's own error interrupts */
+#define INO_PBM_CE   0x2f
+#define INO_PBM_ERR  0x30
+#define SIMBA_A_DEVFN 0x09              /* 00:01.1, the bus with the EBus */
+#define SIMBA_B_DEVFN 0x08              /* 00:01.0 */
+#define EBUS_DEVFN   0x08               /* 01:01.0 */
+#define INO_IDE      0x20               /* QEMU wires the on-board IDE and NIC */
+#define INO_NIC      0x21               /* to fixed OBIO interrupts */
+#define NVRAM_IO     (IO_BASE + 0x2000) /* the M48T59, on the EBus */
+#define IDPROM_OFF   0x1fd8             /* its ID PROM: format, machine, MAC, ... */
+#define SU_PATH      "/pci@1fe,0/pci@1,1/ebus@1/su@14,3f8"
 #define EM_SPARCV9   43
 
 #define ASI_LSU_CONTROL         0x45
@@ -71,6 +89,41 @@ static inline void out8(uint64_t a, uint8_t v)
 static inline void out16le(uint64_t a, uint16_t v)
 {
     __asm__ volatile("stha %0, [%1] 0x1d" : : "r"(v), "r"(a) : "memory");
+}
+
+static inline uint64_t in64(uint64_t a)
+{
+    uint64_t v;
+    __asm__ volatile("ldxa [%1] 0x15, %0" : "=r"(v) : "r"(a) : "memory");
+    return v;
+}
+
+static inline void out64(uint64_t a, uint64_t v)
+{
+    __asm__ volatile("stxa %0, [%1] 0x15" : : "r"(v), "r"(a) : "memory");
+}
+
+/* PCI configuration space, little-endian through the PBM */
+static inline uint64_t cfg_addr(int bus, int devfn, int reg)
+{
+    return PBM_CONFIG + ((uint64_t)bus << 16) + ((uint64_t)devfn << 8) + (uint64_t)reg;
+}
+
+static inline uint32_t pci_read32(int bus, int devfn, int reg)
+{
+    uint32_t v;
+    __asm__ volatile("lduwa [%1] 0x1d, %0" : "=r"(v) : "r"(cfg_addr(bus, devfn, reg)) : "memory");
+    return v;
+}
+
+static inline void pci_write8(int bus, int devfn, int reg, uint8_t v)
+{
+    __asm__ volatile("stba %0, [%1] 0x1d" : : "r"(v), "r"(cfg_addr(bus, devfn, reg)) : "memory");
+}
+
+static inline void pci_write16(int bus, int devfn, int reg, uint16_t v)
+{
+    __asm__ volatile("stha %0, [%1] 0x1d" : : "r"(v), "r"(cfg_addr(bus, devfn, reg)) : "memory");
 }
 
 static inline uint64_t tick(void)
@@ -190,6 +243,45 @@ static void prop_cells2(struct fdt_writer *w, const char *name, const uint64_t *
     fdtw_prop(w, name, b, 8 * n);
 }
 
+static void prop_u32s(struct fdt_writer *w, const char *name, const uint32_t *v, int n)
+{
+    uint8_t b[4 * 40];
+    if (n > 40)
+        n = 40;
+    for (int i = 0; i < n; i++)
+        fw_put_be32(b + 4 * i, v[i]);
+    fdtw_prop(w, name, b, 4 * n);
+}
+
+/* A Simba (APB) PCI-PCI bridge: no ranges, as on real machines (the OS
+ * reads its windows from the bridge itself) */
+/* The PCI identity of a device, from its configuration space: the OS
+ * builds its PCI devices from these properties */
+static void pci_id_props(struct fdt_writer *w, int bus, int devfn)
+{
+    uint32_t id = pci_read32(bus, devfn, 0), cls = pci_read32(bus, devfn, 8);
+    fdtw_prop_u32(w, "vendor-id", id & 0xffff);
+    fdtw_prop_u32(w, "device-id", id >> 16);
+    fdtw_prop_u32(w, "revision-id", cls & 0xff);
+    fdtw_prop_u32(w, "class-code", cls >> 8);
+}
+
+static void simba_props(struct fdt_writer *w, int devfn, uint32_t bus)
+{
+    fdtw_prop_str(w, "name", "pci");
+    fdtw_prop_str(w, "device_type", "pci");
+    fdtw_prop_str(w, "model", "SUNW,simba");
+    fdtw_prop_str(w, "compatible", "pci108e,5000");
+    uint32_t reg[5] = { (uint32_t)devfn << 8, 0, 0, 0, 0 };
+    prop_u32s(w, "reg", reg, 5);
+    uint32_t range[2] = { bus, bus };
+    prop_u32s(w, "bus-range", range, 2);
+    pci_id_props(w, 0, devfn);
+    fdtw_prop_u32(w, "#address-cells", 3);
+    fdtw_prop_u32(w, "#size-cells", 2);
+    fdtw_prop_u32(w, "#interrupt-cells", 1);
+}
+
 static void avail_prop(struct fdt_writer *w)
 {
     uint64_t v[2 * MAX_RANGES];
@@ -198,6 +290,203 @@ static void avail_prop(struct fdt_writer *w)
         v[2 * i + 1] = avail[i].size;
     }
     prop_cells2(w, "available", v, 2 * navail);
+}
+
+/* --- PCI: the Simba bridges' bus numbers, the interrupt map registers ------- */
+
+static int pci_ok;
+static void prop_u32s(struct fdt_writer *w, const char *name, const uint32_t *v, int n);
+static void pci_id_props(struct fdt_writer *w, int bus, int devfn);
+
+static inline void pci_write32(int bus, int devfn, int reg, uint32_t v)
+{
+    __asm__ volatile("stwa %0, [%1] 0x1d" : : "r"(v), "r"(cfg_addr(bus, devfn, reg)) : "memory");
+}
+
+/* The devices on bus 1 (behind Simba A) and their BARs, as assigned */
+struct pci_bar {
+    uint8_t reg;                /* 0x10 + 4 * n */
+    uint8_t io;
+    uint8_t prefetch;
+    uint32_t addr, size;
+};
+struct pci_dev {
+    uint8_t devfn;
+    uint32_t id, cls;
+    uint8_t pin;
+    int nbars;
+    struct pci_bar bar[6];
+};
+#define MAX_PCI_DEVS 16
+static struct pci_dev pdevs[MAX_PCI_DEVS];
+static int npdevs;
+
+/* Bus 1's windows: PCI I/O 0x4000-0xffff (the ISA ports and, at 0x2000,
+ * the NVRAM stay below) and
+ * memory from 16 MB, inside the first 2 MB / 512 MB blocks of the APB
+ * address maps */
+#define BUS1_IO_START   0x4000u   /* above the ISA ports and the NVRAM */
+#define BUS1_IO_END     0x10000u
+#define BUS1_MEM_START  0x01000000u
+#define BUS1_MEM_END    0x20000000u
+
+static void pci_assign(void)
+{
+    uint32_t io = BUS1_IO_START, mem = BUS1_MEM_START;
+    npdevs = 0;
+    for (int dev = 0; dev < 32; dev++) {
+        int nfn = 1;
+        for (int fn = 0; fn < nfn; fn++) {
+            int devfn = dev << 3 | fn;
+            uint32_t id = pci_read32(1, devfn, 0);
+            if (id == 0xffffffffu || (id & 0xffff) == 0xffff || id == 0)
+                continue;
+            uint32_t hdr = pci_read32(1, devfn, 0x0c);
+            if (fn == 0 && (hdr & 0x00800000))
+                nfn = 8;
+            if (devfn == EBUS_DEVFN || npdevs == MAX_PCI_DEVS)
+                continue;               /* the EBus is reached through its ISA ports */
+            struct pci_dev *d = &pdevs[npdevs++];
+            d->devfn = (uint8_t)devfn;
+            d->id = id;
+            d->cls = pci_read32(1, devfn, 8);
+            d->pin = (uint8_t)(pci_read32(1, devfn, 0x3c) >> 8);
+            d->nbars = 0;
+            for (int r = 0x10; r <= 0x24; r += 4) {
+                uint32_t old = pci_read32(1, devfn, r);
+                pci_write32(1, devfn, r, 0xffffffffu);
+                uint32_t m = pci_read32(1, devfn, r);
+                pci_write32(1, devfn, r, old);
+                if (!m || m == 0xffffffffu)
+                    continue;
+                struct pci_bar *b = &d->bar[d->nbars];
+                b->reg = (uint8_t)r;
+                b->io = m & 1;
+                b->prefetch = !b->io && (m & 8);
+                b->size = b->io ? (~(m & ~3u) + 1) & 0xffff : ~(m & ~0xfu) + 1;
+                if (!b->size)
+                    continue;
+                uint32_t *next = b->io ? &io : &mem;
+                uint32_t a = (*next + b->size - 1) & ~(b->size - 1);
+                if (a + b->size > (b->io ? BUS1_IO_END : BUS1_MEM_END))
+                    continue;
+                b->addr = a;
+                *next = a + b->size;
+                pci_write32(1, devfn, r, a);
+                d->nbars++;
+                if (!b->io && (m & 6) == 4)
+                    r += 4;             /* a 64-bit BAR: the upper half stays 0 */
+            }
+            pci_write16(1, devfn, 0x04, 0x0007);    /* I/O, memory, bus master */
+        }
+    }
+    /* Simba A forwards those windows (standard bridge registers too) */
+    pci_write8(0, SIMBA_A_DEVFN, 0x1c, 0x00);               /* I/O base 0 */
+    pci_write8(0, SIMBA_A_DEVFN, 0x1d, 0xf0);               /* I/O limit 0xffff */
+    pci_write16(0, SIMBA_A_DEVFN, 0x20, BUS1_MEM_START >> 16);
+    pci_write16(0, SIMBA_A_DEVFN, 0x22, (BUS1_MEM_END - 1) >> 16 & 0xfff0);
+}
+
+static void pci_init(void)
+{
+    if (pci_read32(0, SIMBA_A_DEVFN, 0) != 0x5000108eu ||
+        pci_read32(0, SIMBA_B_DEVFN, 0) != 0x5000108eu) {
+        fw_puts("pci: no Simba bridges behind the PBM\n");
+        return;
+    }
+    /* Primary 0; bus 1 behind 00:01.1 (the EBus side), bus 2 behind 00:01.0 */
+    pci_write8(0, SIMBA_A_DEVFN, 0x18, 0);
+    pci_write8(0, SIMBA_A_DEVFN, 0x19, 1);
+    pci_write8(0, SIMBA_A_DEVFN, 0x1a, 1);
+    pci_write8(0, SIMBA_B_DEVFN, 0x18, 0);
+    pci_write8(0, SIMBA_B_DEVFN, 0x19, 2);
+    pci_write8(0, SIMBA_B_DEVFN, 0x1a, 2);
+    /* APB address maps: each bit forwards one 2 MB block of PCI I/O
+     * space (0xde) or one 512 MB block of memory space (0xdf). Bus 1
+     * (EBus, ISA ports) gets the first of each, bus 2 the second. */
+    pci_write8(0, SIMBA_A_DEVFN, 0xde, 0x01);
+    pci_write8(0, SIMBA_A_DEVFN, 0xdf, 0x01);
+    pci_write8(0, SIMBA_B_DEVFN, 0xde, 0x02);
+    pci_write8(0, SIMBA_B_DEVFN, 0xdf, 0x02);
+    pci_write16(0, SIMBA_A_DEVFN, 0x04, 0x0007);  /* I/O, memory, bus master */
+    pci_write16(0, SIMBA_B_DEVFN, 0x04, 0x0007);
+    uint32_t ebus = pci_read32(1, EBUS_DEVFN, 0);
+    if (ebus != 0x1000108eu) {
+        fw_printf("pci: no EBus at 01:01.0 (0x%08x)\n", ebus);
+        return;
+    }
+    /* On-board interrupts: each IMAP holds the interrupt group (the
+     * PBM's port id) and number that the OS reads back; not valid yet */
+    for (int ino = 0x20; ino < 0x40; ino++) {
+        out64(PBM_OBIO_IMAP(ino), (uint64_t)PBM_PORTID << 6 | (uint64_t)ino);
+        out64(PBM_OBIO_ICLR(ino), 0);
+    }
+    pci_assign();
+    pci_ok = 1;
+}
+
+static void idprom_read(uint8_t *b)
+{
+    for (int i = 0; i < 32; i++)
+        b[i] = in8(NVRAM_IO + IDPROM_OFF + i);
+}
+
+/* A device on bus 1: its name and compatible from the class and IDs, reg
+ * (configuration space, then each BAR's size) and assigned-addresses (the
+ * BARs as programmed), and the interrupt QEMU wires it to */
+static void pci_dev_node(struct fdt_writer *w, const struct pci_dev *d)
+{
+    char name[32], unit[16], compat[24];
+    uint32_t cls = d->cls >> 8, vendor = d->id & 0xffff, device = d->id >> 16;
+    const char *nm = "device", *type = 0;
+    uint32_t ino = 0;
+    if (cls >> 8 == 0x0200) {
+        nm = "network";
+        type = "network";
+        ino = INO_NIC;
+    } else if (cls >> 8 == 0x0101) {
+        nm = "ide";
+        type = "ide";
+        ino = INO_IDE;
+    } else if (cls >> 8 == 0x0300) {
+        nm = "display";
+        type = "display";
+    }
+    if (d->devfn & 7)
+        fw_snprintf(unit, sizeof(unit), "%x,%x", d->devfn >> 3, d->devfn & 7);
+    else
+        fw_snprintf(unit, sizeof(unit), "%x", d->devfn >> 3);
+    fw_snprintf(name, sizeof(name), "%s@%s", nm, unit);
+    fw_snprintf(compat, sizeof(compat), "pci%x,%x", vendor, device);
+    fdtw_begin(w, name);
+    fdtw_prop_str(w, "name", nm);
+    if (type)
+        fdtw_prop_str(w, "device_type", type);
+    fdtw_prop_str(w, "compatible", compat);
+    pci_id_props(w, 1, d->devfn);
+    uint32_t hi = 1u << 16 | (uint32_t)d->devfn << 8;
+    uint32_t reg[5 * 7], aa[5 * 6];
+    int nr = 0, na = 0;
+    reg[nr++] = hi; reg[nr++] = 0; reg[nr++] = 0; reg[nr++] = 0; reg[nr++] = 0;
+    for (int j = 0; j < d->nbars; j++) {
+        const struct pci_bar *b = &d->bar[j];
+        uint32_t sp = (b->io ? 0x01000000u : 0x02000000u) | (b->prefetch ? 0x40000000u : 0) |
+                      hi | b->reg;
+        reg[nr++] = sp; reg[nr++] = 0; reg[nr++] = 0; reg[nr++] = 0; reg[nr++] = b->size;
+        aa[na++] = 0x80000000u | sp; aa[na++] = 0; aa[na++] = b->addr;
+        aa[na++] = 0; aa[na++] = b->size;
+    }
+    prop_u32s(w, "reg", reg, nr);
+    if (na)
+        prop_u32s(w, "assigned-addresses", aa, na);
+    if (ino && d->pin)
+        fdtw_prop_u32(w, "interrupts", ino);
+    if (ino == INO_NIC) {
+        uint8_t id[32];
+        idprom_read(id);
+        fdtw_prop(w, "local-mac-address", id + 2, 6);
+    }
+    fdtw_end(w);
 }
 
 static void build_dt(void)
@@ -213,6 +502,10 @@ static void build_dt(void)
     fdtw_prop_u32(&w, "#address-cells", 2);
     fdtw_prop_u32(&w, "#size-cells", 2);
     fdtw_prop_u32(&w, "clock-frequency", (uint32_t)tick_hz);
+    uint8_t idprom[32];
+    idprom_read(idprom);
+    if (idprom[0] == 1)
+        fdtw_prop(&w, "idprom", idprom, 32);
 
     fdtw_begin(&w, "openprom");
     fdtw_prop_str(&w, "name", "openprom");
@@ -240,8 +533,8 @@ static void build_dt(void)
 
     fdtw_begin(&w, "aliases");
     fdtw_prop_str(&w, "name", "aliases");
-    fdtw_prop_str(&w, "ttya", "/serial@1fe,20003f8");
-    fdtw_prop_str(&w, "screen", "/serial@1fe,20003f8");
+    fdtw_prop_str(&w, "ttya", SU_PATH);
+    fdtw_prop_str(&w, "screen", SU_PATH);
     fdtw_end(&w);
 
     fdtw_begin(&w, "memory@0");
@@ -282,14 +575,69 @@ static void build_dt(void)
         fdtw_end(&w);
     }
 
-    fdtw_begin(&w, "serial@1fe,20003f8");
+    /* The Sabre PCI host bridge (PBM), its two Simba bridges and, on
+     * the first one, the EBus with the console's 16550. Interrupts are
+     * INOs of the PBM: the OS maps them with its IMAP registers. */
+    fdtw_begin(&w, "pci@1fe,0");
+    fdtw_prop_str(&w, "name", "pci");
+    fdtw_prop_str(&w, "device_type", "pci");
+    fdtw_prop_str(&w, "model", "SUNW,sabre");
+    fdtw_prop_str(&w, "compatible", "pci108e,a000");
+    uint64_t preg[6] = { PBM_REGS, 0x10000, PBM_CONFIG, 0x1000000, IO_BASE, 0x1000000 };
+    prop_cells2(&w, "reg", preg, 6);
+    fdtw_prop_u32(&w, "upa-portid", PBM_PORTID);
+    fdtw_prop_u32(&w, "portid", PBM_PORTID);
+    fdtw_prop_u32(&w, "#address-cells", 3);
+    fdtw_prop_u32(&w, "#size-cells", 2);
+    fdtw_prop_u32(&w, "#interrupt-cells", 1);
+    fdtw_prop_u32(&w, "clock-frequency", 33333333);
+    uint32_t cells[16];
+    cells[0] = 0; cells[1] = 2;
+    prop_u32s(&w, "bus-range", cells, 2);
+    cells[0] = 0xc0000000u; cells[1] = 0x20000000u;
+    prop_u32s(&w, "virtual-dma", cells, 2);
+    cells[0] = INO_PBM_UE; cells[1] = INO_PBM_CE; cells[2] = INO_PBM_ERR;
+    prop_u32s(&w, "interrupts", cells, 3);
+    /* PCI I/O and memory space: child (3 cells), parent (2), size (2) */
+    uint32_t ranges[14] = {
+        0x01000000, 0, 0, (uint32_t)(IO_BASE >> 32), (uint32_t)IO_BASE, 0, 0x01000000,
+        0x02000000, 0, 0, (uint32_t)(PBM_MEM >> 32), (uint32_t)PBM_MEM, 1, 0,
+    };
+    prop_u32s(&w, "ranges", ranges, 14);
+
+    fdtw_begin(&w, "pci@1");
+    simba_props(&w, SIMBA_B_DEVFN, 2);
+    fdtw_end(&w);
+
+    fdtw_begin(&w, "pci@1,1");
+    simba_props(&w, SIMBA_A_DEVFN, 1);
+
+    fdtw_begin(&w, "ebus@1");
+    fdtw_prop_str(&w, "name", "ebus");
+    fdtw_prop_str(&w, "compatible", "pci108e,1000");
+    uint32_t ereg[5] = { 1u << 16 | EBUS_DEVFN << 8, 0, 0, 0, 0 };
+    prop_u32s(&w, "reg", ereg, 5);
+    pci_id_props(&w, 1, EBUS_DEVFN);
+    fdtw_prop_u32(&w, "#address-cells", 2);
+    fdtw_prop_u32(&w, "#size-cells", 1);
+    /* Space 0x14: the ISA I/O ports, at the bottom of PCI I/O space */
+    uint32_t eranges[6] = { 0x14, 0, 0x01000000, 0, 0, 0x10000 };
+    prop_u32s(&w, "ranges", eranges, 6);
+
+    fdtw_begin(&w, "su@14,3f8");
     fdtw_prop_str(&w, "name", "su");
     fdtw_prop_str(&w, "device_type", "serial");
-    fdtw_prop_str(&w, "compatible", "ns16550");
-    uint64_t sreg[2] = { UART, 8 };
-    prop_cells2(&w, "reg", sreg, 2);
+    fdtw_prop_str(&w, "compatible", "su16550");
+    uint32_t sreg[3] = { 0x14, 0x3f8, 8 };
+    prop_u32s(&w, "reg", sreg, 3);
+    fdtw_prop_u32(&w, "interrupts", INO_SERIAL);
     fdtw_prop_u32(&w, "clock-frequency", 1843200);
-    fdtw_end(&w);
+    fdtw_end(&w);               /* su */
+    fdtw_end(&w);               /* ebus */
+    for (int i = 0; i < npdevs; i++)
+        pci_dev_node(&w, &pdevs[i]);
+    fdtw_end(&w);               /* pci@1,1 */
+    fdtw_end(&w);               /* pci@1fe,0 */
 
     fdtw_end(&w);
     if (!fdtw_finish(&w, 0))
@@ -526,7 +874,7 @@ static int node_path(int node, char *buf, int len)
 static int ih_package(uint64_t ih)
 {
     switch (ih) {
-    case IH_CONSOLE: return dtb_path(dt, "/serial");
+    case IH_CONSOLE: return dtb_path(dt, SU_PATH);
     case IH_MMU: return dtb_path(dt, "/virtual-memory");
     case IH_MEMORY: return dtb_path(dt, "/memory");
     }
@@ -775,11 +1123,291 @@ static int set_hdrs_initrd(void)
     return 0;
 }
 
+/* --- IDE: ATA PIO on the CMD646's assigned BARs ------------------------------ */
+
+#define ATA_DATA    0
+#define ATA_COUNT   2
+#define ATA_LBA0    3
+#define ATA_LBA1    4
+#define ATA_LBA2    5
+#define ATA_DEVICE  6
+#define ATA_STATUS  7       /* read */
+#define ATA_CMD     7       /* write */
+#define ATA_BSY     0x80
+#define ATA_DRQ     0x08
+#define ATA_ERR     0x01
+
+struct ata_disk {
+    uint64_t cmd, ctl;      /* physical addresses of the register blocks */
+    int slave;
+    uint64_t sectors;
+    char model[41];
+};
+static struct ata_disk disks[2];    /* the primary channel's master and slave */
+static int ndisks;
+
+static inline uint16_t in16le(uint64_t a)
+{
+    uint16_t v;
+    __asm__ volatile("lduha [%1] 0x1d, %0" : "=r"(v) : "r"(a) : "memory");
+    return v;
+}
+
+/* Physical RAM, through the bypass ASI: the image may lie outside the
+ * firmware's own mappings */
+static inline void phys_store8(uint64_t a, uint8_t v)
+{
+    __asm__ volatile("stba %0, [%1] 0x14" : : "r"(v), "r"(a) : "memory");
+}
+
+static inline void phys_store64(uint64_t a, uint64_t v)
+{
+    __asm__ volatile("stxa %0, [%1] 0x14" : : "r"(v), "r"(a) : "memory");
+}
+
+static void phys_copy(uint64_t dst, const uint8_t *src, uint64_t n)
+{
+    uint64_t i = 0;
+    for (; i < n && ((dst + i) & 7); i++)
+        phys_store8(dst + i, src[i]);
+    if (!(((uintptr_t)src + i) & 7))
+        for (; i + 8 <= n; i += 8)
+            phys_store64(dst + i, *(const uint64_t *)(src + i));
+    for (; i < n; i++)
+        phys_store8(dst + i, src[i]);
+}
+
+static void phys_zero(uint64_t dst, uint64_t n)
+{
+    uint64_t i = 0;
+    for (; i < n && ((dst + i) & 7); i++)
+        phys_store8(dst + i, 0);
+    for (; i + 8 <= n; i += 8)
+        phys_store64(dst + i, 0);
+    for (; i < n; i++)
+        phys_store8(dst + i, 0);
+}
+
+static int ata_wait(const struct ata_disk *d, int drq)
+{
+    for (long i = 0; i < 20000000; i++) {
+        uint8_t st = in8(d->cmd + ATA_STATUS);
+        if (st == 0xff || st == 0x7f)
+            return -1;                  /* nothing there */
+        if (st & ATA_BSY)
+            continue;
+        if (st & ATA_ERR)
+            return -1;
+        if (!drq || (st & ATA_DRQ))
+            return 0;
+        if (!drq)
+            return 0;
+    }
+    return -1;
+}
+
+/* IDENTIFY data is little-endian words; sector data is bytes in order,
+ * which a big-endian read of the data port keeps */
+static void ata_read_words(const struct ata_disk *d, uint16_t *buf, int n)
+{
+    for (int i = 0; i < n; i++)
+        buf[i] = in16le(d->cmd + ATA_DATA);
+}
+
+static inline uint16_t in16be(uint64_t a)
+{
+    uint16_t v;
+    __asm__ volatile("lduha [%1] 0x15, %0" : "=r"(v) : "r"(a) : "memory");
+    return v;
+}
+
+static void ata_read_bytes(const struct ata_disk *d, uint8_t *buf)
+{
+    uint16_t *w = (uint16_t *)buf;
+    for (int i = 0; i < 256; i++)
+        w[i] = in16be(d->cmd + ATA_DATA);
+}
+
+static int ata_identify(struct ata_disk *d)
+{
+    static uint16_t id[256];
+    out8(d->ctl + 2, 0x02);                 /* nIEN: polled */
+    out8(d->cmd + ATA_DEVICE, d->slave ? 0xb0 : 0xa0);
+    uint8_t st = in8(d->cmd + ATA_STATUS);
+    if (st == 0xff || st == 0x7f || st == 0)
+        return -1;
+    out8(d->cmd + ATA_CMD, 0xec);           /* IDENTIFY DEVICE */
+    if (in8(d->cmd + ATA_STATUS) == 0 || ata_wait(d, 1))
+        return -1;                          /* none, or an ATAPI device */
+    ata_read_words(d, id, 256);
+    d->sectors = (uint64_t)id[61] << 16 | id[60];
+    for (int i = 0; i < 20; i++) {
+        d->model[2 * i] = (char)(id[27 + i] >> 8);
+        d->model[2 * i + 1] = (char)id[27 + i];
+    }
+    d->model[40] = 0;
+    for (int i = 39; i >= 0 && d->model[i] == ' '; i--)
+        d->model[i] = 0;
+    return d->sectors ? 0 : -1;
+}
+
+/* Reads 'count' sectors (at most 256) from 'lba' into 'buf' */
+static int ata_read(const struct ata_disk *d, uint64_t lba, uint32_t count, uint8_t *buf)
+{
+    if (!count || count > 256 || lba + count > d->sectors || lba + count > (1u << 28))
+        return -1;
+    if (ata_wait(d, 0))
+        return -1;
+    out8(d->cmd + ATA_DEVICE, (uint8_t)(0xe0 | (d->slave ? 0x10 : 0) | ((lba >> 24) & 0x0f)));
+    out8(d->cmd + ATA_COUNT, (uint8_t)count);   /* 256 is written as 0 */
+    out8(d->cmd + ATA_LBA0, (uint8_t)lba);
+    out8(d->cmd + ATA_LBA1, (uint8_t)(lba >> 8));
+    out8(d->cmd + ATA_LBA2, (uint8_t)(lba >> 16));
+    out8(d->cmd + ATA_CMD, 0x20);               /* READ SECTORS */
+    for (uint32_t s = 0; s < count; s++) {
+        if (ata_wait(d, 1))
+            return -1;
+        ata_read_bytes(d, buf + 512 * s);
+    }
+    return 0;
+}
+
+static void ide_scan(void)
+{
+    ndisks = 0;
+    for (int i = 0; i < npdevs; i++) {
+        const struct pci_dev *p = &pdevs[i];
+        if (p->cls >> 16 != 0x0101 || p->nbars < 2 || !p->bar[0].io || !p->bar[1].io)
+            continue;
+        for (int slave = 0; slave < 2; slave++) {
+            struct ata_disk *d = &disks[ndisks];
+            memset(d, 0, sizeof(*d));
+            d->cmd = IO_BASE + p->bar[0].addr;
+            d->ctl = IO_BASE + p->bar[1].addr;
+            d->slave = slave;
+            if (ata_identify(d) == 0) {
+                fw_printf("ide: %s %s, %lu sectors\n", slave ? "slave" : "master",
+                          d->model, d->sectors);
+                ndisks++;
+            }
+        }
+        break;
+    }
+}
+
+/* Reads sectors [first, first+count) of a disk to physical 'dst' */
+static uint8_t ata_buf[128 * 512] __attribute__((aligned(64)));
+
+static int disk_to_phys(const struct ata_disk *d, uint64_t byte_off, uint64_t len, uint64_t dst)
+{
+    while (len) {
+        uint64_t lba = byte_off / 512, skip = byte_off % 512;
+        uint64_t n = (skip + len + 511) / 512;
+        if (n > 128)
+            n = 128;
+        if (ata_read(d, lba, (uint32_t)n, ata_buf))
+            return -1;
+        uint64_t chunk = n * 512 - skip;
+        if (chunk > len)
+            chunk = len;
+        phys_copy(dst, ata_buf + skip, chunk);
+        dst += chunk;
+        byte_off += chunk;
+        len -= chunk;
+    }
+    return 0;
+}
+
+/* The first disk holds a sparc64 ELF (such as Linux's vmlinux) from
+ * sector 0: its PT_LOAD segments go to their physical addresses, as QEMU
+ * places a -kernel. A second disk, if any, is the initrd (all of it),
+ * placed after the kernel. Returns 0 with kernel_* and initrd_* set. */
+static int disk_load(void)
+{
+    static uint8_t hdr[4096];
+    const struct ata_disk *d = &disks[0];
+    if (!ndisks)
+        return -1;
+    memset(hdr, 0, sizeof(hdr));
+    if (ata_read(d, 0, d->sectors < 8 ? (uint32_t)d->sectors : 8, hdr)) {
+        fw_puts("boot: read error on the IDE disk\n");
+        return -1;
+    }
+    struct elf_image img;
+    int err = elf_probe(hdr, 0, EM_SPARCV9, &img);
+    if (err) {
+        fw_printf("boot: the IDE disk holds no sparc64 ELF (%s)\n", elf_error(err));
+        return -1;
+    }
+    uint64_t phoff = fw_get_be64(hdr + 32);
+    unsigned phentsize = (unsigned)(hdr[54] << 8 | hdr[55]), phnum = (unsigned)(hdr[56] << 8 | hdr[57]);
+    if (phoff + (uint64_t)phentsize * phnum > sizeof(hdr)) {
+        fw_puts("boot: program headers past the first 4 KB\n");
+        return -1;
+    }
+    uint64_t low = ~0ull, high = 0, limit = (uint64_t)CONFIG_IDENTITY_MB << 20;
+    for (int pass = 0; pass < 2; pass++) {
+        for (unsigned i = 0; i < phnum; i++) {
+            const uint8_t *ph = hdr + phoff + i * phentsize;
+            if (fw_get_be32(ph) != 1)           /* PT_LOAD */
+                continue;
+            uint64_t off = fw_get_be64(ph + 8), pa = fw_get_be64(ph + 24);
+            uint64_t filesz = fw_get_be64(ph + 32), memsz = fw_get_be64(ph + 40);
+            if (!pa)
+                pa = fw_get_be64(ph + 16);      /* no physical address: the virtual one */
+            if (pass == 0) {
+                if (off + filesz > d->sectors * 512 || filesz > memsz) {
+                    fw_puts("boot: a segment runs past the disk\n");
+                    return -1;
+                }
+                if (pa < low)
+                    low = pa;
+                if (pa + memsz > high)
+                    high = pa + memsz;
+                continue;
+            }
+            if (disk_to_phys(d, off, filesz, pa)) {
+                fw_puts("boot: read error on the IDE disk\n");
+                return -1;
+            }
+            phys_zero(pa + filesz, memsz - filesz);
+        }
+        if (pass == 0 && (low < 0x4000 || high > limit || high > fw_pbase)) {
+            fw_printf("boot: ELF at 0x%lx-0x%lx is outside the mapped RAM below %u MB\n", low,
+                      high, CONFIG_IDENTITY_MB);
+            return -1;
+        }
+    }
+    kernel_addr = img.entry;
+    kernel_size = high - img.entry;
+    fw_printf("boot: ELF from the IDE disk at 0x%lx-0x%lx, entry 0x%lx\n", low, high, img.entry);
+    initrd_addr = initrd_size = 0;
+    if (ndisks > 1) {
+        const struct ata_disk *r = &disks[1];
+        uint64_t at = (high + 0x1fff) & ~0x1fffull, size = r->sectors * 512;
+        if (at + size > fw_pbase) {
+            fw_puts("boot: the initrd disk does not fit below the firmware\n");
+            return -1;
+        }
+        if (disk_to_phys(r, 0, size, at)) {
+            fw_puts("boot: read error on the initrd disk\n");
+            return -1;
+        }
+        initrd_addr = at;
+        initrd_size = size;
+    }
+    return 0;
+}
+
 static void boot_kernel(void)
 {
     if (!kernel_addr || !kernel_size) {
-        fw_puts("boot: no kernel (-kernel)\n");
-        return;
+        if (!ndisks) {
+            fw_puts("boot: no kernel (-kernel) and no IDE disk\n");
+            return;
+        }
+        if (disk_load())
+            return;
     }
     uint64_t limit = (uint64_t)CONFIG_IDENTITY_MB << 20;
     if (kernel_addr < 0x4000 || kernel_addr + kernel_size > limit) {
@@ -826,9 +1454,33 @@ static void cmd_dt(int argc, char **argv)
         dtb_print(dt, node);
 }
 
-static void cmd_boot(int argc, char **argv)
+static void cmd_pci(int argc, char **argv)
 {
     (void)argc, (void)argv;
+    for (int i = 0; i < npdevs; i++) {
+        const struct pci_dev *d = &pdevs[i];
+        fw_printf("01:%02x.%x %04x:%04x class %06x pin %u\n", d->devfn >> 3, d->devfn & 7,
+                  d->id & 0xffff, d->id >> 16, d->cls >> 8, d->pin);
+        for (int j = 0; j < d->nbars; j++)
+            fw_printf("  bar 0x%x: %s 0x%x, %u bytes%s\n", d->bar[j].reg,
+                      d->bar[j].io ? "i/o" : "mem", d->bar[j].addr, d->bar[j].size,
+                      d->bar[j].prefetch ? ", prefetchable" : "");
+    }
+}
+
+static void cmd_boot(int argc, char **argv)
+{
+    if (argc > 1) {                     /* a new command line */
+        cmdline[0] = 0;
+        for (int i = 1; i < argc; i++) {
+            size_t n = strlen(cmdline), m = strlen(argv[i]);
+            if (n + m + 2 > sizeof(cmdline))
+                break;
+            if (n)
+                cmdline[n++] = ' ';
+            memcpy(cmdline + n, argv[i], m + 1);
+        }
+    }
     if (exit_requested)
         fw_puts("boot: the kernel has already run; reset to boot it again\n");
     else
@@ -838,7 +1490,8 @@ static void cmd_boot(int argc, char **argv)
 static const struct fw_cmd commands[] = {
     { "info", "firmware, memory and CPUs", cmd_info },
     { "dt", "print the device tree (or one node: dt /chosen)", cmd_dt },
-    { "boot", "boot the -kernel image", cmd_boot },
+    { "pci", "the PCI devices on bus 1 and their BARs", cmd_pci },
+    { "boot", "boot the -kernel image or the IDE disk (boot <command line>)", cmd_boot },
     { 0, 0, 0 },
 };
 
@@ -888,11 +1541,20 @@ void fw_main(uint64_t pbase, uint64_t ram)
     if (pbase + FW_SIZE < ram)
         avail_add(pbase + FW_SIZE, ram - pbase - FW_SIZE);
     map_for_os();
+    pci_init();
+    fw_printf("pci: sabre at 0x%lx, ebus %s, console interrupt 0x%x (imap 0x%lx)\n", (uint64_t)PBM_REGS,
+              pci_ok ? "on bus 1" : "missing", INO_SERIAL, in64(PBM_OBIO_IMAP(INO_SERIAL)));
     build_dt();
 
+    ide_scan();
     if (cmdline[0])
         fw_printf("bootargs: %s\n", cmdline);
-    boot_kernel();
+    /* A key already waiting stops a boot from the disk (so that "boot"
+     * at the prompt can give it a command line) */
+    if (!kernel_size && ndisks && fw_getc() >= 0)
+        fw_puts("boot: key pressed, staying at the prompt\n");
+    else
+        boot_kernel();
     fw_puts("type help for commands\n");
     fw_prompt(commands);
 }
