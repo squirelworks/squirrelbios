@@ -484,6 +484,104 @@ static void halt_quiet(void)
     fw_halt(0xfff);                     /* QEMU: a guest shutdown */
 }
 
+/* Reads 'count' sectors from 'first' to 'dest', 64 KB per request */
+static int read_to(uint64_t first, uint64_t count, uint64_t dest)
+{
+    for (uint64_t s = 0; s < count;) {
+        uint32_t n = count - s > 128 ? 128 : (uint32_t)(count - s);
+        if (blk_read(first + s, (void *)(dest + s * 512), n) != 0) {
+            fw_printf("boot: read error at sector %lu\n", (unsigned long)(first + s));
+            return -1;
+        }
+        s += n;
+    }
+    return 0;
+}
+
+/* The command line for a Linux image: "boot <args>" at the prompt */
+static char boot_args[512];
+
+/* Linux's s390x boot image ("image", "vmlinuz"): the file belongs at
+ * address 0 and starts at 0x10000, where "S390EP" sits at +8. Its
+ * parameter area at 0x10400 takes the initrd address and size (+8, +16)
+ * and, at 0x10480, the command line (up to the size at +0x30, 896 bytes
+ * when that is 0). The initrd is the whole of a second virtio-blk disk. */
+#define LINUX_ENTRY        0x10000ul
+#define LINUX_PARM         0x10400ul
+#define LINUX_CMDLINE      0x10480ul
+#define LINUX_LOW          0x10000ul    /* the part staged, then copied to 0 */
+
+
+/* The version string: its offset in the image is at 0x10428 */
+static const char *linux_version(void)
+{
+    uint64_t off = fw_get_be64((const uint8_t *)LINUX_PARM + 0x28);
+    if (off < LINUX_LOW || off >= fw_base)
+        return "unknown";
+    return (const char *)off;
+}
+
+static uint8_t low_copy[LINUX_LOW] __attribute__((aligned(4096)));
+
+static const struct dev *next_disk(const struct dev *after)
+{
+    for (int i = after ? (int)(after - devs) + 1 : 0; i < ndevs; i++)
+        if (devs[i].cu_type == VIRTIO_CU_TYPE && devs[i].cu_model == VIRTIO_ID_BLOCK)
+            return &devs[i];
+    return 0;
+}
+
+static void ipl_linux(const struct dev *d)
+{
+    uint64_t sectors = blk.sectors, size = sectors * 512;
+    if (size >= fw_base) {
+        fw_printf("boot: a %lu MB image does not fit below the firmware\n",
+                  (unsigned long)(size >> 20));
+        return;
+    }
+    if (read_to(0, LINUX_LOW / 512, (uint64_t)low_copy) ||
+        read_to(LINUX_LOW / 512, sectors - LINUX_LOW / 512, LINUX_LOW))
+        return;
+    fw_printf("boot: Linux image, %lu KB, version %s\n", (unsigned long)(size >> 10),
+              linux_version());
+    uint64_t initrd = 0, initrd_size = 0;
+    const struct dev *rd = next_disk(d);
+    if (rd && blk_open(rd) == 0 && blk.sectors) {
+        initrd = (size + 0xfffff) & ~0xffffful;
+        initrd_size = blk.sectors * 512;
+        if (initrd + initrd_size > fw_base) {
+            fw_printf("boot: the initrd (%lu KB) does not fit below the firmware\n",
+                      (unsigned long)(initrd_size >> 10));
+            return;
+        }
+        if (read_to(0, blk.sectors, initrd))
+            return;
+        fw_printf("boot: initrd from 0.0.%04x at 0x%lx, %lu KB\n", rd->devno,
+                  (unsigned long)initrd, (unsigned long)(initrd_size >> 10));
+    }
+    volatile uint64_t *parm = (volatile uint64_t *)LINUX_PARM;
+    parm[1] = initrd;
+    parm[2] = initrd_size;
+    uint64_t max = parm[6] ? parm[6] : 896;
+    char *cl = (char *)LINUX_CMDLINE;
+    if (boot_args[0]) {
+        size_t n = strlen(boot_args);
+        if (n >= max)
+            n = max - 1;
+        memset(cl, 0, max);
+        memcpy(cl, boot_args, n);
+    }
+    fw_printf("boot: command line \"%s\"\n", cl);
+    fw_printf("jumping to the OS\n");
+    sclp_flush();
+    /* From here on no SCLP or channel I/O: the image's lowcore goes in */
+    volatile uint8_t *low = (volatile uint8_t *)0;
+    for (uint64_t i = 0; i < LINUX_LOW; i++)
+        low[i] = low_copy[i];
+    asm volatile("st %0,%1" :: "d"(d->schid), "i"(LC_SUBCHANNEL_ID) : "memory");
+    fw_enter(LINUX_ENTRY, ram_size, 0);
+}
+
 static void ipl_from(const struct dev *d)
 {
     static uint8_t hdr[4096] __attribute__((aligned(8)));
@@ -500,8 +598,18 @@ static void ipl_from(const struct dev *d)
         return;
     }
     int err = elf_probe(hdr, 0, EM_S390, &img);
+    if (err == -1 && blk.sectors > LINUX_LOW / 512 + 8) {
+        if (blk_read(LINUX_LOW / 512, hdr, 8) != 0) {
+            fw_printf("boot: read error\n");
+            return;
+        }
+        if (!memcmp(hdr + 8, "S390EP", 6)) {
+            ipl_linux(d);
+            return;
+        }
+    }
     if (err == -1 || err == -2 || err == -3) {
-        fw_printf("boot: not an s390x ELF image (%s)\n", elf_error(err));
+        fw_printf("boot: not an s390x ELF or Linux image (%s)\n", elf_error(err));
         return;
     }
     /* How much of the file the segments need */
@@ -622,7 +730,15 @@ static void cmd_devices(int argc, char **argv)
 
 static void cmd_boot(int argc, char **argv)
 {
-    (void)argc; (void)argv;
+    boot_args[0] = 0;
+    for (int i = 1; i < argc; i++) {
+        size_t n = strlen(boot_args), m = strlen(argv[i]);
+        if (n + m + 2 > sizeof(boot_args))
+            break;
+        if (n)
+            boot_args[n++] = ' ';
+        memcpy(boot_args + n, argv[i], m + 1);
+    }
     try_boot();
 }
 
@@ -636,7 +752,7 @@ static void cmd_poweroff(int argc, char **argv)
 static const struct fw_cmd cmds[] = {
     { "info", "machine, memory and firmware", cmd_info },
     { "devices", "the channel subsystem's devices", cmd_devices },
-    { "boot", "IPL from the first virtio-blk disk", cmd_boot },
+    { "boot", "IPL from the first virtio-blk disk (boot <Linux command line>)", cmd_boot },
     { "poweroff", "stop the machine", cmd_poweroff },
     { 0, 0, 0 },
 };
@@ -651,7 +767,12 @@ void fw_main(void)
               (unsigned long)fw_base);
     css_scan();
     fw_printf("css: %d subchannels\n", ndevs);
-    try_boot();
+    /* A key already waiting stops the automatic boot (to give "boot"
+     * a Linux command line at the prompt) */
+    if (next_disk(0) && fw_getc() >= 0)
+        fw_printf("boot: key pressed, staying at the prompt\n");
+    else
+        try_boot();
     fw_prompt(cmds);
     halt_quiet();
 }
