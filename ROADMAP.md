@@ -23,18 +23,19 @@ Nothing in this repo is vendored third-party firmware. A UEFI-class
 interface arrives in Phase C as original code; until then nothing here is
 UEFI.
 
-## Where things are (2026-11-05)
+## Where things are (2026-11-13)
 
 - **Latest release: v1.4.4** (published 2026-11-04, tag on `3388eba`,
-  110 `make test` cases). Phases A and B are finished: the x86 PC BIOS
-  now has floppy, PCI, EDD/LBA48, AHCI, NVMe, USB (UHCI/OHCI/EHCI/xHCI,
-  HID, BOT disk boot), virtio-blk, network boot and VBE 3.0. The table
-  in [What works today](#what-works-today-v100) is the v1.0.0 baseline;
-  the release notes in `release-notes/` list what each version added.
-- **Phase C1** (in progress), `PLATFORM=x86_64-uefi` in `x86_64/`. Steps 1–4
-  are merged (#118, #119, #122, #123); step 5 (FAT/Block I/O) is on
-  `cursor/x86-64-fat-ebbc`; step 6 (GOP/runtime/ExitBootServices) is in
-  this PR.
+  110 `make test` cases). Phases A and B are finished. The table in
+  [What works today](#what-works-today-v100) is the v1.0.0 baseline; the
+  release notes in `release-notes/` list what each version added.
+- **v2.1.0 is prepared** (`release-notes/v2.1.0.md`, 217 `make test`
+  cases): C1 to C4 are finished (`x86_64-uefi` with ACPI 6.x, SMBIOS 3.x,
+  CSM, SMP and Secure Boot), D1 and D3 are finished (`aarch64-uefi`,
+  `riscv64-uefi` from the shared core in `common/efi/`), and F1/F2 have
+  their x86-64 parts (NUMA, HMAT, extra PCI roots, MCE/BERT/HEST).
+- **Next:** C5 and D2 (real boards, research under `boards/`), D4 (shared
+  drivers), Phase E (POWER, SPARC and others), the rest of F.
 - Release images are attached to GitHub Releases only. Squirrel
   publishes each release.
 
