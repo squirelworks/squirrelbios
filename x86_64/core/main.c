@@ -4,6 +4,7 @@
 #include "smp.h"
 #include "acpi.h"
 #include "secure.h"
+#include "vars.h"
 
 extern char __fw_start[], __fw_end[];
 
@@ -147,6 +148,8 @@ void fw_main(void)
     efi_gop_init();
 
     efi_initrd_init();
+    vars_init();
+    vars_install(efi_st->runtime_services);
     secure_init();
     efi_disk_init();
     efi_net_init();

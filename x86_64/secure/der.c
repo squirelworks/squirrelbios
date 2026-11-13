@@ -226,3 +226,67 @@ int pkcs7_authenticode(const u8 *p, u32 len, struct authenticode *a)
     a->sig_len = x.len;
     return 1;
 }
+
+/* A detached SignedData, as in EFI_VARIABLE_AUTHENTICATION_2 (the
+ * SignedData alone, or in its ContentInfo): the first signer must sign
+ * content_hash, directly or through authenticated attributes whose
+ * messageDigest it is. Gives the signature and what it covers. */
+int pkcs7_detached(const u8 *p, u32 len, const u8 content_hash[32], struct authenticode *a)
+{
+    struct der d = { p, p + len }, sd, si, ad, peek;
+    struct tlv t, oid, x, signers, signer, alg, attrs;
+    memset(a, 0, sizeof *a);
+    if (!want(&d, &t, 0x30))
+        return 0;
+    sd = inside(&t);
+    peek = sd;
+    if (der_next(&peek, &oid) && oid.tag == 0x06) {         /* ContentInfo */
+        if (!oid_is(&oid, OID_SIGNED_DATA, sizeof OID_SIGNED_DATA) || !want(&peek, &x, 0xA0))
+            return 0;
+        sd = inside(&x);
+        if (!want(&sd, &t, 0x30))
+            return 0;
+        sd = inside(&t);
+    }
+    /* version, digestAlgorithms, the (empty) content */
+    if (!want(&sd, &x, 0x02) || !want(&sd, &x, 0x31) || !want(&sd, &x, 0x30))
+        return 0;
+    do {
+        if (!der_next(&sd, &signers))
+            return 0;
+    } while (signers.tag == 0xA0 || signers.tag == 0xA1);
+    if (signers.tag != 0x31)
+        return 0;
+    si = inside(&signers);
+    if (!want(&si, &signer, 0x30))
+        return 0;
+    si = inside(&signer);
+    /* version, issuerAndSerialNumber or [0] subjectKeyIdentifier */
+    if (!want(&si, &x, 0x02) || !der_next(&si, &x) || !want(&si, &alg, 0x30))
+        return 0;
+    ad = inside(&alg);
+    if (!der_next(&ad, &oid) || !oid_is(&oid, OID_SHA256, sizeof OID_SHA256))
+        return 0;
+    if (!der_next(&si, &attrs))
+        return 0;
+    if (attrs.tag == 0xA0) {
+        struct tlv md;
+        if (!attr_digest(&attrs, &md) || md.len != 32 || memcmp(md.v, content_hash, 32))
+            return 0;
+        a->signed_data = attrs.raw;
+        a->signed_len = attrs.raw_len;
+        a->attrs_set = 1;
+        if (!want(&si, &alg, 0x30))
+            return 0;
+    } else if (attrs.tag != 0x30) {
+        return 0;
+    }
+    if (!want(&si, &x, 0x04))
+        return 0;
+    a->digest = content_hash;
+    a->digest_len = 32;
+    a->sig = x.v;
+    a->sig_len = x.len;
+    return 1;
+}
+
