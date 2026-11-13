@@ -152,7 +152,10 @@ void efi_memory_init(void)
     set_type(0xA0000, 0x60, EfiReservedMemoryType, 0);                   /* VGA, ROMs */
     set_type(0x100000, 0x100, EfiBootServicesData, EFI_MEMORY_WB);       /* stack */
     u64 fs = (u64)(uptr)__fw_start, fe = ((u64)(uptr)__fw_end + PAGE - 1) & ~(PAGE - 1);
-    set_type(fs, (fe - fs) / PAGE, EfiBootServicesCode, EFI_MEMORY_WB);
+    /* The image holds the runtime services, their table and the
+     * variable store, so it stays the OS's to keep after
+     * ExitBootServices (Linux calls GetVariable/SetVariable later). */
+    set_type(fs, (fe - fs) / PAGE, EfiRuntimeServicesCode, EFI_MEMORY_WB | EFI_MEMORY_RUNTIME);
 }
 
 static int valid_alloc_type(EFI_MEMORY_TYPE t)
@@ -177,7 +180,8 @@ EFI_STATUS EFIAPI efi_allocate_pages(EFI_ALLOCATE_TYPE how, EFI_MEMORY_TYPE type
         return set_type(*addr, pages, type, EFI_MEMORY_WB) ? EFI_SUCCESS : EFI_OUT_OF_RESOURCES;
     }
     u64 limit = TOP_4G;
-    if (how == AllocateMaxAddress && *addr + 1 < limit)
+    /* MaxAddress can be ~0 (Linux's EFI stub asks that way): no wrap */
+    if (how == AllocateMaxAddress && *addr < limit - 1)
         limit = (*addr + 1) & ~(PAGE - 1);
     for (int i = nmap - 1; i >= 0; i--) {
         if (!free_type(map[i].type) || map[i].start >= limit)

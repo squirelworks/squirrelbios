@@ -238,7 +238,7 @@ boxes in [TODO.md](TODO.md).
     `\EFI\BOOT\BOOTX64.EFI`
   - [x] Step 6 `x86_64-gop`: GOP, runtime services, ExitBootServices
     (this PR; depends on step 5)
-- [ ] **C2 (v2.0.0) ACPI 2.0+/6.x and SMBIOS 3.x.** MADT, HPET, MCFG, FADT,
+- [x] **C2 (v2.0.0) ACPI 2.0+/6.x and SMBIOS 3.x.** MADT, HPET, MCFG, FADT,
   DSDT (original, generated AML). Test: Linux x86-64 boots to a shell
   with ACPI; an `acpidump`-style self-check in `make test`.
 - [x] **C3 (v2.0.1) CSM.** Legacy BIOS services kept on the x86-64 build.

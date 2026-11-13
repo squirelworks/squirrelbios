@@ -498,6 +498,10 @@ EFI_STATUS EFIAPI efi_get_memory_map(UINTN *, EFI_MEMORY_DESCRIPTOR *, UINTN *, 
 EFI_STATUS EFIAPI efi_allocate_pool(EFI_MEMORY_TYPE, UINTN, void **);
 EFI_STATUS EFIAPI efi_free_pool(void *);
 
+/* bootopt.c */
+void efi_initrd_init(void);
+void efi_set_load_options(EFI_HANDLE image);
+
 /* tables.c */
 extern EFI_SYSTEM_TABLE *efi_st;
 void efi_tables_init(void);

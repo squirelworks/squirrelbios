@@ -75,9 +75,10 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/x86_64-app.efi $(TEST_DIR)/x86_64-app-exit.efi \
              $(TEST_DIR)/x86_64-con.efi $(TEST_DIR)/x86_64-con.keys \
              $(TEST_DIR)/x86_64-esp.img $(TEST_DIR)/x86_64-gop.efi \
-             $(TEST_DIR)/x86_64-mp.efi
+             $(TEST_DIR)/x86_64-mp.efi \
+             $(TEST_DIR)/x86_64-acpi.efi
 
-.PHONY: all x86 x86_64 arm riscv test linux-shell linux-x86 linux-big linux-stress os-boot os-boot-csm clean
+.PHONY: all x86 x86_64 arm riscv test linux-shell linux-x86 linux-uefi linux-big linux-stress os-boot os-boot-csm clean
 .DELETE_ON_ERROR:
 
 PLATFORMS := x86-pc x86_64-uefi aarch64-virt riscv64-virt
@@ -253,6 +254,9 @@ $(TEST_DIR)/x86_64-gop.efi: tests/x86_64-gop.asm tests/x86_64-pe.inc | $(TEST_DI
 	$(NASM) -f bin -i tests/ $< -o $@
 # MP services and the MP table (C4)
 $(TEST_DIR)/x86_64-mp.efi: tests/x86_64-mp.asm tests/x86_64-pe.inc | $(TEST_DIR)
+	$(NASM) -f bin -i tests/ $< -o $@
+# acpidump-style self-check of the ACPI and SMBIOS tables (C2)
+$(TEST_DIR)/x86_64-acpi.efi: tests/x86_64-acpi.asm tests/x86_64-pe.inc | $(TEST_DIR)
 	$(NASM) -f bin -i tests/ $< -o $@
 
 # GPT disk with a FAT32 ESP holding \\EFI\\BOOT\\BOOTX64.EFI (the app)
@@ -623,6 +627,13 @@ linux-shell: riscv
 # disk and checks that it starts with the firmware's E820 map
 linux-x86: x86
 	tests/linux-x86.sh
+
+# Boot Ubuntu 24.04's amd64 kernel (EFI stub) through the x86_64-uefi
+# firmware to a busybox shell, on q35 and i440fx, with our ACPI and
+# SMBIOS tables, then power off through \_S5. Downloads two pinned
+# packages into build/linux-uefi (about 15 MB, once).
+linux-uefi: x86_64
+	tests/linux-uefi.sh
 
 # Optional, not part of make test. OS_IMG is a Squirrel-OS/2 hard-disk
 # image (that repo's build/os.img). The OS banner is on the VGA, so the
