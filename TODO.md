@@ -391,7 +391,7 @@ roadmap item, run under QEMU in `make test`.
   - [x] Keyboard on OHCI (and on EHCI ports, through the companions)
   - [x] Keyboard on xHCI (EHCI hands keyboards to its companions)
   - [x] Mouse, `INT 15h C2xx`
-- [ ] `x86-usb-storage` — Boot from USB mass storage (BOT, then UAS).
+- [x] `x86-usb-storage` — Boot from USB mass storage (BOT, then UAS).
   - [x] Bulk-only transport on xHCI: `INT 13h` and booting, as DL 80h
     when no IDE, SATA or NVMe disk answered. No stall recovery yet.
   - [x] Bulk-only transport on UHCI and OHCI (full speed) and EHCI (high
