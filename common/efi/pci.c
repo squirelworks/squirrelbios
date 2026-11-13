@@ -7,7 +7,7 @@
  * walks bus 0 (QEMU's virt boards put every device there), sizes each
  * function's memory BARs, places them in the bridge's 32-bit window (the
  * 64-bit one when that fills), turns on memory decoding and bus mastering
- * and hands the function to the drivers (virtio_pci.c, nvme.c). I/O BARs
+ * and hands the function to the drivers (pci_disk_add). I/O BARs
  * and bridges behind bus 0 are left alone. */
 #include "efi.h"
 
@@ -64,10 +64,15 @@ static u64 to_cpu(u64 pci)
     return pci - w->pci + w->cpu;
 }
 
+static u32 ecam_read32(struct sq_pci *p, u32 off)
+{
+    return mmio_read32(p->priv + off);
+}
+
 /* Size and place one BAR; the next BAR's index */
 static int bar(struct sq_pci *p, int i)
 {
-    uptr a = p->cfg + CFG_BAR0 + 4 * i;
+    uptr a = p->priv + CFG_BAR0 + 4 * i;
     u32 orig = mmio_read32(a);
     if (orig & 1)
         return i + 1;                       /* I/O space */
@@ -111,32 +116,30 @@ static int function(uptr ecam, u8 dev, u8 fn)
 {
     struct sq_pci p;
     memset(&p, 0, sizeof p);
-    p.cfg = ecam + ((uptr)dev << 15 | (uptr)fn << 12);
-    u32 id = mmio_read32(p.cfg + CFG_ID);
+    uptr cfg = ecam + ((uptr)dev << 15 | (uptr)fn << 12);
+    p.priv = cfg;
+    p.read32 = ecam_read32;
+    u32 id = mmio_read32(cfg + CFG_ID);
     if ((id & 0xFFFF) == 0xFFFF)
         return 0;
-    if ((mmio_read8(p.cfg + CFG_HEADER) & 0x7F) != 0)
+    if ((mmio_read8(cfg + CFG_HEADER) & 0x7F) != 0)
         return 0;                           /* a bridge */
     p.dev = dev;
     p.fn = fn;
     p.vendor = (u16)id;
     p.device = (u16)(id >> 16);
-    p.class_rev = mmio_read32(p.cfg + CFG_CLASS);
+    p.class_rev = mmio_read32(cfg + CFG_CLASS);
+    if (p.class_rev >> 24 != 0x01)
+        return 0;                           /* not mass storage */
 
-    u16 cmd = mmio_read16(p.cfg + CFG_COMMAND);
-    mmio_write16(p.cfg + CFG_COMMAND, cmd & ~(CMD_MEMORY | 1));
+    u16 cmd = mmio_read16(cfg + CFG_COMMAND);
+    mmio_write16(cfg + CFG_COMMAND, cmd & ~(CMD_MEMORY | 1));
     for (int i = 0; i < 6;)
         i = bar(&p, i);
-    mmio_write16(p.cfg + CFG_COMMAND, cmd | CMD_MEMORY | CMD_MASTER);
+    mmio_write16(cfg + CFG_COMMAND, cmd | CMD_MEMORY | CMD_MASTER);
 
     p.path = pci_path(dev, fn);
-    if (!p.path)
-        return 0;
-    if (p.vendor == 0x1AF4)
-        return virtio_pci_add(&p);
-    if ((p.class_rev >> 8) == 0x010802)     /* mass storage, NVM, NVMe */
-        return nvme_add(&p);
-    return 0;
+    return p.path ? pci_disk_add(&p) : 0;
 }
 
 /* Every disk on the device tree's ECAM host bridge */

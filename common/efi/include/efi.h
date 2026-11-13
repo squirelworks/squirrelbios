@@ -424,18 +424,31 @@ int virtio_blk_add(struct vq *q, u64 sectors, EFI_DEVICE_PATH_PROTOCOL *path);
 int virtio_mmio_probe(void);
 int pci_probe(void);
 
-/* pci.c: a function on the ECAM host bridge's bus 0, its memory BARs
- * assigned (CPU addresses, 0 if unused) and decoding enabled */
+/* A PCI function the platform found (pci.c: the device tree's ECAM host
+ * bridge; x86_64/platform/pcidisk.c), its memory BARs assigned (CPU
+ * addresses, 0 if unused) and memory decoding and bus mastering on */
 struct sq_pci {
-    u8 dev, fn;
+    u8 bus, dev, fn;
     u16 vendor, device;
     u32 class_rev;              /* class code << 8 | revision */
-    uptr cfg;                   /* its 4 KB of ECAM configuration space */
     u64 bar[6];                 /* a 64-bit BAR's address sits in its low slot */
     EFI_DEVICE_PATH_PROTOCOL *path;
+    u32 (*read32)(struct sq_pci *p, u32 off);  /* configuration space */
+    uptr priv;                  /* the platform's */
 };
+static inline u8 pci_cfg8(struct sq_pci *p, u32 off)
+{
+    return (u8)(p->read32(p, off & ~3u) >> (off & 3) * 8);
+}
+static inline u16 pci_cfg16(struct sq_pci *p, u32 off)
+{
+    return (u16)(p->read32(p, off & ~3u) >> (off & 2) * 8);
+}
+/* The drivers: each takes the function if it is theirs (1) */
 int virtio_pci_add(struct sq_pci *p);   /* virtio_pci.c */
 int nvme_add(struct sq_pci *p);         /* nvme.c */
+int ahci_add(struct sq_pci *p);         /* ahci.c */
+int pci_disk_add(struct sq_pci *p);     /* pci.c: whichever fits */
 int efi_boot_esp(void);
 int fat_install(EFI_HANDLE handle, EFI_BLOCK_IO_PROTOCOL *bio);
 

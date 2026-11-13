@@ -3,13 +3,18 @@
  * checksums, and publishes an XSDT and RSDP as the ACPI 2.0
  * configuration table; aml.c writes AML for a DSDT. An architecture
  * builds its own tables with these (arm/uefi/acpi.c). */
-#ifndef ACPI_H
-#define ACPI_H
+#ifndef SQ_EFI_ACPI_H
+#define SQ_EFI_ACPI_H
 
 #include "efi.h"
 
+/* An architecture may name its own (x86_64/include/acpi.h) */
+#ifndef ACPI_OEM_ID
 #define ACPI_OEM_ID     "SQRLWK"
+#endif
+#ifndef ACPI_OEM_TABLE
 #define ACPI_OEM_TABLE  "SQBIOS  "
+#endif
 
 struct acpi_header {
     char signature[4];

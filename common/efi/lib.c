@@ -1,6 +1,6 @@
 /* SquirrelBIOS UEFI core (common/efi): the few C library routines the firmware uses.
  * Original code. */
-#include "sq.h"
+#include "efi.h"
 
 void *memset(void *d, int c, usize n)
 {
@@ -65,4 +65,25 @@ int strncmp(const char *a, const char *b, usize n)
             return 0;
     }
     return 0;
+}
+
+/* The CRC-32 of UEFI table headers. It lives here, with the runtime
+ * code, because SetVirtualAddressMap reseals tables after
+ * ExitBootServices. */
+u32 crc32(const void *buf, usize len)
+{
+    const u8 *p = buf;
+    u32 c = 0xFFFFFFFF;
+    while (len--) {
+        c ^= *p++;
+        for (int k = 0; k < 8; k++)
+            c = (c >> 1) ^ (0xEDB88320 & -(c & 1));
+    }
+    return ~c;
+}
+
+void efi_reseal(EFI_TABLE_HEADER *h)
+{
+    h->crc32 = 0;
+    h->crc32 = crc32(h, h->header_size);
 }

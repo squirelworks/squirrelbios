@@ -24,7 +24,8 @@ struct handle {
 };
 
 static struct handle *handles;
-static EFI_CONFIGURATION_TABLE config[CONFIG_MAX];
+/* The OS reads it after ExitBootServices */
+static EFI_CONFIGURATION_TABLE config[CONFIG_MAX] ARCH_RT_DATA("config");
 
 const EFI_GUID efi_loaded_image_guid = EFI_LOADED_IMAGE_PROTOCOL_GUID;
 
@@ -374,7 +375,7 @@ static EFI_STATUS EFIAPI locate_device_path(EFI_GUID *guid, EFI_DEVICE_PATH_PROT
     struct handle *best = NULL;
     for (struct handle *h = handles; h; h = h->next) {
         struct prot *dp = find(h, &efi_device_path_guid);
-        if (!dp || !find(h, guid))
+        if (!dp || !dp->iface || !find(h, guid))
             continue;
         UINTN l = dp_len(dp->iface);
         if (l > total || memcmp(dp->iface, want, l) || !dp_boundary(want, l))

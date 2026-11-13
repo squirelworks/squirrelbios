@@ -70,8 +70,9 @@ u16 pci_assign_io_bar(u8 bus, u8 dev, u8 fn, u8 bar_off)
     return base;
 }
 
-/* 32-bit memory BARs: bump downward from 0xE0000000 so they sit below
- * the PCI hole. Prefetchable bit is preserved. Returns 0 on failure. */
+/* Memory BARs: bump downward from 0xE0000000 so they sit below the PCI
+ * hole. A 64-bit BAR goes there too, its upper half 0. Prefetchable bit
+ * is preserved. Returns 0 on failure. */
 static u32 mem_bump = 0xE0000000;
 
 u32 pci_assign_mem_bar(u8 bus, u8 dev, u8 fn, u8 bar_off)
@@ -79,19 +80,22 @@ u32 pci_assign_mem_bar(u8 bus, u8 dev, u8 fn, u8 bar_off)
     u32 bar = pci_read32(bus, dev, fn, bar_off);
     if (bar & 1)
         return 0;                               /* I/O BAR */
-    if ((bar & 0x6) == 0x4)
-        return 0;                               /* 64-bit: skip for now */
+    int wide = (bar & 0x6) == 0x4 && bar_off <= 0x20;
     u32 cur = bar & 0xFFFFFFF0;
-    if (cur && cur != 0xFFFFFFF0)
+    if (cur && cur != 0xFFFFFFF0 && !(wide && pci_read32(bus, dev, fn, bar_off + 4)))
         return cur;
     pci_write32(bus, dev, fn, bar_off, 0xFFFFFFFF);
     u32 mask = pci_read32(bus, dev, fn, bar_off);
     u32 size = ~(mask & 0xFFFFFFF0) + 1;
-    if (!size || size > 0x10000000)
+    if (!size || size > 0x10000000) {
+        pci_write32(bus, dev, fn, bar_off, bar);
         return 0;
+    }
     u32 base = (mem_bump - size) & ~(size - 1);
     mem_bump = base;
     pci_write32(bus, dev, fn, bar_off, base | (bar & 0xF));
+    if (wide)
+        pci_write32(bus, dev, fn, bar_off + 4, 0);
     return base;
 }
 

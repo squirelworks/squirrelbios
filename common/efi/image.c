@@ -182,6 +182,9 @@ EFI_STATUS EFIAPI efi_load_image(BOOLEAN boot_policy, EFI_HANDLE parent, void *p
         return EFI_INVALID_PARAMETER;
     if (!src)
         return EFI_NOT_FOUND;                   /* loading from a device comes later */
+    EFI_STATUS v = arch_check_image(src, size);    /* x86-64: Secure Boot */
+    if (v != EFI_SUCCESS)
+        return v;
     void *mem;
     if (efi_allocate_pool(EfiBootServicesData, sizeof(struct image), &mem) != EFI_SUCCESS)
         return EFI_OUT_OF_RESOURCES;

@@ -133,12 +133,13 @@ void fw_main(void)
     printf("efi: system table at %p, UEFI %u.%u, boot services at %p\n", efi_st,
            efi_st->hdr.revision >> 16, efi_st->hdr.revision & 0xFFFF, efi_st->boot_services);
     chipset_init();
+    x86_rt_init(chipset()->pm_base);
     smp_init();                         /* before the MADT and SRAT */
     acpi_init();
     smbios_init();
     efi_dump_memory_map();
     printf("efi: memory services %s\n", efi_memory_selftest() ? "ok" : "FAILED");
-    printf("efi: TSC at %lu MHz, console on COM1\n", efi_tsc_hz() / 1000000);
+    printf("efi: TSC at %lu MHz, console on COM1\n", efi_counter_hz() / 1000000);
     efi_gop_init();
 
     efi_initrd_init();

@@ -247,12 +247,25 @@ void efi_disk_add(struct sq_blk *dev)
     try_fat(disk);
 }
 
+/* A PCI mass storage function the platform found (pci.c, x86_64's
+ * pcidisk.c): hand it to the driver for it */
+int pci_disk_add(struct sq_pci *p)
+{
+    if (p->vendor == 0x1AF4)
+        return virtio_pci_add(p);
+    switch (p->class_rev >> 8) {
+    case 0x010802:                          /* NVM, NVMe */
+        return nvme_add(p);
+    case 0x010601:                          /* SATA, AHCI 1.0 */
+        return ahci_add(p);
+    }
+    return 0;
+}
+
 /* Every disk driver looks for its devices and calls efi_disk_add */
 void efi_disk_init(void)
 {
-    int n = virtio_mmio_probe();
-    n += pci_probe();
-    if (!n)
+    if (!arch_disk_probe())
         printf("disk: no disks\n");
 }
 
@@ -348,6 +361,7 @@ int efi_boot_esp(void)
             li->device_handle = handles[i];
             li->file_path = efi_dp_file(path);
         }
+        arch_boot_options(img);
         UINTN xsz = 0;
         CHAR16 *xdata = NULL;
         s = efi_start_image(img, &xsz, &xdata);

@@ -25,16 +25,19 @@ RISCV_BIN := riscv/squirrel-bios.bin
 # (C and NASM) linked to run from RAM at X64_FW_BASE, and the 4 KB reset
 # stub (x86_64/reset/reset.asm) at its top
 X64_FD      := x86_64/squirrel-bios.fd
-# runtime.c and lib.c are built on their own, their sections renamed .rt.*:
-# link.ld puts them in the pages the OS keeps after ExitBootServices
-X64_RT_C    := x86_64/core/runtime.c x86_64/core/lib.c
-X64_C       := $(filter-out $(X64_RT_C),$(wildcard x86_64/*/*.c))
-X64_H       := $(wildcard x86_64/include/*.h)
+# The shared UEFI core (common/efi) supplies the services (roadmap D4).
+# runtime.c, lib.c and rt.c are built on their own, their sections renamed
+# .rt.*: link.ld puts them in the pages the OS keeps after ExitBootServices
+X64_RT_C    := common/efi/runtime.c common/efi/lib.c x86_64/core/rt.c
+X64_EFI_C   := $(addprefix common/efi/,ahci.c aml.c console.c devicepath.c disk.c event.c fat.c \
+                 image.c memory.c nvme.c protocol.c tables.c textcon.c virtio.c virtio_pci.c)
+X64_C       := $(filter-out $(X64_RT_C),$(wildcard x86_64/*/*.c)) $(X64_EFI_C)
+X64_H       := $(wildcard x86_64/include/*.h) $(wildcard common/efi/include/*.h)
 X64_FLASH   := 0x100000
 X64_FW_BASE := 0x200000
 X64_CFLAGS  := -m64 -std=gnu11 -O2 -Wall -Wextra -Werror -ffreestanding -fno-builtin \
                -fno-pic -fno-pie -no-pie -fno-stack-protector -fno-asynchronous-unwind-tables \
-               -mno-red-zone -mgeneral-regs-only -nostdlib -static -Ix86_64/include
+               -mno-red-zone -mgeneral-regs-only -nostdlib -static -Ix86_64/include -Icommon/efi/include
 
 # AArch64 UEFI-class firmware (roadmap D1): the shared UEFI core in
 # common/efi plus arm/uefi, linked to run from RAM at ARM_FW_BASE (start.S
@@ -159,7 +162,7 @@ define X64_BUILD
 	    $(CC64) $(X64_CFLAGS) $(2) -c $$f -o $$o && objcopy --prefix-alloc-sections=.rt $$o || exit 1; done
 	$(CC64) $(X64_CFLAGS) $(2) -Wl,-T,x86_64/link.ld -Wl,--defsym,FW_BASE=$(X64_FW_BASE) \
 	    -Wl,--build-id=none -Wl,--no-warn-rwx-segments $(1)/start.o $(1)/csm.o \
-	    $(patsubst x86_64/core/%.c,$(1)/rt-%.o,$(X64_RT_C)) $(X64_C) -o $(1)/body.elf
+	    $(foreach f,$(X64_RT_C),$(1)/rt-$(basename $(notdir $(f))).o) $(X64_C) -o $(1)/body.elf
 	objcopy -O binary $(1)/body.elf $(1)/body.bin
 	@size=$$(stat -c %s $(1)/body.bin); \
 	if [ $$size -gt $$(($(X64_FLASH) - 0x1000)) ]; then \
