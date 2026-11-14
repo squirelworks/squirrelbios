@@ -87,7 +87,8 @@ expected serial lines (`|`-separated, `!` = must not appear, `~` = regex).
    merge commit, then publish.
 2. **D2-rpi4** board flash *(Squirrel)*: the QEMU `raspi4b` case is done;
    try the SD layout in `boards/rpi4/README.md` on a desk Pi 4.
-3. **C5-board** flashing guide (needs Squirrel and a board).
+3. **C5-board** desk flash *(Squirrel)*: docs and `CONFIG=coreboot` are done;
+   flash a real GA-G41M-ES2L per `boards/ga-g41m-es2l/FLASHING.md`.
 4. **RISC-V AIA MSI** when a newer QEMU is available in CI.
 5. Then Phase G ideas in `docs/CONTINUANCE.md` (squirrelsoft).
 
@@ -136,12 +137,16 @@ expected serial lines (`|`-separated, `!` = must not appear, `~` = regex).
   allocations (`x86_64-tables-2seg`). Optional KVM run on a big host stays
   a post-merge note.
 
-### C5-board — real x86 hardware  `needs: squirrel` (docs part `cursor-codex`)
-- **Research:** `boards/ga-g41m-es2l/README.md` (Intel G41 + ICH7; first as a coreboot payload).
-- **Open:** a flashing guide (external SPI programmer, backup and restore of
-  the vendor image, recovery), and a `CONFIG=` for running as a coreboot
-  payload (take memory map and tables from coreboot's tables instead of
-  fw_cfg). DDR training stays research. Hardware checks are Squirrel's.
+### C5-board — real x86 hardware  *(docs + CONFIG done; board flash `needs: squirrel`)*
+- **Done (docs/CONFIG):** `boards/ga-g41m-es2l/FLASHING.md` (external SPI
+  programmer, vendor backup/restore, DualBIOS and clip recovery);
+  `CONFIG=coreboot` (`configs/x86_64-uefi/coreboot.cfg`) reads the memory
+  map and ACPI RSDP from coreboot LBIO tables (`x86_64/platform/coreboot.c`);
+  `x86_64-coreboot` in `tests/smoke.sh` with synthetic tables from
+  `tests/mkcbtables.py`. Research note: `boards/ga-g41m-es2l/README.md`.
+- **Open (Squirrel):** flash a real GA-G41M-ES2L per the guide with
+  coreboot + this payload; confirm serial shows
+  `mem: … (from coreboot tables)`. DDR training stays research.
 
 ### RISCV-AIA-MSI — Linux on `virt,aia=aplic-imsic`  `cursor-codex` (blocked on QEMU)
 - **Background:** TODO.md `riscv-aia`: APLIC direct mode works; MSI mode storms on QEMU 8.2.

@@ -278,8 +278,9 @@ boxes in [TODO.md](TODO.md).
     and user mode; keys enrolled at run time
   - [x] `c5-tpm`: measured boot with a TPM 2.0 on TIS (PCR extends, the
     TCG2 protocol and event log, the TPM2 table)
-  - [ ] `c5-board`: flashing guide and a coreboot-payload `CONFIG=` for the
-    GA-G41M-ES2L (`boards/ga-g41m-es2l/`)
+  - [x] `c5-board`: flashing guide and a coreboot-payload `CONFIG=` for the
+    GA-G41M-ES2L (`boards/ga-g41m-es2l/FLASHING.md`, `CONFIG=coreboot`,
+    `x86_64-coreboot` smoke); desk flash stays `needs: squirrel`
 
 ### Phase D — v2.5: ARM and RISC-V as full firmware
 

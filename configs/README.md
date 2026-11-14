@@ -59,9 +59,13 @@ platform's `default.cfg` writes the defaults out, and `make test`
 | `CONFIG_COM1_BASE` | `0x3F8` | I/O port of the serial console |
 | `CONFIG_X2APIC` | `n` | Put every local APIC in x2APIC mode when the CPU has it; with `n` only when more than 255 CPUs are present (`x86_64/smp/`) |
 | `CONFIG_SECURE_BOOT` | `y` | Verify-only Secure Boot, on when a db comes through fw_cfg (`x86_64/secure/`) |
+| `CONFIG_COREBOOT` | `n` | Prefer coreboot LBIO tables for the memory map and ACPI RSDP instead of fw_cfg (`x86_64/platform/coreboot.c`); for running as a coreboot payload |
 
 `x86_64-uefi/x2apic.cfg` turns `CONFIG_X2APIC` on; `make test` boots it
-with four CPUs (`x86_64-x2apic-cfg`).
+with four CPUs (`x86_64-x2apic-cfg`). `x86_64-uefi/coreboot.cfg` turns
+`CONFIG_COREBOOT` on (and Secure Boot off); `make test` feeds it synthetic
+LBIO tables (`x86_64-coreboot`). Board notes:
+[boards/ga-g41m-es2l](../boards/ga-g41m-es2l/README.md).
 
 The C sources include `config.h` when built with `-DSQ_CONFIG`.
 

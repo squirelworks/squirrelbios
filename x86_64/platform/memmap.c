@@ -1,10 +1,15 @@
 /* SquirrelBIOS x86_64-uefi: the machine's memory map.
  * Original code.
  *
- * QEMU's "etc/e820" fw_cfg file gives the RAM ranges as 20-byte records
- * (base, length, type). Without it, the CMOS RAM-size registers give
- * the RAM below 4 GB. */
+ * With CONFIG_COREBOOT, coreboot's LBIO memory record is preferred (C5).
+ * Otherwise QEMU's "etc/e820" fw_cfg file gives the RAM ranges as 20-byte
+ * records (base, length, type). Without it, the CMOS RAM-size registers
+ * give the RAM below 4 GB. */
 #include "sq.h"
+
+#ifndef CONFIG_COREBOOT
+#define CONFIG_COREBOOT 0
+#endif
 
 struct mem_range mem_map[MEM_MAX];
 int mem_count;
@@ -30,6 +35,8 @@ void memmap_init(void)
     u16 sel;
     u32 size;
     mem_count = 0;
+    if (CONFIG_COREBOOT && coreboot_memmap())
+        return;
     if (fwcfg_find("etc/e820", &sel, &size)) {
         u8 rec[20];
         outw(0x510, sel);

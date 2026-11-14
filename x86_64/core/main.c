@@ -133,7 +133,9 @@ void fw_main(void)
         if (mem_map[i].type == 1)
             usable += mem_map[i].length;
     }
-    printf("mem: %lu MB usable%s\n", usable >> 20, fwcfg_present() ? " (from fw_cfg)" : " (from CMOS)");
+    printf("mem: %lu MB usable%s\n", usable >> 20,
+           coreboot_present() ? " (from coreboot tables)" :
+           fwcfg_present() ? " (from fw_cfg)" : " (from CMOS)");
 
     efi_memory_init();
     efi_tables_init();
