@@ -81,7 +81,7 @@ expected serial lines (`|`-separated, `!` = must not appear, `~` = regex).
 ## Suggested order
 
 1. **v2.2.0 release notes** for everything on `main` since `f572f71`.
-2. **F2-CXL** and **F3-DNS** (QEMU can test both today).
+2. **F3-DNS** (QEMU can test it today). F2-CXL is done on this branch.
 3. **D2-rpi4** on QEMU `raspi4b` (QEMU ≥ 9.0), then the real Pi as a post-merge note.
 4. **F1-scale** (table generation for >1000 CPUs and several ECAM segments,
    checked by a host-side parser).
@@ -100,17 +100,12 @@ expected serial lines (`|`-separated, `!` = must not appear, `~` = regex).
 - **Check:** `make test` green on the tagged commit; every image boots its
   `make test` cases; `SHA256SUMS.txt` covers every attached image.
 
-### F2-CXL — CXL memory enumeration  `cursor-codex`
-- **What:** on `x86_64-uefi` with `-M q35,cxl=on` and a `pxb-cxl` host
-  bridge + `cxl-rp` + `cxl-type3` device, find the CXL host bridge, publish a
-  CEDT (CHBS for the host bridge, CFMWS for the fixed memory window) and the
-  `ACPI0016`/`ACPI0017` devices in the DSDT, so Linux's `cxl_acpi` binds.
-- **Files:** `x86_64/` ACPI code (see `x86_64/README.md` "ACPI"), `common/efi/aml.c`,
-  `common/efi/acpi.c`, `tests/smoke.sh`.
-- **Acceptance:** a new `x86_64-cxl` case: an EFI stand-in walks the XSDT, finds
-  `CEDT` with one CHBS and one CFMWS whose ranges match QEMU's options, and
-  prints `cxl=ok`; `LINUX_CXL=1 make linux-uefi` (optional) lists the region
-  under `/sys/bus/cxl/devices`. Without `cxl=on`, no CEDT (`!CEDT`).
+### F2-CXL — CXL memory enumeration  `status: done` *(this branch)*
+- **Done:** on `x86_64-uefi` with `-M q35,cxl=on` and a `pxb-cxl` host
+  bridge + `cxl-rp` + `cxl-type3` device, the firmware finds the CXL host
+  bridge (PCI `1b36:000b`), publishes a CEDT (CHBS + CFMWS from QEMU's
+  `etc/acpi/tables`) and `ACPI0016`/`ACPI0017` in the DSDT.
+  `x86_64-cxl` / `x86_64-cxl-none` in `tests/smoke.sh`.
 
 ### F3-DNS — names in HTTP boot  `cursor-codex`
 - **What:** a DNS A-record client in the UEFI network stack, so a DHCP boot
