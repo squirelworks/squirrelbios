@@ -38,10 +38,11 @@ Used here, in `ROADMAP.md` and on the issues (as labels).
   powernv (#150, #158), sun4u (#153, #159, #161), m68k, mips-malta,
   loongarch64 (#155, #159), s390x (#160, #161). Licence is GPL-3.0 (#163).
   Release notes are in `release-notes/v2.2.0.md`; publishing is `needs: squirrel`.
-- **Test gate:** `make test` (336 cases in `tests/smoke.sh`), run by
+- **Test gate:** `make test` (336 cases in `tests/smoke.sh`, plus
+  `rpi4-uefi-sd` when QEMU has `raspi4b`), run by
   `.github/workflows/make-test.yml` on every PR. Optional, not in CI:
   `make linux-x86`, `make linux-uefi`, `make linux-shell`, `make linux-big`.
-- **Open PRs at hand-off:** #169 (F1-scale); F2-CXL + F3-DNS and REL-2.2.0 notes are on `main`.
+- **Open PRs at hand-off:** #170 (D2-rpi4); F1-scale, F2-CXL + F3-DNS and REL-2.2.0 notes are on `main`.
 
 ## Rules (Squirrel's; do not break)
 
@@ -83,7 +84,8 @@ expected serial lines (`|`-separated, `!` = must not appear, `~` = regex).
 
 1. **REL-2.2.0** *(Squirrel)*: `Actions → Draft release` for v2.2.0 on the
    merge commit, then publish.
-2. **D2-rpi4** on QEMU `raspi4b` (QEMU ≥ 9.0), then the real Pi as a post-merge note.
+2. **D2-rpi4** board flash *(Squirrel)*: the QEMU `raspi4b` case is done;
+   try the SD layout in `boards/rpi4/README.md` on a desk Pi 4.
 3. **C5-board** flashing guide (needs Squirrel and a board).
 4. **RISC-V AIA MSI** when a newer QEMU is available in CI.
 5. Then Phase G ideas in `docs/CONTINUANCE.md` (squirrelsoft).
@@ -112,16 +114,18 @@ expected serial lines (`|`-separated, `!` = must not appear, `~` = regex).
   Cases: `x86_64`/`aarch64`/`riscv64`-uefi-httpboot-dns and
   `x86_64-uefi-httpboot-dns-miss` (`net: cannot resolve …`, fall through).
 
-### D2-rpi4 — Raspberry Pi 4 build on QEMU and on the board  `cursor-codex` (board check `needs: squirrel`)
+### D2-rpi4 — Raspberry Pi 4 build on QEMU and on the board  *(QEMU done; board check `needs: squirrel`)*
 - **Done:** `configs/aarch64-uefi/rpi3.cfg` and `rpi4.cfg`, SDHCI driver,
-  EL3 + PSCI, `rpi3-uefi-sd` case on QEMU `raspi3b` (#157); research in `boards/rpi4/README.md`.
-- **Open:** a `rpi4-uefi-*` case on QEMU `raspi4b` (QEMU 9.0+; add a newer QEMU
-  to CI or run it as an optional target if the runner's QEMU is older), the
-  BCM2711 EMMC2 controller, GIC-400 from the tree, and a "try it on a Pi 4"
-  section with the exact SD card layout (`config.txt`, `kernel=`). Pi 5
-  (BCM2712, RP1) stays research.
-- **Acceptance:** under `raspi4b` the firmware reaches the EFI stand-in
-  with `disk: SD card` and `ExitBootServices`, like `rpi3-uefi-sd`.
+  EL3 + PSCI, `rpi3-uefi-sd` on QEMU `raspi3b` (#157); `rpi4-uefi-sd` on
+  QEMU `raspi4b` (QEMU ≥ 9.0; skipped cleanly on older QEMU) with BCM2711
+  EMMC2 + GIC-400 from `tests/mkrpidtb.py --rpi4`; SD layout / `config.txt`
+  / `kernel=` notes in `boards/rpi4/README.md`. Pi 5 stays research.
+- **Open (Squirrel):** flash a real Pi 4 with that SD layout and confirm
+  the serial log reaches `disk: SD card` and `efi: ExitBootServices`.
+- **Acceptance (QEMU):** under `raspi4b` the firmware reaches the EFI
+  stand-in with `disk: SD card` (Arasan host at `0xfe300000`; EMMC2 is
+  probed and empty under QEMU) and `ExitBootServices`, like
+  `rpi3-uefi-sd`. GIC-400 at `0xff841000` is taken from the tree.
 
 ### F1-scale — more than 1000 CPUs and several ECAM segments  `status: done`
 - **Done:** topology-driven MADT/SRAT/MCFG builders in `x86_64/acpi/topo.c`
