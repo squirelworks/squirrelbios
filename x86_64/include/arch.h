@@ -8,6 +8,9 @@
 #ifndef CONFIG_COM1_BASE
 #define CONFIG_COM1_BASE 0x3F8
 #endif
+#ifndef CONFIG_COREBOOT
+#define CONFIG_COREBOOT 0
+#endif
 
 #define ARCH_NAME            "x86_64-uefi"
 #define ARCH_PE_MACHINE      0x8664
@@ -42,6 +45,12 @@ void con_init(void);
 
 /* fwcfg.c: QEMU's firmware configuration device, I/O ports */
 void fwcfg_read_at(u16 select, u32 offset, void *buf, u32 len);
+
+/* coreboot.c: LBIO tables when CONFIG_COREBOOT (memory map, ACPI RSDP) */
+int coreboot_present(void);
+int coreboot_memmap(void);              /* fill mem_map; 0 if none */
+const void *coreboot_acpi_rsdp(void);   /* NULL if the tables have no RSDP */
+u16 coreboot_serial_base(void);         /* 0 if none */
 
 /* pci.c */
 u32 pci_read32(u8 bus, u8 dev, u8 fn, u8 off);

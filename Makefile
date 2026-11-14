@@ -126,6 +126,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/arm-esp.img $(TEST_DIR)/riscv-esp.img \
              $(TEST_DIR)/arm-fat.img $(TEST_DIR)/riscv-fat.img \
              $(TEST_DIR)/rpi3b.dtb $(TEST_DIR)/rpi4b.dtb \
+             $(TEST_DIR)/x86_64-cbtables.bin \
              $(TEST_DIR)/arm-esp-ebs.img \
              $(TEST_DIR)/arm-efi-psci.efi \
              $(TEST_DIR)/x86_64-rt.efi $(TEST_DIR)/x86_64-nv.efi \
@@ -509,6 +510,9 @@ $(TEST_DIR)/rpi3b.dtb: tests/mkrpidtb.py | $(TEST_DIR)
 	python3 tests/mkrpidtb.py $@
 $(TEST_DIR)/rpi4b.dtb: tests/mkrpidtb.py | $(TEST_DIR)
 	python3 tests/mkrpidtb.py --rpi4 $@
+# Synthetic coreboot LBIO tables for CONFIG=coreboot (C5)
+$(TEST_DIR)/x86_64-cbtables.bin: tests/mkcbtables.py | $(TEST_DIR)
+	python3 tests/mkcbtables.py -o $@
 $(TEST_DIR)/arm-esp-ebs.img: tests/mkesp.py $(TEST_DIR)/arm-efi-app-ebs.efi | $(TEST_DIR)
 	python3 tests/mkesp.py $(TEST_DIR)/arm-efi-app-ebs.efi $@ BOOTAA64.EFI
 $(TEST_DIR)/riscv-esp.img: tests/mkesp.py $(TEST_DIR)/riscv-efi-app.efi | $(TEST_DIR)
@@ -943,6 +947,7 @@ stretch: | $(TEST_DIR)
 .PHONY: loongarch mips stretch
 
 test: x86 x86_64 arm riscv arm-uefi riscv-uefi config-default $(TEST_BINS) build/x86_64-uefi/x2apic/squirrel-bios.fd \
+		build/x86_64-uefi/coreboot/squirrel-bios.fd \
 		build/aarch64-uefi/rpi3/squirrel-bios.fd build/aarch64-uefi/rpi4/squirrel-bios.fd stretch
 	tests/smoke.sh
 

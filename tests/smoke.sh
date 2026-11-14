@@ -1104,6 +1104,13 @@ run x86_64-mp-up "smp: 1 CPU, xAPIC, BSP APIC ID 0|APP mp n=1 en=1 who=0 info=0:
     "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-mp.efi
 run x86_64-x2apic-cfg "~^smp: 4 CPUs, x2?APIC( \(the CPU has no x2APIC\))?, BSP APIC ID 0|APP mp n=4 en=4 who=0 info=|$MP_OK|!=bad" \
     "$QEMU_X86_64" -M q35 -smp 4 -cpu max -bios build/x86_64-uefi/x2apic/squirrel-bios.fd -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-mp.efi
+# x86-64 firmware as a coreboot payload (C5): CONFIG=coreboot reads the
+# memory map and ACPI RSDP from synthetic LBIO tables (tests/mkcbtables.py)
+# loaded at 0x7f000, not from fw_cfg. Usable RAM is 95 MB on purpose so the
+# line cannot be QEMU's default 128 MB fw_cfg map.
+run x86_64-coreboot "coreboot: tables at 0x000000000007f000, serial at 0x3f8|mem: 0000000000000000-000000000007efff usable|mem: 000000000007f000-000000000007ffff reserved|mem: 0000000000080000-000000000009ffff usable|mem: 0000000000100000-0000000005ffffff usable|mem: 95 MB usable (from coreboot tables)|acpi: RSDP at|from coreboot tables|efi: memory services ok|fw: nothing to boot" \
+    "$QEMU_X86_64" -M q35 -bios build/x86_64-uefi/coreboot/squirrel-bios.fd \
+    -device loader,file=$TEST_DIR/x86_64-cbtables.bin,addr=0x7f000,force-raw=on
 # x86-64 firmware: ACPI 6.x and SMBIOS 3.x (C2). An acpidump-style app
 # finds the RSDP and the SMBIOS 3 entry point among the configuration
 # tables, checks every checksum, the FADT's DSDT (generated AML) and

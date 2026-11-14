@@ -457,6 +457,18 @@ static u32 build_mcfg(u8 *t)
 
 void acpi_init(void)
 {
+    /* As a coreboot payload, prefer the RSDP coreboot already built
+     * (CB_TAG_ACPI_RSDP in the LBIO tables). One owner per table. */
+    {
+        const void *rsdp = coreboot_acpi_rsdp();
+        if (rsdp) {
+            efi_install_configuration_table((EFI_GUID *)&acpi20_guid, (void *)rsdp);
+            efi_install_configuration_table((EFI_GUID *)&acpi10_guid, (void *)rsdp);
+            printf("acpi: RSDP at %p (from coreboot tables)\n", rsdp);
+            return;
+        }
+    }
+
     /* The fixed tables, plus room that grows with the CPUs: a MADT
      * x2APIC entry (16 bytes) and an SRAT x2APIC affinity entry (24)
      * each, so a thousand CPUs and more fit */
