@@ -1778,6 +1778,27 @@ else
     echo "SKIP  rpi4-uefi-sd (no raspi4b machine; need QEMU 9.0+)"
 fi
 
+# VisionFive 2 (boards/visionfive2): CONFIG=visionfive2 links the SBI at
+# the SPL OpenSBI load address (0x40000000) with DW APB UART0. Upstream
+# QEMU has no JH7110 machine, so boot smoke is optional / desk-only;
+# make test only checks the configured image's link address.
+VF2_BIN=build/riscv64-uefi/visionfive2/squirrel-bios.bin
+VF2_ELF=build/riscv64-uefi/visionfive2/obj/sbi.elf
+VF2_NM=${RISCV64:-riscv64-linux-gnu-}nm
+if [ -f "$VF2_BIN" ] && [ -f "$VF2_ELF" ]; then
+    vf2_start=$($VF2_NM "$VF2_ELF" | awk '$3 == "_start" { print $1 }')
+    if [ "$vf2_start" = "0000000040000000" ]; then
+        echo "PASS  riscv64-visionfive2-build"
+        pass=$((pass + 1))
+    else
+        echo "FAIL  riscv64-visionfive2-build (SBI _start at ${vf2_start:-missing}, want 0000000040000000)"
+        fail=$((fail + 1))
+    fi
+else
+    echo "FAIL  riscv64-visionfive2-build (image not built)"
+    fail=$((fail + 1))
+fi
+
 # x86-64 firmware: measured boot (C5) with a TPM 2.0 on TIS, from swtpm
 # (skipped without it). The firmware starts the TPM, extends PCR 0 with
 # its flash image, PCR 7 with the Secure Boot variables, PCR 4 with each

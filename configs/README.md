@@ -10,7 +10,7 @@
 | `riscv64-virt` | `squirrel-bios.bin` | QEMU RISC-V `virt` (`-bios`) |
 | `x86_64-uefi` | `squirrel-bios.fd` | QEMU q35 or PC, 64-bit (`qemu-system-x86_64 -bios`) |
 | `aarch64-uefi` | `squirrel-bios.fd` | QEMU AArch64 `virt`, UEFI-class (`-bios`); Raspberry Pi 3/4 as `kernel8.img` (`rpi3`, `rpi4`) |
-| `riscv64-uefi` | `squirrel-bios.bin` | QEMU RISC-V `virt`, UEFI-class on the SBI (`-bios`) |
+| `riscv64-uefi` | `squirrel-bios.bin` | QEMU RISC-V `virt`, UEFI-class on the SBI (`-bios`); VisionFive 2 as OpenSBI replacement (`visionfive2`) |
 | `ppc64le-powernv` | `squirrel-bios.bin` | QEMU `powernv9` / `powernv10` (`qemu-system-ppc64 -bios`) |
 | `sparc64-sun4u` | `squirrel-bios.bin` | QEMU `sun4u` (`qemu-system-sparc64 -bios`) |
 
@@ -95,9 +95,19 @@ The C sources include `config.h` when built with `-DSQ_CONFIG`.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `CONFIG_UART_BASE` | `0x10000000` | NS16550A for the SBI, and for the UEFI core until the device tree is read |
+| `CONFIG_FW_BASE` | `0x80000000` | SBI link address and start of the 2 MB PMP-protected firmware region; the UEFI core is linked 2 MB later. VisionFive 2 uses `0x40000000` (SPL OpenSBI load address) |
+| `CONFIG_UART_BASE` | `0x10000000` | 16550-compatible UART for the SBI, and for the UEFI core until the device tree is read |
+| `CONFIG_UART_SHIFT` | `0` | Register offset shift (`0` = byte ns16550a; `2` = DesignWare APB, 4-byte stride) |
+| `CONFIG_UART_IO_WIDTH` | `1` | Access width in bytes (`1` = `sb`/`lbu`; `4` = `sw`/`lw`) |
+| `CONFIG_UART_CLOCK` | `3686400` | UART input clock for the 115200 divisor (`24000000` on the JH7110) |
 | `CONFIG_MAX_HARTS` | `512` | Hart IDs the SBI tracks |
-| `CONFIG_FWCFG_BASE` | `0x10100000` | QEMU fw_cfg MMIO when the device tree has no `qemu,fw-cfg-mmio` node |
+| `CONFIG_CLINT_BASE` | `0x02000000` | CLINT when the device tree has no CLINT/ACLINT node |
+| `CONFIG_FWCFG_BASE` | `0x10100000` | QEMU fw_cfg MMIO when the device tree has no `qemu,fw-cfg-mmio` node; `0` for none |
+
+`visionfive2.cfg` builds the VisionFive 2 image
+([boards/visionfive2](../boards/visionfive2/README.md)). Upstream QEMU has
+no JH7110 machine, so `make test` only checks the link address (no boot
+smoke); board bring-up is optional / desk-only.
 
 ### riscv64-virt
 
