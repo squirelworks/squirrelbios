@@ -81,7 +81,7 @@ expected serial lines (`|`-separated, `!` = must not appear, `~` = regex).
 ## Suggested order
 
 1. **v2.2.0 release notes** for everything on `main` since `f572f71`.
-2. **F2-CXL** and **F3-DNS** (QEMU can test both today).
+2. **F2-CXL** (QEMU can test it today).
 3. **D2-rpi4** on QEMU `raspi4b` (QEMU ≥ 9.0), then the real Pi as a post-merge note.
 4. **F1-scale** (table generation for >1000 CPUs and several ECAM segments,
    checked by a host-side parser).
@@ -112,14 +112,14 @@ expected serial lines (`|`-separated, `!` = must not appear, `~` = regex).
   prints `cxl=ok`; `LINUX_CXL=1 make linux-uefi` (optional) lists the region
   under `/sys/bus/cxl/devices`. Without `cxl=on`, no CEDT (`!CEDT`).
 
-### F3-DNS — names in HTTP boot  `cursor-codex`
+### F3-DNS — names in HTTP boot  `status: done`
 - **What:** a DNS A-record client in the UEFI network stack, so a DHCP boot
   file or an `http://name/...` URL with a host name works; DNS server from
   DHCP option 6.
 - **Files:** `common/efi/net_ip.c` (UDP), new `common/efi/net_dns.c`,
   `common/efi/net_http.c`, `common/efi/net_boot.c`, `common/efi/README.md`,
   `tests/netsim.py` / `tests/httpd.py` (add a tiny DNS responder).
-- **Acceptance:** `x86_64-httpboot-dns` (and the aarch64/riscv64 twins) boot an
+- **Acceptance:** `x86_64-uefi-httpboot-dns` (and the aarch64/riscv64 twins) boot an
   EFI app from `http://boot.squirrel.test/app.efi`; a name that does not
   resolve prints `net: cannot resolve <name>` and falls through to the next
   boot option.

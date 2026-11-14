@@ -37,7 +37,7 @@ suite-wide continuation plan is `docs/CONTINUANCE.md` in squirrelsoft.
   network boot and IPMI, F4 multi-node boot, C5 NVRAM, authenticated variables and TPM, F2 SMM + EINJ,
   all of Phase E, Raspberry Pi bring-up on QEMU `raspi3b`. The first hand-off task is the v2.2.0 notes.
 - **Open:** C5 real board, D2 Raspberry Pi 4/5, F1 scale (>1000 CPUs, several ECAM segments), F2 CXL,
-  F3 DNS, RISC-V AIA MSI mode.
+  RISC-V AIA MSI mode.
 
 ## Where things were (2026-11-13)
 
@@ -337,7 +337,8 @@ boxes in [TODO.md](TODO.md).
     PXE-style DHCP+TFTP boot on x86_64, aarch64 and riscv64 UEFI
   - [x] `f3-http-boot`: HTTP boot (own TCP, HTTP/1.1 with Content-Length,
     chunked, close-delimited bodies and redirects; IPv4 hosts, no DNS yet)
-  - [ ] `f3-dns`: a DNS client so HTTP boot takes host names
+  - [x] `f3-dns`: a DNS A-record client so HTTP boot takes host names
+    (DHCP option 6; `x86_64`/`aarch64`/`riscv64`-uefi-httpboot-dns)
   - [x] `f3-sol`: serial-over-LAN style console mirror over UDP (output
     per line, input from the same host), until ExitBootServices
   - [x] `f3-ipmi`: x86_64 BMC on IPMI KCS (QEMU `ipmi-bmc-sim`), SPMI
