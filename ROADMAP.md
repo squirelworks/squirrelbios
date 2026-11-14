@@ -287,7 +287,7 @@ boxes in [TODO.md](TODO.md).
   (SBBR-like), PSCI, GICv3.
 - [ ] **D2** AArch64 boards: Raspberry Pi 4/5 under `boards/rpi4`.
   - [x] `rpi3`/`rpi4` configs, SDHCI, EL3 + PSCI; `rpi3-uefi-sd` on QEMU `raspi3b` (#157)
-  - [ ] `rpi4-uefi-*` on QEMU `raspi4b` (QEMU 9.0+), EMMC2, GIC-400 from the tree
+  - [x] `rpi4-uefi-sd` on QEMU `raspi4b` (QEMU 9.0+; skipped on older QEMU), EMMC2, GIC-400 from the tree
   - [ ] A Pi 4 on the desk boots the firmware from SD *(Squirrel, post-merge)*
 - [x] **D3** RISC-V `virt`: UEFI-class interface while keeping the SBI;
   `DBCN`, SSE; boards (VisionFive 2, HiFive) under `boards/`.

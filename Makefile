@@ -125,7 +125,8 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/riscv-efi-app-ebs.efi \
              $(TEST_DIR)/arm-esp.img $(TEST_DIR)/riscv-esp.img \
              $(TEST_DIR)/arm-fat.img $(TEST_DIR)/riscv-fat.img \
-             $(TEST_DIR)/rpi3b.dtb $(TEST_DIR)/arm-esp-ebs.img \
+             $(TEST_DIR)/rpi3b.dtb $(TEST_DIR)/rpi4b.dtb \
+             $(TEST_DIR)/arm-esp-ebs.img \
              $(TEST_DIR)/arm-efi-psci.efi \
              $(TEST_DIR)/x86_64-rt.efi $(TEST_DIR)/x86_64-nv.efi \
              $(TEST_DIR)/sb/sb-authrt.efi \
@@ -502,10 +503,12 @@ $(TEST_DIR)/tftp/snp-rv64.efi: $(SNP_APP_DEPS)
 # \\EFI\\BOOT\\BOOTRISCV64.EFI
 $(TEST_DIR)/arm-esp.img: tests/mkesp.py $(TEST_DIR)/arm-efi-app.efi | $(TEST_DIR)
 	python3 tests/mkesp.py $(TEST_DIR)/arm-efi-app.efi $@ BOOTAA64.EFI
-# The Raspberry Pi stand-in (D2): QEMU raspi3b's device tree and an SD
-# card whose boot file calls ExitBootServices and powers off
+# The Raspberry Pi stand-in (D2): QEMU raspi3b / raspi4b device trees and
+# an SD card whose boot file calls ExitBootServices and powers off
 $(TEST_DIR)/rpi3b.dtb: tests/mkrpidtb.py | $(TEST_DIR)
 	python3 tests/mkrpidtb.py $@
+$(TEST_DIR)/rpi4b.dtb: tests/mkrpidtb.py | $(TEST_DIR)
+	python3 tests/mkrpidtb.py --rpi4 $@
 $(TEST_DIR)/arm-esp-ebs.img: tests/mkesp.py $(TEST_DIR)/arm-efi-app-ebs.efi | $(TEST_DIR)
 	python3 tests/mkesp.py $(TEST_DIR)/arm-efi-app-ebs.efi $@ BOOTAA64.EFI
 $(TEST_DIR)/riscv-esp.img: tests/mkesp.py $(TEST_DIR)/riscv-efi-app.efi | $(TEST_DIR)
@@ -940,7 +943,7 @@ stretch: | $(TEST_DIR)
 .PHONY: loongarch mips stretch
 
 test: x86 x86_64 arm riscv arm-uefi riscv-uefi config-default $(TEST_BINS) build/x86_64-uefi/x2apic/squirrel-bios.fd \
-		build/aarch64-uefi/rpi3/squirrel-bios.fd stretch
+		build/aarch64-uefi/rpi3/squirrel-bios.fd build/aarch64-uefi/rpi4/squirrel-bios.fd stretch
 	tests/smoke.sh
 
 # Optional, not part of make test: downloads Ubuntu 24.04's arm64 kernel

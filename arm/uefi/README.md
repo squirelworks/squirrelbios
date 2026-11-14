@@ -66,6 +66,8 @@ link.ld   linked at FW_BASE (0x40100000), right after the 1 MB device
   elsewhere (`CONFIG_FW_BASE`) and loaded there by a boot loader, it runs
   in place with the tree from `x0`: the Raspberry Pi builds
   (`configs/aarch64-uefi/rpi4.cfg`, `rpi3.cfg`; see `boards/rpi4`).
+  `make test` runs `rpi3-uefi-sd` on QEMU `raspi3b` and `rpi4-uefi-sd` on
+  `raspi4b` when QEMU ≥ 9.0 provides that machine.
 - **Memory map.** RAM from the device tree. The device tree itself is
   boot services data; the whole firmware image is runtime services code
   (`EFI_MEMORY_RUNTIME`) and the PL031 page runtime MMIO, so `GetTime`,

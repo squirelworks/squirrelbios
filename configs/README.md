@@ -82,7 +82,8 @@ The C sources include `config.h` when built with `-DSQ_CONFIG`.
 
 `rpi4.cfg` and `rpi3.cfg` build the Raspberry Pi images
 ([boards/rpi4](../boards/rpi4/README.md)); `make test` runs `rpi3` on
-QEMU's `raspi3b`.
+QEMU's `raspi3b`, and `rpi4` on `raspi4b` when QEMU ≥ 9.0 provides that
+machine (otherwise the `rpi4-uefi-sd` case is skipped).
 
 The C sources include `config.h` when built with `-DSQ_CONFIG`.
 
