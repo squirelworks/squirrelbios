@@ -37,10 +37,12 @@ Used here, in `ROADMAP.md` and on the issues (as labels).
   Raspberry Pi bring-up on QEMU `raspi3b` (#157), and all of Phase E:
   powernv (#150, #158), sun4u (#153, #159, #161), m68k, mips-malta,
   loongarch64 (#155, #159), s390x (#160, #161). Licence is GPL-3.0 (#163).
+  This PR adds F2-CXL (CEDT / `ACPI0016`/`ACPI0017`) and F3-DNS (HTTP boot
+  host names).
 - **Test gate:** `make test` (about 260 `run` cases in `tests/smoke.sh`), run by
   `.github/workflows/make-test.yml` on every PR. Optional, not in CI:
   `make linux-x86`, `make linux-uefi`, `make linux-shell`, `make linux-big`.
-- **Open PRs at hand-off:** none.
+- **Open PRs at hand-off:** this condense PR (F2-CXL + F3-DNS); leave for Sarah.
 
 ## Rules (Squirrel's; do not break)
 
@@ -81,13 +83,12 @@ expected serial lines (`|`-separated, `!` = must not appear, `~` = regex).
 ## Suggested order
 
 1. **v2.2.0 release notes** for everything on `main` since `f572f71`.
-2. **F3-DNS** (QEMU can test it today). F2-CXL is done on this branch.
-3. **D2-rpi4** on QEMU `raspi4b` (QEMU ≥ 9.0), then the real Pi as a post-merge note.
-4. **F1-scale** (table generation for >1000 CPUs and several ECAM segments,
+2. **D2-rpi4** on QEMU `raspi4b` (QEMU ≥ 9.0), then the real Pi as a post-merge note.
+3. **F1-scale** (table generation for >1000 CPUs and several ECAM segments,
    checked by a host-side parser).
-5. **C5-board** flashing guide (needs Squirrel and a board).
-6. **RISC-V AIA MSI** when a newer QEMU is available in CI.
-7. Then Phase G ideas in `docs/CONTINUANCE.md` (squirrelsoft).
+4. **C5-board** flashing guide (needs Squirrel and a board).
+5. **RISC-V AIA MSI** when a newer QEMU is available in CI.
+6. Then Phase G ideas in `docs/CONTINUANCE.md` (squirrelsoft).
 
 ## Task cards
 
@@ -100,24 +101,19 @@ expected serial lines (`|`-separated, `!` = must not appear, `~` = regex).
 - **Check:** `make test` green on the tagged commit; every image boots its
   `make test` cases; `SHA256SUMS.txt` covers every attached image.
 
-### F2-CXL — CXL memory enumeration  `status: done` *(this branch)*
+### F2-CXL — CXL memory enumeration  `status: done`
 - **Done:** on `x86_64-uefi` with `-M q35,cxl=on` and a `pxb-cxl` host
   bridge + `cxl-rp` + `cxl-type3` device, the firmware finds the CXL host
   bridge (PCI `1b36:000b`), publishes a CEDT (CHBS + CFMWS from QEMU's
   `etc/acpi/tables`) and `ACPI0016`/`ACPI0017` in the DSDT.
   `x86_64-cxl` / `x86_64-cxl-none` in `tests/smoke.sh`.
 
-### F3-DNS — names in HTTP boot  `cursor-codex`
-- **What:** a DNS A-record client in the UEFI network stack, so a DHCP boot
-  file or an `http://name/...` URL with a host name works; DNS server from
-  DHCP option 6.
-- **Files:** `common/efi/net_ip.c` (UDP), new `common/efi/net_dns.c`,
-  `common/efi/net_http.c`, `common/efi/net_boot.c`, `common/efi/README.md`,
-  `tests/netsim.py` / `tests/httpd.py` (add a tiny DNS responder).
-- **Acceptance:** `x86_64-httpboot-dns` (and the aarch64/riscv64 twins) boot an
-  EFI app from `http://boot.squirrel.test/app.efi`; a name that does not
-  resolve prints `net: cannot resolve <name>` and falls through to the next
-  boot option.
+### F3-DNS — names in HTTP boot  `status: done`
+- **Done:** DNS A-record client in the UEFI network stack (`common/efi/net_dns.c`);
+  DHCP option 6 supplies the resolver. HTTP boot accepts `http://name/...`
+  URLs. `tests/netsim.py` / `tests/httpd.py` answer DNS for the smoke net.
+  Cases: `x86_64`/`aarch64`/`riscv64`-uefi-httpboot-dns and
+  `x86_64-uefi-httpboot-dns-miss` (`net: cannot resolve …`, fall through).
 
 ### D2-rpi4 — Raspberry Pi 4 build on QEMU and on the board  `cursor-codex` (board check `needs: squirrel`)
 - **Done:** `configs/aarch64-uefi/rpi3.cfg` and `rpi4.cfg`, SDHCI driver,

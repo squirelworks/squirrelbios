@@ -1483,6 +1483,47 @@ run x86_64-uefi-httpboot-toolarge "net: $HTTP_URL/huge/snp-x64.efi is larger tha
     -netdev user,id=n0,bootfile=$HTTP_URL/huge/snp-x64.efi -device virtio-net-pci,netdev=n0
 kill $httpd 2>/dev/null; wait $httpd 2>/dev/null
 
+# HTTP boot with a DNS name (roadmap F3-DNS): netsim DHCP gives option 6
+# (DNS 10.0.2.1), answers A for boot.squirrel.test → 10.0.2.1, and serves
+# /app.efi over TCP/80. A name that does not resolve is said so and the
+# firmware falls through.
+DNS_URL=http://boot.squirrel.test/app.efi
+ln -sf snp-x64.efi $TEST_DIR/tftp/app.efi
+python3 tests/netsim.py $NETSIM_PORT $((NETSIM_PORT + 1)) $TEST_DIR/tftp $DNS_URL &
+netsim=$!
+sleep 0.3
+run x86_64-uefi-httpboot-dns "net: address 10.0.2.15 from 10.0.2.1, boot file $DNS_URL|net: loaded 16384 bytes over HTTP|$SNP_OK|efi: $DNS_URL returned 0x1234|!=bad" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd \
+    -netdev socket,id=n0,udp=127.0.0.1:$NETSIM_PORT,localaddr=127.0.0.1:$((NETSIM_PORT + 1)) \
+    -device virtio-net-pci,netdev=n0
+kill $netsim 2>/dev/null; wait $netsim 2>/dev/null
+ln -sf snp-aa64.efi $TEST_DIR/tftp/app.efi
+python3 tests/netsim.py $NETSIM_PORT $((NETSIM_PORT + 1)) $TEST_DIR/tftp $DNS_URL &
+netsim=$!
+sleep 0.3
+run aarch64-uefi-httpboot-dns "net: address 10.0.2.15 from 10.0.2.1, boot file $DNS_URL|net: loaded 16384 bytes over HTTP|$SNP_OK|efi: $DNS_URL returned 0x1234|!=bad" \
+    "$QEMU_ARM" -M virt -cpu cortex-a57 -bios $ARM_FD \
+    -netdev socket,id=n0,udp=127.0.0.1:$NETSIM_PORT,localaddr=127.0.0.1:$((NETSIM_PORT + 1)) \
+    -device virtio-net-device,netdev=n0
+kill $netsim 2>/dev/null; wait $netsim 2>/dev/null
+ln -sf snp-rv64.efi $TEST_DIR/tftp/app.efi
+python3 tests/netsim.py $NETSIM_PORT $((NETSIM_PORT + 1)) $TEST_DIR/tftp $DNS_URL &
+netsim=$!
+sleep 0.3
+run riscv64-uefi-httpboot-dns "net: address 10.0.2.15 from 10.0.2.1, boot file $DNS_URL|net: loaded 16384 bytes over HTTP|$SNP_OK|efi: $DNS_URL returned 0x1234|!=bad" \
+    "$QEMU_RISCV" -M virt -bios $RV_UEFI \
+    -netdev socket,id=n0,udp=127.0.0.1:$NETSIM_PORT,localaddr=127.0.0.1:$((NETSIM_PORT + 1)) \
+    -device virtio-net-device,netdev=n0
+kill $netsim 2>/dev/null; wait $netsim 2>/dev/null
+python3 tests/netsim.py $NETSIM_PORT $((NETSIM_PORT + 1)) $TEST_DIR/tftp http://no.such.host/app.efi &
+netsim=$!
+sleep 0.3
+run x86_64-uefi-httpboot-dns-miss "net: cannot resolve no.such.host|trying the CSM|!SNP|!loaded" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd \
+    -netdev socket,id=n0,udp=127.0.0.1:$NETSIM_PORT,localaddr=127.0.0.1:$((NETSIM_PORT + 1)) \
+    -device virtio-net-pci,netdev=n0
+kill $netsim 2>/dev/null; wait $netsim 2>/dev/null
+
 # Serial-over-LAN style console mirror (roadmap F3): fw_cfg names the far
 # end (tests/solcon.py on the host, 10.0.2.2 to the guest). The console
 # app's keys reach it only over the network, and only after its greeting
