@@ -116,6 +116,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/x86_64-cxl.efi \
              $(TEST_DIR)/x86_64-smmlock.efi \
              $(TEST_DIR)/x86_64-ipmi.efi \
+             $(TEST_DIR)/x86_64-tables \
              $(TEST_DIR)/x86_64-bigload.img \
              $(TEST_DIR)/x86_64-handoff.efi \
              $(TEST_DIR)/arm-efi-app.efi $(TEST_DIR)/arm-efi-app-exit.efi \
@@ -383,6 +384,9 @@ $(TEST_DIR)/x86_64-acpi.efi: tests/x86_64-acpi.asm tests/x86_64-pe.inc | $(TEST_
 # SRAT/SLIT/MADT/BERT/HEST self-check (F1/F2), and a 2x2 SLIT override
 $(TEST_DIR)/x86_64-numa.efi: tests/x86_64-numa.asm tests/x86_64-pe.inc | $(TEST_DIR)
 	$(NASM) -f bin -i tests/ $< -o $@
+# F1-scale: host-side builders for 1024 CPUs and two ECAM segments
+$(TEST_DIR)/x86_64-tables: tests/x86_64-tables.c x86_64/acpi/topo_impl.inc | $(TEST_DIR)
+	$(CC64) -std=gnu11 -O2 -Wall -Wextra -Werror -o $@ tests/x86_64-tables.c
 # Non-volatile variables in a flash store (pflash unit 1)
 $(TEST_DIR)/x86_64-nv.efi: tests/x86_64-nv.asm tests/x86_64-pe.inc | $(TEST_DIR)
 	$(NASM) -f bin -i tests/ $< -o $@

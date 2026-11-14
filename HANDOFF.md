@@ -38,10 +38,10 @@ Used here, in `ROADMAP.md` and on the issues (as labels).
   powernv (#150, #158), sun4u (#153, #159, #161), m68k, mips-malta,
   loongarch64 (#155, #159), s390x (#160, #161). Licence is GPL-3.0 (#163).
   Release notes are in `release-notes/v2.2.0.md`; publishing is `needs: squirrel`.
-- **Test gate:** `make test` (334 cases in `tests/smoke.sh`), run by
+- **Test gate:** `make test` (336 cases in `tests/smoke.sh`), run by
   `.github/workflows/make-test.yml` on every PR. Optional, not in CI:
   `make linux-x86`, `make linux-uefi`, `make linux-shell`, `make linux-big`.
-- **Open PRs at hand-off:** none for the condense work; F2-CXL + F3-DNS are on `main`.
+- **Open PRs at hand-off:** #169 (F1-scale); F2-CXL + F3-DNS and REL-2.2.0 notes are on `main`.
 
 ## Rules (Squirrel's; do not break)
 
@@ -84,11 +84,9 @@ expected serial lines (`|`-separated, `!` = must not appear, `~` = regex).
 1. **REL-2.2.0** *(Squirrel)*: `Actions → Draft release` for v2.2.0 on the
    merge commit, then publish.
 2. **D2-rpi4** on QEMU `raspi4b` (QEMU ≥ 9.0), then the real Pi as a post-merge note.
-3. **F1-scale** (table generation for >1000 CPUs and several ECAM segments,
-   checked by a host-side parser).
-4. **C5-board** flashing guide (needs Squirrel and a board).
-5. **RISC-V AIA MSI** when a newer QEMU is available in CI.
-6. Then Phase G ideas in `docs/CONTINUANCE.md` (squirrelsoft).
+3. **C5-board** flashing guide (needs Squirrel and a board).
+4. **RISC-V AIA MSI** when a newer QEMU is available in CI.
+5. Then Phase G ideas in `docs/CONTINUANCE.md` (squirrelsoft).
 
 ## Task cards
 
@@ -125,16 +123,13 @@ expected serial lines (`|`-separated, `!` = must not appear, `~` = regex).
 - **Acceptance:** under `raspi4b` the firmware reaches the EFI stand-in
   with `disk: SD card` and `ExitBootServices`, like `rpi3-uefi-sd`.
 
-### F1-scale — more than 1000 CPUs and several ECAM segments  `cursor-codex`
-- **What:** the x2APIC MADT/SRAT and multi-segment MCFG are built but QEMU x86
-  TCG cannot run them. Make them testable: a build-time or host-side test that
-  feeds a synthetic CPU/NUMA/PCI topology into the table builders and checks
-  the tables with a small Python ACPI parser (`tests/acpicheck.py`).
-- **Files:** `x86_64/` table builders, new `tests/acpicheck.py`, Makefile rule.
-- **Acceptance:** `x86_64-tables-1024cpu` and `x86_64-tables-2seg` cases: the
-  parser checks every checksum, 1024 x2APIC entries with distinct IDs, SRAT
-  affinity per node, and two MCFG allocations with their own bus ranges.
-  Optional: a KVM run on a big host as a post-merge note.
+### F1-scale — more than 1000 CPUs and several ECAM segments  `status: done`
+- **Done:** topology-driven MADT/SRAT/MCFG builders in `x86_64/acpi/topo.c`
+  (`topo_impl.inc`); host tool `tests/x86_64-tables` feeds synthetic
+  topologies; `tests/acpicheck.py` checks checksums, 1024 distinct x2APIC
+  IDs with SRAT affinity per node (`x86_64-tables-1024cpu`), and two MCFG
+  allocations (`x86_64-tables-2seg`). Optional KVM run on a big host stays
+  a post-merge note.
 
 ### C5-board — real x86 hardware  `needs: squirrel` (docs part `cursor-codex`)
 - **Research:** `boards/ga-g41m-es2l/README.md` (Intel G41 + ICH7; first as a coreboot payload).

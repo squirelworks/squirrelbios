@@ -334,7 +334,10 @@ segment 0 (QEMU x86 has one). `LINUX_PXB=1 make linux-uefi` adds one
 expander at bus 0x40 with a device behind it. The ACPI table area grows
 with the CPU count, for the MADT and SRAT entries of up to 1024 CPUs
 (SMP_MAX_CPUS); QEMU's TCG has no x2APIC, so more than 255 CPUs are not
-tested here.
+tested under QEMU. The host-side cases `x86_64-tables-1024cpu` and
+`x86_64-tables-2seg` (`tests/x86_64-tables`, `tests/acpicheck.py`) feed a
+synthetic topology into the same MADT/SRAT/MCFG builders and check 1024
+x2APIC entries, SRAT affinity per node, and two ECAM segments.
 
 CXL (F2): with `-M q35,cxl=on`, a `pxb-cxl` host bridge (PCI `1b36:000b`),
 `cxl-rp`, `cxl-type3` and `-M cxl-fmw.0...`, the firmware finds the bridge,

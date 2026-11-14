@@ -25,6 +25,30 @@ u8 acpi_checksum(const void *p, u32 len);
 void acpi_header(u8 *t, const char *sig, u32 len, u8 rev);
 void acpi_seal(u8 *t);
 
+/* Topology-driven builders (x86_64/acpi/topo.c): firmware and the
+ * host-side F1-scale check feed these the same way */
+struct acpi_cpu_aff {
+    u32 apic_id;
+    u32 prox;                           /* proximity / NUMA node */
+    int enabled;
+};
+struct acpi_mem_aff {
+    u32 prox;
+    u64 base;
+    u64 length;
+};
+struct acpi_mcfg_entry {
+    u64 base;                           /* ECAM window */
+    u16 segment;
+    u8 start_bus;
+    u8 end_bus;
+};
+u32 acpi_build_madt(u8 *t, const struct acpi_cpu_aff *cpus, u32 ncpus,
+                    u32 lapic_base, u8 ioapic_id, u32 ioapic_base, int all_x2);
+u32 acpi_build_srat(u8 *t, const struct acpi_cpu_aff *cpus, u32 ncpus,
+                    const struct acpi_mem_aff *mems, u32 nmems, int all_x2);
+u32 acpi_build_mcfg(u8 *t, const struct acpi_mcfg_entry *ents, u32 n);
+
 /* x86_64/acpi/: each adds its tables to out[] (space from take) and
  * returns how many */
 typedef void *(*acpi_take_fn)(u32 len);

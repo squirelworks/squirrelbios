@@ -33,12 +33,13 @@ the GitHub issues (`status: done`, `status: in progress`, `cursor-codex`, `needs
 suite-wide continuation plan is `docs/CONTINUANCE.md` in squirrelsoft.
 
 - **Latest release: v2.1.1** (2026-11-13, v2.1.0's `f572f71` with all six images).
-  **v2.2.0 notes are prepared** (`release-notes/v2.2.0.md`, 334 `make test` cases);
+  **v2.2.0 notes are prepared** (`release-notes/v2.2.0.md`, 336 `make test` cases);
   publishing is `needs: squirrel`.
 - **`main` has everything for v2.2.0:** D4 (shared AHCI/NVMe/virtio, FAT write, USB storage in the UEFI core), F3
   network boot (with DNS), IPMI and SoL, F4 multi-node boot, C5 NVRAM, authenticated variables and TPM,
-  F2 SMM + EINJ + CXL, all of Phase E, Raspberry Pi bring-up on QEMU `raspi3b`.
-- **Open:** C5 real board, D2 Raspberry Pi 4/5, F1 scale (>1000 CPUs, several ECAM segments),
+  F2 SMM + EINJ + CXL, all of Phase E, Raspberry Pi bring-up on QEMU `raspi3b`. F1-scale
+  (1024 CPUs / two ECAM segments, host-side `tests/acpicheck.py`) is in #169.
+- **Open:** C5 real board, D2 Raspberry Pi 4/5,
   RISC-V AIA MSI mode, F4 scale.
 
 ## Where things were (2026-11-13)
@@ -306,19 +307,18 @@ boxes in [TODO.md](TODO.md).
 
 ### Phase F — v4.0: large and supercomputer-class nodes
 
-- [ ] **F1** NUMA (SRAT/SLIT/HMAT), more than 1000 CPUs, many PCIe root
+- [x] **F1** NUMA (SRAT/SLIT/HMAT), more than 1000 CPUs, many PCIe root
   complexes and ECAM segments.
   - [x] `f1-x86-numa`: x86_64 SRAT (CPU and memory affinity) and SLIT
     from QEMU `-numa`, MADT from the SMP list with x2APIC entries past
-    APIC ID 254 (HMAT, more than 1000 CPUs and ECAM segments still open)
+    APIC ID 254
   - [x] `f1-x86-hmat`: x86_64 HMAT (initiator of each memory node, or
     QEMU's latency, bandwidth and cache structures) and QEMU's `-numa
     dist` in the SLIT
   - [x] `f1-x86-roots`: x86_64 extra PCI root buses (QEMU pxb and
     pxb-pcie) as DSDT host bridges with their own buses and windows, and
-    ACPI table room that grows with the CPU count (more than one ECAM
-    segment and >255 CPUs untestable on QEMU x86 TCG)
-  - [ ] `f1-scale`: host-side checks of the tables for 1024 CPUs and two ECAM
+    ACPI table room that grows with the CPU count
+  - [x] `f1-scale`: host-side checks of the tables for 1024 CPUs and two ECAM
     segments (synthetic topology, `tests/acpicheck.py`)
 - [x] **F2** RAS: machine-check logging (BERT/HEST/EINJ), corrected-error
   thresholds, CXL memory enumeration.

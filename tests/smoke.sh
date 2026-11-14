@@ -1233,6 +1233,28 @@ run x86_64-pxb-numa "pci: root bus 40-7f (PC40), I/O|pci: root bus 80-ff (PC80),
     -device pxb-pcie,id=pxb1,bus_nr=0x80,numa_node=1,bus=pcie.0 -device pcie-root-port,id=rp1,bus=pxb1,chassis=1 \
     -device pxb-pcie,id=pxb2,bus_nr=0x40,bus=pcie.0 -device pcie-root-port,id=rp2,bus=pxb2,chassis=2
 
+# F1-scale: QEMU x86 TCG cannot run 1024 CPUs or several ECAM segments.
+# The host tool feeds a synthetic topology into the same MADT/SRAT/MCFG
+# builders, and tests/acpicheck.py checks the tables.
+tables_check() {
+    name=$1
+    case=$2
+    dir=$TEST_DIR/tables-$case
+    rm -rf "$dir"
+    log=$TEST_DIR/$name.log
+    if $TEST_DIR/x86_64-tables "$case" "$dir" >"$log" 2>&1 &&
+       python3 tests/acpicheck.py "$case" "$dir" >>"$log" 2>&1; then
+        echo "PASS  $name"
+        pass=$((pass + 1))
+    else
+        echo "FAIL  $name"
+        fail=$((fail + 1))
+        cat "$log"
+    fi
+}
+tables_check x86_64-tables-1024cpu 1024cpu
+tables_check x86_64-tables-2seg 2seg
+
 # x86-64 firmware: machine checks left in the banks survive a reset and
 # become BERT records on the next boot (F2). Once the app has seen an
 # empty BERT, the monitor injects a corrected error on CPU 1 and a fatal
