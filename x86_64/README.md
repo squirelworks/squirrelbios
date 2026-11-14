@@ -337,7 +337,9 @@ with the CPU count, for the MADT and SRAT entries of up to 1024 CPUs
 tested under QEMU. The host-side cases `x86_64-tables-1024cpu` and
 `x86_64-tables-2seg` (`tests/x86_64-tables`, `tests/acpicheck.py`) feed a
 synthetic topology into the same MADT/SRAT/MCFG builders and check 1024
-x2APIC entries, SRAT affinity per node, and two ECAM segments.
+x2APIC entries, SRAT affinity per node, and two ECAM segments. Optional
+`make f4-scale` boots eight diskless UEFI nodes from one netsim server
+with one large `-smp 256 -numa` guest (255 under TCG); not in CI.
 
 CXL (F2): with `-M q35,cxl=on`, a `pxb-cxl` host bridge (PCI `1b36:000b`),
 `cxl-rp`, `cxl-type3` and `-M cxl-fmw.0...`, the firmware finds the bridge,

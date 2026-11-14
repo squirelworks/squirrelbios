@@ -41,7 +41,8 @@ Used here, in `ROADMAP.md` and on the issues (as labels).
 - **Test gate:** `make test` (336 cases in `tests/smoke.sh`, plus
   `rpi4-uefi-sd` when QEMU has `raspi4b`), run by
   `.github/workflows/make-test.yml` on every PR. Optional, not in CI:
-  `make linux-x86`, `make linux-uefi`, `make linux-shell`, `make linux-big`.
+  `make linux-x86`, `make linux-uefi`, `make linux-shell`, `make linux-big`,
+  `make f4-scale`.
 - **Open PRs at hand-off:** #170 (D2-rpi4); F1-scale, F2-CXL + F3-DNS and REL-2.2.0 notes are on `main`.
 
 ## Rules (Squirrel's; do not break)
@@ -147,8 +148,14 @@ expected serial lines (`|`-separated, `!` = must not appear, `~` = regex).
 - **Open:** program `smsiaddrcfg`/`smsiaddrcfgh` in the M-level APLIC, retest with
   QEMU ≥ 9.1 and a 6.14+ kernel; `LINUX_AIA=imsic make linux-big` reaches the shell.
 
+### F4-scale — more diskless nodes and a large NUMA node  `status: done`
+- **Done:** optional `make f4-scale` (`tests/f4-scale.sh`): eight x86_64
+  UEFI nodes netboot the same image from one netsim server; node 0 is
+  `-smp 256` with four NUMA nodes (falls back to 255 under TCG without
+  x2APIC). Not in `make test` / CI. `NETSIM_IDLE` keeps the server up
+  while the large node brings up its APs.
+
 ### Secondary track and small follow-ups  `cursor-codex`
-- `f4-scale`: the multi-node netboot case with more nodes and a `-smp 256 -numa` node, as an optional `make` target if it is too slow for CI.
 - `riscv-sparse-harts` only if a board with gapped hart IDs is targeted (Speculative in TODO.md).
 - VisionFive 2 and HiFive Unmatched: research notes exist in `boards/`; first
   code step is a `CONFIG=` per board with the UART and memory from their trees.

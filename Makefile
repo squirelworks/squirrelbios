@@ -7,6 +7,7 @@
 #   make test       build, then boot each one under QEMU (tests/smoke.sh)
 #   make linux-shell  boot a downloaded Linux kernel on riscv to a busybox shell
 #   make linux-big    the same on a large virtual node (64 harts, 64 GB)
+#   make f4-scale   multi-node UEFI netboot with a large -smp/-numa node
 #   make clean      remove everything the build and tests produce
 #
 # Cross tools can be overridden, e.g. make AARCH64=aarch64-elf-
@@ -132,7 +133,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/sb/sb-authrt.efi \
              $(TEST_DIR)/tftp/snp-x64.efi $(TEST_DIR)/tftp/snp-aa64.efi $(TEST_DIR)/tftp/snp-rv64.efi
 
-.PHONY: all x86 x86_64 arm arm-uefi riscv riscv-uefi test linux-shell linux-arm linux-arm-acpi linux-riscv-uefi linux-x86 linux-big linux-stress os-boot clean linux-uefi os-boot-csm
+.PHONY: all x86 x86_64 arm arm-uefi riscv riscv-uefi test linux-shell linux-arm linux-arm-acpi linux-riscv-uefi linux-x86 linux-big linux-stress f4-scale os-boot clean linux-uefi os-boot-csm
 .DELETE_ON_ERROR:
 
 PLATFORMS := x86-pc x86_64-uefi aarch64-virt riscv64-virt aarch64-uefi riscv64-uefi
@@ -1027,6 +1028,13 @@ linux-big: riscv
 # See tests/linux-stress.sh for the knobs.
 linux-stress: riscv
 	tests/linux-stress.sh
+
+# Optional, not part of make test (too slow for CI): F4-scale diskless
+# cluster. SCALE_NODES x86_64 UEFI guests (default 8) netboot the same
+# image from one netsim server; node 0 is -smp 256 -numa (falls back to
+# 255 under TCG without x2APIC). See tests/f4-scale.sh.
+f4-scale: x86_64 $(TEST_DIR)/x86_64-app.efi
+	tests/f4-scale.sh
 
 clean:
 	rm -f $(X86_ROM) $(X64_FD) $(ARM_FD) $(RV_UEFI_BIN) \

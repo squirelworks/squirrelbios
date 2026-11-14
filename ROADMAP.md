@@ -39,8 +39,8 @@ suite-wide continuation plan is `docs/CONTINUANCE.md` in squirrelsoft.
   network boot (with DNS), IPMI and SoL, F4 multi-node boot, C5 NVRAM, authenticated variables and TPM,
   F2 SMM + EINJ + CXL, all of Phase E, Raspberry Pi bring-up on QEMU `raspi3b`. F1-scale
   (1024 CPUs / two ECAM segments, host-side `tests/acpicheck.py`) is in #169.
-- **Open:** C5 real board, D2 Raspberry Pi 4/5,
-  RISC-V AIA MSI mode, F4 scale.
+- **Open:** C5 real board, D2 Raspberry Pi 4/5, RISC-V AIA MSI mode.
+  F4-scale is optional `make f4-scale` (not in CI).
 
 ## Where things were (2026-11-13)
 
@@ -345,12 +345,12 @@ boxes in [TODO.md](TODO.md).
     per line, input from the same host), until ExitBootServices
   - [x] `f3-ipmi`: x86_64 BMC on IPMI KCS (QEMU `ipmi-bmc-sim`), SPMI
     table, SMBIOS type 38 and a Redfish host interface stub (type 42)
-- [ ] **F4** Diskless cluster boot of many nodes from one image server.
+- [x] **F4** Diskless cluster boot of many nodes from one image server.
   Test: QEMU `-smp 256 -numa ...`; `make linux-big` already covers part.
   - [x] `f4-multinode`: four x86_64 UEFI nodes netboot the same image at
     once from one TFTP server behind a router (simulated network)
-  - [ ] `f4-scale`: the same with more nodes and a `-smp 256 -numa` node
-    image, bounded by CI time (or as an optional `make` target)
+  - [x] `f4-scale`: eight nodes, one with `-smp 256 -numa` (255 under
+    TCG), as optional `make f4-scale` (too slow for default CI)
 
 ### Squirrel-OS/2 hand-off on every platform
 
