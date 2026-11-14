@@ -304,6 +304,20 @@ both under `/sys/bus/pci/devices` (`LINUX_DEVICES` and `LINUX_EXPECT`
 in the script). `LINUX_AIA=aplic make
 linux-big` runs the same node with QEMU's AIA interrupt controllers.
 
+### F4-scale diskless cluster (optional)
+
+```bash
+make f4-scale                         # 8 nodes; one -smp 256 -numa
+SCALE_NODES=4 SCALE_SMP=64 make f4-scale   # a smaller run
+```
+
+Eight x86_64 UEFI guests join one simulated network (`tests/netsim.py`)
+and TFTP the same stand-in image. Node 0 is a large NUMA machine
+(`-smp 256`, four memory nodes by default). Under QEMU TCG (no x2APIC)
+the script falls back to 255 CPUs and says so; with KVM and a host CPU
+that has x2APIC, 256 runs as asked. Not part of `make test` or CI (a
+few minutes under TCG). Logs are `build/f4-scale/node-*.log`.
+
 ```bash
 make linux-stress                          # 1, 2, 3, 4 and 8 harts, 3 boots each
 STRESS_HOTPLUG=1 make linux-stress         # with CPUs going offline and online

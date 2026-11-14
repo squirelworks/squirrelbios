@@ -24,8 +24,8 @@
 # Only 10.0.2.1 answers ARP, and TFTP for 192.168.50.5 is served only
 # when its frame is sent to the router's Ethernet address, so a client
 # that does not route never gets the file. With norouter, DHCP leaves
-# option 3 out. Exits when QEMU goes away (no frame for 30 s) or on
-# SIGTERM.
+# option 3 out. Exits when QEMU goes away (no frame for NETSIM_IDLE
+# seconds, default 30) or on SIGTERM.
 #
 # Several QEMU nodes may join (diskless boot, roadmap F4), each with
 # localaddr on a port of its own and a MAC address of its own: every
@@ -253,7 +253,9 @@ def main():
     http = boot_file.startswith('http://')
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind(('127.0.0.1', int(listen)))
-    sock.settimeout(30)
+    # A large node (f4-scale, hundreds of CPUs) can take a minute before
+    # its first DHCP; NETSIM_IDLE keeps the server waiting for it.
+    sock.settimeout(int(os.environ.get('NETSIM_IDLE', '30')))
     del qemu_port               # each node is answered where it sent from
     nodes = {}                  # MAC: [file data, client port]
     tcp_conns = {}              # (mac, sport): HttpConn
