@@ -14,8 +14,10 @@
  *                 (device path: the platform's, then a MAC node)
  *   net_ip.c      Ethernet, ARP, IPv4, ICMP echo, UDP; a DHCP client and
  *                 a TFTP client
+ *   net_dns.c     a DNS A-record client (DHCP option 6 names the server)
  *   net_tcp.c     a small TCP client (one connection, stop-and-wait out)
- *   net_http.c    an HTTP/1.1 client: Content-Length, chunked, redirects
+ *   net_http.c    an HTTP/1.1 client: Content-Length, chunked, redirects;
+ *                 IPv4 hosts or DNS names
  *   net_sol.c     a serial-over-LAN style console mirror over UDP
  *   net_boot.c    PXE-style boot: DHCP, then the boot file over TFTP (or
  *                 HTTP, when DHCP names an http:// URL), loaded and
@@ -155,6 +157,11 @@ u32 net_ip_parse(const char *s);    /* a.b.c.d, or 0 */
 const char *net_vendor_class(void); /* "PXEClient:Arch:xxxxx:UNDI:003016" */
 u32 net_my_ip(void);
 void net_set_addr(u32 ip, u32 mask, u32 gw);
+void net_set_dns(u32 dns);          /* from DHCP option 6 */
+u32 net_dns_server(void);
+/* net_dns.c: an A record for name from the configured DNS server: 1
+ * with *ip filled */
+int net_dns_lookup(u32 server, const char *name, u32 *ip);
 
 /* For TCP: send len bytes at buf + 34 (Ethernet and IP headers in front)
  * to dst; 0, or < 0 when there is no way there. Checksum helpers. */
@@ -174,8 +181,8 @@ int net_tcp_poll(u32 ms);
 void net_tcp_close(void);
 void net_tcp_abort(void);
 
-/* net_http.c: GET an http://a.b.c.d[:port]/path URL into a pool buffer:
- * 1 with *buf and *size */
+/* net_http.c: GET an http://host[:port]/path URL (IPv4 or a DNS name)
+ * into a pool buffer: 1 with *buf and *size */
 int net_http_get(const char *url, void **buf, u32 *size);
 
 /* UDP for the clients above (one socket at a time) */

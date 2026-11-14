@@ -6,8 +6,10 @@
  * an address and a boot file (sending the RFC 4578 architecture and the
  * PXEClient vendor class, so a PXE server can pick BOOTX64.EFI or
  * BOOTAA64.EFI), reads the file over TFTP from the server DHCP names, or
- * over HTTP when the boot file is an http:// URL (UEFI HTTP boot), and
- * starts it as an EFI image whose device is the NIC's handle. */
+ * over HTTP when the boot file is an http:// URL (UEFI HTTP boot; the
+ * host may be an IPv4 address or a DNS name, with the DNS server from
+ * DHCP option 6), and starts it as an EFI image whose device is the
+ * NIC's handle. */
 #include "net.h"
 
 #define NET_MAX 8
