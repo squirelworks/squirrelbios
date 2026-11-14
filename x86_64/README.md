@@ -39,7 +39,9 @@ smp/       smp.c (AP bring-up with INIT-SIPI-SIPI, AP parking, the MP
 smm/       smm.c (SMM in q35's TSEG, SMBASE relocation, the EINJ table
            and the SMI handler that serves it), roadmap F2
 acpi/      numa.c (SRAT and SLIT from QEMU -numa), ras.c (BERT and
-           HEST stubs), roadmap F1/F2; the other ACPI tables are in core/
+           HEST stubs), cxl.c (CEDT CHBS/CFMWS, ACPI0016/ACPI0017 on
+           q35 with cxl=on), roadmap F1/F2; the other ACPI tables are
+           in core/
 secure/    secure.c (Secure Boot policy, db/dbx, the Authenticode PE
            hash), authvar.c (authenticated writes to PK, KEK, db and
            dbx; setup and user mode), sha256.c, sha1.c and sha512.c
@@ -333,3 +335,11 @@ expander at bus 0x40 with a device behind it. The ACPI table area grows
 with the CPU count, for the MADT and SRAT entries of up to 1024 CPUs
 (SMP_MAX_CPUS); QEMU's TCG has no x2APIC, so more than 255 CPUs are not
 tested here.
+
+CXL (F2): with `-M q35,cxl=on`, a `pxb-cxl` host bridge (PCI `1b36:000b`),
+`cxl-rp`, `cxl-type3` and `-M cxl-fmw.0...`, the firmware finds the bridge,
+takes QEMU's CEDT from fw_cfg `etc/acpi/tables` (CHBS for the CHBCR MMIO,
+CFMWS for each fixed window), republishes it, gives each CXL root
+`ACPI0016` (with `_CID` PNP0A08 and the CHBCR in `_CRS`), and adds an
+`ACPI0017` device so Linux's `cxl_acpi` can bind. `x86_64-cxl` checks the
+CEDT ranges; without `cxl=on` there is no CEDT.

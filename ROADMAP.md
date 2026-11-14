@@ -36,8 +36,8 @@ suite-wide continuation plan is `docs/CONTINUANCE.md` in squirrelsoft.
 - **`main` is ahead of it:** D4 (shared AHCI/NVMe/virtio, FAT write, USB storage in the UEFI core), F3
   network boot and IPMI, F4 multi-node boot, C5 NVRAM, authenticated variables and TPM, F2 SMM + EINJ,
   all of Phase E, Raspberry Pi bring-up on QEMU `raspi3b`. The first hand-off task is the v2.2.0 notes.
-- **Open:** C5 real board, D2 Raspberry Pi 4/5, F1 scale (>1000 CPUs, several ECAM segments), F2 CXL,
-  F3 DNS, RISC-V AIA MSI mode.
+- **Open:** C5 real board, D2 Raspberry Pi 4/5, F1 scale (>1000 CPUs, several ECAM segments),
+  RISC-V AIA MSI mode. (F2 CXL and F3 DNS done in this PR.)
 
 ## Where things were (2026-11-13)
 
@@ -318,8 +318,8 @@ boxes in [TODO.md](TODO.md).
     segment and >255 CPUs untestable on QEMU x86 TCG)
   - [ ] `f1-scale`: host-side checks of the tables for 1024 CPUs and two ECAM
     segments (synthetic topology, `tests/acpicheck.py`)
-- [ ] **F2** RAS: machine-check logging (BERT/HEST/EINJ), corrected-error
-  thresholds, CXL memory enumeration (research).
+- [x] **F2** RAS: machine-check logging (BERT/HEST/EINJ), corrected-error
+  thresholds, CXL memory enumeration.
   - [x] `f2-x86-stubs`: x86_64 BERT and HEST stubs (MCE logging, EINJ and
     thresholds still open)
   - [x] `f2-x86-mce`: x86_64 machine-check banks read at boot, errors
@@ -329,15 +329,16 @@ boxes in [TODO.md](TODO.md).
   - [x] `f2-x86-einj` (#148, #149): x86_64 SMM in q35's TSEG (SMBASE relocation on
     every CPU, locked at ExitBootServices) serving EINJ: a correctable
     memory error written as CPER into a polled GHES
-  - [ ] `f2-cxl`: CXL host bridges, CEDT (CHBS, CFMWS) and `ACPI0016`/`ACPI0017`
+  - [x] `f2-cxl`: CXL host bridges, CEDT (CHBS, CFMWS) and `ACPI0016`/`ACPI0017`
     on q35 with `cxl=on`
-- [ ] **F3** Management: IPMI/Redfish-style BMC stubs, serial-over-LAN, HTTP
+- [x] **F3** Management: IPMI/Redfish-style BMC stubs, serial-over-LAN, HTTP
   boot.
   - [x] `f3-uefi-net`: UEFI Simple Network Protocol on virtio-net and a
     PXE-style DHCP+TFTP boot on x86_64, aarch64 and riscv64 UEFI
   - [x] `f3-http-boot`: HTTP boot (own TCP, HTTP/1.1 with Content-Length,
-    chunked, close-delimited bodies and redirects; IPv4 hosts, no DNS yet)
-  - [ ] `f3-dns`: a DNS client so HTTP boot takes host names
+    chunked, close-delimited bodies and redirects; IPv4 hosts)
+  - [x] `f3-dns`: a DNS A-record client so HTTP boot takes host names
+    (DHCP option 6; `x86_64`/`aarch64`/`riscv64`-uefi-httpboot-dns)
   - [x] `f3-sol`: serial-over-LAN style console mirror over UDP (output
     per line, input from the same host), until ExitBootServices
   - [x] `f3-ipmi`: x86_64 BMC on IPMI KCS (QEMU `ipmi-bmc-sim`), SPMI

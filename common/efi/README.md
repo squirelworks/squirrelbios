@@ -73,8 +73,10 @@ Built into every UEFI firmware (x86-64 takes `common/efi/net_*.c`; the
 virtio-mmio side is `netmmio.c`, the x86-64 PCI side
 `x86_64/platform/net_pci.c`): virtio-net with a Simple Network Protocol
 handle per NIC, DHCP and a PXE-style boot over TFTP, or over HTTP when
-DHCP's boot file is an `http://` URL (an IPv4 host; no DNS client), and
-files of at most 1 GB (`NET_FILE_MAX`).
+DHCP's boot file is an `http://` URL (an IPv4 host or a DNS name; the
+DNS server is DHCP option 6, answered by `net_dns.c`), and files of at
+most 1 GB (`NET_FILE_MAX`). A name that does not resolve prints
+`net: cannot resolve <name>` and the boot falls through.
 
 The console mirror (`net_sol.c`) is set with
 `-fw_cfg name=opt/org.squirrelworks/netconsole,string=A.B.C.D:PORT`: the

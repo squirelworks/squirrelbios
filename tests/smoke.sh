@@ -1109,9 +1109,9 @@ run x86_64-x2apic-cfg "~^smp: 4 CPUs, x2?APIC( \(the CPU has no x2APIC\))?, BSP 
 # tables, checks every checksum, the FADT's DSDT (generated AML) and
 # FACS, counts the MADT's CPUs and walks the SMBIOS structures. q35 has
 # an MCFG for its ECAM window; i440fx has none.
-run x86_64-acpi "acpi: FACP APIC HPET MCFG BERT HEST EINJ DSDT|~^acpi: RSDP at 0x[0-9a-f]+, XSDT at 0x[0-9a-f]+, 2 CPUs, q35 \(ICH9\), PM at 0x600|smbios: 3.0 entry point at|APP acpi rsdp=ok xsdt=ok sums=ok facp=ok dsdt=ok facs=ok madt=ok cpus=2|APP acpi hpet=ok mcfg=ok|APP smbios sm3=ok walk=ok types=ok|efi: image returned 0x0|!=bad" \
+run x86_64-acpi "acpi: FACP APIC HPET MCFG BERT HEST EINJ DSDT|~^acpi: RSDP at 0x[0-9a-f]+, XSDT at 0x[0-9a-f]+, 2 CPUs, q35 \(ICH9\), PM at 0x600|smbios: 3.0 entry point at|APP acpi rsdp=ok xsdt=ok sums=ok facp=ok dsdt=ok facs=ok madt=ok cpus=2|APP acpi hpet=ok mcfg=ok|APP smbios sm3=ok walk=ok types=ok|efi: image returned 0x0|!=bad|!CEDT" \
     "$QEMU_X86_64" -M q35 -smp 2 -bios x86_64/squirrel-bios.fd -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-acpi.efi
-run x86_64-acpi-pc "acpi: FACP APIC HPET BERT HEST DSDT|i440fx (PIIX4), PM at 0x600|APP acpi rsdp=ok xsdt=ok sums=ok facp=ok dsdt=ok facs=ok madt=ok cpus=3|APP acpi hpet=ok mcfg=none|APP smbios sm3=ok walk=ok types=ok|!=bad" \
+run x86_64-acpi-pc "acpi: FACP APIC HPET BERT HEST DSDT|i440fx (PIIX4), PM at 0x600|APP acpi rsdp=ok xsdt=ok sums=ok facp=ok dsdt=ok facs=ok madt=ok cpus=3|APP acpi hpet=ok mcfg=none|APP smbios sm3=ok walk=ok types=ok|!=bad|!CEDT" \
     "$QEMU_X86_64" -M pc -smp 3 -bios x86_64/squirrel-bios.fd -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-acpi.efi
 # Extra PCI root buses (F1): QEMU pxb-pcie (q35) and pxb (pc) expanders
 # become DSDT host bridges PCxx with _BBN, their buses up to the next
@@ -1483,6 +1483,47 @@ run x86_64-uefi-httpboot-toolarge "net: $HTTP_URL/huge/snp-x64.efi is larger tha
     -netdev user,id=n0,bootfile=$HTTP_URL/huge/snp-x64.efi -device virtio-net-pci,netdev=n0
 kill $httpd 2>/dev/null; wait $httpd 2>/dev/null
 
+# HTTP boot with a DNS name (roadmap F3-DNS): netsim DHCP gives option 6
+# (DNS 10.0.2.1), answers A for boot.squirrel.test → 10.0.2.1, and serves
+# /app.efi over TCP/80. A name that does not resolve is said so and the
+# firmware falls through.
+DNS_URL=http://boot.squirrel.test/app.efi
+ln -sf snp-x64.efi $TEST_DIR/tftp/app.efi
+python3 tests/netsim.py $NETSIM_PORT $((NETSIM_PORT + 1)) $TEST_DIR/tftp $DNS_URL &
+netsim=$!
+sleep 0.3
+run x86_64-uefi-httpboot-dns "net: address 10.0.2.15 from 10.0.2.1, boot file $DNS_URL|net: loaded 16384 bytes over HTTP|$SNP_OK|efi: $DNS_URL returned 0x1234|!=bad" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd \
+    -netdev socket,id=n0,udp=127.0.0.1:$NETSIM_PORT,localaddr=127.0.0.1:$((NETSIM_PORT + 1)) \
+    -device virtio-net-pci,netdev=n0
+kill $netsim 2>/dev/null; wait $netsim 2>/dev/null
+ln -sf snp-aa64.efi $TEST_DIR/tftp/app.efi
+python3 tests/netsim.py $NETSIM_PORT $((NETSIM_PORT + 1)) $TEST_DIR/tftp $DNS_URL &
+netsim=$!
+sleep 0.3
+run aarch64-uefi-httpboot-dns "net: address 10.0.2.15 from 10.0.2.1, boot file $DNS_URL|net: loaded 16384 bytes over HTTP|$SNP_OK|efi: $DNS_URL returned 0x1234|!=bad" \
+    "$QEMU_ARM" -M virt -cpu cortex-a57 -bios $ARM_FD \
+    -netdev socket,id=n0,udp=127.0.0.1:$NETSIM_PORT,localaddr=127.0.0.1:$((NETSIM_PORT + 1)) \
+    -device virtio-net-device,netdev=n0
+kill $netsim 2>/dev/null; wait $netsim 2>/dev/null
+ln -sf snp-rv64.efi $TEST_DIR/tftp/app.efi
+python3 tests/netsim.py $NETSIM_PORT $((NETSIM_PORT + 1)) $TEST_DIR/tftp $DNS_URL &
+netsim=$!
+sleep 0.3
+run riscv64-uefi-httpboot-dns "net: address 10.0.2.15 from 10.0.2.1, boot file $DNS_URL|net: loaded 16384 bytes over HTTP|$SNP_OK|efi: $DNS_URL returned 0x1234|!=bad" \
+    "$QEMU_RISCV" -M virt -bios $RV_UEFI \
+    -netdev socket,id=n0,udp=127.0.0.1:$NETSIM_PORT,localaddr=127.0.0.1:$((NETSIM_PORT + 1)) \
+    -device virtio-net-device,netdev=n0
+kill $netsim 2>/dev/null; wait $netsim 2>/dev/null
+python3 tests/netsim.py $NETSIM_PORT $((NETSIM_PORT + 1)) $TEST_DIR/tftp http://no.such.host/app.efi &
+netsim=$!
+sleep 0.3
+run x86_64-uefi-httpboot-dns-miss "net: cannot resolve no.such.host|trying the CSM|!SNP|!loaded" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd \
+    -netdev socket,id=n0,udp=127.0.0.1:$NETSIM_PORT,localaddr=127.0.0.1:$((NETSIM_PORT + 1)) \
+    -device virtio-net-pci,netdev=n0
+kill $netsim 2>/dev/null; wait $netsim 2>/dev/null
+
 # Serial-over-LAN style console mirror (roadmap F3): fw_cfg names the far
 # end (tests/solcon.py on the host, 10.0.2.2 to the guest). The console
 # app's keys reach it only over the network, and only after its greeting
@@ -1750,6 +1791,19 @@ run x86_64-einj "smm: TSEG 1024 KB at 0x7f00000, SMBASE moved there on 4 CPUs|ac
     "$QEMU_X86_64" -M q35 -smp 4 -bios x86_64/squirrel-bios.fd -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-einj.efi
 run x86_64-einj-pc "acpi: FACP APIC HPET BERT HEST DSDT|APP einj no EINJ|!smm:" \
     "$QEMU_X86_64" -M pc -bios x86_64/squirrel-bios.fd -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-einj.efi
+
+# CXL memory enumeration (F2): with q35,cxl=on, a pxb-cxl host bridge,
+# cxl-rp, cxl-type3 and a 4 GiB fixed window, the firmware finds the
+# bridge, publishes CEDT (CHBS + CFMWS matching QEMU's ranges) and
+# ACPI0016/ACPI0017 in the DSDT; x86_64-cxl checks them. Without cxl=on
+# there is no CEDT.
+CXL_DEV="-device pxb-cxl,id=cxl.0,bus=pcie.0,bus_nr=52 -device cxl-rp,id=rp0,bus=cxl.0,chassis=0,slot=0 -object memory-backend-ram,id=cxl-mem0,size=256M -device cxl-type3,bus=rp0,volatile-memdev=cxl-mem0,id=mem0 -M cxl-fmw.0.targets.0=cxl.0,cxl-fmw.0.size=4G"
+run x86_64-cxl "cxl: 1 host bridge (ACPI0016), 1 fixed window: CHBS uid 52 at 0x100000000/0x10000|pci: root bus 34-ff (PC34), CXL (ACPI0016)|acpi: FACP APIC HPET MCFG BERT HEST EINJ CEDT DSDT|APP cxl cedt=ok chbs=ok cfmws=ok dsdt=ok cxl=ok|efi: image returned 0x0|!=bad" \
+    "$QEMU_X86_64" -M q35,cxl=on -m 512M -bios x86_64/squirrel-bios.fd $CXL_DEV \
+    -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-cxl.efi
+run x86_64-cxl-none "APP cxl none|!CEDT|!cxl=ok" \
+    "$QEMU_X86_64" -M q35 -m 512M -bios x86_64/squirrel-bios.fd \
+    -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-cxl.efi
 
 # SMRAM is locked (D_LCK) before the first image runs: x86_64-smmlock,
 # loaded like any third-party image, tries to open SMRAM (D_OPEN) and to

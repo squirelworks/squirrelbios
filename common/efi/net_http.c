@@ -1,11 +1,12 @@
 /* SquirrelBIOS UEFI: an HTTP/1.1 client for HTTP boot. Original code,
  * written from RFC 9110 and RFC 9112 (HTTP semantics and HTTP/1.1).
  *
- * GET of an http:// URL whose host is an IPv4 address (there is no DNS
- * client yet), over net_tcp.c. The response body is taken by
- * Content-Length, chunked transfer coding, or the connection closing;
- * 301/302/303/307/308 are followed up to four times. The body grows in a
- * pool buffer the caller frees. */
+ * GET of an http:// URL whose host is an IPv4 address or a DNS name
+ * (resolved through net_dns.c with the server from DHCP option 6), over
+ * net_tcp.c. The response body is taken by Content-Length, chunked
+ * transfer coding, or the connection closing; 301/302/303/307/308 are
+ * followed up to four times. The body grows in a pool buffer the caller
+ * frees. */
 #include "net.h"
 
 #define HDR_MAX     4096
@@ -208,7 +209,9 @@ static void on_data(const u8 *d, u32 n)
     }
 }
 
-/* http://a.b.c.d[:port][/path]: 1 with the pieces */
+/* http://host[:port][/path]: 1 with the pieces. *ip is set when host is
+ * already an IPv4 address; otherwise it is left 0 for the caller to
+ * resolve. */
 static int parse_url(const char *url, u32 *ip, u16 *port, const char **path, char *host, u32 hmax)
 {
     if (!prefix_ieq(url, "http://"))
@@ -264,8 +267,11 @@ int net_http_get(const char *url, void **buf, u32 *size)
             return 0;
         }
         if (!ip) {
-            printf("net: %s is not an IPv4 address (no DNS client)\n", host);
-            return 0;
+            u32 dns = net_dns_server();
+            if (!dns || !net_dns_lookup(dns, host, &ip)) {
+                printf("net: cannot resolve %s\n", host);
+                return 0;
+            }
         }
         memset(&h, 0, sizeof h);
         if (!net_tcp_connect(ip, port, on_data)) {

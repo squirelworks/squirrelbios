@@ -21,7 +21,7 @@
 #define ARP_SLOTS   8
 
 static struct net_dev *nd;
-static u32 my_ip, my_mask, my_gw;
+static u32 my_ip, my_mask, my_gw, my_dns;
 static u8 rxf[FRAME_MAX];       /* the frame being handled */
 static u8 rtx[FRAME_MAX];       /* ARP and ICMP replies */
 static u8 atx[64];              /* ARP requests */
@@ -90,19 +90,25 @@ void net_use(struct net_dev *d)
 {
     if (d != nd) {
         nd = d;
-        my_ip = my_mask = my_gw = 0;
+        my_ip = my_mask = my_gw = my_dns = 0;
         memset(arp, 0, sizeof arp);
     }
 }
 
 struct net_dev *net_current(void) { return nd; }
 u32 net_my_ip(void) { return my_ip; }
+u32 net_dns_server(void) { return my_dns; }
 
 void net_set_addr(u32 ip, u32 mask, u32 gw)
 {
     my_ip = ip;
     my_mask = mask;
     my_gw = gw;
+}
+
+void net_set_dns(u32 dns)
+{
+    my_dns = dns;
 }
 
 /* ------------------------------------------------------------ Ethernet */
@@ -556,6 +562,7 @@ int net_dhcp(struct net_cfg *cfg)
         cfg->mask = a < 128 ? 0x000000FF : a < 192 ? 0x0000FFFF : 0x00FFFFFF;
     }
     net_set_addr(cfg->ip, cfg->mask, cfg->gw);
+    net_set_dns(cfg->dns);
     return 1;
 }
 

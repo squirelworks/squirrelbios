@@ -1,6 +1,9 @@
 /* SquirrelBIOS UEFI core (common/efi): ACPI table store and publication.
  * Original code, written from the ACPI 6.5 specification, section 5.2
- * (RSDP, XSDT, the common table header).
+ * (RSDP, XSDT, the common table header). Platform tables beyond the
+ * shared store (for example x86_64 CEDT with CHBS/CFMWS for CXL) are
+ * built by the architecture and added with acpi_add, or published from
+ * the architecture's own XSDT path.
  *
  * acpi_begin takes a block of ACPI reclaim memory; the architecture then
  * asks for tables (acpi_table fills the header), adds the ones the XSDT
