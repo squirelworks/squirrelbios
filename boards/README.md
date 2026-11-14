@@ -7,15 +7,16 @@ The Raspberry Pi is the first with a build of its own
 runs on QEMU's `raspi3b` and (with QEMU ≥ 9.0) `raspi4b`. The GA-G41M-ES2L
 has `CONFIG=coreboot` for the x86_64 UEFI core as a coreboot payload
 (`x86_64-coreboot` in `make test`); desk flashing is still
-`needs: squirrel`. VisionFive 2 has `CONFIG=visionfive2` (UART and
-memory from the board tree); upstream QEMU has no JH7110 machine, so
-`make test` only checks the link address. HiFive Unmatched is notes only.
+`needs: squirrel`. VisionFive 2 has `CONFIG=visionfive2` and HiFive
+Unmatched has `CONFIG=hifive-unmatched` (UART and memory from each board
+tree); upstream QEMU has neither machine, so `make test` only checks
+the link address for those images.
 
 | Directory | Board | Firmware it would build on |
 |---|---|---|
 | [`rpi4/`](rpi4/README.md) | Raspberry Pi 4 (BCM2711), notes on Pi 5 (BCM2712) | `aarch64-uefi` (`arm/uefi`, `common/efi`) |
 | [`visionfive2/`](visionfive2/README.md) | StarFive VisionFive 2 (JH7110) | `riscv64-uefi` `CONFIG=visionfive2` |
-| [`hifive-unmatched/`](hifive-unmatched/README.md) | SiFive HiFive Unmatched (FU740) | the same platform (notes only) |
+| [`hifive-unmatched/`](hifive-unmatched/README.md) | SiFive HiFive Unmatched (FU740) | `riscv64-uefi` `CONFIG=hifive-unmatched` |
 | [`ga-g41m-es2l/`](ga-g41m-es2l/README.md) | Gigabyte GA-G41M-ES2L (Intel G41 + ICH7) | `x86_64-uefi` `CONFIG=coreboot` (LBIO tables; [FLASHING.md](ga-g41m-es2l/FLASHING.md)) |
 
 Each note says how the board boots, what of ours could run where, and
