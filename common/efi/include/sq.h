@@ -24,7 +24,7 @@ typedef unsigned long      usize;
 #include "config.h"
 #endif
 
-#define SQ_VERSION "2.1.0"
+#define SQ_VERSION "2.2.0"
 
 /* arch.h defines:
  *   ARCH_NAME            platform name in the banner ("aarch64-uefi")
