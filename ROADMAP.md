@@ -1,6 +1,6 @@
 # Roadmap
 
-This file is where SquirrelBIOS is going. [TODO.md](TODO.md) is the list of
+This file is where SquirrelBIOS is going. Open work is handed to Cursor / Codex: see [HANDOFF.md](HANDOFF.md). [TODO.md](TODO.md) is the list of
 changes that get there, one PR each. What the firmware guarantees today is
 [common/handoff.md](common/handoff.md). If the firmware and that file
 disagree, the firmware has a bug.
@@ -23,7 +23,23 @@ Nothing in this repo is vendored third-party firmware. A UEFI-class
 interface arrives in Phase C as original code; until then nothing here is
 UEFI.
 
-## Where things are (2026-11-13)
+## Hand-off status (2026-11-14)
+
+The remaining work is left for Cursor / Codex. **[HANDOFF.md](HANDOFF.md)** has a card for every open
+item (files, acceptance, how to test) and the suggested order. In this file: `- [x]` is done on `main`;
+`- [ ]` is **open for Cursor/Codex**; *(in progress)* means a branch exists, finish it rather than redo
+it; *(Squirrel)* means only the owner can do it (publishing, real boards). The same states are labels on
+the GitHub issues (`status: done`, `status: in progress`, `cursor-codex`, `needs: squirrel`). The
+suite-wide continuation plan is `docs/CONTINUANCE.md` in squirrelsoft.
+
+- **Latest release: v2.1.1** (2026-11-13, v2.1.0's `f572f71` with all six images).
+- **`main` is ahead of it:** D4 (shared AHCI/NVMe/virtio, FAT write, USB storage in the UEFI core), F3
+  network boot and IPMI, F4 multi-node boot, C5 NVRAM, authenticated variables and TPM, F2 SMM + EINJ,
+  all of Phase E, Raspberry Pi bring-up on QEMU `raspi3b`. The first hand-off task is the v2.2.0 notes.
+- **Open:** C5 real board, D2 Raspberry Pi 4/5, F1 scale (>1000 CPUs, several ECAM segments), F2 CXL,
+  F3 DNS, RISC-V AIA MSI mode.
+
+## Where things were (2026-11-13)
 
 - **Latest release: v1.4.4** (published 2026-11-04, tag on `3388eba`,
   110 `make test` cases). Phases A and B are finished. The table in
@@ -212,7 +228,7 @@ boxes in [TODO.md](TODO.md).
 - [x] **B8 (v1.4.2) USB mass storage boot.** Test: `-device usb-storage`
   with `os.img` boots.
   - [x] Bulk-only transport on xHCI, `INT 13h` as `DL = 80h` (#114)
-  - [ ] UAS (follow-up; not a v1.4.4 item)
+  - [x] UAS on EHCI and xHCI with streams, stall recovery, and BOT on UHCI/OHCI/EHCI (#133, #134, #138)
 - [x] **B9 (v1.4.3) virtio-blk / virtio-net and network boot.** Original
   TFTP client; boot `SQBL` over the network. Test: QEMU user-net TFTP.
 - [x] **B10 (v1.4.4) Video.** VBE 2.0/3.0 linear-framebuffer modes on QEMU
@@ -250,7 +266,7 @@ boxes in [TODO.md](TODO.md).
     before the CSM
   - [x] `c4-secure-boot`: verify-only Secure Boot with our own keys
     (Authenticode SHA-256, PKCS#7 RSA-2048 signatures, db/dbx)
-- [ ] **C5 (v2.2.x) Real x86 hardware track.** A flashing guide for one
+- [ ] **C5 (v2.2.x) Real x86 hardware track.** *(Squirrel for the board; the guide is open for Cursor/Codex)* A flashing guide for one
   cheap board; DDR training is research under `boards/` and never a
   merge blocker.
   - [x] `c5-nvram`: non-volatile variables in a flash store (QEMU pflash
@@ -259,12 +275,17 @@ boxes in [TODO.md](TODO.md).
     and user mode; keys enrolled at run time
   - [x] `c5-tpm`: measured boot with a TPM 2.0 on TIS (PCR extends, the
     TCG2 protocol and event log, the TPM2 table)
+  - [ ] `c5-board`: flashing guide and a coreboot-payload `CONFIG=` for the
+    GA-G41M-ES2L (`boards/ga-g41m-es2l/`)
 
 ### Phase D — v2.5: ARM and RISC-V as full firmware
 
 - [x] **D1** AArch64 `virt`: UEFI-class interface, device tree and ACPI
   (SBBR-like), PSCI, GICv3.
 - [ ] **D2** AArch64 boards: Raspberry Pi 4/5 under `boards/rpi4`.
+  - [x] `rpi3`/`rpi4` configs, SDHCI, EL3 + PSCI; `rpi3-uefi-sd` on QEMU `raspi3b` (#157)
+  - [ ] `rpi4-uefi-*` on QEMU `raspi4b` (QEMU 9.0+), EMMC2, GIC-400 from the tree
+  - [ ] A Pi 4 on the desk boots the firmware from SD *(Squirrel, post-merge)*
 - [x] **D3** RISC-V `virt`: UEFI-class interface while keeping the SBI;
   `DBCN`, SSE; boards (VisionFive 2, HiFive) under `boards/`.
 - [x] **D4** Shared drivers across architectures (NVMe, xHCI, virtio, FAT,
@@ -295,6 +316,8 @@ boxes in [TODO.md](TODO.md).
     pxb-pcie) as DSDT host bridges with their own buses and windows, and
     ACPI table room that grows with the CPU count (more than one ECAM
     segment and >255 CPUs untestable on QEMU x86 TCG)
+  - [ ] `f1-scale`: host-side checks of the tables for 1024 CPUs and two ECAM
+    segments (synthetic topology, `tests/acpicheck.py`)
 - [ ] **F2** RAS: machine-check logging (BERT/HEST/EINJ), corrected-error
   thresholds, CXL memory enumeration (research).
   - [x] `f2-x86-stubs`: x86_64 BERT and HEST stubs (MCE logging, EINJ and
@@ -303,15 +326,18 @@ boxes in [TODO.md](TODO.md).
     from before a reset as CPER records in the BERT, HEST IA-32 MCE and
     corrected machine check sources with CMCI or polling and thresholds
     (EINJ still open)
-  - [ ] `f2-x86-einj`: x86_64 SMM in q35's TSEG (SMBASE relocation on
+  - [x] `f2-x86-einj` (#148, #149): x86_64 SMM in q35's TSEG (SMBASE relocation on
     every CPU, locked at ExitBootServices) serving EINJ: a correctable
     memory error written as CPER into a polled GHES
+  - [ ] `f2-cxl`: CXL host bridges, CEDT (CHBS, CFMWS) and `ACPI0016`/`ACPI0017`
+    on q35 with `cxl=on`
 - [ ] **F3** Management: IPMI/Redfish-style BMC stubs, serial-over-LAN, HTTP
   boot.
   - [x] `f3-uefi-net`: UEFI Simple Network Protocol on virtio-net and a
     PXE-style DHCP+TFTP boot on x86_64, aarch64 and riscv64 UEFI
   - [x] `f3-http-boot`: HTTP boot (own TCP, HTTP/1.1 with Content-Length,
     chunked, close-delimited bodies and redirects; IPv4 hosts, no DNS yet)
+  - [ ] `f3-dns`: a DNS client so HTTP boot takes host names
   - [x] `f3-sol`: serial-over-LAN style console mirror over UDP (output
     per line, input from the same host), until ExitBootServices
   - [x] `f3-ipmi`: x86_64 BMC on IPMI KCS (QEMU `ipmi-bmc-sim`), SPMI
@@ -320,6 +346,8 @@ boxes in [TODO.md](TODO.md).
   Test: QEMU `-smp 256 -numa ...`; `make linux-big` already covers part.
   - [x] `f4-multinode`: four x86_64 UEFI nodes netboot the same image at
     once from one TFTP server behind a router (simulated network)
+  - [ ] `f4-scale`: the same with more nodes and a `-smp 256 -numa` node
+    image, bounded by CI time (or as an optional `make` target)
 
 ### Squirrel-OS/2 hand-off on every platform
 
@@ -338,6 +366,9 @@ The older polish items stay valid and fold into Phase D when it starts:
   - [x] `DBCN` (SBI 2.0 debug console; Linux `earlycon=sbi`)
   - [x] UART and CLINT/ACLINT addresses taken from the device tree in the
     M-mode SBI (`CONFIG_UART_BASE`/`CONFIG_CLINT_BASE` as fallbacks)
+  - [x] SSE with the RAS event (`riscv-sse`, #135)
+  - [ ] `aplic-imsic` (MSI mode) to a Linux shell: program `smsiaddrcfg`,
+    retest on QEMU 9.1+ (see TODO.md `riscv-aia`)
 - [x] AArch64: firmware PSCI/GIC only if QEMU's built-ins are disabled for a
   test; otherwise leave them.
 
