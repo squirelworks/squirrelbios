@@ -25,24 +25,23 @@ Used here, in `ROADMAP.md` and on the issues (as labels).
 
 - **Released:** v2.1.1 (2026-11-13; v2.1.0's firmware from `f572f71` with all
   six images attached).
-- **`main` (`3826e1c`) is ahead of the release**, unreleased: native AHCI /
-  NVMe / virtio disks and AML on the x86_64 UEFI core (D4, #142), FAT write
-  and USB mass storage in the shared UEFI core (#145), UEFI network boot
-  (SNP, DHCP+TFTP, HTTP boot) and serial-over-LAN on all three UEFI targets
-  (#143, #146), multi-node diskless boot (F4, #146), non-volatile and
-  authenticated variables (C5, #144), TPM 2.0 measured boot (#147), SMM and
-  EINJ (F2, #148, #149), IPMI KCS / SPMI / Redfish host interface stub
-  (F3, #154), legacy El Torito hard-disk emulation and VBE 4F0Ah (#141),
-  UAS with streams and stall recovery (#138), AArch64 EL3 + PSCI, SDHCI and
+- **`main` is ready for v2.2.0** (`4a3d29f`, including F2-CXL + F3-DNS #167):
+  native AHCI / NVMe / virtio disks and AML on the x86_64 UEFI core (D4,
+  #142), FAT write and USB mass storage in the shared UEFI core (#145),
+  UEFI network boot (SNP, DHCP+TFTP, HTTP boot with DNS) and serial-over-LAN
+  on all three UEFI targets (#143, #146, #167), multi-node diskless boot
+  (F4, #146), non-volatile and authenticated variables (C5, #144), TPM 2.0
+  measured boot (#147), SMM, EINJ and CXL CEDT (F2, #148, #149, #167),
+  IPMI KCS / SPMI / Redfish host interface stub (F3, #154), legacy El Torito
+  hard-disk emulation and VBE 4F0Ah (#141), AArch64 EL3 + PSCI, SDHCI and
   Raspberry Pi bring-up on QEMU `raspi3b` (#157), and all of Phase E:
   powernv (#150, #158), sun4u (#153, #159, #161), m68k, mips-malta,
   loongarch64 (#155, #159), s390x (#160, #161). Licence is GPL-3.0 (#163).
-  This PR adds F2-CXL (CEDT / `ACPI0016`/`ACPI0017`) and F3-DNS (HTTP boot
-  host names).
-- **Test gate:** `make test` (about 260 `run` cases in `tests/smoke.sh`), run by
+  Release notes are in `release-notes/v2.2.0.md`; publishing is `needs: squirrel`.
+- **Test gate:** `make test` (334 cases in `tests/smoke.sh`), run by
   `.github/workflows/make-test.yml` on every PR. Optional, not in CI:
   `make linux-x86`, `make linux-uefi`, `make linux-shell`, `make linux-big`.
-- **Open PRs at hand-off:** this condense PR (F2-CXL + F3-DNS); leave for Sarah.
+- **Open PRs at hand-off:** none for the condense work; F2-CXL + F3-DNS are on `main`.
 
 ## Rules (Squirrel's; do not break)
 
@@ -82,7 +81,8 @@ expected serial lines (`|`-separated, `!` = must not appear, `~` = regex).
 
 ## Suggested order
 
-1. **v2.2.0 release notes** for everything on `main` since `f572f71`.
+1. **REL-2.2.0** *(Squirrel)*: `Actions → Draft release` for v2.2.0 on the
+   merge commit, then publish.
 2. **D2-rpi4** on QEMU `raspi4b` (QEMU ≥ 9.0), then the real Pi as a post-merge note.
 3. **F1-scale** (table generation for >1000 CPUs and several ECAM segments,
    checked by a host-side parser).
@@ -92,12 +92,11 @@ expected serial lines (`|`-separated, `!` = must not appear, `~` = regex).
 
 ## Task cards
 
-### REL-2.2.0 — release notes for what `main` has since v2.1.1  `cursor-codex` then `needs: squirrel`
-- Write `release-notes/v2.2.0.md` in the style of `v2.1.0.md` (what changed,
-  per platform; release assets table; "Known gaps" refreshed: FAT write,
-  native AHCI/NVMe on x86_64, non-volatile variables, EINJ, VBE 4F0Ah and El
-  Torito HD emulation are no longer gaps), bump the banner version, then run
-  `Actions → Draft release` on the merge commit and give Squirrel the draft link.
+### REL-2.2.0 — release notes for what `main` has since v2.1.1  `needs: squirrel`
+- **Done (notes):** `release-notes/v2.2.0.md` (style of `v2.1.0.md`; Known
+  gaps refreshed; UEFI banner `SQ_VERSION` `2.2.0`).
+- **Open (Squirrel):** run `Actions → Draft release` on the merge commit and
+  publish; give the draft / release link.
 - **Check:** `make test` green on the tagged commit; every image boots its
   `make test` cases; `SHA256SUMS.txt` covers every attached image.
 

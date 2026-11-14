@@ -33,11 +33,13 @@ the GitHub issues (`status: done`, `status: in progress`, `cursor-codex`, `needs
 suite-wide continuation plan is `docs/CONTINUANCE.md` in squirrelsoft.
 
 - **Latest release: v2.1.1** (2026-11-13, v2.1.0's `f572f71` with all six images).
-- **`main` is ahead of it:** D4 (shared AHCI/NVMe/virtio, FAT write, USB storage in the UEFI core), F3
-  network boot and IPMI, F4 multi-node boot, C5 NVRAM, authenticated variables and TPM, F2 SMM + EINJ,
-  all of Phase E, Raspberry Pi bring-up on QEMU `raspi3b`. The first hand-off task is the v2.2.0 notes.
+  **v2.2.0 notes are prepared** (`release-notes/v2.2.0.md`, 334 `make test` cases);
+  publishing is `needs: squirrel`.
+- **`main` has everything for v2.2.0:** D4 (shared AHCI/NVMe/virtio, FAT write, USB storage in the UEFI core), F3
+  network boot (with DNS), IPMI and SoL, F4 multi-node boot, C5 NVRAM, authenticated variables and TPM,
+  F2 SMM + EINJ + CXL, all of Phase E, Raspberry Pi bring-up on QEMU `raspi3b`.
 - **Open:** C5 real board, D2 Raspberry Pi 4/5, F1 scale (>1000 CPUs, several ECAM segments),
-  RISC-V AIA MSI mode. (F2 CXL and F3 DNS done in this PR.)
+  RISC-V AIA MSI mode, F4 scale.
 
 ## Where things were (2026-11-13)
 
