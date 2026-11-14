@@ -162,8 +162,11 @@ expected serial lines (`|`-separated, `!` = must not appear, `~` = regex).
 
 ### Secondary track and small follow-ups  `cursor-codex`
 - `riscv-sparse-harts` only if a board with gapped hart IDs is targeted (Speculative in TODO.md).
-- VisionFive 2 and HiFive Unmatched: research notes exist in `boards/`; first
-  code step is a `CONFIG=` per board with the UART and memory from their trees.
+- VisionFive 2: `CONFIG=visionfive2` (`configs/riscv64-uefi/visionfive2.cfg`)
+  with UART0 / `CONFIG_FW_BASE=0x40000000` from `boards/visionfive2`;
+  `make test` build-checks the link address (no QEMU JH7110 machine —
+  boot smoke optional / desk-only). HiFive Unmatched: research notes only;
+  first code step still a `CONFIG=` with its UART and memory.
 - Squirrel-OS/2 boots on every UEFI target once the OS has a port; today
   `os-boot.sh` checks x86. Keep `tests/os-boot.sh` in step with squirrel-os2 releases.
 

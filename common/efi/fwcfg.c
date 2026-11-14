@@ -78,10 +78,10 @@ int fwcfg_init(void)
     if (node >= 0 && fdt_reg(node, 0, &b, NULL))
         base = (uptr)b;
 #ifdef CONFIG_FWCFG_BASE
-    else
+    else if (CONFIG_FWCFG_BASE)
         base = CONFIG_FWCFG_BASE;
 #endif
-    if (!fwcfg_present()) {
+    if (!base || !fwcfg_present()) {
         base = 0;
         return 0;
     }

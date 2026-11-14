@@ -28,10 +28,10 @@ From the JH7110 device tree (*verify* against the board's own):
 
 | What | Where | Ours today |
 |---|---|---|
-| Harts | hart 0 = S7 (RV64IMAC, M and U only: no S-mode, no MMU); harts 1-4 = U74 (RV64GC, Sv39) | every hart may be an S-mode target |
-| RAM | from `0x40000000`, 2/4/8 GB | `0x80000000` assumed for the 2 MB firmware region and PMP |
-| UART0 | `0x10000000`, `snps,dw-apb-uart`, `reg-shift = 2`, `reg-io-width = 4`, 24 MHz | `ns16550a`, byte registers, 3.6864 MHz divisor |
-| CLINT | `0x02000000` (`riscv,clint0`) | taken from the tree |
+| Harts | hart 0 = S7 (RV64IMAC, M and U only: no S-mode, no MMU); harts 1-4 = U74 (RV64GC, Sv39) | `CONFIG_MAX_HARTS=5`; every hart may still be an S-mode target (monitor-hart park is open) |
+| RAM | from `0x40000000`, 2/4/8 GB | `CONFIG_FW_BASE=0x40000000` for the 2 MB firmware region and PMP |
+| UART0 | `0x10000000`, `snps,dw-apb-uart`, `reg-shift = 2`, `reg-io-width = 4`, 24 MHz | `CONFIG_UART_*` matches; DT also accepts `snps,dw-apb-uart` |
+| CLINT | `0x02000000` (`riscv,clint0`) | taken from the tree (`CONFIG_CLINT_BASE` fallback) |
 | PLIC | `0x0C000000` | left to the OS: fine |
 | Timer | `timebase-frequency` 4 MHz | the UEFI core reads it from the tree; the SBI's `SRST_WAIT` and `HSM_CHECKIN_WAIT` assume 10 MHz |
 | Power off / reset | no `sifive,test` finisher; the PMIC (AXP15060 over I2C) and the SoC's reset controller | the QEMU test finisher only |
@@ -45,16 +45,16 @@ From the JH7110 device tree (*verify* against the board's own):
   be a U74 (the SPL's `fw_dynamic_info.boot_hart`, which `_start`
   already honours). Telling them apart: the `/cpus` node's
   `riscv,isa` / `mmu-type`, or `status = "disabled"` on the S7.
-- **The firmware's place.** `FW_BASE` (`0x80000000`) and the 2 MB PMP
-  region are constants; here RAM starts at `0x40000000`, and the SPL's
-  load address decides where we are. `FW_BASE` should come from where
-  `_start` finds itself (`auipc`), and `dt_reserve` already writes the
-  region it is given into `/reserved-memory`.
-- **The UART.** The DesignWare UART is 16550-compatible but with 32-bit
-  registers 4 bytes apart. `putc`, `uart_init` and DBCN should read
-  `reg-shift` and `reg-io-width` from the tree (the UEFI core's
-  `arch.c` too), and take `clock-frequency` for the divisor, or skip
-  programming the divisor and keep what the SPL set.
+- **The firmware's place.** `CONFIG_FW_BASE=0x40000000` matches the SPL
+  load address; the 2 MB PMP region follows it. A later step should take
+  `FW_BASE` from where `_start` finds itself (`auipc`) so a different
+  SPL load still works; `dt_reserve` already writes the region it is
+  given into `/reserved-memory`.
+- **The UART.** `CONFIG_UART_SHIFT` / `CONFIG_UART_IO_WIDTH` /
+  `CONFIG_UART_CLOCK` program the DesignWare UART from the build. A
+  later step should also read `reg-shift`, `reg-io-width` and
+  `clock-frequency` from the tree (or skip reprogramming the divisor
+  and keep what the SPL set).
 - **Timeouts.** `SRST_WAIT`, `HSM_CHECKIN_WAIT` and `RAS_SHUTDOWN_WAIT`
   are counted in 10 MHz ticks; they should be scaled by the tree's
   `timebase-frequency`.
@@ -81,13 +81,28 @@ From the JH7110 device tree (*verify* against the board's own):
   the RISC-V UEFI core uses Sv39 only for the OS, but the SBI's
   `FW_BASE` and PMP region still need the same treatment (above).
 
-## A first milestone
+## What works now (`CONFIG=visionfive2`)
 
-Our `riscv64-virt` SBI (with `-kernel`-style payload) as the SPL's
-OpenSBI replacement, booting U-Boot proper or a Linux `Image` in S-mode
-on a U74 hart, with the console on UART0 at 115200. That needs the
-monitor-hart handling, a position-independent `FW_BASE`, the
-`reg-shift` UART and scaled timeouts.
+`make PLATFORM=riscv64-uefi CONFIG=visionfive2` builds
+`build/riscv64-uefi/visionfive2/squirrel-bios.bin` linked at
+`0x40000000` (the SPL's OpenSBI load address), with UART0 at
+`0x10000000` using DesignWare register stride (`CONFIG_UART_SHIFT=2`,
+`CONFIG_UART_IO_WIDTH=4`, 24 MHz clock) and five harts. `make test`
+builds that image and checks the SBI `_start` address; it does **not**
+boot it under QEMU.
+
+**QEMU smoke is optional.** Upstream QEMU (through 9.x at least) has no
+JH7110 / VisionFive 2 machine, so there is no `make test` boot case.
+Desk bring-up with the vendor SPL loading this image where OpenSBI goes
+is post-merge / `needs: squirrel`, never a merge blocker.
+
+## Next milestone
+
+Our SBI as the SPL's OpenSBI replacement, booting U-Boot proper or a
+Linux `Image` in S-mode on a U74 hart, with the console on UART0 at
+115200. That still needs the monitor-hart handling, a position-independent
+`FW_BASE` (today's `CONFIG_FW_BASE` is the fixed SPL load address),
+scaled timeouts from `timebase-frequency`, and board reset/power-off.
 
 ## Reading
 

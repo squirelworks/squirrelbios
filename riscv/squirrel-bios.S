@@ -28,27 +28,57 @@
         .ifndef CONFIG_UART_BASE
         .equ CONFIG_UART_BASE, 0x10000000
         .endif
+        .ifndef CONFIG_UART_SHIFT
+        .equ CONFIG_UART_SHIFT, 0           /* byte registers (ns16550a); DW APB uses 2 */
+        .endif
+        .ifndef CONFIG_UART_IO_WIDTH
+        .equ CONFIG_UART_IO_WIDTH, 1        /* 1 = sb/lbu; 4 = sw/lw (DW APB) */
+        .endif
+        .ifndef CONFIG_UART_CLOCK
+        .equ CONFIG_UART_CLOCK, 3686400     /* virt's clock-frequency for the UART */
+        .endif
         .ifndef CONFIG_MAX_HARTS
         .equ CONFIG_MAX_HARTS, 512
         .endif
         .ifndef CONFIG_CLINT_BASE
         .equ CONFIG_CLINT_BASE, 0x02000000
         .endif
+        .ifndef CONFIG_FW_BASE
+        .equ CONFIG_FW_BASE, 0x80000000     /* QEMU virt RAM; VisionFive 2 is 0x40000000 */
+        .endif
 
-        .equ UART_BASE,     CONFIG_UART_BASE /* NS16550A */
-        .equ UART_THR,      0
-        .equ UART_IER,      1
-        .equ UART_FCR,      2
-        .equ UART_LCR,      3
-        .equ UART_LSR,      5
+        .equ UART_BASE,     CONFIG_UART_BASE /* 16550-compatible */
+        .equ UART_THR,      (0 << CONFIG_UART_SHIFT)
+        .equ UART_IER,      (1 << CONFIG_UART_SHIFT)
+        .equ UART_FCR,      (2 << CONFIG_UART_SHIFT)
+        .equ UART_LCR,      (3 << CONFIG_UART_SHIFT)
+        .equ UART_LSR,      (5 << CONFIG_UART_SHIFT)
         .equ UART_LSR_THRE, 0x20
-        .equ UART_DLL,      0               /* with LCR.DLAB set */
-        .equ UART_DLM,      1
+        .equ UART_DLL,      (0 << CONFIG_UART_SHIFT)  /* with LCR.DLAB set */
+        .equ UART_DLM,      (1 << CONFIG_UART_SHIFT)
         .equ UART_LCR_DLAB, 0x80
-        .equ UART_CLOCK,    3686400         /* virt's clock-frequency for the UART */
+        .equ UART_CLOCK,    CONFIG_UART_CLOCK
         .equ UART_BAUD,     115200
-        .equ UART_DIVISOR,  UART_CLOCK / (16 * UART_BAUD)   /* 2 */
+        .equ UART_DIVISOR,  UART_CLOCK / (16 * UART_BAUD)
         .equ UART_TIMEOUT,  0x100000        /* LSR polls per character */
+
+/* UART store/load: byte registers on QEMU virt (ns16550a); 32-bit
+ * registers 4 bytes apart on the JH7110 DesignWare APB UART
+ * (CONFIG_UART_SHIFT=2, CONFIG_UART_IO_WIDTH=4). t0 = UART base. */
+.macro uart_sb off, src
+        .if CONFIG_UART_IO_WIDTH == 4
+        sw \src, \off(t0)
+        .else
+        sb \src, \off(t0)
+        .endif
+.endm
+.macro uart_lb dst, off
+        .if CONFIG_UART_IO_WIDTH == 4
+        lw \dst, \off(t0)
+        .else
+        lbu \dst, \off(t0)
+        .endif
+.endm
 
         /* QEMU's reset code passes a2 = struct fw_dynamic_info:
          * magic, version, next_addr, next_mode, options, boot_hart (XLEN each) */
@@ -66,10 +96,11 @@
         .equ MSTATUS_MPIE,      0x80
         .equ PMP_RWX_NAPOT,     0x1f        /* R | W | X | A = NAPOT */
         .equ PMP_NONE_NAPOT,    0x18        /* A = NAPOT, no access */
-/* The firmware region: everything below QEMU's rv64 kernel load address
- * (0x80200000). PMP entry 0 denies it to S-mode; NAPOT needs a
- * power-of-two size aligned to that size. */
-        .equ FW_BASE,           0x80000000
+/* The firmware region: PMP entry 0 denies it to S-mode; NAPOT needs a
+ * power-of-two size aligned to that size. On QEMU virt this is the 2 MB
+ * below the rv64 kernel load address (0x80200000); on VisionFive 2 it is
+ * where the vendor SPL loads OpenSBI (CONFIG_FW_BASE = 0x40000000). */
+        .equ FW_BASE,           CONFIG_FW_BASE
         .equ FW_SIZE,           0x200000    /* 2 MB */
         .equ FW_PMPADDR,        (FW_BASE >> 2) | ((FW_SIZE / 2 - 1) >> 2)
         .equ UEFI_BASE,         FW_BASE + FW_SIZE   /* riscv/uefi/link.ld */
@@ -999,10 +1030,10 @@ sbi_dbcn:
         j 1b
 2:      beq a1, a3, sbi_ok
         ld t0, uart_base
-        lbu t1, UART_LSR(t0)
+        uart_lb t1, UART_LSR
         andi t1, t1, 1                      /* data ready */
         beqz t1, sbi_ok
-        lbu t1, UART_THR(t0)                /* RBR */
+        uart_lb t1, UART_THR                /* RBR */
         sb t1, 0(a2)
         addi a2, a2, 1
         addi a1, a1, 1
@@ -1928,8 +1959,12 @@ dt_devices:
         mv s9, a0
         la a1, str_ns16550a
         call dt_reg_of
+        bnez a0, 01f
+        mv a0, s9
+        la a1, str_dw_apb_uart              /* JH7110 / VisionFive 2 */
+        call dt_reg_of
         beqz a0, 1f
-        sd a0, uart_base, t0
+01:     sd a0, uart_base, t0
 1:      mv a0, s9
         la a1, str_riscv_clint0
         call dt_reg_of
@@ -2110,17 +2145,18 @@ name_is:
 
 uart_init:
         ld t0, uart_base
-        sb zero, UART_IER(t0)
+        li t1, 0
+        uart_sb UART_IER, t1
         li t1, UART_LCR_DLAB                /* 115200: divisor latch */
-        sb t1, UART_LCR(t0)
+        uart_sb UART_LCR, t1
         li t1, UART_DIVISOR & 0xff
-        sb t1, UART_DLL(t0)
+        uart_sb UART_DLL, t1
         li t1, UART_DIVISOR >> 8
-        sb t1, UART_DLM(t0)
+        uart_sb UART_DLM, t1
         li t1, 0x03                         /* 8N1, DLAB off */
-        sb t1, UART_LCR(t0)
+        uart_sb UART_LCR, t1
         li t1, 0x07                         /* enable and clear FIFOs */
-        sb t1, UART_FCR(t0)
+        uart_sb UART_FCR, t1
         ret
 
 /* a0 = character.  Gives up after UART_TIMEOUT polls so a stuck UART
@@ -2128,12 +2164,12 @@ uart_init:
 putc:
         ld t0, uart_base
         li t2, UART_TIMEOUT
-1:      lbu t1, UART_LSR(t0)
+1:      uart_lb t1, UART_LSR
         andi t1, t1, UART_LSR_THRE
         bnez t1, 2f
         addi t2, t2, -1
         bnez t2, 1b
-2:      sb a0, UART_THR(t0)
+2:      uart_sb UART_THR, a0
         ret
 
 /* a0 = zero-terminated string */
@@ -2190,7 +2226,11 @@ msg_ras_mepc:   .asciz " mepc="
 msg_ras_mtval:  .asciz " mtval="
 msg_ras_fatal:  .asciz " fatal\n"
 msg_halted:     .asciz "boot halted\n"
+        .if FW_BASE == 0x40000000
+msg_dt_ok:      .asciz "dt: firmware region 0x40000000-0x401fffff reserved (no-map)\n"
+        .else
 msg_dt_ok:      .asciz "dt: firmware region 0x80000000-0x801fffff reserved (no-map)\n"
+        .endif
 msg_dt_odd:     .asciz "dt: firmware region not reserved: unexpected device tree layout\n"
 msg_dt_exists:  .asciz "dt: firmware region not reserved: /reserved-memory already present\n"
 msg_dt_room:    .asciz "dt: firmware region not reserved: no room to grow the device tree\n"
@@ -2199,6 +2239,7 @@ str_cpus:       .asciz "cpus"
 str_reg:        .asciz "reg"
 str_compatible: .asciz "compatible"
 str_ns16550a:   .asciz "ns16550a"
+str_dw_apb_uart: .asciz "snps,dw-apb-uart"
 str_riscv_clint0: .asciz "riscv,clint0"
 str_sifive_clint0: .asciz "sifive,clint0"
 str_aclint_mswi: .asciz "riscv,aclint-mswi"
@@ -2274,7 +2315,11 @@ n_size: be32 s_size - dt_strings
         be32 0
 n_rng:  be32 s_rng - dt_strings
         be32 FDT_BEGIN_NODE
-        .asciz "squirrelbios@80000000"          /* 22 bytes */
+        .if FW_BASE == 0x40000000
+        .asciz "squirrelbios@40000000"          /* 22 bytes; VisionFive 2 */
+        .else
+        .asciz "squirrelbios@80000000"          /* 22 bytes; QEMU virt */
+        .endif
         .byte 0, 0                              /* pad to 24 */
         be32 FDT_PROP
         be32 16

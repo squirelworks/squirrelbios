@@ -23,9 +23,17 @@ static u64 boot_hart;
 static uptr kernel;
 static u32 kernel_size;
 
-#define UART_RBR 0
-#define UART_THR 0
-#define UART_LSR 5
+#define UART_RBR (0 << CONFIG_UART_SHIFT)
+#define UART_THR (0 << CONFIG_UART_SHIFT)
+#define UART_LSR (5 << CONFIG_UART_SHIFT)
+
+#if CONFIG_UART_IO_WIDTH == 4
+static u8 uart_rd(uptr a) { return (u8)mmio_read32(a); }
+static void uart_wr(uptr a, u8 v) { mmio_write32(a, v); }
+#else
+static u8 uart_rd(uptr a) { return mmio_read8(a); }
+static void uart_wr(uptr a, u8 v) { mmio_write8(a, v); }
+#endif
 
 /* ------------------------------------------------------------ console */
 
@@ -36,16 +44,16 @@ void arch_con_init(void)
 
 void arch_con_putc(u8 c)
 {
-    for (int i = 0; i < 1000000 && !(mmio_read8(uart + UART_LSR) & 0x20); i++)
+    for (int i = 0; i < 1000000 && !(uart_rd(uart + UART_LSR) & 0x20); i++)
         ;
-    mmio_write8(uart + UART_THR, c);
+    uart_wr(uart + UART_THR, c);
 }
 
 int arch_con_getc(void)
 {
-    if (!(mmio_read8(uart + UART_LSR) & 0x01))
+    if (!(uart_rd(uart + UART_LSR) & 0x01))
         return -1;
-    return mmio_read8(uart + UART_RBR);
+    return uart_rd(uart + UART_RBR);
 }
 
 /* ---------------------------------------------------------------- SBI */
@@ -174,6 +182,8 @@ void arch_init(void)
 {
     u64 b;
     int n = fdt_find_compatible("ns16550a", -1);
+    if (n < 0)
+        n = fdt_find_compatible("snps,dw-apb-uart", -1);
     if (n >= 0 && fdt_reg(n, 0, &b, NULL))
         uart = (uptr)b;
     n = fdt_find_compatible("google,goldfish-rtc", -1);

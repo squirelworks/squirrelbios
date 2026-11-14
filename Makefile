@@ -227,29 +227,32 @@ riscv/squirrel-bios.o: riscv/squirrel-bios.S
 riscv/squirrel-bios.elf: riscv/squirrel-bios.o
 	$(RISCV64)ld -Ttext=0x80000000 -o $@ $<
 # riscv64-uefi: $(1) is the directory for the pieces, $(2) extra C flags,
-# $(3) extra assembler flags for the SBI. The SBI (with .bss) must end
-# below RV_FW_BASE, and the core (with .bss) 2 MB later, where QEMU puts
-# -kernel (the next 2 MB boundary after the image file)
+# $(3) extra assembler flags for the SBI, $(4) optional SBI/firmware base
+# (CONFIG_FW_BASE; default 0x80000000). The SBI (with .bss) must end below
+# that base + 2 MB, and the UEFI core (with .bss) is linked there; on QEMU
+# virt that is where -kernel lands (the next 2 MB boundary after the image).
 define RV_EFI_BUILD
 	@mkdir -p $(1)
-	$(RISCV64)as --defsym UEFI=1 $(3) -o $(1)/sbi.o riscv/squirrel-bios.S
-	$(RISCV64)ld -Ttext=0x80000000 -o $(1)/sbi.elf $(1)/sbi.o
-	@end=$$($(RISCV64)nm $(1)/sbi.elf | awk '$$3 == "_end" { print $$1 }'); \
-	if [ $$((0x$$end)) -gt $$(($(RV_FW_BASE))) ]; then \
-	    echo "riscv-uefi: the SBI ends at 0x$$end, past $(RV_FW_BASE)" >&2; exit 1; \
-	fi
-	$(RISCV64)objcopy -O binary $(1)/sbi.elf $(1)/sbi.bin
-	$(RISCV64_CC) $(RV_EFI_CFLAGS) $(2) -c riscv/uefi/start.S -o $(1)/start.o
-	$(RISCV64_CC) $(RV_EFI_CFLAGS) $(2) -Wl,-T,riscv/uefi/link.ld -Wl,--defsym,FW_BASE=$(RV_FW_BASE) \
-	    -Wl,--build-id=none -Wl,--no-warn-rwx-segments $(1)/start.o riscv/uefi/arch.c $(EFI_C) -o $(1)/body.elf
-	@end=$$($(RISCV64)nm $(1)/body.elf | awk '$$3 == "__fw_end" { print $$1 }'); \
-	if [ $$((0x$$end)) -gt $$(($(RV_FW_BASE) + 0x200000)) ]; then \
+	sbi_base=$(or $(4),0x80000000); \
+	uefi_base=$$(( $$sbi_base + 0x200000 )); \
+	$(RISCV64)as --defsym UEFI=1 $(3) -o $(1)/sbi.o riscv/squirrel-bios.S && \
+	$(RISCV64)ld -Ttext=$$sbi_base -o $(1)/sbi.elf $(1)/sbi.o && \
+	end=$$($(RISCV64)nm $(1)/sbi.elf | awk '$$3 == "_end" { print $$1 }'); \
+	if [ $$((0x$$end)) -gt $$((uefi_base)) ]; then \
+	    echo "riscv-uefi: the SBI ends at 0x$$end, past 0x$$(printf '%x' $$uefi_base)" >&2; exit 1; \
+	fi; \
+	$(RISCV64)objcopy -O binary $(1)/sbi.elf $(1)/sbi.bin && \
+	$(RISCV64_CC) $(RV_EFI_CFLAGS) $(2) -c riscv/uefi/start.S -o $(1)/start.o && \
+	$(RISCV64_CC) $(RV_EFI_CFLAGS) $(2) -Wl,-T,riscv/uefi/link.ld -Wl,--defsym,FW_BASE=$$uefi_base \
+	    -Wl,--build-id=none -Wl,--no-warn-rwx-segments $(1)/start.o riscv/uefi/arch.c $(EFI_C) -o $(1)/body.elf && \
+	end=$$($(RISCV64)nm $(1)/body.elf | awk '$$3 == "__fw_end" { print $$1 }'); \
+	if [ $$((0x$$end)) -gt $$((uefi_base + 0x200000)) ]; then \
 	    echo "riscv-uefi: the UEFI core ends at 0x$$end, past 2 MB" >&2; exit 1; \
-	fi
-	$(RISCV64)objcopy -O binary $(1)/body.elf $(1)/body.bin
-	cp $(1)/sbi.bin $@.tmp
-	truncate -s $$(($(RV_FW_BASE) - 0x80000000)) $@.tmp
-	cat $(1)/body.bin >> $@.tmp
+	fi; \
+	$(RISCV64)objcopy -O binary $(1)/body.elf $(1)/body.bin && \
+	cp $(1)/sbi.bin $@.tmp && \
+	truncate -s $$((0x200000)) $@.tmp && \
+	cat $(1)/body.bin >> $@.tmp && \
 	mv $@.tmp $@
 endef
 
@@ -311,7 +314,7 @@ build/riscv64-uefi/%/config.inc: configs/riscv64-uefi/%.cfg tools/mkconfig.sh
 build/riscv64-uefi/%/squirrel-bios.bin: riscv/squirrel-bios.S riscv/uefi/start.S riscv/uefi/arch.c \
 		riscv/uefi/arch.h riscv/uefi/link.ld $(EFI_C) $(EFI_H) \
 		build/riscv64-uefi/%/config.inc build/riscv64-uefi/%/config.h
-	$(call RV_EFI_BUILD,$(@D)/obj,-DSQ_CONFIG -I$(@D),--defsym SQ_CONFIG=1 -I $(@D))
+	$(call RV_EFI_BUILD,$(@D)/obj,-DSQ_CONFIG -I$(@D),--defsym SQ_CONFIG=1 -I $(@D),$(shell sed -n 's/^CONFIG_FW_BASE=//p' configs/riscv64-uefi/$*.cfg))
 
 build/riscv64-virt/%/squirrel-bios.o: riscv/squirrel-bios.S build/riscv64-virt/%/config.inc build/riscv64-virt/%/config.h
 	$(RISCV64)as --defsym SQ_CONFIG=1 -I $(@D) -o $@ $<
@@ -949,7 +952,8 @@ stretch: | $(TEST_DIR)
 
 test: x86 x86_64 arm riscv arm-uefi riscv-uefi config-default $(TEST_BINS) build/x86_64-uefi/x2apic/squirrel-bios.fd \
 		build/x86_64-uefi/coreboot/squirrel-bios.fd \
-		build/aarch64-uefi/rpi3/squirrel-bios.fd build/aarch64-uefi/rpi4/squirrel-bios.fd stretch
+		build/aarch64-uefi/rpi3/squirrel-bios.fd build/aarch64-uefi/rpi4/squirrel-bios.fd \
+		build/riscv64-uefi/visionfive2/squirrel-bios.bin stretch
 	tests/smoke.sh
 
 # Optional, not part of make test: downloads Ubuntu 24.04's arm64 kernel

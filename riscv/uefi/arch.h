@@ -6,8 +6,17 @@
 #ifndef CONFIG_UART_BASE
 #define CONFIG_UART_BASE 0x10000000
 #endif
+#ifndef CONFIG_UART_SHIFT
+#define CONFIG_UART_SHIFT 0
+#endif
+#ifndef CONFIG_UART_IO_WIDTH
+#define CONFIG_UART_IO_WIDTH 1
+#endif
 #ifndef CONFIG_FWCFG_BASE
 #define CONFIG_FWCFG_BASE 0x10100000
+#endif
+#ifndef CONFIG_FW_BASE
+#define CONFIG_FW_BASE 0x80000000
 #endif
 
 #define ARCH_NAME            "riscv64-uefi"
