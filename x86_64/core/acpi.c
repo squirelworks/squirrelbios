@@ -372,76 +372,26 @@ static u32 build_dsdt(u8 *t, u32 cap, int hpet)
 }
 
 /* One entry per processor smp.c brought up, in processor-number order,
- * the UID being that number: local APIC entries for APIC IDs up to 254,
- * x2APIC entries (and the x2APIC NMI) past that */
+ * the UID being that number. Past 255 CPUs (or when already in x2APIC
+ * mode) every CPU is a local x2APIC entry; else local APIC up to ID 254. */
 static u32 build_madt(u8 *t, u32 cpus)
 {
-    u8 *p = t + 44;
-    int x2 = 0;
-    put32(t + 36, LAPIC_BASE);
-    put32(t + 40, 1);                   /* PCAT_COMPAT: 8259s present */
+    static struct acpi_cpu_aff list[SMP_MAX_CPUS];
+    if (cpus > SMP_MAX_CPUS)
+        cpus = SMP_MAX_CPUS;
     for (u32 i = 0; i < cpus; i++) {
         const struct smp_cpu_info *ci = smp_cpu((int)i);
-        u32 id = ci ? ci->apic_id : i;
-        u32 on = ci ? (ci->enabled != 0) : 1;
-        if (id < 255 && i < 255) {
-            p[0] = 0;                   /* processor local APIC */
-            p[1] = 8;
-            p[2] = (u8)i;
-            p[3] = (u8)id;
-            put32(p + 4, on);
-            p += 8;
-        } else {
-            p[0] = 9;                   /* processor local x2APIC */
-            p[1] = 16;
-            put16(p + 2, 0);
-            put32(p + 4, id);
-            put32(p + 8, on);
-            put32(p + 12, i);
-            p += 16;
-            x2 = 1;
-        }
+        list[i].apic_id = ci ? ci->apic_id : i;
+        list[i].prox = 0;
+        list[i].enabled = ci ? (ci->enabled != 0) : 1;
     }
     volatile u32 *io = (volatile u32 *)(uptr)IOAPIC_BASE;
     io[0] = 0;                          /* IOAPICID register */
     u8 ioapic_id = (u8)((io[4] >> 24) & 0x0F);
-    p[0] = 1;
-    p[1] = 12;
-    p[2] = ioapic_id;
-    p[3] = 0;
-    put32(p + 4, IOAPIC_BASE);
-    put32(p + 8, 0);                    /* GSI base */
-    p += 12;
-    /* ISA IRQ 0 is pin 2; the SCI and the PCI link IRQs are level,
-     * active high, as QEMU wires them. */
-    static const u8 iso_src[] = { 0, 5, 9, 10, 11 };
-    for (u32 i = 0; i < sizeof iso_src; i++) {
-        p[0] = 2;
-        p[1] = 10;
-        p[2] = 0;
-        p[3] = iso_src[i];
-        put32(p + 4, iso_src[i] == 0 ? 2 : iso_src[i]);
-        put16(p + 8, iso_src[i] == 0 ? 0 : 0x000D);
-        p += 10;
-    }
-    p[0] = 4;                           /* local APIC NMI on LINT1, all CPUs */
-    p[1] = 6;
-    p[2] = 0xFF;
-    put16(p + 3, 0);
-    p[5] = 1;
-    p += 6;
-    if (x2) {
-        p[0] = 0x0A;                    /* local x2APIC NMI on LINT1, all CPUs */
-        p[1] = 12;
-        put16(p + 2, 0);
-        put32(p + 4, 0xFFFFFFFFu);
-        p[8] = 1;
-        p += 12;
-    }
-    u32 len = (u32)(p - t);
-    acpi_header(t, "APIC", len, 5);
-    acpi_seal(t);
-    return len;
+    /* Past 255 CPUs every entry is x2APIC (QEMU TCG cannot run that;
+     * the host-side f1-scale check covers it). Below that, keep local
+     * APIC entries so the existing smoke cases stay the same. */
+    return acpi_build_madt(t, list, cpus, LAPIC_BASE, ioapic_id, IOAPIC_BASE, cpus > 255);
 }
 
 static void build_fadt(u8 *t, u32 facs, u32 dsdt)
@@ -496,13 +446,13 @@ static u32 build_hpet(u8 *t)
 static u32 build_mcfg(u8 *t)
 {
     const struct chipset *cs = chipset();
-    acpi_header(t, "MCFG", 60, 1);
-    put64(t + 44, cs->mcfg_base);
-    put16(t + 52, 0);                   /* segment */
-    t[54] = 0;
-    t[55] = (u8)(cs->mcfg_buses - 1);
-    acpi_seal(t);
-    return 60;
+    struct acpi_mcfg_entry e = {
+        .base = cs->mcfg_base,
+        .segment = 0,
+        .start_bus = 0,
+        .end_bus = (u8)(cs->mcfg_buses - 1),
+    };
+    return acpi_build_mcfg(t, &e, 1);
 }
 
 void acpi_init(void)

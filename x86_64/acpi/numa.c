@@ -79,31 +79,6 @@ static u64 low_top(void)
     return top;
 }
 
-/* Memory affinity entries for RAM offsets [start, start + len) of node */
-static u8 *mem_entries(u8 *p, u32 node, u64 start, u64 len, u64 low)
-{
-    while (len) {
-        u64 base, piece;
-        if (start < low) {
-            base = start;
-            piece = low - start < len ? low - start : len;
-        } else {
-            base = 0x100000000ull + (start - low);
-            piece = len;
-        }
-        p[0] = 1;                       /* memory affinity */
-        p[1] = 40;
-        put32(p + 2, node);
-        put64(p + 8, base);
-        put64(p + 16, piece);
-        put32(p + 28, 1);               /* enabled */
-        p += 40;
-        start += piece;
-        len -= piece;
-    }
-    return p;
-}
-
 /* One of QEMU's own ACPI tables, from the blob it offers to firmware
  * that loads them (etc/acpi/tables): its offset and length there */
 int acpi_qemu_table(const char *sig, u16 *sel, u32 *off, u32 *len)
@@ -175,46 +150,47 @@ int acpi_numa_tables(u8 **out, acpi_take_fn take)
     if (!read_numa())
         return 0;
     int cpus = smp_cpu_count();
-    u8 *srat = take(48 + (u32)cpus * 24 + nodes * 2 * 40);
-    if (!srat)
-        return 0;
-    u8 *p = srat + 48;
-    put32(srat + 36, 1);                /* reserved, 1 for compatibility */
-    for (int i = 0; i < cpus; i++) {
-        const struct smp_cpu_info *ci = smp_cpu(i);
+    if (cpus < 0)
+        cpus = 0;
+    static struct acpi_cpu_aff cpu_aff[SMP_MAX_CPUS];
+    static struct acpi_mem_aff mem_aff[MAX_NODES * 2];
+    u32 ncpus = (u32)cpus;
+    if (ncpus > SMP_MAX_CPUS)
+        ncpus = SMP_MAX_CPUS;
+    int all_x2 = ncpus > 255;
+    for (u32 i = 0; i < ncpus; i++) {
+        const struct smp_cpu_info *ci = smp_cpu((int)i);
         u32 id = ci->apic_id;
-        u32 node = id < MAX_IDS ? node_of_id[id] : 0;
-        if (id < 255) {
-            p[0] = 0;                   /* processor local APIC affinity */
-            p[1] = 16;
-            p[2] = (u8)node;
-            p[3] = (u8)id;
-            put32(p + 4, ci->enabled ? 1 : 0);
-            p[8] = 0;
-            p[9] = (u8)(node >> 8);
-            p[10] = (u8)(node >> 16);
-            p[11] = (u8)(node >> 24);
-            put32(p + 12, 0);
-            p += 16;
-        } else {
-            p[0] = 2;                   /* processor local x2APIC affinity */
-            p[1] = 24;
-            put32(p + 4, node);
-            put32(p + 8, id);
-            put32(p + 12, ci->enabled ? 1 : 0);
-            put32(p + 16, 0);
-            p += 24;
-        }
+        cpu_aff[i].apic_id = id;
+        cpu_aff[i].prox = id < MAX_IDS ? node_of_id[id] : 0;
+        cpu_aff[i].enabled = ci->enabled != 0;
     }
     u64 low = low_top(), at = 0;
+    u32 nmems = 0;
     for (u32 n = 0; n < nodes; n++) {
-        if (node_mem[n])
-            p = mem_entries(p, n, at, node_mem[n], low);
+        u64 start = at, len = node_mem[n];
         at += node_mem[n];
+        while (len && nmems < MAX_NODES * 2) {
+            u64 base, piece;
+            if (start < low) {
+                base = start;
+                piece = low - start < len ? low - start : len;
+            } else {
+                base = 0x100000000ull + (start - low);
+                piece = len;
+            }
+            mem_aff[nmems].prox = n;
+            mem_aff[nmems].base = base;
+            mem_aff[nmems].length = piece;
+            nmems++;
+            start += piece;
+            len -= piece;
+        }
     }
-    u32 len = (u32)(p - srat);
-    acpi_header(srat, "SRAT", len, 3);
-    acpi_seal(srat);
+    u8 *srat = take(48 + ncpus * 24 + nmems * 40);
+    if (!srat)
+        return 0;
+    acpi_build_srat(srat, cpu_aff, ncpus, mem_aff, nmems, all_x2);
 
     u32 slen = 44 + nodes * nodes;
     u8 *slit = take(slen);
