@@ -953,7 +953,8 @@ stretch: | $(TEST_DIR)
 test: x86 x86_64 arm riscv arm-uefi riscv-uefi config-default $(TEST_BINS) build/x86_64-uefi/x2apic/squirrel-bios.fd \
 		build/x86_64-uefi/coreboot/squirrel-bios.fd \
 		build/aarch64-uefi/rpi3/squirrel-bios.fd build/aarch64-uefi/rpi4/squirrel-bios.fd \
-		build/riscv64-uefi/visionfive2/squirrel-bios.bin stretch
+		build/riscv64-uefi/visionfive2/squirrel-bios.bin \
+		build/riscv64-uefi/hifive-unmatched/squirrel-bios.bin stretch
 	tests/smoke.sh
 
 # Optional, not part of make test: downloads Ubuntu 24.04's arm64 kernel

@@ -1799,6 +1799,28 @@ else
     fail=$((fail + 1))
 fi
 
+# HiFive Unmatched (boards/hifive-unmatched): CONFIG=hifive-unmatched
+# links the SBI at RAM / OpenSBI load address 0x80000000 with UART0 at
+# 0x10010000 (sifive,uart0; driver kind still open). Upstream QEMU has
+# no Unmatched machine (sifive_u is FU540-like), so boot smoke is
+# optional; make test only checks the configured image's link address.
+HFU_BIN=build/riscv64-uefi/hifive-unmatched/squirrel-bios.bin
+HFU_ELF=build/riscv64-uefi/hifive-unmatched/obj/sbi.elf
+HFU_NM=${RISCV64:-riscv64-linux-gnu-}nm
+if [ -f "$HFU_BIN" ] && [ -f "$HFU_ELF" ]; then
+    hfu_start=$($HFU_NM "$HFU_ELF" | awk '$3 == "_start" { print $1 }')
+    if [ "$hfu_start" = "0000000080000000" ]; then
+        echo "PASS  riscv64-hifive-unmatched-build"
+        pass=$((pass + 1))
+    else
+        echo "FAIL  riscv64-hifive-unmatched-build (SBI _start at ${hfu_start:-missing}, want 0000000080000000)"
+        fail=$((fail + 1))
+    fi
+else
+    echo "FAIL  riscv64-hifive-unmatched-build (image not built)"
+    fail=$((fail + 1))
+fi
+
 # x86-64 firmware: measured boot (C5) with a TPM 2.0 on TIS, from swtpm
 # (skipped without it). The firmware starts the TPM, extends PCR 0 with
 # its flash image, PCR 7 with the Secure Boot variables, PCR 4 with each

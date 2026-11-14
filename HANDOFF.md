@@ -38,7 +38,7 @@ Used here, in `ROADMAP.md` and on the issues (as labels).
   powernv (#150, #158), sun4u (#153, #159, #161), m68k, mips-malta,
   loongarch64 (#155, #159), s390x (#160, #161). Licence is GPL-3.0 (#163).
   Release notes are in `release-notes/v2.2.0.md`; publishing is `needs: squirrel`.
-- **Test gate:** `make test` (336 cases in `tests/smoke.sh`, plus
+- **Test gate:** `make test` (337 cases in `tests/smoke.sh`, plus
   `rpi4-uefi-sd` when QEMU has `raspi4b`), run by
   `.github/workflows/make-test.yml` on every PR. Optional, not in CI:
   `make linux-x86`, `make linux-uefi`, `make linux-shell`, `make linux-big`,
@@ -165,8 +165,12 @@ expected serial lines (`|`-separated, `!` = must not appear, `~` = regex).
 - VisionFive 2: `CONFIG=visionfive2` (`configs/riscv64-uefi/visionfive2.cfg`)
   with UART0 / `CONFIG_FW_BASE=0x40000000` from `boards/visionfive2`;
   `make test` build-checks the link address (no QEMU JH7110 machine —
-  boot smoke optional / desk-only). HiFive Unmatched: research notes only;
-  first code step still a `CONFIG=` with its UART and memory.
+  boot smoke optional / desk-only). HiFive Unmatched:
+  `CONFIG=hifive-unmatched` (`configs/riscv64-uefi/hifive-unmatched.cfg`)
+  with UART0 at `0x10010000` / `CONFIG_FW_BASE=0x80000000` from
+  `boards/hifive-unmatched`; `make test` build-checks the link address
+  (no Unmatched machine — boot / `sifive_u` smoke optional; `sifive,uart0`
+  putc/getc still open).
 - Squirrel-OS/2 boots on every UEFI target once the OS has a port; today
   `os-boot.sh` checks x86. Keep `tests/os-boot.sh` in step with squirrel-os2 releases.
 
