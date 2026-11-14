@@ -14,6 +14,9 @@
 
 /* The AML writer and the table helpers: common/efi's */
 #include_next "acpi.h"
+/* struct aml comes from that header; keep a forward decl for callers that
+ * only see this file through another include path. */
+struct aml;
 
 /* acpi.c, smbios.c */
 void acpi_init(void);
@@ -27,8 +30,16 @@ void acpi_seal(u8 *t);
 typedef void *(*acpi_take_fn)(u32 len);
 int acpi_numa_tables(u8 **out, acpi_take_fn take);     /* SRAT, SLIT */
 int acpi_ras_tables(u8 **out, acpi_take_fn take);      /* BERT, HEST */
+int acpi_cxl_tables(u8 **out, acpi_take_fn take);      /* CEDT (CHBS, CFMWS) */
 int acpi_qemu_table(const char *sig, u16 *sel, u32 *off, u32 *len);  /* in etc/acpi/tables */
 int acpi_qemu_bus_pxm(u8 bus);                          /* an expander's _PXM, or -1 */
+
+/* CXL (F2): acpi_cxl_probe before the DSDT; tables after */
+void acpi_cxl_probe(void);
+int acpi_cxl_present(void);
+int acpi_cxl_is_hb(u8 bus);                             /* a CXL root bus (_UID) */
+int acpi_cxl_chbs(u8 bus, u64 *base, u64 *length);      /* CHBCR MMIO */
+void acpi_cxl_dsdt(struct aml *a);                      /* ACPI0017 in \_SB */
 
 /* mce.c: machine-check banks, read once at boot on every CPU */
 #define MCE_MAX_RECORDS 32

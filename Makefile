@@ -113,6 +113,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/x86_64-numa.efi $(TEST_DIR)/x86_64-numa-dist.bin \
              $(TEST_DIR)/x86_64-tpm.efi \
              $(TEST_DIR)/x86_64-einj.efi \
+             $(TEST_DIR)/x86_64-cxl.efi \
              $(TEST_DIR)/x86_64-smmlock.efi \
              $(TEST_DIR)/x86_64-ipmi.efi \
              $(TEST_DIR)/x86_64-bigload.img \
@@ -448,6 +449,10 @@ $(TEST_DIR)/riscv-efi-fat.efi: tests/efi-fat.c tests/efi-app.ld tests/mkpe.py | 
 # EINJ through SMM on q35 (F2): an OS's APEI steps, on the BSP and an AP
 X64_APP_CFLAGS := $(EFI_APP_CFLAGS) -m64 -mno-red-zone -mgeneral-regs-only -mcmodel=large
 $(TEST_DIR)/x86_64-einj.efi: tests/x86_64-einj.c tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)
+	$(CC64) $(X64_APP_CFLAGS) $< -o $(@:.efi=.elf)
+	python3 tests/mkpe.py x86_64 $(@:.efi=.elf) $@
+# CXL CEDT (CHBS + CFMWS) and ACPI0016/ACPI0017 (F2)
+$(TEST_DIR)/x86_64-cxl.efi: tests/x86_64-cxl.c tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)
 	$(CC64) $(X64_APP_CFLAGS) $< -o $(@:.efi=.elf)
 	python3 tests/mkpe.py x86_64 $(@:.efi=.elf) $@
 # An image that tries to open SMRAM, which must be locked by then

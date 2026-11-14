@@ -7,7 +7,8 @@
  * Tables: RSDP 2.0, XSDT and RSDT, FADT 6.4, FACS, DSDT (AML generated
  * at boot by aml.c), MADT (from the SMP list: local APIC entries, x2APIC
  * ones past ID 254), HPET (when the timer answers), MCFG (q35), and from
- * x86_64/acpi/: SRAT and SLIT with QEMU -numa, BERT and HEST.
+ * x86_64/acpi/: SRAT and SLIT with QEMU -numa, BERT and HEST, CEDT with
+ * CHBS/CFMWS when a CXL host bridge is present (F2).
  * They live in ACPI reclaim memory (FACS in ACPI NVS) and the RSDP is
  * published as the ACPI 2.0 and 1.0 configuration tables. */
 #include "acpi.h"
@@ -221,10 +222,16 @@ static u32 build_dsdt(u8 *t, u32 cap, int hpet)
     for (int k = 0; k < nroots; k++) {
         static const char hex[] = "0123456789ABCDEF";
         char name[] = "PC00";
+        int cxl = acpi_cxl_is_hb(roots[k]);
         name[2] = hex[roots[k] >> 4];
         name[3] = hex[roots[k] & 15];
         aml_device(&a, name);
-        if (cs->q35) {
+        /* CXL 2.0 §9.12 / ACPI: ACPI0016 for a CXL-capable host bridge,
+         * with PNP0A08 so a CXL-unaware OS still binds a PCIe root. */
+        if (cxl) {
+            aml_name_string(&a, "_HID", "ACPI0016");
+            aml_name_eisaid(&a, "_CID", "PNP0A08");
+        } else if (cs->q35) {
             aml_name_eisaid(&a, "_HID", "PNP0A08");
             aml_name_eisaid(&a, "_CID", "PNP0A03");
         } else {
@@ -244,6 +251,11 @@ static u32 build_dsdt(u8 *t, u32 cap, int hpet)
             u32 mem = XROOT_MEM + (u32)k * XROOT_MEM_SIZE;
             res_word(&r, 1, io, (u16)(io + 0xFFF));
             res_dword_mem(&r, mem, mem + XROOT_MEM_SIZE - 1, 0);
+        }
+        if (cxl) {
+            u64 chb, chl;
+            if (acpi_cxl_chbs(roots[k], &chb, &chl) && chl)
+                res_qword_mem(&r, chb, chb + chl - 1, 0);
         }
         aml_name_resources(&a, "_CRS", &r);
         if (!cs->q35) {
@@ -270,7 +282,9 @@ static u32 build_dsdt(u8 *t, u32 cap, int hpet)
     for (int k = 0; k < nroots; k++) {
         u32 last = k + 1 < nroots ? roots[k + 1] - 1u : 0xFFu;
         int pxm = acpi_qemu_bus_pxm(roots[k]);
-        printf("pci: root bus %02x-%02x (PC%02X)", roots[k], last, roots[k]);
+        int cxl = acpi_cxl_is_hb(roots[k]);
+        printf("pci: root bus %02x-%02x (PC%02X)%s", roots[k], last, roots[k],
+               cxl ? ", CXL (ACPI0016)" : "");
         if (pxm >= 0)
             printf(", node %d", pxm);
         if (low_ram_top() < XROOT_MEM)
@@ -320,6 +334,7 @@ static u32 build_dsdt(u8 *t, u32 cap, int hpet)
         aml_name_resources(&a, "_CRS", &r);
         aml_end(&a);
     }
+    acpi_cxl_dsdt(&a);                  /* ACPI0017 when a CXL host bridge is up */
     /* Motherboard resources: the PM block and, on q35, the ECAM window,
      * so the OS knows both are taken. */
     {
@@ -509,6 +524,7 @@ void acpi_init(void)
     u32 cpus = (u32)smp_cpu_count();
     if (!cpus)
         cpus = 1;
+    acpi_cxl_probe();                   /* before the DSDT: ACPI0016 / CEDT */
 
     /* FACS: 64 bytes, 64-byte aligned, in NVS */
     u8 *facs = (u8 *)(uptr)facs_page;
@@ -547,6 +563,7 @@ void acpi_init(void)
     n += acpi_ras_tables(tables + n, take);
     n += tpm_acpi_tables(tables + n, take);
     n += ipmi_acpi_tables(tables + n, take);
+    n += acpi_cxl_tables(tables + n, take);
 
     u8 *xsdt = take(36 + 8 * (u32)n);
     u8 *rsdt = take(36 + 4 * (u32)n);
@@ -583,7 +600,8 @@ void acpi_init(void)
         if (!memcmp(tables[i], "SRAT", 4) || !memcmp(tables[i], "SLIT", 4) ||
             !memcmp(tables[i], "HMAT", 4) || !memcmp(tables[i], "BERT", 4) ||
             !memcmp(tables[i], "HEST", 4) || !memcmp(tables[i], "EINJ", 4) ||
-            !memcmp(tables[i], "TPM2", 4) || !memcmp(tables[i], "SPMI", 4))
+            !memcmp(tables[i], "TPM2", 4) || !memcmp(tables[i], "SPMI", 4) ||
+            !memcmp(tables[i], "CEDT", 4))
             printf(" %c%c%c%c", tables[i][0], tables[i][1], tables[i][2], tables[i][3]);
     printf(" DSDT (%u bytes of AML) FACS\n", dsdt_len - 36);
 }

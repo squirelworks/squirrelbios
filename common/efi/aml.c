@@ -4,7 +4,8 @@
  * types); a copy of x86_64/core/aml.c plus string names and QWord memory.
  *
  * The DSDT is generated at boot instead of compiled from ASL, so it can
- * follow the machine's device tree. Objects with a
+ * follow the machine's device tree (including string _HID values such as
+ * ACPI0016 / ACPI0017 for CXL). Objects with a
  * PkgLength are written with aml_open() / aml_close(): close measures
  * what was written since the open and inserts the encoded length in
  * front of it. */

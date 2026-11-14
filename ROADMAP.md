@@ -36,8 +36,8 @@ suite-wide continuation plan is `docs/CONTINUANCE.md` in squirrelsoft.
 - **`main` is ahead of it:** D4 (shared AHCI/NVMe/virtio, FAT write, USB storage in the UEFI core), F3
   network boot and IPMI, F4 multi-node boot, C5 NVRAM, authenticated variables and TPM, F2 SMM + EINJ,
   all of Phase E, Raspberry Pi bring-up on QEMU `raspi3b`. The first hand-off task is the v2.2.0 notes.
-- **Open:** C5 real board, D2 Raspberry Pi 4/5, F1 scale (>1000 CPUs, several ECAM segments), F2 CXL,
-  F3 DNS, RISC-V AIA MSI mode.
+- **Open:** C5 real board, D2 Raspberry Pi 4/5, F1 scale (>1000 CPUs, several ECAM segments),
+  F3 DNS, RISC-V AIA MSI mode. (F2 CXL done on this branch.)
 
 ## Where things were (2026-11-13)
 
@@ -329,7 +329,7 @@ boxes in [TODO.md](TODO.md).
   - [x] `f2-x86-einj` (#148, #149): x86_64 SMM in q35's TSEG (SMBASE relocation on
     every CPU, locked at ExitBootServices) serving EINJ: a correctable
     memory error written as CPER into a polled GHES
-  - [ ] `f2-cxl`: CXL host bridges, CEDT (CHBS, CFMWS) and `ACPI0016`/`ACPI0017`
+  - [x] `f2-cxl`: CXL host bridges, CEDT (CHBS, CFMWS) and `ACPI0016`/`ACPI0017`
     on q35 with `cxl=on`
 - [ ] **F3** Management: IPMI/Redfish-style BMC stubs, serial-over-LAN, HTTP
   boot.
