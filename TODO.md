@@ -485,6 +485,13 @@ stub, a 1 MB flash image for `qemu-system-x86_64 -bios`. One PR each.
   Folded into `release-notes/v2.2.0.md` for the tag (no v2.2.1 for
   capsule alone). Depends on: `x86_64-gop`. Epic #82.
 
+- [x] `x86_64-capsule-signed` / `x86_64-capsule-fwcfg` — Phase G
+  signed capsule apply + PersistAcrossReset staging (lane `-2eaf`):
+  SQCP + PKCS#7 detached verify (`capsule_auth.c`), apply without
+  flash rewrite, NV staging / fw_cfg pending capsule. Fixtures
+  `tests/mkcapsule.py`. Notes: `release-notes/capsule-signed-apply.md`.
+  Depends on: `x86_64-capsule`. Epic #82.
+
 ## Secondary track
 
 Open a PR for one of these when it helps; they are not the laundry list

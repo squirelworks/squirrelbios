@@ -90,9 +90,13 @@ void chipset_ebs_init(void);    /* the PIC, LINT0/1 and 8042 at ExitBootServices
 /* arch.c, rt.c */
 #define arch_check_image(src, size) x86_check_image(src, size)
 #define arch_boot_options(image) efi_set_load_options(image)
+#define arch_capsule_verify(hdr) x86_capsule_verify(hdr)
+#define arch_capsule_trust_init() x86_capsule_trust_init()
 #define ARCH_RT_DATA(name) __attribute__((section(".rt.data." name)))
 u64 x86_check_image(const void *src, u64 size);   /* an EFI_STATUS */
 void x86_rt_init(u16 pm_base);      /* the PM block ResetSystem uses */
+void x86_capsule_trust_init(void);
+u64 x86_capsule_verify(const void *hdr);
 
 /* bootopt.c: QEMU's -initrd and -append for a -kernel image */
 void efi_initrd_init(void);

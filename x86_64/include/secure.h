@@ -5,7 +5,7 @@
 
 #include "vars.h"
 
-#define EFI_SECURITY_VIOLATION EFI_ERR(26)
+/* EFI_SECURITY_VIOLATION is in common/efi/include/efi.h (EFI_ERR(26)). */
 
 /* sha256.c (FIPS 180-4) */
 struct sha256 {

@@ -19,9 +19,10 @@ query capabilities and submit a system-firmware capsule.
   `CAPSULE_FLAGS_POPULATE_SYSTEM_TABLE` before ExitBootServices,
   `CAPSULE_FLAGS_PERSIST_ACROSS_RESET` requires a scatter-gather list,
   `CAPSULE_FLAGS_INITIATE_RESET` warm-resets. Does not rewrite the QEMU
-  flash image (signed apply is a follow-up).
+  flash image.
 - **OsIndicationsSupported:** volatile BS|RT variable with the
   file-capsule and capsule-result bits.
+- **Follow-up:** `release-notes/capsule-signed-apply.md`.
 - **Smoke:** `x86_64-capsule` in `tests/smoke.sh` (`tests/x86_64-capsule.c`).
 - **Docs:** `common/efi/README.md`, `x86_64/README.md`, HANDOFF /
   ROADMAP / TODO Phase G card, `common/handoff.md`.

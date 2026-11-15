@@ -1974,6 +1974,18 @@ run x86_64-ipmi-none "ipmi: none|APP ipmi none|!SPMI" \
 run x86_64-capsule "capsule: ESRT at|capsule: UpdateCapsule n=1 persist=0 populate=0 reset=0|APP capsule esrt=ok query=ok update=ok attempt=ok osind=ok|efi: image returned 0x0|!=bad" \
     "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-capsule.efi
 
+CAP_DB=name=opt/org.squirrelworks/capsule-db
+CAP_FILE=name=opt/org.squirrelworks/capsule
+run x86_64-capsule-signed "capsule: trust ESL|capsule: apply ok version=0x00020300 (no flash rewrite)|capsule: apply refused (auth)|capsule: staged version=0x00020300|APP capsule-signed good=ok bad=ok stage=ok attempt=ok|efi: image returned 0x0|!=bad" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd \
+    -fw_cfg $CAP_DB,file=$SB/sb-db-x509.esl \
+    -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-capsule-signed.efi
+run x86_64-capsule-fwcfg "capsule: trust ESL|capsule: applying fw_cfg capsule|capsule: apply ok version=0x00020300 (no flash rewrite)|APP capsule esrt=ok query=ok update=ok attempt=ok osind=ok|efi: image returned 0x0|!=bad" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd \
+    -fw_cfg $CAP_DB,file=$SB/sb-db-x509.esl \
+    -fw_cfg $CAP_FILE,file=$SB/capsule-good.cap \
+    -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-capsule.efi
+
 # E3 stretch ports: LoongArch64 on QEMU virt and MIPS on QEMU Malta. Each
 # reaches its prompt and hands off to a test kernel: by autoboot, through
 # the prompt (help, info, an unknown command, backspace, boot), and with

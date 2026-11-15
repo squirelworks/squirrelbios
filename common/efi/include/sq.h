@@ -46,6 +46,12 @@ typedef unsigned long      usize;
 #ifndef arch_boot_options           /* a disk boot image's LoadOptions */
 #define arch_boot_options(image) ((void)(image))
 #endif
+#ifndef arch_capsule_verify
+#define arch_capsule_verify(hdr) EFI_UNSUPPORTED
+#endif
+#ifndef arch_capsule_trust_init
+#define arch_capsule_trust_init() ((void)0)
+#endif
 
 static inline u32 be32(const u8 *p) { return (u32)p[0] << 24 | (u32)p[1] << 16 | (u32)p[2] << 8 | p[3]; }
 static inline u16 be16(const u8 *p) { return (u16)(p[0] << 8 | p[1]); }
