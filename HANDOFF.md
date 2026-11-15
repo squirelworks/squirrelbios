@@ -47,7 +47,11 @@ Used here, in `ROADMAP.md` and on the issues (as labels).
   (Phase G host FAT and PE/COFF corpus smokes; optional path-filtered
   workflows `.github/workflows/fuzz-fat.yml` /
   `.github/workflows/fuzz-pe.yml`).
-- **Open PRs at hand-off:** #170 (D2-rpi4); F1-scale, F2-CXL + F3-DNS and REL-2.2.0 notes are on `main`.
+- **Open PRs at hand-off:** none required at this refresh (Setup UI GOP, F1/F2/F3,
+  host fuzz on `main`). REL-2.2.0 publish and board flashes stay `needs: squirrel`.
+- **Agent lanes:** suite split in squirrelsoft
+  [`docs/AGENT_LANES.md`](https://github.com/squirelworks/squirrelsoft/blob/main/docs/AGENT_LANES.md).
+  Lane `-2eaf` may take free BIOS `cursor-codex` follow-ups; lane `-b55f` is OS/2 2.9.
 
 ## Rules (Squirrel's; do not break)
 
