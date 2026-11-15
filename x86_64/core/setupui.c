@@ -10,8 +10,8 @@
  * skips when no TPM is present and is a safe stub when one is (no
  * TPM2_Clear mid-boot). Date and time views/edits the CMOS RTC via
  * GetTime/SetTime when available. NVRAM reset confirms and deletes
- * non-volatile user variables (Boot#### / BootOrder / demo; not Secure
- * Boot PK/KEK/db/dbx). Entered when QEMU provides
+ * non-volatile user variables (Boot#### / BootOrder / dbt/dbr/MOK-style
+ * / demo; not Secure Boot PK/KEK/db/dbx). Entered when QEMU provides
  * -fw_cfg name=opt/org.squirrelworks/setupui,... or when F2 is pressed
  * during a short post-GOP window (serial ANSI ESC O Q / CSI 12~).
  *
@@ -804,28 +804,36 @@ static int is_secboot_var(const CHAR16 *name, const EFI_GUID *vendor)
 }
 
 #define NV_CLEAR_MAX 32
+/* GetNextVariableName needs room past Boot####; 128 CHAR16 covers long
+ * MOK / vendor names. If a name still will not fit, enum reports partial. */
+#define NV_NAME_CHARS 128
 struct nv_entry {
-    CHAR16 name[32];
+    CHAR16 name[NV_NAME_CHARS];
     EFI_GUID vendor;
 };
 static struct nv_entry nv_list[NV_CLEAR_MAX];
+static int nv_partial;                  /* enum stopped on too-long name */
 
 static int collect_user_nv(void)
 {
-    CHAR16 name[32];
+    static CHAR16 name[NV_NAME_CHARS];
     EFI_GUID vendor;
-    UINTN size;
+    UINTN cap = sizeof name;
+    UINTN size = cap;
     int n = 0;
 
+    nv_partial = 0;
     name[0] = 0;
-    size = sizeof name;
     for (;;) {
         EFI_STATUS st = vars_next(&size, name, &vendor);
         if (st == EFI_NOT_FOUND)
             break;
         if (st == EFI_BUFFER_TOO_SMALL) {
-            /* Name longer than our buffer: skip by not enumerating further
-             * safely - reset and stop so we do not loop forever. */
+            /* Required size is in *size; buffer already at NV_NAME_CHARS.
+             * Cannot skip the unread name, so stop and flag partial. */
+            nv_partial = 1;
+            printf("setup: NVRAM enum partial (name longer than %d chars)\n",
+                   NV_NAME_CHARS - 1);
             break;
         }
         if (st != EFI_SUCCESS)
@@ -837,21 +845,21 @@ static int collect_user_nv(void)
             /* NV bit: user non-volatile settings (BootOrder, Boot####, ...). */
             if ((attr & 0x01u) && !is_secboot_var(name, &vendor) && n < NV_CLEAR_MAX) {
                 int i = 0;
-                for (; i < 31 && name[i]; i++)
+                for (; i < NV_NAME_CHARS - 1 && name[i]; i++)
                     nv_list[n].name[i] = name[i];
                 nv_list[n].name[i] = 0;
                 nv_list[n].vendor = vendor;
                 n++;
             }
         }
-        size = sizeof name;
+        size = cap;
     }
     return n;
 }
 
 static void format_nv_status(void)
 {
-    const char *p = "user NV vars: ";
+    const char *p = nv_partial ? "user NV vars (partial): " : "user NV vars: ";
     int n = 0;
     for (; p[n] && n < LABEL_MAX - 1; n++)
         nv_status[n] = p[n];
@@ -864,6 +872,10 @@ static void format_nv_status(void)
     nv_status[n] = 0;
 }
 
+/* Demo long name (>31 CHAR16) so collect_user_nv's grown buffer is exercised. */
+static const CHAR16 squirrel_demo_long[] =
+    u"SquirrelDemoLongNameForNvEnumBuffer";
+
 static void seed_demo_user_nv(void)
 {
     u16 sel;
@@ -871,15 +883,27 @@ static void seed_demo_user_nv(void)
     UINTN z = 0;
     if (!fwcfg_find(FWCFG_SETUPUI, &sel, &fsz))
         return;
-    if (var_size(u"SquirrelDemo", (EFI_GUID *)&squirrel_user_nv, &z))
-        return;
     u8 stub = 0xA5;
-    if (vars_set(u"SquirrelDemo", (EFI_GUID *)&squirrel_user_nv,
-                 ATTR_NV_BS_RT, 1, &stub) != EFI_SUCCESS) {
-        printf("setup: demo user NV seed failed\n");
-        return;
+    int seeded = 0;
+    if (!var_size(u"SquirrelDemo", (EFI_GUID *)&squirrel_user_nv, &z)) {
+        if (vars_set(u"SquirrelDemo", (EFI_GUID *)&squirrel_user_nv,
+                     ATTR_NV_BS_RT, 1, &stub) != EFI_SUCCESS) {
+            printf("setup: demo user NV seed failed\n");
+            return;
+        }
+        seeded = 1;
     }
-    printf("setup: seeded demo user NV var\n");
+    z = 0;
+    if (!var_size(squirrel_demo_long, (EFI_GUID *)&squirrel_user_nv, &z)) {
+        if (vars_set((CHAR16 *)squirrel_demo_long, (EFI_GUID *)&squirrel_user_nv,
+                     ATTR_NV_BS_RT, 1, &stub) != EFI_SUCCESS) {
+            printf("setup: demo long NV seed failed\n");
+            return;
+        }
+        seeded = 1;
+    }
+    if (seeded)
+        printf("setup: seeded demo user NV var\n");
 }
 
 static int clear_user_nv(void)
@@ -903,9 +927,17 @@ static const char *nv_act_label(int i)
     return acts[i];
 }
 
+/* Confirm copy: reset clears BootOrder/Boot#### and other NV (dbt/dbr/MOK
+ * style) as intended; only PK/KEK/db/dbx stay for the Secure Boot notebook.
+ * Keep each line under ~38 glyphs so SCALE-2 cells fit the 800-wide panel. */
+static const char nv_warn1[] = "Clears BootOrder, Boot####, dbt/dbr/MOK";
+static const char nv_warn2[] = "and other user NV; keeps PK/KEK/db/dbx";
+
 static void serial_nvram_menu(void)
 {
     printf("setup: --- NVRAM Reset ---\n");
+    printf("setup: %s\n", nv_warn1);
+    printf("setup: %s\n", nv_warn2);
     printf("setup: %s\n", nv_status);
     printf("setup: %c Confirm reset\n", nv_sel == 0 ? '>' : ' ');
     printf("setup: %c Cancel\n", nv_sel == 1 ? '>' : ' ');
@@ -926,13 +958,17 @@ static void draw_nvram_menu(void)
     u32 panel_x = 80, panel_y = bar_h + 40;
     u32 panel_w = W > 160 ? W - 160 : W;
     u32 fill_w = panel_w > 16 ? panel_w - 16 : panel_w;
-    u32 panel_h = FONT_H * SCALE * 6 + 48;
+    u32 panel_h = FONT_H * SCALE * 9 + 48;
     if (panel_y + panel_h > H)
         panel_h = H - panel_y;
     fill_rect(panel_x, panel_y, panel_w, panel_h, COL_PANEL_BG);
     put_str(panel_x + 16, panel_y + 12, "NVRAM Reset", COL_PANEL_FG, COL_PANEL_BG);
 
     u32 y = panel_y + 12 + FONT_H * SCALE + 8;
+    put_str(panel_x + 24, y, nv_warn1, COL_HINT_FG, COL_PANEL_BG);
+    y += FONT_H * SCALE + 4;
+    put_str(panel_x + 24, y, nv_warn2, COL_HINT_FG, COL_PANEL_BG);
+    y += FONT_H * SCALE + 8;
     put_str(panel_x + 24, y, nv_status, COL_HINT_FG, COL_PANEL_BG);
     y += FONT_H * SCALE + 10;
     for (int i = 0; i < 2; i++) {
