@@ -45,7 +45,12 @@ disk.c, fat.c   Block I/O for each disk and its GPT/MBR partitions, a
                 boot with the architecture's boot file name. Host fuzz
                 smoke (Phase G): `make fuzz-fat` / `make fuzz-pe` in
                 `fuzz/`
-fdt.c           the tree QEMU hands over, read with the shared reader in common/fw/fdt.c
+usb_desc.c      USB device / BBB configuration descriptor walks (xHCI +
+                `make fuzz-usb`)
+net_parse.c     DHCP / TFTP / HTTP pure parsers (`make fuzz-net`; used
+                by net_ip.c / net_http.c)
+fdt.c           the tree QEMU hands over, read with the shared reader in
+                common/fw/fdt.c (`make fuzz-fdt`)
 acpi.c, aml.c   ACPI table store (headers, checksums, XSDT, RSDP as the
                 ACPI 2.0 configuration table) and the AML writer every
                 architecture's DSDT is written with; the architecture

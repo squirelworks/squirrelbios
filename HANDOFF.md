@@ -44,10 +44,11 @@ Used here, in `ROADMAP.md` and on the issues (as labels).
   `.github/workflows/make-test.yml` on every PR. Optional, not in the
   required gate: `make linux-x86`, `make linux-uefi`, `make linux-shell`,
   `make linux-big`, `make f4-scale`, `make fuzz-fat` / `make fuzz-pe` /
-  `make fuzz-authenticode` (Phase G host FAT, PE/COFF and
-  Authenticode/PKCS#7 corpus smokes; optional path-filtered workflows
-  `.github/workflows/fuzz-fat.yml` / `.github/workflows/fuzz-pe.yml` /
-  `.github/workflows/fuzz-authenticode.yml`).
+  `make fuzz-authenticode` / `make fuzz-net` / `make fuzz-usb` /
+  `make fuzz-fdt` (Phase G host FAT, PE/COFF, Authenticode/PKCS#7,
+  DHCP/TFTP/HTTP, USB descriptor and FDT corpus smokes; optional
+  path-filtered workflows `.github/workflows/fuzz-*.yml` and scheduled
+  `fuzz-nightly.yml`).
 - **Open PRs at hand-off:** none required at this refresh (Setup UI GOP, F1/F2/F3,
   host fuzz on `main`). REL-2.2.0 publish and board flashes stay `needs: squirrel`.
 - **Agent lanes:** suite split in squirrelsoft
@@ -99,10 +100,11 @@ expected serial lines (`|`-separated, `!` = must not appear, `~` = regex).
 3. **C5-board** desk flash *(Squirrel)*: docs and `CONFIG=coreboot` are done;
    flash a real GA-G41M-ES2L per `boards/ga-g41m-es2l/FLASHING.md`.
 4. **RISC-V AIA MSI** when a newer QEMU is available in CI.
-5. Then Phase G ideas in `docs/CONTINUANCE.md` (squirrelsoft); G1/G2
+5. Then Phase G ideas in `docs/CONTINUANCE.md` (squirrelsoft); G1–G3
   host fuzz smokes and the Setup UI (GOP + F2 + BootOrder + Secure Boot
   keys / TPM clear + date-time / NVRAM reset) steps are done
   (`make fuzz-fat`, `make fuzz-pe`, `make fuzz-authenticode`,
+  `make fuzz-net`, `make fuzz-usb`, `make fuzz-fdt`,
   `x86_64-setupui`, `x86_64-setupui-f2`, `x86_64-setupui-bootorder`,
   `x86_64-setupui-secboot`, `x86_64-setupui-datetime`).
 
@@ -141,8 +143,8 @@ expected serial lines (`|`-separated, `!` = must not appear, `~` = regex).
   `x86_64-setupui-secboot` (Secure Boot clear + TPM clear, no TPM),
   and `x86_64-setupui-datetime` (RTC edit + NVRAM clear) in
   `make test`.
-- **Next (Phase G):** optional Setup polish; remaining G3 fuzz parsers
-  (network/USB/FDT) / nightly budget per CONTINUANCE.
+- **Next (Phase G):** optional Setup polish; fuzz nightly already
+  scheduled (`fuzz-nightly.yml`); further CONTINUANCE product work.
 
 ### G1-fuzz-fat — host FAT fuzz / corpus smoke  `status: done`
 - **Done:** host-buildable harness for `common/efi/fat.c` under
@@ -173,9 +175,19 @@ expected serial lines (`|`-separated, `!` = must not appear, `~` = regex).
   `release-notes/host-fuzz-authenticode.md`. Epic #82.
 - **Check:** `make fuzz-authenticode` prints
   `PASS  fuzz-authenticode (…)`.
-- **Next (still Phase G fuzz):** DHCP/TFTP/HTTP, USB descriptors, FDT
-  parsers the same way; then a scheduled nightly with a fixed
-  libFuzzer budget.
+
+### G3-fuzz-net-usb-fdt — host DHCP/TFTP/HTTP, USB, FDT fuzz  `status: done`
+- **Done (lane `-2eaf`):** host-buildable harnesses for
+  `common/efi/net_parse.c` (DHCP/TFTP/HTTP), `common/efi/usb_desc.c`
+  (device + BBB config descriptors), and `common/fw/fdt.c` /
+  `common/efi/fdt.c`. Synthetic corpora under `fuzz/corpus-net/`,
+  `corpus-usb/`, `corpus-fdt/`. `make fuzz-net` / `fuzz-usb` /
+  `fuzz-fdt` run short corpus smokes without QEMU. Optional
+  `make fuzz-*-libfuzzer`, path-filtered workflows, and scheduled
+  `.github/workflows/fuzz-nightly.yml` (60 s budget). Notes:
+  `fuzz/README.md`, `release-notes/host-fuzz-net-usb-fdt.md`. Epic #82.
+- **Check:** `make fuzz-net`, `make fuzz-usb`, `make fuzz-fdt` each
+  print `PASS  fuzz-… (…)`.
 
 ### REL-2.2.0 — release notes for what `main` has since v2.1.1  `needs: squirrel`
 - **Done (notes):** `release-notes/v2.2.0.md` (style of `v2.1.0.md`; Known

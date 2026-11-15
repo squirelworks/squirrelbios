@@ -20,5 +20,7 @@ without QEMU. Mirrors `make fuzz-fat` / `make fuzz-pe`. Epic #82.
   (`workflow_dispatch` and path-filtered push/PR). Short corpus only.
 - **Docs:** `fuzz/README.md`, HANDOFF / ROADMAP Phase G card.
 
-Next parsers: DHCP/TFTP/HTTP, USB descriptors, FDT; then a scheduled
-nightly with a fixed libFuzzer budget.
+Follow-on: DHCP/TFTP/HTTP, USB descriptors and FDT are
+`make fuzz-net` / `fuzz-usb` / `fuzz-fdt`
+(`release-notes/host-fuzz-net-usb-fdt.md`); nightly budget is
+`.github/workflows/fuzz-nightly.yml`.
