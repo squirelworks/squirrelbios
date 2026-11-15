@@ -99,7 +99,7 @@ Capsule/ESRT plumbing is **already on `main`** via
 [#189](https://github.com/squirelworks/squirrelbios/pull/189) (`x86_64-capsule`).
 Notes refresh **#190** is on `main`. Soft PATH’s fold-into-2.2.0 advice is satisfied — owner can tag **v2.2.0** (no separate v2.2.1 for #189 alone).
 
-### M0 — `v2.2.0` tip cut  ·  **needs: squirrel**  ·  depends: #190 on `main` *(done)*
+### M0 — `v2.2.0` tip cut  ·  **done (owner published)**  ·  depends: #190 on `main` *(done)*
 
 | Field | Value |
 |-------|-------|
@@ -108,11 +108,12 @@ Notes refresh **#190** is on `main`. Soft PATH’s fold-into-2.2.0 advice is sat
 | **Notes** | [`v2.2.0.md`](v2.2.0.md) (refreshed by #190) |
 | **Acceptance** | Notes match tip; Actions → Draft release assets from that commit; owner Publishes; `SHA256SUMS.txt` covers every attached image |
 | **Agents** | No unilateral tag; next coding is **M1** |
+| **Published** | https://github.com/squirelworks/squirrelbios/releases/tag/v2.2.0 (`0051c40`, 2026-11-15) |
 | **Compatibility matrix** | Row: BIOS **v2.2.0** ↔ OS/2 **v2.1.x / tip** (BIOS/CSM/UEFI paths as already documented); cite `uefi-squirrelbios` / `os-boot.sh` when reliable |
 
 **Handshake after M0:**
 
-1. **Owner:** Publish `v2.2.0` from tip; update HANDOFF prefilled link when SHA known.
+1. **Owner:** **Published** `v2.2.0` — https://github.com/squirelworks/squirrelbios/releases/tag/v2.2.0
 2. **`-2eaf`:** Start **M1** signed capsule verify/apply (unless already merged into the tip — then skip to M2/M3).
 3. Soft PATH stays index-only; do not move this ladder into Soft.
 
