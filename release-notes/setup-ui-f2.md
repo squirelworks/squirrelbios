@@ -17,4 +17,5 @@ the Warp-look boot menu with **F2** on ConIn, without needing
   covers the fw_cfg gate.
 - **Docs:** `x86_64/README.md`, HANDOFF / ROADMAP / TODO Phase G card.
 
-Next: real BootOrder edits, then Secure Boot / TPM / NVRAM notebooks.
+Next: BootOrder edits are in `release-notes/setup-ui-bootorder.md`.
+Then Secure Boot / TPM / NVRAM notebooks.

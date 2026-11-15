@@ -129,9 +129,12 @@ navigable items drawn with the original 8×16 font) and mirrors it on
 COM1. Without that fw_cfg file, a short post-GOP window accepts **F2**
 on ConIn (`setup: press F2 for Setup UI`; serial `ESC O Q` or
 `ESC [ 12 ~`). Up/Down move the selection, Enter activates (Continue
-leaves the menu; other rows are stubs), Esc continues boot. Later:
-real BootOrder / Secure Boot / TPM / NVRAM notebooks. Smoke:
-`x86_64-setupui`, `x86_64-setupui-f2`.
+leaves the menu; Boot Manager edits UEFI `BootOrder` — seeds demo
+`Boot0001`/`0002`/`0003` when empty, Left/Right reorder, Enter
+`SetVariable`; other rows are stubs), Esc continues boot. Variable
+services are installed before the UI so BootOrder writes persist in
+the NVRAM-backed store. Later: Secure Boot / TPM / NVRAM notebooks.
+Smoke: `x86_64-setupui`, `x86_64-setupui-f2`, `x86_64-setupui-bootorder`.
 
 Runtime: `GetTime` from the CMOS RTC,
 the variable services (below), `ResetSystem` (ACPI

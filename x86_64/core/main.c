@@ -156,6 +156,12 @@ void fw_main(void)
     efi_gop_init();
     chipset_ebs_init();
 
+    /* Variable store before Setup UI so Boot Manager can SetVariable
+     * BootOrder into the real NVRAM-backed services (not the temporary
+     * in-RAM stubs from efi_runtime_init). */
+    vars_init();
+    vars_install(efi_st->runtime_services);
+
     /* Phase G Setup UI: navigable boot/setup menu on serial (+ GOP when
      * present). fw_cfg opt/org.squirrelworks/setupui still forces entry;
      * otherwise a short window accepts F2 on ConIn (serial ANSI). */
@@ -163,8 +169,6 @@ void fw_main(void)
         setup_ui_run();
 
     efi_initrd_init();
-    vars_init();
-    vars_install(efi_st->runtime_services);
     secure_init();
     efi_disk_init();
     efi_net_init();

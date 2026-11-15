@@ -454,6 +454,10 @@ stub, a 1 MB flash image for `qemu-system-x86_64 -bios`. One PR each.
 - [x] `x86_64-setupui-f2` — Same Setup UI via F2 on ConIn without
   fw_cfg (`setup_ui_hotkey`); `ESC O Q` / CSI 12~. fw_cfg path kept.
   Depends on: `x86_64-setupui`.
+- [x] `x86_64-setupui-bootorder` — Phase G Setup UI Boot Manager
+  (lane `-2eaf`): seed demo `Boot####`/`BootOrder` when empty, Left
+  reorders, Enter `SetVariable`s `BootOrder` and read-backs.
+  Depends on: `x86_64-setupui`.
 
 ## Secondary track
 
