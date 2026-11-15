@@ -1,0 +1,104 @@
+# Shared UEFI core (`common/efi`)
+
+The UEFI-class firmware core for the device-tree machines, built once
+per architecture. It started as a copy of `x86_64/core` (roadmap C1)
+with the x86 parts moved behind a small architecture interface; since
+roadmap D4 x86-64 builds the services from here too (its `main.c`,
+ACPI, SMBIOS, GOP, CSM and SMP stay in `x86_64/`). Original code.
+
+```
+include/sq.h    types, MMIO helpers, and the arch_* interface each
+                architecture writes (console, counter, cache sync,
+                RTC, reset, memory carve-outs, image_call/image_exit)
+include/efi.h   UEFI types and tables (EFIAPI is the Microsoft ABI on
+                x64 only)
+main.c          efi_main: console, device tree, memory map, EFI tables,
+                device tree configuration table, then boot: QEMU's
+                -kernel/-initrd/-append from fw_cfg (LoadOptions, initrd
+                through LoadFile2 on the Linux initrd media path), or
+                opt/org.squirrelworks/boot.efi, or \EFI\BOOT\BOOT<arch>.EFI
+                from a disk
+virtio.c        virtqueue and virtio-blk requests for either transport
+virtio_mmio.c   virtio-blk on the virtio-mmio transports the device tree
+                lists, version 1 (legacy) or 2 registers, polled
+pci.c           the device tree's ECAM host bridge (pci-host-ecam-generic):
+                bus 0 walked, memory BARs placed in its windows, functions
+                handed to the drivers below
+virtio_pci.c    virtio-blk on PCI, the modern interface (capabilities)
+nvme.c          NVMe namespace 1, one polled I/O queue, PRP lists
+ahci.c          SATA disks on AHCI ports (LBA48, 512-byte sectors),
+                polled; ATAPI ports passed over
+xhci.c          USB mass storage (bulk-only SCSI) on xHCI root ports:
+                polled command, event and transfer rings; no hubs, no UAS
+sdhci.c         SD cards (SDSC, SDHC, SDXC) on a standard SD host
+                controller: polled PIO, 1-bit bus at up to 25 MHz, 32-bit
+                register access only (as the Raspberry Pi's need); on PCI
+                (class 08 05) or at an MMIO address; no MMC/eMMC, no DMA
+sdhci_dt.c      SD hosts from the device tree (the Pi 1-3 "bcm2835-sdhci",
+                the Pi 4 "bcm2711-emmc2", plain "sdhci"); not on x86_64
+                (pci_disk_add in disk.c picks the driver; x86_64 finds
+                the functions with platform/pcidisk.c)
+disk.c, fat.c   Block I/O for each disk and its GPT/MBR partitions, a
+                FAT12/16/32 Simple File System (8.3 and long names; read,
+                write, create, mkdir, delete, rename, resize, directory
+                listing; written through to every FAT copy), and the ESP
+                boot with the architecture's boot file name. Host fuzz
+                smoke (Phase G): `make fuzz-fat` / `make fuzz-pe` in
+                `fuzz/`
+usb_desc.c      USB device / BBB configuration descriptor walks (xHCI +
+                `make fuzz-usb`)
+net_parse.c     DHCP / TFTP / HTTP pure parsers (`make fuzz-net`; used
+                by net_ip.c / net_http.c)
+fdt.c           the tree QEMU hands over, read with the shared reader in
+                common/fw/fdt.c (`make fuzz-fdt`)
+acpi.c, aml.c   ACPI table store (headers, checksums, XSDT, RSDP as the
+                ACPI 2.0 configuration table) and the AML writer every
+                architecture's DSDT is written with; the architecture
+                builds the tables (arm/uefi/acpi.c, x86_64/core/acpi.c,
+                which keeps its own table store)
+memmap.c        usable RAM from device_type "memory", /reserved-memory
+fwcfg.c         QEMU fw_cfg, memory-mapped, with DMA for big reads
+memory.c, protocol.c, image.c, event.c, textcon.c, tables.c,
+runtime.c, capsule.c, devicepath.c, console.c, lib.c
+                the services: LocateDevicePath, PE section alignment
+                (64 KB for arm64 Linux), runtime allocations marked
+                EFI_MEMORY_RUNTIME, SetVirtualAddressMap / ConvertPointer
+                (runtime.c, capsule.c and lib.c hold all that runs after
+                ExitBootServices: x86-64 keeps only those pages);
+                UpdateCapsule / QueryCapsuleCapabilities and the ESRT
+                configuration table (Phase G; `x86_64-capsule`); signed SQCP apply (`x86_64-capsule-signed`, `x86_64-capsule-fwcfg`)
+```
+
+An architecture provides `arch.h` (the `ARCH_*` constants listed in
+`sq.h`) and the `arch_*` functions: see `arm/uefi/` (AArch64, at EL1/EL2
+with an identity map), `riscv/uefi/` (RISC-V, in S-mode on the SBI) and
+`x86_64/` (`include/arch.h`, `core/arch.c`, `core/rt.c`). Optional hooks
+in `arch.h`: `ARCH_RT_DATA` (data the OS keeps), `arch_check_image`
+(Secure Boot) and `arch_boot_options` (LoadOptions for a disk boot).
+
+## Network (`net*.c`)
+
+Built into every UEFI firmware (x86-64 takes `common/efi/net_*.c`; the
+virtio-mmio side is `netmmio.c`, the x86-64 PCI side
+`x86_64/platform/net_pci.c`): virtio-net with a Simple Network Protocol
+handle per NIC, DHCP and a PXE-style boot over TFTP, or over HTTP when
+DHCP's boot file is an `http://` URL (an IPv4 host or a DNS name; the
+DNS server is DHCP option 6, answered by `net_dns.c`), and files of at
+most 1 GB (`NET_FILE_MAX`). A name that does not resolve prints
+`net: cannot resolve <name>` and the boot falls through.
+
+The console mirror (`net_sol.c`) is set with
+`-fw_cfg name=opt/org.squirrelworks/netconsole,string=A.B.C.D:PORT`: the
+console goes out as UDP to A.B.C.D:PORT from port 6665, and what comes
+back to port 6665 is typed into the console.
+
+**Use the console mirror only on a trusted network.** Nothing in it is
+authenticated or encrypted: everything the console shows travels in the
+clear, and input is accepted from any datagram whose source address and
+port match the configured host, which anyone on the path can forge. A
+forged datagram types keys into the firmware console, and from there into
+whatever boot loader or shell is reading it. Keep the NIC on an isolated
+management network, or leave `netconsole` unset. The same goes for TFTP
+and HTTP boot: neither authenticates the server, so the image is only as
+trustworthy as the network (on x86-64, Secure Boot, when enabled, still
+checks the image's signature).

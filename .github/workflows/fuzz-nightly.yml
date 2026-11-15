@@ -1,0 +1,75 @@
+# Optional CONTINUANCE Phase G: fixed-budget libFuzzer overnight on host
+# parsers. Not part of the required make-test gate. Skips cleanly when
+# clang's fuzzer/ASan runtime is unavailable.
+name: fuzz-nightly
+
+on:
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+
+jobs:
+  libfuzzer:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: fat
+            corpus: fuzz/corpus
+            mkcorpus: fuzz/mkcorpus.py
+          - target: pe
+            corpus: fuzz/corpus-pe
+            mkcorpus: fuzz/mkcorpus_pe.py
+          - target: authenticode
+            corpus: fuzz/corpus-authenticode
+            mkcorpus: fuzz/mkcorpus_authenticode.py
+          - target: net
+            corpus: fuzz/corpus-net
+            mkcorpus: fuzz/mkcorpus_net.py
+          - target: usb
+            corpus: fuzz/corpus-usb
+            mkcorpus: fuzz/mkcorpus_usb.py
+          - target: fdt
+            corpus: fuzz/corpus-fdt
+            mkcorpus: fuzz/mkcorpus_fdt.py
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install host toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends make gcc clang python3
+
+      - name: Seed corpus
+        run: |
+          if [[ ! -d "${{ matrix.corpus }}" ]] || [[ -z "$(find "${{ matrix.corpus }}" -type f 2>/dev/null | head -1)" ]]; then
+            python3 "${{ matrix.mkcorpus }}" -o "${{ matrix.corpus }}"
+          fi
+
+      - name: Build libFuzzer binary
+        id: build
+        run: |
+          if make fuzz-${{ matrix.target }}-libfuzzer; then
+            echo "ok=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=0" >> "$GITHUB_OUTPUT"
+            echo "clang libFuzzer/ASan not available; skipping budget run"
+          fi
+
+      - name: Run fixed budget
+        if: steps.build.outputs.ok == '1'
+        run: |
+          BIN="build/fuzz/${{ matrix.target }}-fuzz-libfuzzer"
+          "$BIN" -max_total_time=60 -timeout=5 "${{ matrix.corpus }}"
+
+      - name: Upload crashes
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-${{ matrix.target }}-crashes
+          path: |
+            crash-*
+            timeout-*
+            leak-*
+          if-no-files-found: ignore

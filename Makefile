@@ -1,26 +1,102 @@
 # SquirrelBIOS build
 #
-#   make            build all three firmware images
-#   make test       build, then boot each one under QEMU (tests/smoke.sh)
+#   make            build all four firmware images
+#   make PLATFORM=x86-pc CONFIG=default
+#                   build one platform from configs/<platform>/<config>.cfg
+#                   into build/<platform>/<config>/ (see configs/README.md)
+#   make test       docs-lint, then build and boot each firmware under QEMU
+#                   (tests/smoke.sh)
+#   make docs-lint  CONTINUANCE §3c: ROADMAP/TODO/HANDOFF vs smoke harness
+#   make fuzz-fat   host corpus smoke for common/efi/fat.c (no QEMU; Phase G)
+#   make fuzz-pe    host corpus smoke for common/efi/image.c (no QEMU; Phase G)
+#   make fuzz-authenticode  host corpus smoke for Authenticode/PKCS#7 (no QEMU)
+#   make fuzz-net / fuzz-usb / fuzz-fdt  DHCP/TFTP/HTTP, USB desc, FDT (Phase G)
 #   make linux-shell  boot a downloaded Linux kernel on riscv to a busybox shell
 #   make linux-big    the same on a large virtual node (64 harts, 64 GB)
+#   make f4-scale   multi-node UEFI netboot with a large -smp/-numa node
 #   make clean      remove everything the build and tests produce
 #
 # Cross tools can be overridden, e.g. make AARCH64=aarch64-elf-
 
 NASM    ?= nasm
+CC64    ?= gcc
 AARCH64 ?= aarch64-linux-gnu-
 RISCV64 ?= riscv64-linux-gnu-
 
 X86_ROM   := x86/squirrel-bios.rom
+# The x86 modules squirrel-bios.asm includes (core/, boot/, drivers/, tables/)
+X86_SRCS  := $(wildcard x86/*/*.inc x86/*/*/*.inc)
 ARM_BIN   := arm/squirrel-bios.bin
 RISCV_BIN := riscv/squirrel-bios.bin
+# x86-64 UEFI-class firmware (roadmap C1): a 1 MB flash image, its body
+# (C and NASM) linked to run from RAM at X64_FW_BASE, and the 4 KB reset
+# stub (x86_64/reset/reset.asm) at its top
+X64_FD      := x86_64/squirrel-bios.fd
+# The shared UEFI core (common/efi) supplies the services (roadmap D4).
+# runtime.c, lib.c and rt.c are built on their own, their sections renamed
+# .rt.*: link.ld puts them in the pages the OS keeps after ExitBootServices
+X64_RT_C    := common/efi/runtime.c common/efi/lib.c common/efi/capsule.c x86_64/core/rt.c \
+               x86_64/core/variables.c \
+               x86_64/secure/authvar.c x86_64/secure/der.c x86_64/secure/rsa.c x86_64/secure/sha256.c \
+               x86_64/secure/capsule_auth.c
+X64_EFI_C   := $(addprefix common/efi/,ahci.c aml.c console.c devicepath.c disk.c event.c fat.c \
+                 image.c memory.c nvme.c protocol.c tables.c textcon.c virtio.c virtio_pci.c xhci.c \
+                 sdhci.c usb_desc.c)
+X64_C       := $(filter-out $(X64_RT_C),$(wildcard x86_64/*/*.c)) $(X64_EFI_C) $(wildcard common/efi/net_*.c)
+X64_H       := $(wildcard x86_64/include/*.h) $(wildcard common/efi/include/*.h) common/efi/net.h
+X64_FLASH   := 0x100000
+X64_FW_BASE := 0x200000
+X64_CFLAGS  := -m64 -std=gnu11 -O2 -Wall -Wextra -Werror -ffreestanding -fno-builtin \
+               -fno-pic -fno-pie -no-pie -fno-stack-protector -fno-asynchronous-unwind-tables \
+               -mno-red-zone -mgeneral-regs-only -nostdlib -static -Ix86_64/include -Icommon/efi/include
+
+# AArch64 UEFI-class firmware (roadmap D1): the shared UEFI core in
+# common/efi plus arm/uefi, linked to run from RAM at ARM_FW_BASE (start.S
+# copies it there from flash at 0)
+ARM_FD      := arm/uefi/squirrel-bios.fd
+ARM_FW_BASE := 0x40100000
+AARCH64_CC  ?= $(AARCH64)gcc
+# common/fw/fdt.c: the device tree reader shared with the Phase E ports
+EFI_C       := $(wildcard common/efi/*.c) common/fw/fdt.c
+EFI_H       := $(wildcard common/efi/include/*.h) common/efi/net.h common/fw/fdt.h
+EFI_CFLAGS  := -std=gnu11 -O2 -Wall -Wextra -Werror -ffreestanding -fno-builtin \
+               -fno-pic -fno-pie -no-pie -fno-stack-protector -fno-asynchronous-unwind-tables \
+               -nostdlib -static -Icommon/efi/include
+ARM_EFI_C   := $(wildcard arm/uefi/*.c)
+ARM_EFI_CFLAGS := $(EFI_CFLAGS) -mgeneral-regs-only -mstrict-align -mno-outline-atomics -Iarm/uefi
+# RISC-V UEFI-class firmware (roadmap D3): the SBI (riscv/squirrel-bios.S
+# with UEFI=1) padded to 2 MB, then the shared UEFI core plus riscv/uefi,
+# linked at RV_FW_BASE and run in S-mode
+RV_UEFI_BIN := riscv/uefi/squirrel-bios.bin
+RV_FW_BASE  := 0x80200000
+RISCV64_CC  ?= $(RISCV64)gcc
+RV_EFI_CFLAGS := $(EFI_CFLAGS) -march=rv64imac_zicsr_zifencei -mabi=lp64 -mcmodel=medany \
+                 -mno-relax -mstrict-align -Iriscv/uefi
 
 TEST_DIR  := build/tests
 TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)/x86-bad-sector.bin \
              $(TEST_DIR)/x86-extra.bin $(TEST_DIR)/x86-extra-map.bin \
              $(TEST_DIR)/x86-extra-boot.bin $(TEST_DIR)/x86-extra-range.bin \
              $(TEST_DIR)/x86-osload.bin $(TEST_DIR)/x86-int13.bin \
+             $(TEST_DIR)/x86-bda.bin $(TEST_DIR)/x86-a20.bin \
+             $(TEST_DIR)/x86-pit.bin $(TEST_DIR)/x86-kbd.bin $(TEST_DIR)/x86-kbd-many.bin $(TEST_DIR)/x86-mouse.bin \
+             $(TEST_DIR)/x86-vbe.bin $(TEST_DIR)/x86-vbe-text.bin $(TEST_DIR)/x86-vbe-bank.bin $(TEST_DIR)/x86-vbe-pmi.bin \
+             $(TEST_DIR)/x86-usbfault.rom \
+             $(TEST_DIR)/x86-time.bin $(TEST_DIR)/x86-vid.bin \
+             $(TEST_DIR)/x86-write.bin $(TEST_DIR)/x86-int15a20.bin \
+             $(TEST_DIR)/x86-slave.bin $(TEST_DIR)/x86-acpi.bin \
+             $(TEST_DIR)/x86-smbios.bin $(TEST_DIR)/x86-bzimage.bin \
+             $(TEST_DIR)/x86-optrom.bin \
+             $(TEST_DIR)/x86-bzimage-big.bin $(TEST_DIR)/x86-bzimage-toobig.bin \
+             $(TEST_DIR)/x86-params.bin $(TEST_DIR)/x86-params-slave.bin \
+             $(TEST_DIR)/x86-floppy.img $(TEST_DIR)/x86-floppy-nosig.img $(TEST_DIR)/x86-cd-floppy.iso $(TEST_DIR)/x86-cd-hdd.iso \
+             $(TEST_DIR)/x86-pci.bin $(TEST_DIR)/x86-edd.img \
+             $(TEST_DIR)/x86-ahci.img $(TEST_DIR)/x86-nvme.img \
+             $(TEST_DIR)/x86-usbdisk.img \
+             $(TEST_DIR)/x86-virtio.img \
+             $(TEST_DIR)/tftp/x86-netboot.bin $(TEST_DIR)/tftp/x86-netboot-2k.bin \
+             $(TEST_DIR)/tftp/x86-netboot-big.bin $(TEST_DIR)/tftp/x86-netboot-huge.bin \
+             $(TEST_DIR)/x86-cd.iso $(TEST_DIR)/x86-cd-slave.iso \
              $(TEST_DIR)/arm-kernel.bin $(TEST_DIR)/arm-too-big.bin \
              $(TEST_DIR)/arm-image-fixed.bin $(TEST_DIR)/arm-image-reloc.bin \
              $(TEST_DIR)/arm-image-short.bin $(TEST_DIR)/arm-initrd.img \
@@ -28,7 +104,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/riscv-ecall.bin $(TEST_DIR)/riscv-deleg.bin \
              $(TEST_DIR)/riscv-sbi.bin $(TEST_DIR)/riscv-timer.bin \
              $(TEST_DIR)/riscv-ipi.bin $(TEST_DIR)/riscv-rfence.bin \
-             $(TEST_DIR)/riscv-hsm.bin $(TEST_DIR)/riscv-hsm-stop.bin \
+             $(TEST_DIR)/riscv-hsm.bin $(TEST_DIR)/riscv-hsm-stop.bin $(TEST_DIR)/riscv-sse.bin \
              $(TEST_DIR)/riscv-srst.bin $(TEST_DIR)/riscv-srst-reboot.bin \
              $(TEST_DIR)/riscv-srst-fail.bin $(TEST_DIR)/riscv-pmp.bin \
              $(TEST_DIR)/riscv-dt.bin $(TEST_DIR)/riscv-envcfg.bin \
@@ -36,21 +112,117 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/riscv-harts.bin \
              $(TEST_DIR)/riscv-boot-hart.bin $(TEST_DIR)/riscv-kernel-hart2.bin \
              $(TEST_DIR)/riscv-numa.bin $(TEST_DIR)/riscv-aia.bin \
-             $(TEST_DIR)/riscv-ras.bin
+             $(TEST_DIR)/riscv-ras.bin \
+             $(TEST_DIR)/x86_64-app.efi $(TEST_DIR)/x86_64-app-exit.efi \
+             $(TEST_DIR)/x86_64-con.efi $(TEST_DIR)/x86_64-con.keys \
+             $(TEST_DIR)/x86_64-esp.img $(TEST_DIR)/x86_64-gop.efi \
+             $(TEST_DIR)/x86_64-setupui.keys \
+             $(TEST_DIR)/x86_64-setupui-f2.keys \
+             $(TEST_DIR)/x86_64-setupui-bootorder.keys \
+             $(TEST_DIR)/x86_64-setupui-secboot.keys \
+             $(TEST_DIR)/x86_64-setupui-datetime.keys \
+             $(TEST_DIR)/x86_64-mp.efi \
+             $(TEST_DIR)/x86_64-acpi.efi \
+             $(TEST_DIR)/sb/sb-signed.efi $(TEST_DIR)/x86_64-sb-esp.img \
+             $(TEST_DIR)/x86_64-numa.efi $(TEST_DIR)/x86_64-numa-dist.bin \
+             $(TEST_DIR)/x86_64-tpm.efi \
+             $(TEST_DIR)/x86_64-einj.efi \
+             $(TEST_DIR)/x86_64-cxl.efi \
+             $(TEST_DIR)/x86_64-smmlock.efi \
+             $(TEST_DIR)/x86_64-ipmi.efi \
+             $(TEST_DIR)/x86_64-capsule.efi $(TEST_DIR)/x86_64-capsule-signed.efi \
+             $(TEST_DIR)/sb/capsule-good.cap \
+             $(TEST_DIR)/x86_64-tables \
+             $(TEST_DIR)/x86_64-bigload.img \
+             $(TEST_DIR)/x86_64-handoff.efi \
+             $(TEST_DIR)/arm-efi-app.efi $(TEST_DIR)/arm-efi-app-exit.efi \
+             $(TEST_DIR)/arm-efi-app-ebs.efi $(TEST_DIR)/arm-efi-initrd.img \
+             $(TEST_DIR)/riscv-efi-app.efi $(TEST_DIR)/riscv-efi-app-exit.efi \
+             $(TEST_DIR)/riscv-efi-app-ebs.efi \
+             $(TEST_DIR)/arm-esp.img $(TEST_DIR)/riscv-esp.img \
+             $(TEST_DIR)/arm-fat.img $(TEST_DIR)/riscv-fat.img \
+             $(TEST_DIR)/rpi3b.dtb $(TEST_DIR)/rpi4b.dtb \
+             $(TEST_DIR)/x86_64-cbtables.bin \
+             $(TEST_DIR)/arm-esp-ebs.img \
+             $(TEST_DIR)/arm-efi-psci.efi \
+             $(TEST_DIR)/x86_64-rt.efi $(TEST_DIR)/x86_64-nv.efi \
+             $(TEST_DIR)/sb/sb-authrt.efi \
+             $(TEST_DIR)/tftp/snp-x64.efi $(TEST_DIR)/tftp/snp-aa64.efi $(TEST_DIR)/tftp/snp-rv64.efi
 
-.PHONY: all x86 arm riscv test linux-shell linux-big linux-stress os-boot clean
+.PHONY: all x86 x86_64 arm arm-uefi riscv riscv-uefi test docs-lint \
+        fuzz-fat fuzz-fat-libfuzzer fuzz-pe fuzz-pe-libfuzzer \
+        fuzz-authenticode fuzz-authenticode-libfuzzer \
+        fuzz-net fuzz-net-libfuzzer fuzz-usb fuzz-usb-libfuzzer \
+        fuzz-fdt fuzz-fdt-libfuzzer \
+        linux-shell linux-arm linux-arm-acpi linux-riscv-uefi linux-x86 linux-big linux-stress \
+        f4-scale os-boot clean linux-uefi os-boot-csm
 .DELETE_ON_ERROR:
 
-all: x86 arm riscv
+PLATFORMS := x86-pc x86_64-uefi aarch64-virt riscv64-virt aarch64-uefi riscv64-uefi
+PLATFORM  ?=
+CONFIG    ?= default
+OUT_x86-pc       := squirrel-bios.rom
+OUT_x86_64-uefi  := squirrel-bios.fd
+OUT_aarch64-virt := squirrel-bios.bin
+OUT_riscv64-virt := squirrel-bios.bin
+OUT_aarch64-uefi := squirrel-bios.fd
+OUT_riscv64-uefi := squirrel-bios.bin
+
+# Phase E platforms (roadmap E1-E3) keep their rules in <arch>/platform.mk:
+# each adds itself to PLATFORMS, all, test and clean
+include $(wildcard */platform.mk)
+
+ifeq ($(PLATFORM),)
+all: x86 x86_64 arm riscv arm-uefi riscv-uefi
+else
+ifeq ($(filter $(PLATFORM),$(PLATFORMS)),)
+$(error PLATFORM must be one of: $(PLATFORMS))
+endif
+ifeq ($(wildcard configs/$(PLATFORM)/$(CONFIG).cfg),)
+$(error configs/$(PLATFORM)/$(CONFIG).cfg does not exist)
+endif
+all: build/$(PLATFORM)/$(CONFIG)/$(OUT_$(PLATFORM))
+endif
 
 x86: $(X86_ROM)
+x86_64: $(X64_FD)
 arm: $(ARM_BIN)
+arm-uefi: $(ARM_FD)
+riscv-uefi: $(RV_UEFI_BIN)
 riscv: $(RISCV_BIN)
 
 # --- firmware ---------------------------------------------------------
 
-$(X86_ROM): x86/squirrel-bios.asm x86/memmap.inc x86/vga.inc x86/klingon-font.inc
+$(X86_ROM): x86/squirrel-bios.asm $(X86_SRCS) x86/klingon-font.inc
 	$(NASM) -f bin -i x86/ $< -o $@
+
+# x86_64-uefi: $(1) is the directory for the pieces, $(2) extra C flags.
+# The body must leave room for the 4 KB stub.
+define X64_BUILD
+	@mkdir -p $(1)
+	$(NASM) -f elf64 x86_64/core/start.asm -o $(1)/start.o
+	$(NASM) -f elf64 -DLEGACY_ROM='"$(X86_ROM)"' x86_64/csm/csm.asm -o $(1)/csm.o
+	for f in $(X64_RT_C); do o=$(1)/rt-$$(basename $$f .c).o; \
+	    $(CC64) $(X64_CFLAGS) $(2) -c $$f -o $$o && objcopy --prefix-alloc-sections=.rt $$o || exit 1; done
+	$(CC64) $(X64_CFLAGS) $(2) -Wl,-T,x86_64/link.ld -Wl,--defsym,FW_BASE=$(X64_FW_BASE) \
+	    -Wl,--build-id=none -Wl,--no-warn-rwx-segments $(1)/start.o $(1)/csm.o \
+	    $(foreach f,$(X64_RT_C),$(1)/rt-$(basename $(notdir $(f))).o) $(X64_C) -o $(1)/body.elf
+	objcopy -O binary $(1)/body.elf $(1)/body.bin
+	@size=$$(stat -c %s $(1)/body.bin); \
+	if [ $$size -gt $$(($(X64_FLASH) - 0x1000)) ]; then \
+	    echo "x86_64: body is $$size bytes, past the flash image" >&2; exit 1; \
+	fi
+	$(NASM) -f bin -DFLASH_SIZE=$(X64_FLASH) -DFW_BASE=$(X64_FW_BASE) x86_64/reset/reset.asm -o $(1)/reset.bin
+	cp $(1)/body.bin $@.tmp
+	truncate -s $$(($(X64_FLASH) - 0x1000)) $@.tmp
+	cat $(1)/reset.bin >> $@.tmp
+	mv $@.tmp $@
+endef
+
+# The CSM (x86_64/csm/) carries the legacy x86-pc ROM inside the image
+$(X64_FD): x86_64/core/start.asm x86_64/reset/reset.asm x86_64/link.ld $(X64_C) $(X64_RT_C) $(X64_H) \
+		x86_64/csm/csm.asm $(X86_ROM)
+	$(call X64_BUILD,build/x86_64,)
 
 arm/squirrel-bios.o: arm/squirrel-bios.S
 	$(AARCH64)as -o $@ $<
@@ -59,10 +231,56 @@ arm/squirrel-bios.elf: arm/squirrel-bios.o
 $(ARM_BIN): arm/squirrel-bios.elf
 	$(AARCH64)objcopy -O binary $< $@
 
+# aarch64-uefi: $(1) is the directory for the pieces, $(2) extra C flags
+define ARM_EFI_BUILD
+	@mkdir -p $(1)
+	$(AARCH64_CC) $(ARM_EFI_CFLAGS) $(2) -c arm/uefi/start.S -o $(1)/start.o
+	$(AARCH64_CC) $(ARM_EFI_CFLAGS) $(2) -Wl,-T,arm/uefi/link.ld -Wl,--defsym,FW_BASE=$(or $(3),$(ARM_FW_BASE)) \
+	    -Wl,--build-id=none -Wl,--no-warn-rwx-segments $(1)/start.o $(ARM_EFI_C) $(EFI_C) -o $(1)/body.elf
+	$(AARCH64)objcopy -O binary $(1)/body.elf $@
+endef
+
+$(ARM_FD): arm/uefi/start.S $(ARM_EFI_C) arm/uefi/arch.h arm/uefi/link.ld $(EFI_C) $(EFI_H)
+	$(call ARM_EFI_BUILD,build/aarch64-uefi,)
+
 riscv/squirrel-bios.o: riscv/squirrel-bios.S
 	$(RISCV64)as -o $@ $<
 riscv/squirrel-bios.elf: riscv/squirrel-bios.o
 	$(RISCV64)ld -Ttext=0x80000000 -o $@ $<
+# riscv64-uefi: $(1) is the directory for the pieces, $(2) extra C flags,
+# $(3) extra assembler flags for the SBI, $(4) optional SBI/firmware base
+# (CONFIG_FW_BASE; default 0x80000000). The SBI (with .bss) must end below
+# that base + 2 MB, and the UEFI core (with .bss) is linked there; on QEMU
+# virt that is where -kernel lands (the next 2 MB boundary after the image).
+define RV_EFI_BUILD
+	@mkdir -p $(1)
+	sbi_base=$(or $(4),0x80000000); \
+	uefi_base=$$(( $$sbi_base + 0x200000 )); \
+	$(RISCV64)as --defsym UEFI=1 $(3) -o $(1)/sbi.o riscv/squirrel-bios.S && \
+	$(RISCV64)ld -Ttext=$$sbi_base -o $(1)/sbi.elf $(1)/sbi.o && \
+	end=$$($(RISCV64)nm $(1)/sbi.elf | awk '$$3 == "_end" { print $$1 }'); \
+	if [ $$((0x$$end)) -gt $$((uefi_base)) ]; then \
+	    echo "riscv-uefi: the SBI ends at 0x$$end, past 0x$$(printf '%x' $$uefi_base)" >&2; exit 1; \
+	fi; \
+	$(RISCV64)objcopy -O binary $(1)/sbi.elf $(1)/sbi.bin && \
+	$(RISCV64_CC) $(RV_EFI_CFLAGS) $(2) -c riscv/uefi/start.S -o $(1)/start.o && \
+	$(RISCV64_CC) $(RV_EFI_CFLAGS) $(2) -Wl,-T,riscv/uefi/link.ld -Wl,--defsym,FW_BASE=$$uefi_base \
+	    -Wl,--build-id=none -Wl,--no-warn-rwx-segments $(1)/start.o riscv/uefi/arch.c $(EFI_C) -o $(1)/body.elf && \
+	end=$$($(RISCV64)nm $(1)/body.elf | awk '$$3 == "__fw_end" { print $$1 }'); \
+	if [ $$((0x$$end)) -gt $$((uefi_base + 0x200000)) ]; then \
+	    echo "riscv-uefi: the UEFI core ends at 0x$$end, past 2 MB" >&2; exit 1; \
+	fi; \
+	$(RISCV64)objcopy -O binary $(1)/body.elf $(1)/body.bin && \
+	cp $(1)/sbi.bin $@.tmp && \
+	truncate -s $$((0x200000)) $@.tmp && \
+	cat $(1)/body.bin >> $@.tmp && \
+	mv $@.tmp $@
+endef
+
+$(RV_UEFI_BIN): riscv/squirrel-bios.S riscv/uefi/start.S riscv/uefi/arch.c riscv/uefi/arch.h \
+		riscv/uefi/link.ld $(EFI_C) $(EFI_H)
+	$(call RV_EFI_BUILD,build/riscv64-uefi,,)
+
 # The image, .bss included, must fit the 2 MB region PMP entry 0 denies to
 # S-mode (FW_BASE and FW_SIZE in squirrel-bios.S)
 $(RISCV_BIN): riscv/squirrel-bios.elf
@@ -71,6 +289,80 @@ $(RISCV_BIN): riscv/squirrel-bios.elf
 	    echo "riscv: image ends at 0x$$end, past the PMP-protected region" >&2; exit 1; \
 	fi
 	$(RISCV64)objcopy -O binary $< $@
+
+# --- configured builds (make PLATFORM=... CONFIG=...) ------------------
+# Same sources as above, plus the config.inc tools/mkconfig.sh makes from
+# configs/<platform>/<config>.cfg. Every key defaults in the source to
+# what default.cfg says, so the default build matches plain make.
+
+.SECONDARY:
+
+build/x86-pc/%/config.inc: configs/x86-pc/%.cfg tools/mkconfig.sh
+	@mkdir -p $(@D)
+	tools/mkconfig.sh nasm $< > $@
+build/aarch64-virt/%/config.inc: configs/aarch64-virt/%.cfg tools/mkconfig.sh
+	@mkdir -p $(@D)
+	tools/mkconfig.sh gas $< > $@
+build/riscv64-virt/%/config.inc: configs/riscv64-virt/%.cfg tools/mkconfig.sh
+	@mkdir -p $(@D)
+	tools/mkconfig.sh gas $< > $@
+build/%/config.h: configs/%.cfg tools/mkconfig.sh
+	@mkdir -p $(@D)
+	tools/mkconfig.sh c $< > $@
+
+build/x86-pc/%/squirrel-bios.rom: x86/squirrel-bios.asm $(X86_SRCS) \
+		build/x86-pc/%/config.inc build/x86-pc/%/config.h
+	$(NASM) -f bin -DSQ_CONFIG -i $(@D)/ -i x86/ $< -o $@
+
+build/x86_64-uefi/%/squirrel-bios.fd: x86_64/core/start.asm x86_64/reset/reset.asm x86_64/link.ld \
+		$(X64_C) $(X64_RT_C) $(X64_H) x86_64/csm/csm.asm $(X86_ROM) build/x86_64-uefi/%/config.h
+	$(call X64_BUILD,$(@D)/obj,-DSQ_CONFIG -I$(@D))
+
+build/aarch64-virt/%/squirrel-bios.o: arm/squirrel-bios.S build/aarch64-virt/%/config.inc build/aarch64-virt/%/config.h
+	$(AARCH64)as --defsym SQ_CONFIG=1 -I $(@D) -o $@ $<
+build/aarch64-virt/%/squirrel-bios.elf: build/aarch64-virt/%/squirrel-bios.o
+	$(AARCH64)ld -Ttext=0x0 -o $@ $<
+build/aarch64-virt/%/squirrel-bios.bin: build/aarch64-virt/%/squirrel-bios.elf
+	$(AARCH64)objcopy -O binary $< $@
+
+build/aarch64-uefi/%/squirrel-bios.fd: arm/uefi/start.S $(ARM_EFI_C) arm/uefi/arch.h \
+		arm/uefi/link.ld $(EFI_C) $(EFI_H) build/aarch64-uefi/%/config.h
+	$(call ARM_EFI_BUILD,$(@D)/obj,-DSQ_CONFIG -I$(@D),$(shell sed -n 's/^CONFIG_FW_BASE=//p' configs/aarch64-uefi/$*.cfg))
+
+build/riscv64-uefi/%/config.inc: configs/riscv64-uefi/%.cfg tools/mkconfig.sh
+	@mkdir -p $(@D)
+	tools/mkconfig.sh gas $< > $@
+build/riscv64-uefi/%/squirrel-bios.bin: riscv/squirrel-bios.S riscv/uefi/start.S riscv/uefi/arch.c \
+		riscv/uefi/arch.h riscv/uefi/link.ld $(EFI_C) $(EFI_H) \
+		build/riscv64-uefi/%/config.inc build/riscv64-uefi/%/config.h
+	$(call RV_EFI_BUILD,$(@D)/obj,-DSQ_CONFIG -I$(@D),--defsym SQ_CONFIG=1 -I $(@D),$(shell sed -n 's/^CONFIG_FW_BASE=//p' configs/riscv64-uefi/$*.cfg))
+
+build/riscv64-virt/%/squirrel-bios.o: riscv/squirrel-bios.S build/riscv64-virt/%/config.inc build/riscv64-virt/%/config.h
+	$(RISCV64)as --defsym SQ_CONFIG=1 -I $(@D) -o $@ $<
+build/riscv64-virt/%/squirrel-bios.elf: build/riscv64-virt/%/squirrel-bios.o
+	$(RISCV64)ld -Ttext=0x80000000 -o $@ $<
+build/riscv64-virt/%/squirrel-bios.bin: build/riscv64-virt/%/squirrel-bios.elf
+	@end=$$($(RISCV64)nm $< | awk '$$3 == "_end" { print $$1 }'); \
+	if [ $$((0x$$end)) -gt $$((0x80200000)) ]; then \
+	    echo "riscv: image ends at 0x$$end, past the PMP-protected region" >&2; exit 1; \
+	fi
+	$(RISCV64)objcopy -O binary $< $@
+
+# Each platform's default.cfg must build the same bytes as plain make
+.PHONY: config-default
+config-default: x86 x86_64 arm riscv arm-uefi riscv-uefi build/x86-pc/default/squirrel-bios.rom \
+		build/aarch64-uefi/default/squirrel-bios.fd build/riscv64-uefi/default/squirrel-bios.bin \
+		build/x86_64-uefi/default/squirrel-bios.fd \
+		build/aarch64-virt/default/squirrel-bios.bin build/riscv64-virt/default/squirrel-bios.bin \
+		build/riscv64-virt/small/squirrel-bios.bin build/riscv64-virt/dt/squirrel-bios.bin \
+		build/x86-pc/minimal/squirrel-bios.rom
+	cmp $(X86_ROM) build/x86-pc/default/squirrel-bios.rom
+	cmp $(X64_FD) build/x86_64-uefi/default/squirrel-bios.fd
+	cmp $(ARM_BIN) build/aarch64-virt/default/squirrel-bios.bin
+	cmp $(RISCV_BIN) build/riscv64-virt/default/squirrel-bios.bin
+	cmp $(ARM_FD) build/aarch64-uefi/default/squirrel-bios.fd
+	cmp $(RV_UEFI_BIN) build/riscv64-uefi/default/squirrel-bios.bin
+	@echo "config-default: default.cfg builds match plain make"
 
 # --- test payloads (stand-ins for the OS) ------------------------------
 
@@ -98,6 +390,197 @@ $(TEST_DIR)/x86-extra-boot.bin: tests/x86-extra.asm | $(TEST_DIR)
 $(TEST_DIR)/x86-extra-range.bin: tests/x86-extra.asm | $(TEST_DIR)
 	$(NASM) -f bin -DOUT_OF_RANGE $< -o $@
 
+# x86_64-uefi: a hand-written PE32+ EFI application, returning and calling Exit
+$(TEST_DIR)/x86_64-app.efi: tests/x86_64-app.asm tests/x86_64-pe.inc | $(TEST_DIR)
+	$(NASM) -f bin -i tests/ $< -o $@
+$(TEST_DIR)/x86_64-app-exit.efi: tests/x86_64-app.asm tests/x86_64-pe.inc | $(TEST_DIR)
+	$(NASM) -f bin -i tests/ -DEXIT $< -o $@
+# The console app and what is typed to it: a, b, up, delete, q
+$(TEST_DIR)/x86_64-con.efi: tests/x86_64-con.asm tests/x86_64-pe.inc | $(TEST_DIR)
+	$(NASM) -f bin -i tests/ $< -o $@
+$(TEST_DIR)/x86_64-con.keys: | $(TEST_DIR)
+	printf 'ab\033[A\033[3~q' > $@
+$(TEST_DIR)/x86_64-gop.efi: tests/x86_64-gop.asm tests/x86_64-pe.inc | $(TEST_DIR)
+	$(NASM) -f bin -i tests/ $< -o $@
+# Setup UI (Phase G): Down, Up, Enter → navigate then Continue boot
+$(TEST_DIR)/x86_64-setupui.keys: | $(TEST_DIR)
+	printf '\033[B\033[A\r' > $@
+# Setup UI F2 hotkey (no fw_cfg): ESC O Q = F2, then same navigation
+$(TEST_DIR)/x86_64-setupui-f2.keys: | $(TEST_DIR)
+	printf '\033OQ\033[B\033[A\r' > $@
+# Setup UI BootOrder: Down→Boot Manager, Enter, Down, Left (swap), Enter save, Up, Enter Continue
+$(TEST_DIR)/x86_64-setupui-bootorder.keys: | $(TEST_DIR)
+	printf '\033[B\r\033[B\033[D\r\033[A\r' > $@
+# Setup UI Secure Boot + TPM clear: Down×2→Secure Boot, Enter, Enter Clear,
+# Enter Yes; Down→TPM clear, Enter, Enter Confirm; Up×3→Continue, Enter
+$(TEST_DIR)/x86_64-setupui-secboot.keys: | $(TEST_DIR)
+	printf '\033[B\033[B\r\r\r\033[B\r\r\033[A\033[A\033[A\r' > $@
+# Setup UI date-time + NVRAM reset: Down×4→Date and time, Enter, Up (year+1),
+# Enter apply; Down→NVRAM, Enter, Enter Confirm; Up×5→Continue, Enter
+$(TEST_DIR)/x86_64-setupui-datetime.keys: | $(TEST_DIR)
+	printf '\033[B\033[B\033[B\033[B\r\033[A\r\033[B\r\r\033[A\033[A\033[A\033[A\033[A\r' > $@
+# MP services and the MP table (C4)
+$(TEST_DIR)/x86_64-mp.efi: tests/x86_64-mp.asm tests/x86_64-pe.inc | $(TEST_DIR)
+	$(NASM) -f bin -i tests/ $< -o $@
+# acpidump-style self-check of the ACPI and SMBIOS tables (C2)
+$(TEST_DIR)/x86_64-acpi.efi: tests/x86_64-acpi.asm tests/x86_64-pe.inc | $(TEST_DIR)
+	$(NASM) -f bin -i tests/ $< -o $@
+# SRAT/SLIT/MADT/BERT/HEST self-check (F1/F2), and a 2x2 SLIT override
+$(TEST_DIR)/x86_64-numa.efi: tests/x86_64-numa.asm tests/x86_64-pe.inc | $(TEST_DIR)
+	$(NASM) -f bin -i tests/ $< -o $@
+# F1-scale: host-side builders for 1024 CPUs and two ECAM segments
+$(TEST_DIR)/x86_64-tables: tests/x86_64-tables.c x86_64/acpi/topo_impl.inc | $(TEST_DIR)
+	$(CC64) -std=gnu11 -O2 -Wall -Wextra -Werror -o $@ tests/x86_64-tables.c
+# Non-volatile variables in a flash store (pflash unit 1)
+$(TEST_DIR)/x86_64-nv.efi: tests/x86_64-nv.asm tests/x86_64-pe.inc | $(TEST_DIR)
+	$(NASM) -f bin -i tests/ $< -o $@
+# The runtime services after ExitBootServices, boot services memory overwritten
+$(TEST_DIR)/x86_64-rt.efi: tests/x86_64-rt.asm tests/x86_64-pe.inc | $(TEST_DIR)
+	$(NASM) -f bin -i tests/ $< -o $@
+# An authenticated append to db after ExitBootServices, signed to run in user mode
+$(TEST_DIR)/x86_64-authrt.efi: tests/x86_64-authrt.asm tests/x86_64-pe.inc $(TEST_DIR)/sb/sb-signed.efi | $(TEST_DIR)
+	$(NASM) -f bin -i tests/ -i $(TEST_DIR)/sb/ $< -o $@
+$(TEST_DIR)/sb/sb-authrt.efi: tests/mksigned.py $(TEST_DIR)/x86_64-authrt.efi
+	python3 tests/mksigned.py --sign $(TEST_DIR)/x86_64-authrt.efi $@
+# Measured boot: the TCG2 protocol, the event log and PCRs (with swtpm)
+$(TEST_DIR)/x86_64-tpm.efi: tests/x86_64-tpm.asm tests/x86_64-pe.inc | $(TEST_DIR)
+	$(NASM) -f bin -i tests/ $< -o $@
+$(TEST_DIR)/x86_64-numa-dist.bin: | $(TEST_DIR)
+	printf '\012\037\037\012' > $@
+
+# Secure Boot (C4): the app signed with test keys made from fixed seeds,
+# and db/dbx signature lists (tests/mksigned.py, plain Python); a GPT ESP
+# with the signed app as BOOTX64.EFI
+$(TEST_DIR)/sb/sb-signed.efi: tests/mksigned.py $(TEST_DIR)/x86_64-app.efi | $(TEST_DIR)
+	python3 tests/mksigned.py $(TEST_DIR)/x86_64-app.efi $(TEST_DIR)/sb
+$(TEST_DIR)/x86_64-sb-esp.img: tests/mkesp.py $(TEST_DIR)/sb/sb-signed.efi | $(TEST_DIR)
+	python3 tests/mkesp.py $(TEST_DIR)/sb/sb-signed.efi $@
+
+# aarch64-uefi: the stand-in EFI application in C (tests/efi-app.c),
+# linked at 256 MB + 4 KB and wrapped as PE32+ by tests/mkpe.py; it
+# returns, calls Exit, or calls ExitBootServices and powers off
+EFI_APP_CFLAGS := -std=gnu11 -O2 -Wall -Wextra -Werror -ffreestanding -fno-builtin -fno-pic \
+                  -fno-pie -no-pie -fno-stack-protector -fno-asynchronous-unwind-tables -nostdlib -static \
+                  -Wl,-T,tests/efi-app.ld -Wl,-q -Wl,--build-id=none
+ARM_APP_CFLAGS := $(EFI_APP_CFLAGS) -mgeneral-regs-only -mstrict-align
+$(TEST_DIR)/arm-efi-app.efi: tests/efi-app.c tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)
+	$(AARCH64_CC) $(ARM_APP_CFLAGS) $< -o $(@:.efi=.elf)
+	python3 tests/mkpe.py aarch64 $(@:.efi=.elf) $@
+$(TEST_DIR)/arm-efi-app-exit.efi: tests/efi-app.c tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)
+	$(AARCH64_CC) $(ARM_APP_CFLAGS) -DEXIT $< -o $(@:.efi=.elf)
+	python3 tests/mkpe.py aarch64 $(@:.efi=.elf) $@
+$(TEST_DIR)/arm-efi-app-ebs.efi: tests/efi-app.c tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)
+	$(AARCH64_CC) $(ARM_APP_CFLAGS) -DEBS $< -o $(@:.efi=.elf)
+	python3 tests/mkpe.py aarch64 $(@:.efi=.elf) $@
+# riscv64-uefi: the same app for RISC-V
+RV_APP_CFLAGS := $(EFI_APP_CFLAGS) -march=rv64imac_zicsr -mabi=lp64 -mcmodel=medany -mno-relax -mstrict-align
+$(TEST_DIR)/riscv-efi-app.efi: tests/efi-app.c tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)
+	$(RISCV64_CC) $(RV_APP_CFLAGS) $< -o $(@:.efi=.elf)
+	python3 tests/mkpe.py riscv64 $(@:.efi=.elf) $@
+$(TEST_DIR)/riscv-efi-app-exit.efi: tests/efi-app.c tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)
+	$(RISCV64_CC) $(RV_APP_CFLAGS) -DEXIT $< -o $(@:.efi=.elf)
+	python3 tests/mkpe.py riscv64 $(@:.efi=.elf) $@
+$(TEST_DIR)/riscv-efi-app-ebs.efi: tests/efi-app.c tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)
+	$(RISCV64_CC) $(RV_APP_CFLAGS) -DEBS $< -o $(@:.efi=.elf)
+	python3 tests/mkpe.py riscv64 $(@:.efi=.elf) $@
+# The FAT write test app (tests/efi-fat.c) on an ESP of its own (D4)
+$(TEST_DIR)/arm-efi-fat.efi: tests/efi-fat.c tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)
+	$(AARCH64_CC) $(ARM_APP_CFLAGS) $< -o $(@:.efi=.elf)
+	python3 tests/mkpe.py aarch64 $(@:.efi=.elf) $@
+# PSCI from the firmware's own EL3 monitor (virt with secure=on)
+$(TEST_DIR)/arm-efi-psci.efi: tests/efi-psci.c tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)
+	$(AARCH64_CC) $(ARM_APP_CFLAGS) $< -o $(@:.efi=.elf)
+	python3 tests/mkpe.py aarch64 $(@:.efi=.elf) $@
+$(TEST_DIR)/riscv-efi-fat.efi: tests/efi-fat.c tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)
+	$(RISCV64_CC) $(RV_APP_CFLAGS) $< -o $(@:.efi=.elf)
+	python3 tests/mkpe.py riscv64 $(@:.efi=.elf) $@
+# EINJ through SMM on q35 (F2): an OS's APEI steps, on the BSP and an AP
+X64_APP_CFLAGS := $(EFI_APP_CFLAGS) -m64 -mno-red-zone -mgeneral-regs-only -mcmodel=large
+$(TEST_DIR)/x86_64-einj.efi: tests/x86_64-einj.c tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)
+	$(CC64) $(X64_APP_CFLAGS) $< -o $(@:.efi=.elf)
+	python3 tests/mkpe.py x86_64 $(@:.efi=.elf) $@
+# CXL CEDT (CHBS + CFMWS) and ACPI0016/ACPI0017 (F2)
+$(TEST_DIR)/x86_64-cxl.efi: tests/x86_64-cxl.c tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)
+	$(CC64) $(X64_APP_CFLAGS) $< -o $(@:.efi=.elf)
+	python3 tests/mkpe.py x86_64 $(@:.efi=.elf) $@
+# An image that tries to open SMRAM, which must be locked by then
+$(TEST_DIR)/x86_64-smmlock.efi: tests/x86_64-smmlock.c tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)
+	$(CC64) $(X64_APP_CFLAGS) $< -o $(@:.efi=.elf)
+	python3 tests/mkpe.py x86_64 $(@:.efi=.elf) $@
+# The BMC as an OS sees it: SPMI, SMBIOS 38 and 42, KCS
+$(TEST_DIR)/x86_64-ipmi.efi: tests/x86_64-ipmi.c tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)
+	$(CC64) $(X64_APP_CFLAGS) $< -o $(@:.efi=.elf)
+	python3 tests/mkpe.py x86_64 $(@:.efi=.elf) $@
+# UpdateCapsule + ESRT (Phase G)
+$(TEST_DIR)/x86_64-capsule.efi: tests/x86_64-capsule.c tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)
+	$(CC64) $(X64_APP_CFLAGS) $< -o $(@:.efi=.elf)
+	python3 tests/mkpe.py x86_64 $(@:.efi=.elf) $@
+# Signed SQCP capsules (Phase G follow-up)
+$(TEST_DIR)/sb:
+	mkdir -p $@
+$(TEST_DIR)/sb/capsule-good.cap: tests/mkcapsule.py tests/mksigned.py | $(TEST_DIR)/sb
+	python3 tests/mkcapsule.py $(TEST_DIR)/sb
+$(TEST_DIR)/sb/capsule-bad.cap $(TEST_DIR)/sb/capsule-persist.cap \
+$(TEST_DIR)/sb/capsule_good_blob.h $(TEST_DIR)/sb/capsule_bad_blob.h \
+$(TEST_DIR)/sb/capsule_persist_blob.h: $(TEST_DIR)/sb/capsule-good.cap
+$(TEST_DIR)/x86_64-capsule-signed.efi: tests/x86_64-capsule-signed.c \
+		$(TEST_DIR)/sb/capsule_good_blob.h $(TEST_DIR)/sb/capsule_bad_blob.h \
+		$(TEST_DIR)/sb/capsule_persist_blob.h tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)
+	$(CC64) $(X64_APP_CFLAGS) -I$(TEST_DIR)/sb $< -o $(@:.efi=.elf)
+	python3 tests/mkpe.py x86_64 $(@:.efi=.elf) $@
+# A 3 MB BOOTX64.EFI on an ESP with 512-byte clusters: the disk read path
+$(TEST_DIR)/x86_64-bigload.efi: tests/x86_64-bigload.c tests/fillblob.py tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)
+	$(CC64) $(X64_APP_CFLAGS) $< -o $(@:.efi=.elf)
+	python3 tests/fillblob.py $(@:.efi=.elf) 0x300000
+	python3 tests/mkpe.py x86_64 $(@:.efi=.elf) $@
+$(TEST_DIR)/x86_64-bigload.img: tests/mkesp.py $(TEST_DIR)/x86_64-bigload.efi | $(TEST_DIR)
+	python3 tests/mkesp.py $(TEST_DIR)/x86_64-bigload.efi $@
+# The PIC, local APIC, 8042 and VGA state an OS gets
+$(TEST_DIR)/x86_64-handoff.efi: tests/x86_64-handoff.c tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)
+	$(CC64) $(X64_APP_CFLAGS) $< -o $(@:.efi=.elf)
+	python3 tests/mkpe.py x86_64 $(@:.efi=.elf) $@
+$(TEST_DIR)/arm-fat.img: tests/mkesp.py $(TEST_DIR)/arm-efi-fat.efi | $(TEST_DIR)
+	python3 tests/mkesp.py $(TEST_DIR)/arm-efi-fat.efi $@ BOOTAA64.EFI
+$(TEST_DIR)/riscv-fat.img: tests/mkesp.py $(TEST_DIR)/riscv-efi-fat.efi | $(TEST_DIR)
+	python3 tests/mkesp.py $(TEST_DIR)/riscv-efi-fat.efi $@ BOOTRISCV64.EFI
+# An -initrd for the app started as -kernel: 3000 bytes starting "Sq"
+$(TEST_DIR)/arm-efi-initrd.img: | $(TEST_DIR)
+	python3 -c 'import sys; sys.stdout.buffer.write(b"Sq" + bytes(2998))' > $@
+# The Simple Network Protocol test app (tests/efi-snp.c) for each UEFI
+# firmware, served over TFTP to the firmware's network boot
+SNP_APP_DEPS := tests/efi-snp.c tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)/tftp
+$(TEST_DIR)/tftp/snp-x64.efi: $(SNP_APP_DEPS)
+	$(CC64) $(EFI_APP_CFLAGS) -m64 -fpie -mno-red-zone -mgeneral-regs-only $< -o $(@:.efi=.elf)
+	python3 tests/mkpe.py x86_64 $(@:.efi=.elf) $@
+$(TEST_DIR)/tftp/snp-aa64.efi: $(SNP_APP_DEPS)
+	$(AARCH64_CC) $(ARM_APP_CFLAGS) $< -o $(@:.efi=.elf)
+	python3 tests/mkpe.py aarch64 $(@:.efi=.elf) $@
+$(TEST_DIR)/tftp/snp-rv64.efi: $(SNP_APP_DEPS)
+	$(RISCV64_CC) $(RV_APP_CFLAGS) $< -o $(@:.efi=.elf)
+	python3 tests/mkpe.py riscv64 $(@:.efi=.elf) $@
+
+# GPT disks with the C app as \\EFI\\BOOT\\BOOTAA64.EFI and (a long name)
+# \\EFI\\BOOT\\BOOTRISCV64.EFI
+$(TEST_DIR)/arm-esp.img: tests/mkesp.py $(TEST_DIR)/arm-efi-app.efi | $(TEST_DIR)
+	python3 tests/mkesp.py $(TEST_DIR)/arm-efi-app.efi $@ BOOTAA64.EFI
+# The Raspberry Pi stand-in (D2): QEMU raspi3b / raspi4b device trees and
+# an SD card whose boot file calls ExitBootServices and powers off
+$(TEST_DIR)/rpi3b.dtb: tests/mkrpidtb.py | $(TEST_DIR)
+	python3 tests/mkrpidtb.py $@
+$(TEST_DIR)/rpi4b.dtb: tests/mkrpidtb.py | $(TEST_DIR)
+	python3 tests/mkrpidtb.py --rpi4 $@
+# Synthetic coreboot LBIO tables for CONFIG=coreboot (C5)
+$(TEST_DIR)/x86_64-cbtables.bin: tests/mkcbtables.py | $(TEST_DIR)
+	python3 tests/mkcbtables.py -o $@
+$(TEST_DIR)/arm-esp-ebs.img: tests/mkesp.py $(TEST_DIR)/arm-efi-app-ebs.efi | $(TEST_DIR)
+	python3 tests/mkesp.py $(TEST_DIR)/arm-efi-app-ebs.efi $@ BOOTAA64.EFI
+$(TEST_DIR)/riscv-esp.img: tests/mkesp.py $(TEST_DIR)/riscv-efi-app.efi | $(TEST_DIR)
+	python3 tests/mkesp.py $(TEST_DIR)/riscv-efi-app.efi $@ BOOTRISCV64.EFI
+
+# GPT disk with a FAT32 ESP holding \\EFI\\BOOT\\BOOTX64.EFI (the app)
+$(TEST_DIR)/x86_64-esp.img: tests/mkesp.py $(TEST_DIR)/x86_64-app.efi | $(TEST_DIR)
+	python3 tests/mkesp.py $(TEST_DIR)/x86_64-app.efi $@
+
 # Boot sector plus a 96 KB 'S2OK' image, the shape of Squirrel-OS/2's disk
 $(TEST_DIR)/x86-osload.bin: tests/x86-osload.asm | $(TEST_DIR)
 	$(NASM) -f bin $< -o $@
@@ -105,6 +588,175 @@ $(TEST_DIR)/x86-osload.bin: tests/x86-osload.asm | $(TEST_DIR)
 # Boot sector that loads 192 sectors with INT 13h, the calls Squirrel-OS/2 makes
 $(TEST_DIR)/x86-int13.bin: tests/x86-int13.asm | $(TEST_DIR)
 	$(NASM) -f bin $< -o $@
+
+# BIOS data area: equipment list, conventional KB, cursor in 80x25
+$(TEST_DIR)/x86-bda.bin: tests/x86-bda.asm | $(TEST_DIR)
+	$(NASM) -f bin $< -o $@
+
+# A20 gate open: high write at 0x500000 and 0x100500 vs 0x000500
+$(TEST_DIR)/x86-a20.bin: tests/x86-a20.asm | $(TEST_DIR)
+	$(NASM) -f bin $< -o $@
+
+# PIT ~18.2 Hz and PIC IRQ0: BDA tick at 0x046C advances
+$(TEST_DIR)/x86-pit.bin: tests/x86-pit.asm | $(TEST_DIR)
+	$(NASM) -f bin $< -o $@
+
+# INT 16h keyboard; tests/x86-kbd-run.sh injects a key via the monitor
+$(TEST_DIR)/x86-kbd.bin: tests/x86-kbd.asm | $(TEST_DIR)
+	$(NASM) -f bin $< -o $@
+
+# INT 15h C2xx with a USB mouse; tests/x86-kbd-run.sh moves it
+# VBE: a 640x480x32 frame buffer, then (-DTEXT) back to text mode
+$(TEST_DIR)/x86-vbe.bin: tests/x86-vbe.asm | $(TEST_DIR)
+	$(NASM) -f bin $< -o $@
+$(TEST_DIR)/x86-vbe-text.bin: tests/x86-vbe.asm | $(TEST_DIR)
+	$(NASM) -f bin -DTEXT $< -o $@
+# VBE: 640x480x8 through the banked window at A000h, and the palette
+$(TEST_DIR)/x86-vbe-bank.bin: tests/x86-vbe-bank.asm | $(TEST_DIR)
+	$(NASM) -f bin $< -o $@
+$(TEST_DIR)/x86-vbe-pmi.bin: tests/x86-vbe-pmi.asm | $(TEST_DIR)
+	$(NASM) -f bin $< -o $@
+# The legacy BIOS with a fault: its 8th USB disk command (a read at
+# runtime) goes out with a bad CBW signature, for stall recovery's tests
+$(TEST_DIR)/x86-usbfault.rom: x86/squirrel-bios.asm $(X86_SRCS) | $(TEST_DIR)
+	$(NASM) -f bin -DUSBD_FAULT=8 -i x86/ $< -o $@
+$(TEST_DIR)/x86-mouse.bin: tests/x86-mouse.asm | $(TEST_DIR)
+	$(NASM) -f bin $< -o $@
+
+# The same, waiting for 20 keys (a USB keyboard's ring wraps)
+$(TEST_DIR)/x86-kbd-many.bin: tests/x86-kbd.asm | $(TEST_DIR)
+	$(NASM) -f bin -DKEYS=20 $< -o $@
+
+# INT 1Ah: tick count and RTC time (BCD)
+$(TEST_DIR)/x86-time.bin: tests/x86-time.asm | $(TEST_DIR)
+	$(NASM) -f bin $< -o $@
+
+# INT 10h text: cursor, scroll, get mode
+$(TEST_DIR)/x86-vid.bin: tests/x86-vid.asm | $(TEST_DIR)
+	$(NASM) -f bin $< -o $@
+
+# INT 13h AH=03/43 disk writes
+$(TEST_DIR)/x86-write.bin: tests/x86-write.asm | $(TEST_DIR)
+	$(NASM) -f bin $< -o $@
+
+# INT 15h AX=2400/2401/2402 A20 control
+$(TEST_DIR)/x86-int15a20.bin: tests/x86-int15a20.asm | $(TEST_DIR)
+	$(NASM) -f bin $< -o $@
+
+# One-sector hand-off expecting DL=0x81 (image on primary slave only)
+$(TEST_DIR)/x86-slave.bin: tests/x86-boot.asm | $(TEST_DIR)
+	$(NASM) -f bin -DONE_SECTOR -DEXPECT_DL=0x81 $< -o $@
+
+# El Torito: a 64-block no-emulation CD built around the x86-cd image
+$(TEST_DIR)/x86-cd.bin: tests/x86-cd.asm | $(TEST_DIR)
+	$(NASM) -f bin $< -o $@
+$(TEST_DIR)/x86-cd.iso: $(TEST_DIR)/x86-cd.bin tests/mkiso.py
+	tests/mkiso.py $< $@
+# The same, expecting to be the primary slave
+$(TEST_DIR)/x86-cd-slave.bin: tests/x86-cd.asm | $(TEST_DIR)
+	$(NASM) -f bin -DCD_CTRL=0 -DCD_DEV=1 $< -o $@
+$(TEST_DIR)/x86-cd-slave.iso: $(TEST_DIR)/x86-cd-slave.bin tests/mkiso.py
+	tests/mkiso.py $< $@
+
+# EDD 3.0 / LBA48: a sparse 200 GiB disk (a few KB on disk) with tags
+# either side of 2^28 sectors and at 143 GiB
+$(TEST_DIR)/x86-edd.bin: tests/x86-edd.asm | $(TEST_DIR)
+	$(NASM) -f bin $< -o $@
+$(TEST_DIR)/x86-edd.img: $(TEST_DIR)/x86-edd.bin tests/mkbigdisk.py
+	tests/mkbigdisk.py $< $@ 200 0x0FFFFFFF 0x10000000 300000000
+# The same on q35's AHCI controller, port 4
+$(TEST_DIR)/x86-ahci.bin: tests/x86-edd.asm | $(TEST_DIR)
+	$(NASM) -f bin -DAHCI=4 $< -o $@
+$(TEST_DIR)/x86-ahci.img: $(TEST_DIR)/x86-ahci.bin tests/mkbigdisk.py
+	tests/mkbigdisk.py $< $@ 200 0x0FFFFFFF 0x10000000 300000000
+# The same as namespace 1 of an NVMe controller in PCI slot 5
+$(TEST_DIR)/x86-nvme.bin: tests/x86-edd.asm | $(TEST_DIR)
+	$(NASM) -f bin -DNVME=5 $< -o $@
+$(TEST_DIR)/x86-nvme.img: $(TEST_DIR)/x86-nvme.bin tests/mkbigdisk.py
+	tests/mkbigdisk.py $< $@ 200 0x0FFFFFFF 0x10000000 300000000
+# The same as a USB disk on an xHCI in PCI slot 5
+$(TEST_DIR)/x86-usbdisk.bin: tests/x86-edd.asm | $(TEST_DIR)
+	$(NASM) -f bin -DUSB=5 $< -o $@
+$(TEST_DIR)/x86-usbdisk.img: $(TEST_DIR)/x86-usbdisk.bin tests/mkbigdisk.py
+	tests/mkbigdisk.py $< $@ 200 0x0FFFFFFF 0x10000000 300000000
+
+# Network boot files, served by QEMU's TFTP server from $(TEST_DIR)/tftp:
+# 5000 bytes (a short last block), 2048 (an empty last block), 200000
+# (past block 255), and 240000 (more than fits below 0x40000)
+$(TEST_DIR)/tftp:
+	mkdir -p $@
+$(TEST_DIR)/tftp/x86-netboot.bin: tests/x86-netboot.asm | $(TEST_DIR)/tftp
+	$(NASM) -f bin -DSIZE=5000 $< -o $@
+$(TEST_DIR)/tftp/x86-netboot-2k.bin: tests/x86-netboot.asm | $(TEST_DIR)/tftp
+	$(NASM) -f bin -DSIZE=2048 $< -o $@
+$(TEST_DIR)/tftp/x86-netboot-big.bin: tests/x86-netboot.asm | $(TEST_DIR)/tftp
+	$(NASM) -f bin -DSIZE=200000 $< -o $@
+$(TEST_DIR)/tftp/x86-netboot-huge.bin: tests/x86-netboot.asm | $(TEST_DIR)/tftp
+	$(NASM) -f bin -DSIZE=240000 $< -o $@
+
+# The same as a virtio-blk device in PCI slot 5
+$(TEST_DIR)/x86-virtio.bin: tests/x86-edd.asm | $(TEST_DIR)
+	$(NASM) -f bin -DVIRTIO=5 $< -o $@
+$(TEST_DIR)/x86-virtio.img: $(TEST_DIR)/x86-virtio.bin tests/mkbigdisk.py
+	tests/mkbigdisk.py $< $@ 200 0x0FFFFFFF 0x10000000 300000000
+
+# PCI BIOS (INT 1Ah B1xx), BAR placement, IRQ routing and $PIR
+$(TEST_DIR)/x86-pci.bin: tests/x86-pci.asm | $(TEST_DIR)
+	$(NASM) -f bin $< -o $@
+
+# ACPI RSDP in the ROM area: checksum and RSDT→FACP
+$(TEST_DIR)/x86-acpi.bin: tests/x86-acpi.asm | $(TEST_DIR)
+	$(NASM) -f bin $< -o $@
+
+# SMBIOS entry point in the ROM area: _SM_ checksums and Type 0
+$(TEST_DIR)/x86-smbios.bin: tests/x86-smbios.asm | $(TEST_DIR)
+	$(NASM) -f bin $< -o $@
+
+# Minimal bzImage (HdrS) with a 32-bit payload at 1 MB
+$(TEST_DIR)/x86-bzimage.bin: tests/x86-bzimage.asm | $(TEST_DIR)
+	$(NASM) -f bin $< -o $@
+
+# The same with a 300 KB payload (past the old 64 KB limit), and one
+# whose syssize claims 64 MB so the firmware must refuse it
+$(TEST_DIR)/x86-bzimage-big.bin: tests/x86-bzimage.asm | $(TEST_DIR)
+	$(NASM) -f bin -DBIG $< -o $@
+$(TEST_DIR)/x86-bzimage-toobig.bin: tests/x86-bzimage.asm | $(TEST_DIR)
+	$(NASM) -f bin -DTOOBIG $< -o $@
+
+# INT 13h AH=08h with the slave absent, and with a slave present
+$(TEST_DIR)/x86-params.bin: tests/x86-params.asm | $(TEST_DIR)
+	$(NASM) -f bin $< -o $@
+$(TEST_DIR)/x86-params-slave.bin: tests/x86-params.asm | $(TEST_DIR)
+	$(NASM) -f bin -DSLAVE $< -o $@
+
+# 1.44 MB diskettes: the floppy stand-in in C0 H0 S1, every other sector
+# tagged with its LBA; the -nosig one has no 0xAA55 (the hard disk boots)
+$(TEST_DIR)/x86-floppy.bin: tests/x86-floppy.asm | $(TEST_DIR)
+	$(NASM) -f bin $< -o $@
+$(TEST_DIR)/x86-floppy.img: $(TEST_DIR)/x86-floppy.bin tests/mkfloppy.py
+	tests/mkfloppy.py $< $@
+# The same diskette, write-protected, as the El Torito diskette
+# emulation image of a CD
+$(TEST_DIR)/x86-cd-floppy.bin: tests/x86-floppy.asm | $(TEST_DIR)
+	$(NASM) -f bin -DCDEMU $< -o $@
+$(TEST_DIR)/x86-cd-floppy.img: $(TEST_DIR)/x86-cd-floppy.bin tests/mkfloppy.py
+	tests/mkfloppy.py $< $@
+$(TEST_DIR)/x86-cd-floppy.iso: $(TEST_DIR)/x86-cd-floppy.img tests/mkiso.py
+	tests/mkiso.py --floppy $< $@
+# A hard disk image as the El Torito hard disk emulation image of a CD
+$(TEST_DIR)/x86-cdhd.bin: tests/x86-cdhd.asm | $(TEST_DIR)
+	$(NASM) -f bin $< -o $@
+$(TEST_DIR)/x86-cdhd.img: $(TEST_DIR)/x86-cdhd.bin tests/mkfloppy.py
+	tests/mkfloppy.py $< $@ --hdd
+$(TEST_DIR)/x86-cd-hdd.iso: $(TEST_DIR)/x86-cdhd.img tests/mkiso.py
+	tests/mkiso.py --hdd $< $@
+$(TEST_DIR)/x86-floppy-nosig.img: $(TEST_DIR)/x86-floppy.bin tests/mkfloppy.py
+	tests/mkfloppy.py $< $@ --nosig
+
+# Legacy option ROM (55 AA); last byte patched so the 512-byte sum is 0
+$(TEST_DIR)/x86-optrom.bin: tests/x86-optrom.asm | $(TEST_DIR)
+	$(NASM) -f bin $< -o $@
+	@python3 -c "p='$@'; d=bytearray(open(p,'rb').read()); assert len(d)==512; d[511]=0; d[511]=(-sum(d))&0xff; open(p,'wb').write(d)"
 
 $(TEST_DIR)/arm-kernel.o: tests/arm-kernel.S | $(TEST_DIR)
 	$(AARCH64)as -o $@ $<
@@ -185,6 +837,13 @@ $(TEST_DIR)/riscv-rfence.o: tests/riscv-rfence.S | $(TEST_DIR)
 $(TEST_DIR)/riscv-rfence.elf: $(TEST_DIR)/riscv-rfence.o
 	$(RISCV64)ld -Ttext=0x80200000 -o $@ $<
 $(TEST_DIR)/riscv-rfence.bin: $(TEST_DIR)/riscv-rfence.elf
+	$(RISCV64)objcopy -O binary $< $@
+
+$(TEST_DIR)/riscv-sse.o: tests/riscv-sse.S | $(TEST_DIR)
+	$(RISCV64)as -o $@ $<
+$(TEST_DIR)/riscv-sse.elf: $(TEST_DIR)/riscv-sse.o
+	$(RISCV64)ld -Ttext=0x80200000 -o $@ $<
+$(TEST_DIR)/riscv-sse.bin: $(TEST_DIR)/riscv-sse.elf
 	$(RISCV64)objcopy -O binary $< $@
 
 $(TEST_DIR)/riscv-hsm.o: tests/riscv-hsm.S | $(TEST_DIR)
@@ -293,19 +952,119 @@ $(SRST_IMAGES:=.elf): %.elf: %.o
 $(SRST_IMAGES:=.bin): %.bin: %.elf
 	$(RISCV64)objcopy -O binary $< $@
 
-test: all $(TEST_BINS)
+# --- E3 stretch ports: LoongArch64 virt and MIPS Malta -------------------
+# Each builds only when its cross binutils are installed; make test runs
+# their cases only when the firmware was built and QEMU has the machine
+# (tests/smoke.sh prints SKIP otherwise). make loongarch / make mips build
+# one regardless and fail without the tools.
+LOONGARCH ?= loongarch64-linux-gnu-
+MIPS      ?= mips-linux-gnu-
+LA_BIN    := loongarch/squirrel-bios.bin
+MIPS_BIN  := mips/squirrel-bios.bin
+MIPS_AS   := $(MIPS)as -march=24kf -non_shared
+
+loongarch: $(LA_BIN)
+mips: $(MIPS_BIN)
+
+loongarch/squirrel-bios.elf: loongarch/squirrel-bios.S
+	$(LOONGARCH)as -o loongarch/squirrel-bios.o $<
+	$(LOONGARCH)ld -e _start -Ttext=0x1c000000 -o $@ loongarch/squirrel-bios.o
+$(LA_BIN): loongarch/squirrel-bios.elf
+	$(LOONGARCH)objcopy -O binary -j .text $< $@
+mips/squirrel-bios.elf: mips/squirrel-bios.S
+	$(MIPS_AS) -o mips/squirrel-bios.o $<
+	$(MIPS)ld -e _start -Ttext=0xbfc00000 -o $@ mips/squirrel-bios.o
+$(MIPS_BIN): mips/squirrel-bios.elf
+	$(MIPS)objcopy -O binary -j .text $< $@
+
+# Test kernels: LoongArch's comes through -kernel (fw_cfg); MIPS's is put
+# into the flash image by mips/mkimage.py, with and without a command line
+$(TEST_DIR)/loongarch-kernel.bin: tests/loongarch-kernel.S | $(TEST_DIR)
+	$(LOONGARCH)as -o $(@:.bin=.o) $<
+	$(LOONGARCH)ld -e _start -Ttext=0x200000 -o $(@:.bin=.elf) $(@:.bin=.o)
+	$(LOONGARCH)objcopy -O binary -j .text $(@:.bin=.elf) $@
+$(TEST_DIR)/mips-kernel.bin: tests/mips-kernel.S | $(TEST_DIR)
+	$(MIPS_AS) -o $(@:.bin=.o) $<
+	$(MIPS)ld -e _start -Ttext=0x80100000 -o $(@:.bin=.elf) $(@:.bin=.o)
+	$(MIPS)objcopy -O binary -j .text $(@:.bin=.elf) $@
+$(TEST_DIR)/mips-flash.img: $(MIPS_BIN) $(TEST_DIR)/mips-kernel.bin mips/mkimage.py
+	python3 mips/mkimage.py $(MIPS_BIN) $(TEST_DIR)/mips-kernel.bin $@ --cmdline "console=ttyS0 squirrel=1"
+$(TEST_DIR)/mips-flash-nocmd.img: $(MIPS_BIN) $(TEST_DIR)/mips-kernel.bin mips/mkimage.py
+	python3 mips/mkimage.py $(MIPS_BIN) $(TEST_DIR)/mips-kernel.bin $@
+$(TEST_DIR)/stretch-keys.txt: | $(TEST_DIR)
+	printf 'help\r  info  \rfoo\rbootx\177\r' > $@
+
+# What make test builds of them: whatever the installed tools allow
+stretch: | $(TEST_DIR)
+	@if command -v $(LOONGARCH)as >/dev/null 2>&1; then \
+	    $(MAKE) --no-print-directory $(LA_BIN) $(TEST_DIR)/loongarch-kernel.bin $(TEST_DIR)/stretch-keys.txt; \
+	else echo "stretch: no $(LOONGARCH)as, LoongArch64 not built"; rm -f $(LA_BIN); fi
+	@if command -v $(MIPS)as >/dev/null 2>&1; then \
+	    $(MAKE) --no-print-directory $(MIPS_BIN) $(TEST_DIR)/mips-flash.img \
+	        $(TEST_DIR)/mips-flash-nocmd.img $(TEST_DIR)/stretch-keys.txt; \
+	else echo "stretch: no $(MIPS)as, MIPS not built"; rm -f $(MIPS_BIN); fi
+.PHONY: loongarch mips stretch
+
+# CONTINUANCE §3c: checked ROADMAP/TODO/HANDOFF boxes that name a smoke
+# case or make-test gate must find it in tests/smoke.sh / the Makefile.
+docs-lint:
+	python3 tools/docs_lint.py
+
+test: docs-lint x86 x86_64 arm riscv arm-uefi riscv-uefi config-default $(TEST_BINS) build/x86_64-uefi/x2apic/squirrel-bios.fd \
+		build/x86_64-uefi/coreboot/squirrel-bios.fd \
+		build/aarch64-uefi/rpi3/squirrel-bios.fd build/aarch64-uefi/rpi4/squirrel-bios.fd \
+		build/riscv64-uefi/visionfive2/squirrel-bios.bin \
+		build/riscv64-uefi/hifive-unmatched/squirrel-bios.bin stretch
 	tests/smoke.sh
+
+# Optional, not part of make test: downloads Ubuntu 24.04's arm64 kernel
+# into build/linux-arm (about 20 MB, once) and boots it through its EFI
+# stub on the aarch64-uefi firmware to a busybox shell
+linux-arm: arm-uefi
+	tests/uefi-linux.sh aarch64
+
+# Optional, not part of make test: the same kernel with acpi=force on a
+# GICv3 + ITS machine with 4 CPUs, so Linux takes the machine from the
+# firmware's ACPI tables (SBBR) instead of the device tree
+linux-arm-acpi: arm-uefi
+	LINUX_ACPI=1 LINUX_MACHINE=virt,gic-version=3 LINUX_CPU=max LINUX_SMP=4 tests/uefi-linux.sh aarch64
+# The same with the firmware started at EL3 (virt with secure=on): our own
+# PSCI (arm/uefi/el3.c) brings up the 4 CPUs, Linux runs at EL2
+.PHONY: linux-arm-el3
+linux-arm-el3: arm-uefi
+	LINUX_MACHINE=virt,secure=on,virtualization=on,gic-version=3 LINUX_CPU=max LINUX_SMP=4 tests/uefi-linux.sh aarch64
+
+# Optional, not part of make test: the same with Ubuntu 24.04's riscv64
+# kernel (the package make linux-shell uses) on the riscv64-uefi firmware
+linux-riscv-uefi: riscv-uefi
+	tests/uefi-linux.sh riscv64
 
 # Optional, not part of make test: downloads an Ubuntu riscv64 kernel and
 # busybox into build/linux (about 40 MB, once) and checks for a shell prompt
 linux-shell: riscv
 	tests/linux-shell.sh
 
+# Optional, not part of make test: downloads Ubuntu 24.04's amd64 kernel
+# into build/linux-x86 (about 15 MB, once), boots its bzImage from an IDE
+# disk and checks that it starts with the firmware's E820 map
+linux-x86: x86
+	tests/linux-x86.sh
+
+# Boot Ubuntu 24.04's amd64 kernel (EFI stub) through the x86_64-uefi
+# firmware to a busybox shell, on q35 and i440fx, with our ACPI and
+# SMBIOS tables, then power off through \_S5. Downloads two pinned
+# packages into build/linux-uefi (about 15 MB, once).
+linux-uefi: x86_64
+	tests/linux-uefi.sh
+
 # Optional, not part of make test. OS_IMG is a Squirrel-OS/2 hard-disk
 # image (that repo's build/os.img). The OS banner is on the VGA, so the
 # script reads the text buffer; serial carries the firmware line.
 os-boot: x86
 	tests/os-boot.sh $(OS_IMG)
+# The same image through the x86_64-uefi firmware's CSM
+os-boot-csm: x86_64
+	OS_BIOS=$(CURDIR)/$(X64_FD) QEMU_X86=$${QEMU_X86_64:-qemu-system-x86_64} tests/os-boot.sh $(OS_IMG)
 
 # Optional, not part of make test: the first step of the large-node
 # milestone in ROADMAP.md. The linux-shell boot, with Ubuntu's 6.14
@@ -340,8 +1099,185 @@ linux-big: riscv
 linux-stress: riscv
 	tests/linux-stress.sh
 
+# Optional, not part of make test (too slow for CI): F4-scale diskless
+# cluster. SCALE_NODES x86_64 UEFI guests (default 8) netboot the same
+# image from one netsim server; node 0 is -smp 256 -numa (falls back to
+# 255 under TCG without x2APIC). See tests/f4-scale.sh.
+f4-scale: x86_64 $(TEST_DIR)/x86_64-app.efi
+	tests/f4-scale.sh
+
+# Optional CONTINUANCE Phase G: host-build common/efi parsers and run a short
+# seed-corpus smoke (no QEMU, not a long nightly). See fuzz/README.md.
+FUZZ_DIR      := build/fuzz
+FUZZ_FAT      := $(FUZZ_DIR)/fat-fuzz
+FUZZ_FAT_LIBF := $(FUZZ_DIR)/fat-fuzz-libfuzzer
+FUZZ_PE       := $(FUZZ_DIR)/pe-fuzz
+FUZZ_PE_LIBF  := $(FUZZ_DIR)/pe-fuzz-libfuzzer
+FUZZ_AUTH     := $(FUZZ_DIR)/authenticode-fuzz
+FUZZ_AUTH_LIBF := $(FUZZ_DIR)/authenticode-fuzz-libfuzzer
+FUZZ_NET      := $(FUZZ_DIR)/net-fuzz
+FUZZ_NET_LIBF := $(FUZZ_DIR)/net-fuzz-libfuzzer
+FUZZ_USB      := $(FUZZ_DIR)/usb-fuzz
+FUZZ_USB_LIBF := $(FUZZ_DIR)/usb-fuzz-libfuzzer
+FUZZ_FDT      := $(FUZZ_DIR)/fdt-fuzz
+FUZZ_FDT_LIBF := $(FUZZ_DIR)/fdt-fuzz-libfuzzer
+FUZZ_CC       ?= $(CC64)
+FUZZ_CFLAGS   := -std=gnu11 -O1 -g -Wall -Wextra -Werror -fno-builtin \
+                 -fno-stack-protector -Ifuzz -Icommon/efi/include -Icommon/efi
+# Authenticode parsers live under x86_64/secure; fuzz/arch.h must win over
+# x86_64/include/arch.h (put -Ifuzz first).
+FUZZ_AUTH_CFLAGS := $(FUZZ_CFLAGS) -Ix86_64/include
+FUZZ_FDT_CFLAGS := $(FUZZ_CFLAGS) -Icommon/fw
+FUZZ_FAT_SRCS := fuzz/fat_harness.c fuzz/host_stubs.c common/efi/fat.c common/efi/lib.c
+FUZZ_PE_SRCS  := fuzz/pe_harness.c fuzz/host_stubs.c common/efi/image.c common/efi/lib.c
+FUZZ_AUTH_SRCS := fuzz/authenticode_harness.c fuzz/host_stubs.c fuzz/secure_host_stubs.c \
+                  common/efi/lib.c \
+                  x86_64/secure/der.c x86_64/secure/sha256.c x86_64/secure/rsa.c \
+                  x86_64/secure/authvar.c x86_64/secure/secure.c
+FUZZ_NET_SRCS := fuzz/net_harness.c fuzz/host_stubs.c common/efi/net_parse.c common/efi/lib.c
+FUZZ_USB_SRCS := fuzz/usb_harness.c fuzz/host_stubs.c common/efi/usb_desc.c common/efi/lib.c
+FUZZ_FDT_SRCS := fuzz/fdt_harness.c fuzz/host_stubs.c common/efi/fdt.c common/fw/fdt.c \
+                 common/efi/lib.c
+
+$(FUZZ_FAT): $(FUZZ_FAT_SRCS) fuzz/arch.h fuzz/host_stubs.h
+	@mkdir -p $(FUZZ_DIR)
+	$(FUZZ_CC) $(FUZZ_CFLAGS) -o $@ $(FUZZ_FAT_SRCS)
+
+fuzz-fat: $(FUZZ_FAT)
+	@chmod +x fuzz/smoke.sh fuzz/mkcorpus.py
+	@if ! find fuzz/corpus -type f 2>/dev/null | grep -q .; then \
+	    python3 fuzz/mkcorpus.py -o fuzz/corpus; \
+	fi
+	fuzz/smoke.sh
+
+$(FUZZ_PE): $(FUZZ_PE_SRCS) fuzz/arch.h fuzz/host_stubs.h
+	@mkdir -p $(FUZZ_DIR)
+	$(FUZZ_CC) $(FUZZ_CFLAGS) -o $@ $(FUZZ_PE_SRCS)
+
+fuzz-pe: $(FUZZ_PE)
+	@chmod +x fuzz/smoke-pe.sh fuzz/mkcorpus_pe.py
+	@if ! find fuzz/corpus-pe -type f 2>/dev/null | grep -q .; then \
+	    python3 fuzz/mkcorpus_pe.py -o fuzz/corpus-pe; \
+	fi
+	fuzz/smoke-pe.sh
+
+$(FUZZ_AUTH): $(FUZZ_AUTH_SRCS) fuzz/arch.h fuzz/host_stubs.h x86_64/include/secure.h
+	@mkdir -p $(FUZZ_DIR)
+	$(FUZZ_CC) $(FUZZ_AUTH_CFLAGS) -o $@ $(FUZZ_AUTH_SRCS)
+
+fuzz-authenticode: $(FUZZ_AUTH)
+	@chmod +x fuzz/smoke-authenticode.sh fuzz/mkcorpus_authenticode.py
+	@if ! find fuzz/corpus-authenticode -type f 2>/dev/null | grep -q .; then \
+	    python3 fuzz/mkcorpus_authenticode.py -o fuzz/corpus-authenticode; \
+	fi
+	fuzz/smoke-authenticode.sh
+
+$(FUZZ_NET): $(FUZZ_NET_SRCS) fuzz/arch.h fuzz/host_stubs.h common/efi/net_parse.h
+	@mkdir -p $(FUZZ_DIR)
+	$(FUZZ_CC) $(FUZZ_CFLAGS) -o $@ $(FUZZ_NET_SRCS)
+
+fuzz-net: $(FUZZ_NET)
+	@chmod +x fuzz/smoke-net.sh fuzz/mkcorpus_net.py
+	@if ! find fuzz/corpus-net -type f 2>/dev/null | grep -q .; then \
+	    python3 fuzz/mkcorpus_net.py -o fuzz/corpus-net; \
+	fi
+	fuzz/smoke-net.sh
+
+$(FUZZ_USB): $(FUZZ_USB_SRCS) fuzz/arch.h fuzz/host_stubs.h common/efi/usb_desc.h
+	@mkdir -p $(FUZZ_DIR)
+	$(FUZZ_CC) $(FUZZ_CFLAGS) -o $@ $(FUZZ_USB_SRCS)
+
+fuzz-usb: $(FUZZ_USB)
+	@chmod +x fuzz/smoke-usb.sh fuzz/mkcorpus_usb.py
+	@if ! find fuzz/corpus-usb -type f 2>/dev/null | grep -q .; then \
+	    python3 fuzz/mkcorpus_usb.py -o fuzz/corpus-usb; \
+	fi
+	fuzz/smoke-usb.sh
+
+$(FUZZ_FDT): $(FUZZ_FDT_SRCS) fuzz/arch.h fuzz/host_stubs.h common/fw/fdt.h
+	@mkdir -p $(FUZZ_DIR)
+	$(FUZZ_CC) $(FUZZ_FDT_CFLAGS) -o $@ $(FUZZ_FDT_SRCS)
+
+fuzz-fdt: $(FUZZ_FDT)
+	@chmod +x fuzz/smoke-fdt.sh fuzz/mkcorpus_fdt.py
+	@if ! find fuzz/corpus-fdt -type f 2>/dev/null | grep -q .; then \
+	    python3 fuzz/mkcorpus_fdt.py -o fuzz/corpus-fdt; \
+	fi
+	fuzz/smoke-fdt.sh
+
+# Desk / nightly helper: same harness under libFuzzer + ASan (needs clang
+# with the fuzzer/ASan runtimes, e.g. clang + libclang-rt). Not in CI.
+FUZZ_CLANG ?= clang
+fuzz-fat-libfuzzer: $(FUZZ_FAT_SRCS) fuzz/arch.h fuzz/host_stubs.h
+	@mkdir -p $(FUZZ_DIR)
+	@if ! $(FUZZ_CLANG) $(FUZZ_CFLAGS) -DFUZZ_NO_MAIN -fsanitize=fuzzer,address \
+	    -o $(FUZZ_FAT_LIBF) $(FUZZ_FAT_SRCS); then \
+	    echo "fuzz-fat-libfuzzer: clang libFuzzer/ASan runtime not available" >&2; \
+	    echo "  install clang's compiler-rt fuzzer/asan libs, or use make fuzz-fat" >&2; \
+	    exit 1; \
+	fi
+	@echo "built $(FUZZ_FAT_LIBF) — run with a corpus dir, e.g.:"
+	@echo "  $(FUZZ_FAT_LIBF) -max_total_time=60 fuzz/corpus"
+
+fuzz-pe-libfuzzer: $(FUZZ_PE_SRCS) fuzz/arch.h fuzz/host_stubs.h
+	@mkdir -p $(FUZZ_DIR)
+	@if ! $(FUZZ_CLANG) $(FUZZ_CFLAGS) -DFUZZ_NO_MAIN -fsanitize=fuzzer,address \
+	    -o $(FUZZ_PE_LIBF) $(FUZZ_PE_SRCS); then \
+	    echo "fuzz-pe-libfuzzer: clang libFuzzer/ASan runtime not available" >&2; \
+	    echo "  install clang's compiler-rt fuzzer/asan libs, or use make fuzz-pe" >&2; \
+	    exit 1; \
+	fi
+	@echo "built $(FUZZ_PE_LIBF) — run with a corpus dir, e.g.:"
+	@echo "  $(FUZZ_PE_LIBF) -max_total_time=60 fuzz/corpus-pe"
+
+fuzz-authenticode-libfuzzer: $(FUZZ_AUTH_SRCS) fuzz/arch.h fuzz/host_stubs.h x86_64/include/secure.h
+	@mkdir -p $(FUZZ_DIR)
+	@if ! $(FUZZ_CLANG) $(FUZZ_AUTH_CFLAGS) -DFUZZ_NO_MAIN -fsanitize=fuzzer,address \
+	    -o $(FUZZ_AUTH_LIBF) $(FUZZ_AUTH_SRCS); then \
+	    echo "fuzz-authenticode-libfuzzer: clang libFuzzer/ASan runtime not available" >&2; \
+	    echo "  install clang's compiler-rt fuzzer/asan libs, or use make fuzz-authenticode" >&2; \
+	    exit 1; \
+	fi
+	@echo "built $(FUZZ_AUTH_LIBF) — run with a corpus dir, e.g.:"
+	@echo "  $(FUZZ_AUTH_LIBF) -max_total_time=60 fuzz/corpus-authenticode"
+
+fuzz-net-libfuzzer: $(FUZZ_NET_SRCS) fuzz/arch.h fuzz/host_stubs.h common/efi/net_parse.h
+	@mkdir -p $(FUZZ_DIR)
+	@if ! $(FUZZ_CLANG) $(FUZZ_CFLAGS) -DFUZZ_NO_MAIN -fsanitize=fuzzer,address \
+	    -o $(FUZZ_NET_LIBF) $(FUZZ_NET_SRCS); then \
+	    echo "fuzz-net-libfuzzer: clang libFuzzer/ASan runtime not available" >&2; \
+	    echo "  install clang's compiler-rt fuzzer/asan libs, or use make fuzz-net" >&2; \
+	    exit 1; \
+	fi
+	@echo "built $(FUZZ_NET_LIBF) — run with a corpus dir, e.g.:"
+	@echo "  $(FUZZ_NET_LIBF) -max_total_time=60 fuzz/corpus-net"
+
+fuzz-usb-libfuzzer: $(FUZZ_USB_SRCS) fuzz/arch.h fuzz/host_stubs.h common/efi/usb_desc.h
+	@mkdir -p $(FUZZ_DIR)
+	@if ! $(FUZZ_CLANG) $(FUZZ_CFLAGS) -DFUZZ_NO_MAIN -fsanitize=fuzzer,address \
+	    -o $(FUZZ_USB_LIBF) $(FUZZ_USB_SRCS); then \
+	    echo "fuzz-usb-libfuzzer: clang libFuzzer/ASan runtime not available" >&2; \
+	    echo "  install clang's compiler-rt fuzzer/asan libs, or use make fuzz-usb" >&2; \
+	    exit 1; \
+	fi
+	@echo "built $(FUZZ_USB_LIBF) — run with a corpus dir, e.g.:"
+	@echo "  $(FUZZ_USB_LIBF) -max_total_time=60 fuzz/corpus-usb"
+
+fuzz-fdt-libfuzzer: $(FUZZ_FDT_SRCS) fuzz/arch.h fuzz/host_stubs.h common/fw/fdt.h
+	@mkdir -p $(FUZZ_DIR)
+	@if ! $(FUZZ_CLANG) $(FUZZ_FDT_CFLAGS) -DFUZZ_NO_MAIN -fsanitize=fuzzer,address \
+	    -o $(FUZZ_FDT_LIBF) $(FUZZ_FDT_SRCS); then \
+	    echo "fuzz-fdt-libfuzzer: clang libFuzzer/ASan runtime not available" >&2; \
+	    echo "  install clang's compiler-rt fuzzer/asan libs, or use make fuzz-fdt" >&2; \
+	    exit 1; \
+	fi
+	@echo "built $(FUZZ_FDT_LIBF) — run with a corpus dir, e.g.:"
+	@echo "  $(FUZZ_FDT_LIBF) -max_total_time=60 fuzz/corpus-fdt"
+
 clean:
-	rm -f $(X86_ROM) \
+	rm -f $(X86_ROM) $(X64_FD) $(ARM_FD) $(RV_UEFI_BIN) \
 	      arm/squirrel-bios.o arm/squirrel-bios.elf $(ARM_BIN) \
-	      riscv/squirrel-bios.o riscv/squirrel-bios.elf $(RISCV_BIN)
+	      riscv/squirrel-bios.o riscv/squirrel-bios.elf $(RISCV_BIN) \
+	      loongarch/squirrel-bios.o loongarch/squirrel-bios.elf $(LA_BIN) \
+	      mips/squirrel-bios.o mips/squirrel-bios.elf $(MIPS_BIN)
 	rm -rf build

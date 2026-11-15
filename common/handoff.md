@@ -8,15 +8,15 @@ If the firmware and this file disagree, the firmware has a bug.
 
 | | x86 PC | AArch64 (QEMU virt) | RISC-V (QEMU virt) |
 |---|---|---|---|
-| Image source | LBA 0 of the primary master ATA disk; sectors 1–192 as well when they are a `S2OK` image | `-kernel`, read through fw_cfg DMA | `-kernel`, loaded by QEMU |
-| Entry | `0x0000:0x7C00`, or `0x0000:0x8000` for a `S2OK` image | `0x40200000` | `0x80200000` (rv64) |
+| Image source | LBA 0 of the primary master ATA disk, or the primary slave when the master is absent; sectors 1–192 as well when they are a `S2OK` image; a Linux `bzImage` (`HdrS`) loads its protected-mode kernel at 1 MB | `-kernel`, read through fw_cfg DMA | `-kernel`, loaded by QEMU |
+| Entry | `0x0000:0x7C00`, or `0x0000:0x8000` for a `S2OK` image, or 32-bit PM at `code32_start` (usually `0x100000`) for a `bzImage` | `0x40200000` | `0x80200000` (rv64) |
 | CPU mode | 16-bit real mode | EL1 (EL2 with `virtualization=on`), MMU off | S-mode (QEMU's `next_mode`), `satp = 0` |
-| Boot argument | `DL = 0x80` | `x0` = device tree | `a0` = hart ID, `a1` = device tree |
+| Boot argument | `DL = 0x80` (master) or `0x81` (slave) | `x0` = device tree | `a0` = hart ID, `a1` = device tree |
 | Memory description | Memory map at `ES:DI = 0x0000:0x0500` | Device tree `/memory` | Device tree `/memory` |
 | Console | COM1 `0x3F8`, 115200 8N1 | PL011 `0x09000000` | NS16550A `0x10000000`, 115200 8N1 |
-| Interrupts | `IF = 0` | `DAIF` masked | `mstatus.MIE`/`SIE` = 0, `mie = 0` |
+| Interrupts | `IF = 0`; PIT/PIC programmed, IRQ0 unmasked | `DAIF` masked | `mstatus.MIE`/`SIE` = 0, `mie = 0` |
 | CPUs running | Boot CPU only | Boot CPU only | The boot hart (`fw_dynamic_info.boot_hart`, else hart 0); others through `sbi_hart_start` |
-| Firmware services | `INT 13h` `AH=00/02/08/42`, `INT 10h` `AH=0E`, `INT 15h` `E820`. Nothing else | None | SBI from S-mode: base, TIME, IPI, RFENCE, HSM, SRST |
+| Firmware services | `INT 13h` `AH=00/02/03/08/41/42/43/44/47/48` (on an IDE, SATA, NVMe, USB or virtio disk; diskettes `00/02/03/08/15`; boot CD `00/41/42/48/4B`), `INT 10h` `AH=02/03/06/07/0E/0F/4F` (VBE `4F00..4F03/06/07`), `INT 15h` `E820`/`AX=2400..2403`/`AH=C2` (USB mouse), `INT 16h` `AH=00/01`, `INT 1Ah` `AH=00/02`, PCI BIOS `AX=B101/B102/B103/B108..B10D` | None | SBI from S-mode: base, TIME, IPI, RFENCE, HSM, SRST |
 
 ## Rules for every architecture
 
@@ -33,12 +33,24 @@ The firmware guarantees:
 The OS must not assume:
 
 1. **Firmware services.** There are none after hand-off, apart from the
-   RISC-V SBI listed below and three x86 calls. `INT 15h` with
+   RISC-V SBI listed below and the x86 calls below. `INT 15h` with
    `EAX = 0xE820` returns the memory map. `INT 13h` `AH = 0x00`, `0x02`,
-   `0x08` and `0x42` read the primary master. `INT 10h` `AH = 0x0E`
-   writes one character to the VGA text screen. Any other function on
-   those vectors returns with CF set. No other software interrupt is
-   serviced. No UEFI. Anything else the OS needs, it drives itself.
+   `0x08` and `0x42` read the primary master (`DL = 0x80`) or primary
+   slave (`DL = 0x81`); `AH = 0x03` and `0x43` write the same drives.
+   `AH = 0x41`, `0x44`, `0x47` and `0x48` are the rest of EDD 3.0's
+   fixed disk access subset.
+   With `DL = 0x00` / `0x01`, `INT 13h` `AH = 0x00`, `0x02`, `0x03`,
+   `0x08` and `0x15` work on 1.44 MB diskettes in A: / B:.
+   `INT 10h` `AH = 0x0E`
+   writes one character to the VGA text screen; `AH = 0x02`/`0x03` set
+   or get the cursor, `AH = 0x06`/`0x07` scroll, and `AH = 0x0F` reports
+   the 80x25 mode. `INT 16h` `AH = 0x00` and `0x01` read or check the
+   keyboard buffer. `INT 1Ah` `AH = 0x00` returns the tick count;
+   `AH = 0x02` reads the RTC time in BCD; `AH = 0xB1` is the PCI BIOS
+   (real mode). Any other function on those
+   vectors returns with CF set (`INT 16h` check uses ZF instead). No
+   other software interrupt is serviced. No UEFI. Anything else the OS
+   needs, it drives itself.
 2. **A usable stack.** Set your own stack before using it heavily.
 3. **Trap or interrupt vectors.** Install your own before unmasking
    interrupts.
@@ -88,7 +100,7 @@ kernel. That would be a separate TODO item with its own stand-in, a
 | Mode | 16-bit real mode |
 | `DS`, `ES`, `SS` | `0` |
 | `SP` | `0x7C00` |
-| `DL` | `0x80` (boot drive) |
+| `DL` | `0x80` (primary master) or `0x81` (primary slave, when that is the boot drive) |
 | `DI` | `0x0500` (memory map header, so `ES:DI` points at it) |
 | `EFLAGS` | `IF = 0`, `DF = 0` |
 
@@ -127,7 +139,7 @@ same registers and memory map as a one-sector boot. The loaded bytes are
 contiguous in linear memory; the firmware normalises the segment per
 sector, so a load may cross 64 KB boundaries.
 
-The load must start below `0xA0000` and end at or before it, and must not
+The load must start below the EBDA (`0x92000`) and end at or before it, and must not
 touch `0x0500`–`0x05FF` or `0x7C00`–`0x7DFF`. Anything else, including a
 count of 0 or above 128, is refused before the read (see Failures).
 Memory below `0x0500` is allowed. Every path fills the IVT before it
@@ -152,31 +164,316 @@ The boot sector's calls, which the firmware serves on every path:
 
 | Call | Behaviour |
 |------|-----------|
-| `INT 13h` `AH = 0x42` | Extended read. `DS:SI` points at a 16-byte disk address packet (size byte `0x10`, reserved, word count 1–128, word offset, word segment, qword LBA). The buffer must lie entirely below `0xA0000`. The LBA must fit in 28 bits. CF clear and `AH = 0` on success. |
-| `INT 13h` `AH = 0x08` | Drive parameters for `DL = 0x80`. CF clear, `AH = 0`, `DH = 15` (16 heads), `CL` bits 5–0 `= 63` (sectors per track), `CH = 0xFF` and `CL` bits 7–6 `= 3` (1023 cylinders), `DL = 1`. `ES:DI` and `BL` are left alone. |
+| `INT 13h` `AH = 0x42` | Extended read. `DS:SI` points at a 16-byte disk address packet (size byte `0x10` or more, reserved, word count 1–128, word offset, word segment, qword LBA; the 64-bit flat buffer of a larger packet is not used). The buffer must lie entirely below the EBDA (`0x92000`). The LBA's upper dword must be 0 (disks up to 2 TB). A range that reaches sector 2^28 (128 GiB) or beyond goes to the drive as `READ SECTORS EXT` (LBA48), anything below as LBA28. CF clear and `AH = 0` on success. |
+| `INT 13h` `AH = 0x43` | Extended write. Same packet rules as `AH = 0x42` (`WRITE SECTORS EXT` past 2^28). CF clear and `AH = 0` on success. |
+| `INT 13h` `AH = 0x41` | EDD installation check: with `BX = 0x55AA` and a drive that answered at POST, CF clear, `BX = 0xAA55`, `AH = 0x30` (EDD 3.0), `CX = 0x0001` (fixed disk access subset: `42h`, `43h`, `44h`, `47h`, `48h`). Otherwise CF set, `AH = 0x01`. |
+| `INT 13h` `AH = 0x44` / `0x47` | Verify / seek. Same packet rules as `AH = 0x42`; nothing is transferred or moved. CF clear and `AH = 0` when every sector named is on the disk, CF set and `AH = 0x04` when not. |
+| `INT 13h` `AH = 0x48` | Drive parameters into the buffer at `DS:SI`, whose first word is its size (`0x1A` or more). Fills total sectors (a qword, from `IDENTIFY DEVICE`: words 100–103 with LBA48, else 60–61), 512 bytes per sector, and the INT 13h CHS translation (1024 / 16 / 63, flags `0`: not the drive's own geometry). With `0x1E` or more, the DPTE pointer is `FFFF:FFFF` (none). With `0x42` or more, the EDD 3.0 device path: key `0xBEDD`, length `0x24`, host bus `ISA `, interface `ATA     `, base port `0x1F0`, device 0 (master) or 1 (slave), checksum. The size word is set to `0x1A`, `0x1E` or `0x42` to match. A buffer under `0x1A`: CF set, `AH = 0x01`. |
+| `INT 13h` `AH = 0x08` | Drive parameters for `DL = 0x80` or `0x81`. CF clear, `AH = 0`, `DH = 15` (16 heads), `CL` bits 5–0 `= 63` (sectors per track), `CH = 0xFF` and `CL` bits 7–6 `= 3` (1023 cylinders), `DL` = number of hard disks that answered `IDENTIFY` at POST (1 or 2). `ES:DI` and `BL` are left alone. A drive that did not answer: CF set, `AH = 0x07`. |
 | `INT 13h` `AH = 0x02` | CHS read of `AL` sectors (1–128) to `ES:BX`, using that same geometry. Cylinder is `CH` plus `CL` bits 7–6, sector is `CL` bits 5–0, head is `DH`. CF clear, `AH = 0`, `AL` unchanged on success. |
+| `INT 13h` `AH = 0x03` | CHS write of `AL` sectors from `ES:BX`, same geometry and status rules as `AH = 0x02`. |
 | `INT 13h` `AH = 0x00` | Reset the primary channel. CF clear and `AH = 0` when the drive comes ready. |
+| `INT 10h` `AH = 0x02` | Set cursor: `DH` = row, `DL` = column (clamped to 80x25). Page `BH` ignored. CF clear. |
+| `INT 10h` `AH = 0x03` | Get cursor: `DH`/`DL` = row/column, `CH`/`CL` = `0x06`/`0x07`, `BH` = 0. CF clear. |
+| `INT 10h` `AH = 0x06` / `0x07` | Scroll up / down. `AL` = lines (`0` blanks the window), `BH` = blank attribute, `CH`/`CL`–`DH`/`DL` = window. Full-screen one-line scrolls move rows; other windows are blanked. CF clear. |
 | `INT 10h` `AH = 0x0E` | Teletype `AL` onto the VGA text screen in the normal attribute, from the cursor at `0x0450` (column, then row). CR, LF, BS and BEL behave as a teletype; the screen scrolls at row 25. Other registers are kept. CF clear. |
+| `INT 10h` `AH = 0x0F` | Get mode: `AL` = 3 (80x25 colour), `AH` = 80 columns, `BH` = 0. CF clear. |
+| `INT 10h` `AH = 0x4F` | VBE 3.0 on QEMU's standard VGA (PCI `1234:1111`, through its `1CEh`/`1CFh` display registers). `AL = 0x00` controller information at `ES:DI` (512 bytes if it starts `VBE2`): `VESA`, version 3.0, the video memory, and the mode list and strings inside the block. `0x01` mode information for `CX` at `ES:DI`. `0x02` set mode `BX`: bit 14 (linear frame buffer) is required, bit 15 keeps the video memory; `BX = 3` returns to 80x25 text with a blank screen and the cursor at (0, 0). `0x03` current mode in `BX` (`3` in text mode). `0x06` with `BL = 1`: bytes per line in `BX`, pixels in `CX`, lines the memory holds in `DX`. `0x07` display start: `BL = 0x00`/`0x80` set from `CX`, `DX`; `BL = 1` get. Modes `111h`/`112h` 640x480, `114h`/`115h` 800x600, `117h`/`118h` 1024x768, `11Ah`/`11Bh` 1280x1024, each at 16 bits (5:6:5) then 32 bits (8:8:8 with 8 reserved); the frame buffer is the VGA function's BAR0. `AX = 0x004F` on success, `0x014F` on failure (an unknown mode, no bit 14), `0x0100` for other functions or without that VGA. There are no banked windows, palette or protected-mode interface. |
+| `INT 16h` `AH = 0x00` | Wait for a keystroke. Returns `AL` = ASCII, `AH` = set-1 make scancode. CF clear. |
+| `INT 16h` `AH = 0x01` | Check the buffer. ZF clear and `AX` as above when a key is ready (not removed); ZF set when empty. CF clear. |
+| `INT 16h` other `AH` | CF set. |
+| `INT 1Ah` `AH = 0x00` | Tick count since midnight: `CX:DX` from `0x046C`, `AL` = midnight overflow at `0x0470` (then cleared). CF clear. |
+| `INT 1Ah` `AH = 0x02` | RTC time from CMOS in BCD: `CH` = hours, `CL` = minutes, `DH` = seconds, `DL` = 0 (no daylight flag). Waits for Update-In-Progress to clear. CF clear. (`AH = 0x04` date is not implemented.) |
+| `INT 1Ah` other `AH` | CF set. |
 
-`DL` must be `0x80` for the disk calls. Anything else, a packet that is
-not 16 bytes, a zero count, a count above 128, or a buffer that is not
-entirely below `0xA0000`, returns with CF set and `AH = 0x01`. A sector
-that is not on the disk returns with CF set and `AH = 0x04` (read) or
-`AH = 0x05` (reset failed) or `AH = 0x80` (timeout). `AH = 0x02` reports
-`AL = 0` when nothing was transferred. Only the primary master is a
-drive; there is no write, no floppy, and no second disk.
+`DL` must be `0x80` (primary master) or `0x81` (primary slave) for the
+disk calls. Anything else, a packet that is not 16 bytes, a zero count,
+a count above 128, or a buffer that is not entirely below the EBDA (`0x92000`),
+returns with CF set and `AH = 0x01`. A sector that is not on the disk
+returns with CF set and `AH = 0x04` (read) or `AH = 0x05` (reset failed)
+or `AH = 0x80` (timeout). `AH = 0x02` reports `AL = 0` when nothing was
+transferred. The firmware boots from the master when
+it answers; if the master is absent it tries the slave and hands off with
+`DL = 0x81`. When no IDE hard disk answered (or the master is ATAPI),
+it looks for a SATA disk, then an NVMe disk, then a USB disk, then a
+virtio disk, then tries a CD, then the network, before it halts.
+
+**SATA (AHCI).** With no IDE hard disk, the firmware looks on PCI bus 0
+for an AHCI controller (class `01:06:01`, such as q35's ICH9 at
+`00:1F.2`), resets it, and takes the lowest-numbered implemented port
+whose link is up and whose signature is an ATA disk (`00000101h`);
+ATAPI and empty ports are passed over. It prints `disk: SATA disk on
+AHCI port N`, and that disk is then `DL = 0x80`: it boots the same way
+as an IDE master (boot sector, SQBL, S2OK, bzImage), and the `INT 13h`
+calls above serve it, with `READ DMA EXT` and `WRITE DMA EXT` (each
+write followed by `FLUSH CACHE EXT`). Their buffers must also start at
+an even address. `AH = 0x48` names it as host bus `PCI` with the
+controller's bus, device and function, and interface `SATA` with the
+port number as the device path (EDD 4.0). `DL = 0x81` is not a drive
+then. Only one SATA disk is served, and none when an IDE hard disk
+answered. The firmware keeps the port running for the hand-off, with
+interrupts off (`GHC.IE = 0`); its command list, received-FIS area and
+command table are in the EBDA (`0x92400`, `0x92800`, `0x92900`), and
+the byte at `0x04FF` is 1 while `DL = 0x80` is the SATA disk (2 for
+NVMe, 0 for IDE). The
+`INT 13h` calls reach the controller's registers through unreal mode, so
+they are served from real mode only, not from virtual 8086 mode.
+
+**NVMe.** With no IDE or SATA disk, the firmware looks on PCI bus 0 for
+an NVMe controller (class `01:08:02`) whose BAR0 it placed below 4 GB.
+It resets and enables it with 8-entry admin queues, identifies
+namespace 1, which must use 512-byte blocks, and creates one 8-entry
+I/O queue pair. It prints `disk: NVMe disk (namespace 1)`, and that
+namespace is then `DL = 0x80`, booting and served by `INT 13h` as above
+with NVMe Read and Write (each write followed by Flush). Their buffers
+must start on a 4-byte boundary. A transfer that spans more than two
+4 KB pages uses a PRP list. `AH = 0x48` names it as host bus `PCI` with
+the controller's bus, device and function, and interface `NVMe` with
+namespace ID 1 as the device path. The four queues are the EBDA's pages
+at `0x93000` (admin submission), `0x94000` (admin completion),
+`0x95000` (I/O submission) and `0x96000` (I/O completion); the
+controller is left enabled with interrupts unused. As for SATA, the
+`INT 13h` calls are served from real mode only.
+
+**virtio-blk.** With no IDE, SATA or NVMe disk, the firmware looks on
+PCI bus 0 for a virtio block device with the legacy interface (vendor
+`1AF4h`, device `1001h`, BAR0 an I/O range). It resets the device,
+accepts no optional features (so the disk writes through), sets up
+queue 0 in the three EBDA pages at `0x93000` that NVMe would have used
+(queues of up to 256 entries fit), and reads the capacity. It prints
+`disk: virtio disk`, and the device is then `DL = 0x80`, booting and
+served by `INT 13h` as above, one request at a time with the caller's
+buffer as its data descriptor; the used ring is polled with interrupts
+off. `AH = 0x48` names it as host bus `PCI` with its bus, device and
+function, and interface `SCSI`, the nearest EDD 3.0 has. The device is
+left running with no interrupts unmasked. A modern-only device (ID
+`1042h`) is not used.
+
+**Network boot.** When no disk or CD booted, the firmware looks on PCI
+bus 0 for a virtio network device with the legacy interface (vendor
+`1AF4h`, device `1000h`) and prints its address (`net: virtio-net, MAC
+52:54:00:12:34:56`). It asks for an address by DHCP (DISCOVER, then
+REQUEST; up to four tries of 2 s each) and takes the boot server from
+the reply's `siaddr` (else the DHCP server) and the boot file from
+option 67 (else the `file` field): `net: address 10.0.2.15 from
+10.0.2.2, boot file NAME`. It finds the server's Ethernet address by ARP
+and answers ARP requests for its own address. It then reads the file
+over TFTP (octet mode, 512-byte blocks, each wait 1 s and five tries)
+into memory from `0x7C00`, as if its sectors had been read there from a
+disk, prints `net: loaded N bytes`, resets the device and enters the
+file at `0000:7C00` like a boot sector, with `DL = 0xFF`: there is no
+`INT 13h` drive behind it. The file must end below `0x40000`, which
+allows 230400 bytes: the network buffers and queues are at
+`0x40000`–`0x4FFFF` while it runs. The server must be on the local
+network, as there is no routing. When something fails it says why
+(`net: no DHCP answer`, `net: DHCP gave no boot file`, `net: the boot
+server does not answer ARP`, `net: TFTP timed out`, `net: the TFTP
+server refused the file`, `net: the boot file does not fit below
+0x40000`) and the boot halts as before. Everything runs during POST
+with interrupts off; no network service is left behind.
+
+**USB.** Before it looks for a boot disk, POST lists the USB devices on
+every EHCI (class `0C:03:20`), UHCI (`0C:03:00`), OHCI (`0C:03:10`)
+and xHCI (`0C:03:30`) controller on PCI bus 0. EHCI controllers go first. Each one keeps its
+high-speed devices and hands every low- or full-speed device to its
+companion UHCI or OHCI function, which is listed after it. It takes an
+OHCI or EHCI controller back from SMM if SMM owns it. It then resets
+the controller and each root port that has a device. It then gives every
+device an address, starting at 1 and counting on across controllers,
+and reads its device and configuration descriptors. A hub is
+configured, its ports are powered and reset, and the devices behind it
+are listed in turn, down to five hub tiers. Each device gets one line:
+
+```
+usb: UHCI at 00:05.0
+usb: device 1 on root port 1: 0409:55AA, hub, 8 ports
+usb: device 2 on hub 1 port 3: 0627:0001, HID
+```
+
+The class is the device's own class, or its first interface's class
+when the device leaves it to the interfaces. It is printed as `HID`,
+`mass storage`, `hub`, or `class` with its number in hex.
+
+Apart from one keyboard, one mouse and one disk, nothing USB runs after
+POST. Each controller
+is halted and reset once its devices are listed, so no device is
+configured at hand-off and no controller does DMA.
+
+The exception is the first boot-protocol keyboard and the first
+boot-protocol mouse found on one UHCI, OHCI or xHCI controller (`usb:
+keyboard is device N`, `usb: mouse is device N`); a device on an EHCI
+port is on its companion, and a mouse on another controller than the
+keyboard's (or a keyboard on another than the mouse's, whichever was
+found first) is not kept. Each is configured and set to the boot
+protocol, and the controller keeps running with a schedule in the EBDA
+(`0x97000`–`0x980FF`) that holds only their interrupt transfers (OHCI:
+only the periodic list runs). An xHCI keeps its whole block in the EBDA
+(`0x97000`–`0x9FFFF`), with each endpoint on a ring of 15 transfers
+that post no events; an xHCI whose block had to go to `0x40000` keeps
+neither. If an xHCI endpoint stops on a transfer error after POST, its
+device stays silent: restarting it takes controller commands, which
+IRQ0 does not send. IRQ0 checks the transfers on every tick. A key
+pressed on the keyboard goes into the BDA keyboard buffer like a key
+from the 8042, with the same ASCII table, plus Shift and Ctrl on
+letters, so `INT 16h` reads it. A mouse report goes to the handler set
+with `INT 15h` `AX = 0xC207` while the mouse is enabled (`AX = 0xC200`),
+called as the PS/2 BIOS calls it: a far call with four words pushed,
+status (buttons in bits 0–2, bit 3 set, the X and Y sign bits in 4 and
+5), X, Y (up is positive; a USB report of 128 up is passed as 127) and 0,
+which the BIOS pops. The handler runs
+from IRQ0 with interrupts off. An OS that drives the controller itself
+resets it, and the BIOS then gets nothing from it. An OS that replaces
+the INT 08h vector stops the polling, and one that reads the 8042
+itself (as Squirrel-OS/2 does) sees neither device. An EHCI controller
+is halted but not reset, so `CONFIGFLAG` stays set and the ports it
+handed over stay with the companions. Low- and full-speed devices
+behind a high-speed hub would need split transactions, which are not
+supported.
+
+On xHCI the controller assigns the bus addresses, so the address
+numbers in the listing are the BIOS's own. The controller has eight
+device slots; a device that is not a hub gives its slot back once it is
+listed, so only hubs keep one. What the controller reads and writes is
+in the EBDA's USB pages (`0x97000`–`0x9FFFF`), with room for three
+scratchpad pages. When a keyboard on another controller already runs
+from there, or the controller wants up to ten scratchpad pages, it works
+from `0x40000`–`0x4FFFF` instead, which is free only during POST; one
+that wants more is skipped. Hubs are enumerated through their route strings, but their
+slot contexts are not marked as hubs. Low- and full-speed devices behind
+a high-speed hub on xHCI get the hub's transaction translator, but this
+is untested, as QEMU has no high-speed hub. The work memory is `0x30000`–`0x3FFFF`, and the
+listing runs on a stack just below `0x7C00`. OHCI, EHCI and xHCI registers
+are reached through unreal mode, as for AHCI. Both are free, since
+nothing has been loaded yet. The reset timings come from PIT
+channel 2, which is left gated off.
+
+**USB disk.** The first USB mass storage device with a bulk-only SCSI
+interface (class 08h, subclass 06h, protocol 50h) on an xHCI whose
+block is in the EBDA is kept (`usb: disk is device N`), on the same
+controller as a kept keyboard or mouse if there is one: its two bulk
+endpoints get rings in the block, it is configured, and the controller
+keeps running. A disk on a UHCI, OHCI or EHCI controller, or on an
+xHCI working from `0x40000`, is only listed, and a USB Attached SCSI
+interface is not used yet. With no IDE, SATA or NVMe disk, POST sends it
+INQUIRY, then TEST UNIT READY (with REQUEST SENSE after each "not
+ready", for up to 2 s), then READ CAPACITY(10); it must have 512-byte
+blocks. It prints `disk: USB disk (bulk-only)`, and the disk is then
+`DL = 0x80`, booting and served by `INT 13h` as above with READ(10) and
+WRITE(10), up to 128 sectors a call, straight to and from the caller's
+buffer. `AH = 0x48` names it as host bus `PCI` with the controller's
+bus, device and function, and interface `USB` with the device's address
+as the device path. Each command waits for its transfer events with
+interrupts off, on a 512-byte stack of its own in the EBDA's first page
+(`0x92D00`–`0x92EFF`); the controller state it needs is copied to
+`0x92F80`–`0x92FFF` when the bus has been listed. A command that stalls
+an endpoint fails, and the endpoint is not recovered, so the disk then
+stays failed. As for NVMe, the `INT 13h` calls are served from real
+mode only.
+
+**CD-ROM (El Torito).** The firmware looks for ATAPI devices on the
+primary and secondary IDE channels, master before slave (QEMU's
+`-cdrom` is the secondary master). For each one it reads block 17 (2048
+bytes) for the Boot Record Volume Descriptor (`CD001`, `EL TORITO
+SPECIFICATION`), then the boot catalog it names: a validation entry
+(header `01h`, key `55h AAh`, words summing to 0) and a default entry
+that must be bootable (`88h`) with media type 0, no emulation. The
+image's sector count (512-byte units) is loaded at its load segment
+(`0` means `0x07C0`), in whole 2048-byte blocks, which must lie between
+`0x7C00` and `0xA0000`. The firmware prints `booting from CD-ROM (El
+Torito, no emulation)` and enters it at load segment:0 with
+`DL = 0xE0`. A unit that cannot boot gets one `cd:` line with the reason
+(no disc or a read error, no boot record, a bad catalog, not bootable,
+an emulation image, or a load out of range), and the hard disk failure
+is then reported as before.
+
+| `INT 13h`, `DL = 0xE0` (after a CD boot) | Result |
+|------|--------|
+| `AH = 0x00` | CF clear, `AH = 0`. |
+| `AH = 0x41` | With `BX = 0x55AA`: CF clear, `BX = 0xAA55`, `AH = 0x30`, `CX = 0x0001`. |
+| `AH = 0x42` | Read, packet as for a hard disk but in 2048-byte blocks: count 1–32, LBA upper dword 0, buffer below `0xA0000`. CF set and `AH = 0x04` if the drive fails (each command is tried 3 times). |
+| `AH = 0x48` | Buffer of `0x1A` or more: total blocks (READ CAPACITY), 2048 bytes per block, no CHS (flags 0); with `0x1E`, DPTE `FFFF:FFFF`. |
+| `AH = 0x4B`, `AL = 0x00` / `0x01` | The 19-byte specification packet to `DS:SI`: size `0x13`, media 0 (no emulation), drive `0xE0`, controller 0 primary / 1 secondary, image block, device 0 master / 1 slave, load segment, sector count. Terminating changes nothing, since nothing is emulated. |
+
+Any other `AH` on `DL = 0xE0` returns CF set and `AH = 0x01`. Before a
+CD boot `DL = 0xE0` is not a drive. The firmware keeps the CD's port,
+unit, image block, load segment and sector count at `0x04F0`–`0x04FA`.
+
+**Diskettes.** Drives come from CMOS register `0x10` (high nibble A:,
+low nibble B:); the BDA equipment word gets bit 0 and bits 6–7 to match.
+Before any hard disk, the firmware reads cylinder 0, head 0, sector 1 of
+A: to `0x7C00`. With the `0xAA55` signature it prints
+`booting from floppy A:` and hands off with `DL = 0x00`; without it, it
+prints `floppy: boot sector has no 0xAA55 signature, trying the hard
+disk` and goes on to the ATA boot. An empty drive is skipped quietly.
+Media is 1.44 MB (80 cylinders, 2 heads, 18 sectors). Transfers use
+ISA DMA channel 2 with IRQ 6 left masked. `INT 1Eh` points at an
+11-byte diskette parameter table in the ROM.
+
+| Call (`DL = 0x00` or `0x01`) | Result |
+|------|--------|
+| `AH = 0x00` | Reset the controller. CF clear, `AH = 0`. |
+| `AH = 0x02` / `0x03` | Read / write `AL` sectors at `CH`/`DH`/`CL` (sector 1–18) to / from `ES:BX`, continuing onto the next head and cylinder. `AL` = sectors done. CF clear and `AH = 0` on success; otherwise CF set and `AH` = `0x01` (bad call), `0x03` (write-protected), `0x04` (sector not found), `0x09` (a sector's buffer crosses a 64 KB physical boundary), `0x10` (CRC), `0x20` (controller), `0x40` (seek) or `0x80` (timeout, e.g. no media). Each sector is tried twice, with a reset in between. |
+| `AH = 0x08` | `BL` = CMOS drive type, `CH = 79`, `CL = 18`, `DH = 1`, `DL` = number of diskette drives, `ES:DI` = the parameter table. CF clear, `AX = 0`. A drive CMOS does not report: CF set, `AH = 0x07`. |
+| `AH = 0x15` | `AH = 1` (diskette, no change line) for a drive CMOS reports, `0` otherwise. CF clear. |
+
+The last diskette status is kept at `0x0441`. Other `AH`, or a drive CMOS
+does not report, returns CF set and `AH = 0x01`.
+
+**PCI.** At POST the firmware walks bus 0 through configuration
+mechanism #1 (`0xCF8`/`0xCFC`); bridges are not followed yet. Every
+memory BAR gets an address from `0xE0000000` up and every I/O BAR a port
+from `0xC000` up, each aligned to its size; 64-bit BARs go below 4 GB.
+Memory and I/O decoding are turned on for the functions that got one;
+expansion ROM BARs stay off. On i440fx the PIIX3 (00:01.0) routes PIRQA–D
+to IRQ 10, 10, 11, 11, level-triggered in the ELCR, and each function's
+Interrupt Line holds the IRQ its pin reaches (device `d`, INTx: PIRQ
+`(d − 1 + x − 1) mod 4`). Without a PIIX3 (q35) Interrupt Line is
+`0xFF`. A `$PIR` table for the PIIX3 sits on a 16-byte boundary in
+`0xF0000`–`0xFFFFF`.
+
+| PCI BIOS call (`INT 1Ah`) | Result |
+|------|--------|
+| `AX = 0xB101` | Installation check: `AH = 0`, `AL = 0x01` (mechanism #1), `BX = 0x0210` (2.10), `CL = 0` (last bus), `EDX = 'PCI '`. CF clear. |
+| `AX = 0xB102` | Find device `CX` (device ID) of vendor `DX`, the `SI`'th match from 0: `BH` = bus, `BL` = device << 3 \| function. |
+| `AX = 0xB103` | Find class code `ECX` bits 23–0, the `SI`'th match: `BH`, `BL` as above. |
+| `AX = 0xB108` / `0xB109` / `0xB10A` | Read the configuration byte / word / dword at register `DI` of `BH`/`BL` into `CL` / `CX` / `ECX`. |
+| `AX = 0xB10B` / `0xB10C` / `0xB10D` | Write `CL` / `CX` / `ECX` there. |
+
+CF clear and `AH = 0` on success. Otherwise CF set and `AH` = `0x81`
+(function not supported, including `0xB106`, `0xB10E`, `0xB10F`),
+`0x83` (vendor `0xFFFF`), `0x86` (device not found) or `0x87` (register
+above `0xFF`, or not aligned to the access size). There is no BIOS32
+(`_32_`) protected-mode entry.
+
+At POST the firmware selects each unit and sends `IDENTIFY DEVICE`, so
+presence is judged from the status that command produces, not from
+whatever an earlier transfer or the other unit left behind. A unit is
+present when it returns its 512 identify bytes; an ATAPI device aborts
+the command and leaves `14h EBh`, and is reported as such. The result is
+kept at `0x04FB` (bit 0 master, bit 1 slave) and the BDA hard-disk count
+at `0x0475` is set from it. `AH = 0x08` on a unit that did not answer
+returns CF set and `AH = 0x07`.
 
 Before the jump the firmware fills the real-mode IVT. The vectors for
-`INT 10h`, `INT 13h` and `INT 15h` point at those services in the ROM
-(`0xF000`, where this 64 KB image is mapped). Every other vector is an
-`iret` that does not change flags, so a stray timer tick cannot flip CF.
-Both PICs are masked.
+`INT 08h` (IRQ0), `INT 09h` (IRQ1), `INT 10h`, `INT 13h`, `INT 15h`,
+`INT 16h` and `INT 1Ah` point at those services in the ROM, and `INT 1Eh`
+at the diskette parameter table (`0xF000`,
+where this 64 KB image is mapped). Every other vector is an `iret` that
+does not change flags, so a stray IRQ cannot flip CF. `IF` stays clear;
+IRQ0 and IRQ1 are unmasked on the PIC so a later `STI` receives timer
+and keyboard IRQs. The i8042 command byte has XLAT set so the guest sees
+set-1 scancodes.
 
-`INT 15h` `E820` is the same on every path:
+`INT 15h` on every path:
 
 | Call | Result |
 |------|--------|
 | `INT 15h`, `EAX = 0xE820`, `EDX = 'SMAP'`, `ECX >= 20`, `EBX` an entry index | CF clear, `EAX = 'SMAP'`, `ECX = 20`, that SQMM entry copied to `ES:DI`. `EBX` is the next index, or 0 after the last entry |
+| `INT 15h`, `AX = 0x2400` | Disable A20 (port `0x92` bit 1 clear). CF clear, `AH = 0`. |
+| `INT 15h`, `AX = 0x2401` | Enable A20 (same path as hand-off). CF clear, `AH = 0`. |
+| `INT 15h`, `AX = 0x2402` | Query A20: `AL = 1` if port `0x92` bit 1 set, else `0`. CF clear, `AH = 0`. |
+| `INT 15h`, `AX = 0x2403` | A20 support: `BX` bit 1 set (port `0x92`). CF clear, `AH = 0`. |
+| `INT 15h`, `AH = 0xC2` | The pointing device interface, on a USB mouse kept after POST. `AL = 0x00` enable (`BH = 1`, a handler must be set) or disable (`BH = 0`); `0x01` reset: disabled, rate 100, resolution 2, scaling 1:1, `BX = 0x00AA`; `0x02` sample rate (`BH = 0`–`6`: 10, 20, 40, 60, 80, 100, 200); `0x03` resolution (`BH = 0`–`3`); `0x04` device type, `BH = 0`; `0x05` initialize, `BH` = packet size 1–8, then as reset; `0x06` with `BH = 0` status (`BL` bit 5 enabled, bit 4 scaling 2:1, bit 2 left button, bit 0 right button; `CL` resolution, `DL` sample rate), `BH = 1` / `2` scaling 1:1 / 2:1; `0x07` handler `ES:BX` (`0:0` removes it). Rate, resolution and scaling are kept and reported but do not change the reports. CF clear and `AH = 0` on success; CF set and `AH = 1` (bad function), `2` (bad input), `3` (no USB mouse), `5` (enable without a handler) |
 | Any other `INT 15h` | CF set. No register changes |
 
 That `E820` data is the memory map already built at `0x0500`, one entry
@@ -191,13 +488,115 @@ with `INT 10h` `AH = 0x0E`.
 |--------|-------|
 | COM1 (`0x3F8`) | 115200 8N1, FIFOs on, UART interrupts off |
 | CMOS / RTC (`0x70`/`0x71`) | Index `0x0D` (status register D), NMI enabled (bit 7 of `0x70` clear). The firmware masks NMI only while it reads a register. |
-| 8259 PICs (`0x20`, `0xA0`) | Both masks are `0xFF` (every IRQ masked). The OS programs them itself. |
+| 8259 PICs (`0x20`, `0xA0`) | IBM PC AT layout: master IRQs at `INT 08h`–`0Fh`, slave at `INT 70h`–`77h`, slave on IRQ2. Master mask `0xFC` (IRQ0 and IRQ1 open); slave mask `0xFF`. |
+| 8253/8254 PIT | Channel 0 mode 3, divisor 65536 (~18.2 Hz). IRQ0 increments `0x046C`. |
+| i8042 keyboard (`0x60`/`0x64`) | Command byte `0x65` (IRQ1 + SYS + XLAT). IRQ1 enqueues set-1 make codes into the BDA ring buffer. |
+| Local APIC | Virtual-wire mode when CPUID reports an APIC: spurious vector enabled, LVT0 = ExtINT, LVT1 = NMI, so the 8259 delivers IRQs on QEMU's default CPU. |
 | Primary ATA channel | Idle. `nIEN` is set if a retry or an `INT 13h` reset touched the channel. |
-| VGA | 80x25 colour text at `0xB8000` (the standard 720x400 text timings, 9x16 cells), CRTC at `0x3D4`. The font in plane 2 is the firmware's own 8x16 font (printable ASCII; other codes are blank). The DAC holds the 16 usual text colours. The firmware's messages are on screen in light grey on black, red for errors. The teletype cursor starts at the top left (`0x0450` is 0, 0) and the CRTC cursor follows it. |
+| VGA | 80x25 colour text at `0xB8000` (the standard 720x400 text timings, 9x16 cells), CRTC at `0x3D4`. The font in plane 2 is the firmware's own 8x16 font (printable ASCII; other codes are blank). The DAC holds the 16 usual text colours. The firmware's messages are on screen in light grey on black, red for errors. The teletype cursor starts at the top left and the CRTC cursor follows it. |
 
-Do not assume: BIOS interrupt services other than the three above, A20
-state (enabled on QEMU, but the firmware does not touch it), or VGA
-graphics modes and a VGA BIOS (no option ROM is run).
+### ACPI
+
+Minimal ACPI 1.0 tables live in the BIOS ROM (mapped at `0xF0000`):
+
+| Physical | Table |
+|----------|-------|
+| `0xFE000` | RSDP (`"RSD PTR "`, revision 0, 20 bytes). OEMID `SQRRL `. |
+| `0xFE020` | RSDT (one entry). |
+| `0xFE050` | FADT (`FACP`, length 116). `DSDT` = `0xFE0D0`; no FACS; PM blocks are zero. |
+| `0xFE0D0` | DSDT (36 bytes): a header with no AML objects. |
+
+The RSDP checksum (sum of the 20 bytes is 0) and each SDT checksum are
+valid. Linux loads its ACPI namespace from the DSDT the FADT names and
+faults when there is none, so the DSDT is always present, even empty.
+With the PM blocks still zero, Linux reports that it cannot start the
+ACPI interpreter and carries on without it. Find the RSDP by scanning `0xE0000`–`0xFFFFF` on a 16-byte stride
+(the usual BIOS search). No UEFI. No XSDT.
+
+### SMBIOS
+
+A SMBIOS 2.4 entry point sits in the BIOS ROM:
+
+| Physical | Content |
+|----------|---------|
+| `0xFD000` | Entry point (`_SM_` / `_DMI_`), length `0x1F`. |
+| `0xFD020` | Structure table: Type 0 (BIOS), Type 1 (System), Type 127 (end). |
+
+Both EPS checksums are valid. Find the entry point by scanning
+`0xF0000`–`0xFFFFF` on a 16-byte stride for `_SM_`.
+
+### Linux bzImage
+
+When sector 0 has `0xAA55`, no `SQBL` header, and offset `0x202` is
+`HdrS`, the firmware treats the disk as a bzImage:
+
+1. `setup_sects` at `0x1F1` (0 means 4) and `syssize` at `0x1F4`
+   (16-byte units) size the protected-mode image. Its size is limited
+   only by the usable memory-map entry at `0x100000`; an image that does
+   not fit is refused before anything is read.
+2. That image is read from LBA `setup_sects+1` to linear `0x100000` in
+   64-sector pieces through a bounce buffer at `0x8000` (ATA PIO stays
+   below 1 MB), so kernels of any size that fits load whole.
+3. boot_params (the "zero page") at `0x90000` is zeroed, then gets the
+   image's setup header (`0x1F1` up to `0x202` + the byte at `0x201`) and:
+
+   | Offset | Field | Value |
+   |---|---|---|
+   | `0x1E0` | `alt_mem_k` | KB of RAM from 1 MB (the memory-map entry there) |
+   | `0x1E8` | `e820_entries` | number of SQMM entries (at most 128) |
+   | `0x210` | `type_of_loader` | `0xFF` (undefined loader, per the boot protocol) |
+   | `0x214` | `code32_start` | from the image, or `0x100000` if it is zero |
+   | `0x218`, `0x21C` | `ramdisk_image`, `ramdisk_size` | 0 (no initrd) |
+   | `0x228` | `cmd_line_ptr` | `0x91000`: `console=ttyS0,115200` |
+   | `0x2D0` | `e820_table` | the SQMM entries, which already use the E820 layout |
+
+4. The CPU enters 32-bit protected mode with a flat GDT that has
+   `__BOOT_CS` at `0x10` and `__BOOT_DS` at `0x18`: `CS = 0x10`,
+   `DS = ES = FS = GS = SS = 0x18`, `ESI = 0x90000`, `EBX = EBP = EDI =
+   0`, `ESP = 0x90000`, interrupts off, `DF` clear. Control jumps to
+   `code32_start`.
+
+`SQBL` and `S2OK` are checked before `HdrS`. No initrd yet. Linux's
+own 32-bit boot protocol (`Documentation/arch/x86/boot.rst`) is the
+specification followed here.
+
+### Option ROMs
+
+Before the hand-off the firmware scans `0xD0000`–`0xEFFFF` on 2 KB
+strides (VGA at `0xC0000` is left alone). A ROM with bytes `55 AA`, a
+non-zero size byte (512-byte units, at most 64 KB), and a checksum of 0
+over that span is initialised with a far call to offset 3. Bad
+signatures or checksums are skipped. The size byte advances the scan.
+
+### BIOS data area
+
+Filled after the memory map and VGA init, before the banner. Absolute
+addresses (segment 0):
+
+| Address | Size | Value |
+|---------|------|-------|
+| `0x0410` | word | Equipment list `0x0220`: 80x25 colour (bits 4–5 = `10`), one serial port (bits 9–11 = 1). No floppies or parallel ports. |
+| `0x040E` | word | Segment of the extended BIOS data area: `0x9200`. The 56 KB EBDA at `0x92000`–`0x9FFFF` is the firmware's; its first byte is its size in KB (`56`). Its first 4 KB hold firmware data; the four 4 KB pages after it are kept for disk controller queues (NVMe or virtio), and the last nine for the USB controller that keeps a keyboard, mouse or disk running after POST. The AHCI driver keeps its state and DMA structures there. |
+| `0x0413` | word | Conventional memory size in KB: `584` (`0x00000`–`0x91FFF`, matching the SQMM usable entry). |
+| `0x0450` | 2 bytes | Page-0 cursor: column then row. Starts at `(0, 0)`; `INT 10h` `AH=0x0E` keeps both inside 80x25. |
+| `0x046C` | dword | Timer ticks since midnight. IRQ0 (`INT 08h`) increments it; wraps at `0x1800B0` (~24 h at 18.2 Hz) and sets `0x0470` to 1. Starts at 0. |
+| `0x0470` | byte | 24-hour rollover flag for the tick count. Starts at 0. |
+| `0x041A` | word | Keyboard buffer head (offset; starts at `0x041E`). |
+| `0x041C` | word | Keyboard buffer tail (offset; starts at `0x041E`). |
+| `0x041E`–`0x043D` | 16 words | Keyboard ring: low byte ASCII, high byte set-1 make scancode. |
+
+Other BDA bytes are not filled by this firmware yet.
+
+### A20
+
+Before the hand-off jump the firmware enables the A20 gate through the
+fast gate at port `0x92` (set bit 1, leave the reset bit clear). QEMU
+honours that port. The line stays enabled across the jump. `INT 15h`
+`AX = 0x2400`/`0x2401`/`0x2402`/`0x2403` control and query that same gate.
+
+Do not assume: BIOS interrupt services other than those listed above, or
+VGA graphics modes. Legacy option ROMs in `0xD0000`–`0xEFFFF` are scanned
+and initialised; the VGA ROM at `0xC0000` is not.
 
 ### Memory map
 
@@ -217,7 +616,8 @@ Each entry uses the E820 layout: 64-bit base, 64-bit length, 32-bit type
 
 | Range | Type | Present |
 |-------|------|---------|
-| `0x00000000`–`0x0009FFFF` | usable | always |
+| `0x00000000`–`0x00091FFF` | usable | always |
+| `0x00092000`–`0x0009FFFF` | reserved (EBDA) | always |
 | `0x000A0000`–`0x000FFFFF` | reserved (VGA window, ROMs) | always |
 | `0x00100000`–top of low RAM | usable | when RAM > 1 MB |
 | `0xFEC00000`–`0xFFFFFFFF` | reserved (IOAPIC, LAPIC, firmware) | always |
@@ -238,26 +638,34 @@ registers on COM1 (and the VGA text buffer), then halts:
 
 | Message | Meaning |
 |---------|---------|
-| `no drive on primary master` | Floating bus or nothing answered as master. Not retried. |
-| `primary master is ATAPI (CD/DVD), not supported` | ATAPI signature found. Not retried. |
+| `no drive on primary master` | Floating bus, or nothing answered as master (before a slave retry). Not retried on that unit. |
+| `no drive on primary slave` | Nothing answered as slave after the master was absent (also the final line when both units are empty). Not retried. |
+| `primary master is ATAPI (CD/DVD), not a hard disk` | ATAPI signature found on the master. Not retried; the slave is not tried. The CD boot is tried first (see El Torito). |
+| `primary slave is ATAPI (CD/DVD), not a hard disk` | ATAPI signature found on the slave. Not retried. The CD boot is tried first. |
 | `timeout waiting for drive` | `BSY` never cleared or the expected bit never came up |
 | `read of LBA 0 failed` | Drive set `ERR`/`DF`, or the transfer ended in a bad state |
 | `boot sector has no 0xAA55 signature` | The read was clean but the last word of the sector is not `0xAA55`. Not retried, and no status or error registers are printed. |
 | `load overlaps firmware data` | The SQBL load would touch the memory map page or the boot sector. Nothing is read. No registers printed. |
-| `load address is out of range` | The SQBL count is not 1–128, the load address is not below `0xA0000`, or the load runs past it. Nothing is read. No registers printed. |
+| `load address is out of range` | The SQBL count is not 1–128, the load address is not below the EBDA (`0x92000`), or the load runs past it. Nothing is read. No registers printed. |
 | `read of the extra sectors failed` | As `read of LBA 0 failed`, for the SQBL sectors. Retried like the first read. |
 | `read of the kernel image failed` | As `read of LBA 0 failed`, for the `S2OK` sectors after the signature probe. Retried like the first read. |
+| `bzImage header is invalid` | `syssize` is 0. No registers printed. |
+| `bzImage does not fit in RAM` | The protected-mode kernel would not fit in the usable RAM at 1 MB. Nothing is read. No registers printed. |
+| `read of the bzImage failed` | As `read of LBA 0 failed`, for the bzImage. Retried like the first read. |
 | `kernel image has no S2OK signature` | The signature was present in the probe and absent after the load. Not retried, and no status or error registers are printed. |
 
 ### How to test
 
 `make test` runs `x86-boot`, `x86-no-drive`, `x86-mem-low`,
 `x86-mem-high`, `x86-atapi`, `x86-bad-sector`, `x86-extra`,
-`x86-extra-map`, `x86-extra-boot`, `x86-extra-range`, `x86-osload`
-and `x86-int13`. In `x86-boot` the boot sector checks
+`x86-extra-map`, `x86-extra-boot`, `x86-extra-range`, `x86-osload`,
+`x86-int13`, `x86-bda`, `x86-a20`, `x86-pit`, `x86-kbd`, `x86-time`,
+`x86-vid`, `x86-write`, `x86-int15a20`, `x86-slave`, `x86-acpi`,
+`x86-smbios`, `x86-bzimage`, `x86-bzimage-big`, `x86-bzimage-toobig`,
+`x86-slave-absent`, `x86-params-slave` and `x86-optrom`. In `x86-boot` the boot sector checks
 `DL`, that `IF` and `DF` are clear, and that the memory map has the
-magic, 20-byte entries, ends by `0x0600`, contains the conventional and
-both reserved regions above exactly, requires an entry at `0x00100000`
+magic, 20-byte entries, ends by `0x0600`, contains the conventional,
+EBDA and the other two reserved regions above exactly, requires an entry at `0x00100000`
 to be usable when one is present (its length is not checked), and is
 sorted without overlaps. Its
 SQBL header loads a second sector, which reads the VGA registers and
@@ -293,6 +701,24 @@ the firmware enters `0x7C00`. That sector performs the same three
 `AH = 0x08`, one `AH = 0x02` sector, and `AH = 0x00`, and checks that
 `INT 10h` `AH = 0x0E` wrote the cells it asked for. It prints
 `via-boot-sector` and `int13=ok tty=ok`.
+`x86-bda` checks the equipment word, the conventional KB, and that the
+cursor at `0x0450` is still inside 80x25 after the banner, and prints
+`bda=ok`.
+`x86-a20` writes at `0x500000`, checks that `0x100500` and `0x000500`
+are independent (A20 open), and prints `a20=ok`.
+`x86-pit` finds `IF` clear, `STI`s until `0x046C` advances, `CLI`s, and
+prints `pit=ok` only when `IF` is clear again.
+`x86-kbd` (via `tests/x86-kbd-run.sh`) injects `a` through QMP after
+`OS-ENTRY`, checks `INT 16h` `AH=0x01`/`0x00` for ASCII `a` and scancode
+`0x1E`, refuses an unknown `AH` with CF set, and prints `kbd=ok`.
+`x86-time` waits for a non-zero `INT 1Ah` `AH=0x00` tick count, checks
+`AH=0x02` BCD time fields, and prints `time=ok`.
+`x86-vid` exercises `INT 10h` set/get cursor, get mode, teletype, and
+scroll, and prints `vid=ok`.
+`x86-write` writes LBA 1 with `AH=0x43` and LBA 2 with `AH=0x03`, reads
+them back, and prints `write=ok`.
+`x86-int15a20` toggles A20 with `AX=2400`/`2401`/`2402`, checks
+`AX=2403`, confirms E820, and prints `int15a20=ok`.
 
 A Squirrel-OS/2 hard-disk image is not part of `make test`. Build
 `os.img` in that repo and run `tests/os-boot.sh path/to/os.img` (or
@@ -503,7 +929,7 @@ M-mode entry gets the tree as QEMU wrote it.
 
 | Item | State |
 |------|-------|
-| NS16550A (`0x10000000`) | 115200 8N1 (divisor 2 from `virt`'s 3.6864 MHz UART clock), FIFOs on, interrupts off |
+| UART | From the device tree: `ns16550a` / `snps,dw-apb-uart` (16550-family; on `virt`, `0x10000000`, 115200 8N1, FIFOs on, interrupts off) or `sifive,uart0` (FU540/FU740 / QEMU `sifive_u` at `0x10010000`: `txdata`/`rxdata`/`txctrl`/`rxctrl`/`div`; `CONFIG_UART_KIND=1` on HiFive Unmatched). What the tree does not name keeps the build's `CONFIG_UART_BASE` / `CONFIG_UART_KIND`. |
 | Other harts | Parked in `wfi` in M-mode, with `mstatus.MIE = 0` and only `mie.MSIE` set, until `sbi_hart_start` (below). The firmware tracks hart IDs 0 to 511 (QEMU `virt`'s limit, across all sockets), so harts in every socket can be started, each through its own socket's CLINT (below); higher IDs are never started. |
 | CLINT | One per socket. With `-numa`, QEMU makes each NUMA node a socket whose CLINT is `0x10000` above the previous one, with slots counted from the socket's lowest hart ID; the boot hart reads each `cpu` node's `reg` and `numa-node-id` and uses the right CLINT for every hart (up to 8 sockets). A hart's `mtimecmp` is written only by `sbi_set_timer` and the firmware's timer interrupt. A parked hart's `msip` is written by `sbi_hart_start`. `mtime` runs at 10 MHz (the device tree's `timebase-frequency`). |
 | PLIC | Not touched |
@@ -535,13 +961,16 @@ ras: hart=<16 hex> mcause=<16 hex> mepc=<16 hex> mtval=<16 hex> fatal
 
 (all hex lowercase, no `0x`), then parks every other started hart with a
 CLINT software interrupt so those harts leave S-mode and sit in `wfi`,
-then prints `boot halted` and halts. With the delegation above, an
-S-mode image only gets there through a firmware bug (or the smoke-only
-`ecall` with `a7 = 0x53515241` (`"SQRA"`), which is not an SBI extension
-and is not reported by `probe_extension`: it loads from address 0 in
-M-mode so `make test` can exercise this path). An image entered in
-M-mode installs its own `mtvec` before it relies on traps (an M-mode
-`ecall` is cause `000000000000000b`).
+then prints `boot halted` and shuts the machine down through the same
+path as `sbi_system_reset` with type shutdown and reason system failure
+(QEMU's test finisher, exit status 1). A short wait after the park lets
+those harts leave S-mode before the finisher stops the machine. With the
+delegation above, an S-mode image only gets there through a firmware bug
+(or the smoke-only `ecall` with `a7 = 0x53515241` (`"SQRA"`), which is
+not an SBI extension and is not reported by `probe_extension`: it loads
+from address 0 in M-mode so `make test` can exercise this path). An image
+entered in M-mode installs its own `mtvec` before it relies on traps (an
+M-mode `ecall` is cause `000000000000000b`).
 
 ### SBI
 
@@ -554,7 +983,7 @@ function returns `SBI_ERR_NOT_SUPPORTED` (`-2`).
 
 | Item | Value |
 |------|-------|
-| Spec version | `0x01000000` (SBI 1.0) |
+| Spec version | `0x02000000` (SBI 2.0; Linux probes DBCN only from 2.0) |
 | Implementation ID | `0x5351` (`"SQ"`, SquirrelBIOS). Not registered with RISC-V International. |
 | Implementation version | `1` |
 
@@ -566,6 +995,8 @@ function returns `SBI_ERR_NOT_SUPPORTED` (`-2`).
 | RFENCE | `0x52464E43` | `remote_fence_i` (0), `remote_sfence_vma` (1), `remote_sfence_vma_asid` (2) |
 | HSM | `0x48534D` | `hart_start` (0), `hart_stop` (1), `hart_get_status` (2) |
 | SRST | `0x53525354` | `system_reset` (0) |
+| DBCN | `0x4442434E` | `console_write` (0), `console_read` (1), `console_write_byte` (2): on the UART; `a0` = bytes, `a1`/`a2` = physical address low/high (high must be 0, and the buffer must not touch the firmware's 2 MB), returns the bytes done in `a1` |
+| SSE | `0x535345` | SBI 3.0 supervisor software events, functions 0-9 (`read_attrs` ... `hart_mask`), for one event: the software-injected local event `0xFFFF0000` (other IDs: `SBI_ERR_NOT_SUPPORTED`). Events start masked on each hart; an enabled, pending, unmasked event is taken on the way back to S-mode after an SSE call or an IPI. Attribute buffers: 8-byte aligned, `a4` = 0, value *i* at 8 × *i*, clear of the firmware. `complete` returns no `sbiret`: `a0`/`a1` stay as the handler left them |
 
 `set_timer(a0)`, on a hart with Sstc (`menvcfg.STCE` set, as on QEMU's
 default CPU), writes the absolute time `a0` to `stimecmp`: the
@@ -720,9 +1151,10 @@ same with a cold reboot under `-no-reboot`, status 0), `riscv-srst-fail`
 (a shutdown for a system failure, status 1), `riscv-ras` (with `-smp 2`,
 hart 0 starts hart 1, then `ecall`s `a7 = 0x53515241` so the SBI path
 faults: the log has `hart1=up`, a `ras: hart=... mcause=0000000000000005
-... mtval=0000000000000000 fatal` line, and `boot halted`, and must not
-show `hart1=still`, which hart 1 would print after two seconds if it were
-still running) and `riscv-no-kernel`. By hand:
+... mtval=0000000000000000 fatal` line, and `boot halted`, must not show
+`hart1=still`, which hart 1 would print after 100 ms if it were still
+running, and QEMU must exit with status 1 from the system-failure
+shutdown) and `riscv-no-kernel`. By hand:
 
 ```bash
 make riscv
@@ -733,3 +1165,61 @@ Expect `SquirrelBIOS RISC-V`, then `jumping to kernel at
 0x0000000080200000, next_mode=1`, then whatever the image prints. For a
 Linux kernel, see "Trying Linux" in `riscv/README.md`.
 `tests/riscv-kernel.S` is a minimal image.
+
+## x86_64 UEFI (`PLATFORM=x86_64-uefi`)
+
+The UEFI-class build keeps serving after the OS calls
+`ExitBootServices` (runtime services pages). Phase G capsule plumbing:
+
+- The EFI System Resource Table is a configuration table (UEFI 2.10
+  §4.6): one system-firmware resource, `FwVersion` from `SQ_VERSION`.
+- `UpdateCapsule` / `QueryCapsuleCapabilities` (UEFI 2.10 §8.5.3)
+  accept the project system-firmware capsule GUID and update ESRT
+  `LastAttempt*`. Persist-across-reset needs a scatter-gather list;
+  `CAPSULE_FLAGS_INITIATE_RESET` warm-resets.
+- Signed SQCP capsules verify against fw_cfg
+  `opt/org.squirrelworks/capsule-db`. Apply updates `LastAttempt*`
+  without flash rewrite; PersistAcrossReset stages `SqCapsuleStaging`;
+  fw_cfg `opt/org.squirrelworks/capsule` applies pending at init.
+- `OsIndicationsSupported` advertises file-capsule delivery.
+
+Details: [x86_64/README.md](../x86_64/README.md),
+`release-notes/capsule-esrt.md`,
+`release-notes/capsule-signed-apply.md`. Smoke: `x86_64-capsule`,
+`x86_64-capsule-signed`, `x86_64-capsule-fwcfg`.
+
+## POWER (QEMU powernv9 / powernv10)
+
+Roadmap E1, `PLATFORM=ppc64le-powernv`; details in
+[ppc64/README.md](../ppc64/README.md).
+
+| | |
+|---|---|
+| Image source | an ELF64 (either byte order) that `-kernel` put at `0x20000000`; segments with a `p_paddr` are copied there, an image with `p_paddr` 0 (Linux `vmlinux`) runs in place |
+| Entry | `e_entry`, big-endian, hypervisor real mode: `MSR` `SF`, `HV`, `ME` set, `IR`, `DR`, `EE`, `LE` clear |
+| Boot argument | `r3` = device tree, `r4` = in-place load address or 0, `r5` = 0, `r8`/`r9` = OPAL base / entry |
+| Memory description | Device tree `/memory`; the firmware's 4 MB at `0x30000000` is in the reserve map |
+| Console | 16550 at LPC I/O `0x3F8`, 115200 8N1, also `OPAL_CONSOLE_WRITE` terminal 0 |
+| Interrupts | `MSR[EE]` = 0; the firmware installs nothing the OS must keep |
+| CPUs running | The boot thread; the others are parked until `OPAL_START_CPU` (then `r3` = PIR) |
+| Firmware services | OPAL-style calls at `opal-entry-address`: console, RTC, power down / reboot, start / query / return CPU, check token |
+
+The OS must not assume anything below `0x30000000` other than its own
+image and the initrd survives from the firmware, and must not write the
+firmware's region while it uses the OPAL calls.
+
+## SPARC (QEMU sun4u)
+
+Roadmap E2, `PLATFORM=sparc64-sun4u`; details in
+[sparc64/README.md](../sparc64/README.md).
+
+| | |
+|---|---|
+| Image source | `-kernel`, loaded by QEMU at its ELF addresses (Linux: `0x404000`); address and size from fw_cfg |
+| Entry | the kernel's entry, TL 0, privileged, interrupts off, MMUs on: RAM below 32 MB 1:1 and the firmware at `0xf0000000`, in locked 4 MB TLB entries listed in `/virtual-memory` `translations` |
+| Boot argument | `%o4` = IEEE 1275-style client interface handler, `%o0`/`%o1` = initrd address / size |
+| Memory description | `/memory` `reg` and `available`, through the client interface |
+| Console | 16550 at `0x1fe020003f8` (EBus), also `/chosen` `stdout` |
+| Interrupts | `PSTATE.IE` = 0; the firmware's trap table handles window spills and fills until the OS sets its own (`SUNW,set-trap-table`) |
+| CPUs running | The boot CPU only |
+| Firmware services | the client interface: device tree, console, MMU translate / TLB load, claim / release, milliseconds, exit |

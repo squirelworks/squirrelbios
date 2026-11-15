@@ -4,15 +4,21 @@ The laundry list for [ROADMAP.md](ROADMAP.md). One checkbox is one PR,
 branched from `main` and merged to `main` before the next one starts.
 Stacked PRs are not used.
 
-Work from the top. Finish a section before starting the next one. Inside
-a section, do items from the top and honour any `Depends on` line. The
-same PR updates `common/handoff.md` (and the architecture README, when
-the visible behaviour changes) and checks this box.
+Sections **1–7** are the hand-off era (**done in v0.3.0**). Sections
+**8–12** built **v1.0.0** (comprehensive x86 PC BIOS) and are done. Work
+from **section 13** (Phase A of the
+[post-1.0 roadmap](ROADMAP.md#beyond-v100-v11--v40)). Finish a
+section before starting the next one. Inside a section, do items from the
+top and honour any `Depends on` line. The same PR updates
+`common/handoff.md` (and the architecture README, when the visible
+behaviour changes) and checks this box.
 
 Acceptance always includes `make test` passing, plus the check written on
 the item. New images go in `tests/`, get a Makefile rule, and get a
 `run` line in `tests/smoke.sh`. Failure text matches the style already in
 the contract (`disk: ...` / `boot: ...`, then `boot halted`).
+
+## Hand-off era (done in v0.3.0)
 
 ## 1. Pin the contract in `make test`
 
@@ -171,13 +177,15 @@ These items are not part of `make test`'s acceptance unless they say so.
 
 - [x] `big-node-errors` — Report hardware faults instead of only halting.
   - Acceptance: a written plan in this file for where machine faults go (the console line format, and what the OS is told), before any code.
-  - **Plan** (RISC-V first; nothing below is built yet):
+  - **Plan** (RISC-V first; `riscv-ras-line` and `riscv-ras-shutdown` are built):
     - *What a fault is.* Today the only faults the firmware sees are traps that reach M-mode and are not an SBI call or the M-mode timer: an access fault in the SBI handler, an illegal instruction, or a trap on a hart that is not running an OS. Real servers also report corrected and uncorrected memory errors and bus errors through RAS error records (RISC-V RERI). QEMU 8.2 models none of those, so the first step works with traps only.
     - *The console line.* One line per fault, written before anything else happens, in the style of the existing messages:
       `ras: hart=<id> mcause=<16 hex> mepc=<16 hex> mtval=<16 hex> <what>`
       where `<what>` is `fatal` or `corrected`. A fatal fault is followed by `boot halted` on that hart. Unlike today, the other harts are not left running blind: the faulting hart sends them an IPI that parks them, and if the OS is up, the machine is shut down through the same path as SRST, with QEMU exit status 1 (a "system failure" shutdown), so a job scheduler sees a failed node and not a silent hang.
     - *What the OS is told.* SBI 1.0 has no error-reporting call, so nothing yet. The SBI 2.0 Supervisor Software Events extension (SSE, `0x535345`) defines a RAS event that the firmware can raise into S-mode. Once there is a corrected-error source to report, implement SSE with that one event and advertise it from `probe_extension`. Until then an S-mode OS learns about a fatal fault only from the console and the exit status.
-    - *Items, in order:* `riscv-ras-line` (below), `riscv-ras-shutdown` (shut the machine down with status 1 after a fatal fault while an OS runs, `@exit=1` in `smoke.sh`), then `riscv-sse` once QEMU has an error source to inject. The later two stay in Speculative until the OS needs them.
+      - *Items, in order:* `riscv-ras-line` (below), `riscv-ras-shutdown` (below), then
+        `riscv-sse` once QEMU has an error source to inject (`riscv-sse` stays in Speculative
+        until the OS needs it).
 
 - [x] `riscv-ras-line` — Print a `ras:` fault line and park the other started harts.
   - Acceptance: a fatal trap that is not an SBI call or an M-mode timer/soft interrupt prints
@@ -188,9 +196,15 @@ These items are not part of `make test`'s acceptance unless they say so.
     M-mode and is not probed); the log has the `ras:` line with `mcause=0000000000000005` and
     `mtval=0000000000000000`, and does not show `hart1=still` (which hart 1 would print after
     two seconds if it kept running). The contract describes the line and the park. Depends on:
-    `big-node-errors`.
+    `big-node-errors`. *(Superseded for the exit path by `riscv-ras-shutdown`: the same case
+    now also expects `@exit=1`, and hart 1's still-print wait is 100 ms.)*
 
-UEFI and ACPI hand-off for servers stays out of scope; see the roadmap.
+- [x] `riscv-ras-shutdown` — Shut the machine down with status 1 after a fatal fault while an OS runs.
+  - Acceptance: after the `ras:` line, the park, and `boot halted`, the faulting hart writes
+    QEMU's test finisher the same way `sbi_system_reset` does for shutdown + system failure,
+    so QEMU exits with status 1. A short wait after the park (500 ms) lets an unparked hart
+    still print `hart1=still` before the exit. `riscv-ras` expects `@exit=1` as well as the
+    line and the park. The contract describes the shutdown. Depends on: `riscv-ras-line`.
 
 ## 7. Boot Squirrel-OS/2
 
@@ -206,23 +220,290 @@ of `make test`.
 - [x] `x86-int13` — Serve the disk and teletype calls the boot sector makes.
   - Acceptance: `INT 13h` `AH=0x42` reads by LBA, `AH=0x02` reads by the cylinder/head/sector geometry `AH=0x08` reports (16 heads, 63 sectors), and `AH=0x00` resets the primary master. Carry is set on a bad packet, a missing drive, or a failed read, and clear on success, with `AH` the usual status. `INT 10h` `AH=0x0E` writes a character to the VGA text buffer, including CR and LF. `INT 15h` `E820` is unchanged. The `S2OK` fast path is unchanged. A new `x86-int13` case has no SQBL header and no `S2OK` signature, so it is entered at `0x7C00`, issues the same three 64-sector extended reads the boot sector does, and expects `via-boot-sector` and `int13=ok tty=ok`. Depends on: `x86-os-image`.
 
-## Speculative
+## Path to v1.0.0 — x86 PC BIOS
 
-Not scheduled. These are ideas, not the laundry list above. Open a PR for
-one only when the OS needs it and the milestones above are done. It would
-still be a single PR from `main`, with a `make test` check and a contract
-update.
+Work from here. Original code only. Each item grows `common/handoff.md`
+so the IVT surface stays the contract.
 
-- `x86-a20` — Turn on A20 so a later load address can sit above 1 MB. A stand-in would read a byte above 1 MB and print `a20=ok`, and the extra-sector header could then name such an address.
-- `x86-bzimage` — Load a Linux `bzImage` (setup header, protected-mode entry) instead of the `SQBL` sector header. A tiny protected-mode stand-in would print `bz=ok` on COM1.
-- `x86-acpi` — Build ACPI tables the OS can find. A stand-in would check the RSDP checksum and print `acpi=ok`.
-- `x86-slave` — Boot from the primary slave when the master is absent. A case with the image on the slave would print `dl=ok`.
-- `arm-psci` — Implement PSCI in the firmware. QEMU virt already advertises PSCI and handles it. A stand-in `CPU_ON` of a second CPU would print `cpu1=ok` with QEMU's PSCI disabled.
-- `arm-gic` — Initialise the GIC and the generic timer. The OS already drives both from the device tree. A stand-in would receive a timer interrupt and print `irq=ok`.
-- `riscv-dbcn` — Add the SBI debug console extension. The device tree already names the NS16550A, which Linux can use. A stand-in `sbi_debug_console_write` would print `dbcn=ok`.
-- `riscv-dtb-devices` — Take the UART and CLINT addresses from the device tree instead of the QEMU virt constants. `riscv-boot` would still pass, and the addresses would no longer be immediate constants.
-- `riscv-boot-hart` — Now scheduled in section 6.
-- `riscv-sparse-harts` — Index the per-hart tables by a slot the firmware assigns, not by the raw hart ID, so a hart ID above `MAX_HARTS` still runs. Only for a board whose hart IDs have gaps; QEMU `virt` has none. A stand-in on such a machine would start every hart.
-- `riscv-ras-line` — Done in section 6.
-- `riscv-ras-shutdown`, `riscv-sse` — The remaining fault-reporting steps planned under `big-node-errors` in section 6.
-- `linux-image-in-tree` — Keep a built Linux image in the repo and boot it from `make test`. The stand-in images are the suite; a distro kernel is large and is not original code.
+## 8. x86 foundations (POST and A20)
+
+- [x] `x86-bda` — Fill the BIOS data area fields boot code reads.
+  - Acceptance: after `vga_init` and the memory map, the BDA at `0x400`
+    has equipment list, memory size (KB below 640 KB), and the cursor
+    fields already used by `INT 10h` consistent with 80x25. A stand-in
+    reads those words and prints `bda=ok`. `x86-boot` and `x86-int13`
+    still pass. The contract lists the fields.
+
+- [x] `x86-a20` — Turn on A20.
+  - Acceptance: A20 is enabled before the hand-off jump (keyboard
+    controller and/or port `0x92`, whichever this QEMU honours). A
+    stand-in writes a pattern at `0x500000` and checks it is not an alias
+    of `0x000500`, then prints `a20=ok`. `x86-boot` still passes.
+    Depends on: `x86-bda`.
+
+- [x] `x86-pit-pic` — Program the PIT and both PICs for a PC-compatible layout.
+  - Acceptance: PIT channel 0 runs at the classic ~18.2 Hz; PIC masks and
+    vector bases match the IBM PC AT layout (IRQ0 at vector 8). A
+    stand-in enables interrupts briefly, sees IRQ0 increment a BDA timer
+    tick location (or a firmware counter documented in the contract),
+    prints `pit=ok`, and leaves `IF` clear again on return to the
+    firmware path used by other tests. Depends on: `x86-bda`.
+
+## 9. x86 human interface and time
+
+- [x] `x86-int16` — Keyboard via `INT 16h`.
+  - Acceptance: `AH=0x00` / `0x01` (read / check keystroke) work with
+    QEMU's `-nographic` or a scripted device that injects a scan code.
+    A stand-in prints `kbd=ok` after seeing a known key. IRQ1 feeds the
+    buffer. Unknown `INT 16h` functions set carry. Depends on:
+    `x86-pit-pic`.
+
+- [x] `x86-int1a` — Time of day via `INT 1Ah`.
+  - Acceptance: `AH=0x00` returns ticks since midnight from the IRQ0
+    path; `AH=0x02` or `0x04` reads the RTC CMOS in the usual BCD form
+    (document which). A stand-in prints `time=ok`. Depends on:
+    `x86-pit-pic`. *(As built: `AH=0x02` reads RTC time in BCD.)*
+
+## 10. x86 richer disk and video
+
+- [x] `x86-int10-text` — Text-mode `INT 10h` beyond teletype.
+  - Acceptance: at least set/get cursor (`AH=0x02`/`0x03`), scroll
+    (`AH=0x06`/`0x07`), and get mode (`AH=0x0F`) for 80x25. A stand-in
+    prints `vid=ok`. `AH=0x0E` stays working. No VESA. Depends on:
+    `x86-bda`.
+
+- [x] `x86-int13-write` — Disk writes on the primary master.
+  - Acceptance: `AH=0x03` (CHS) and `AH=0x43` (extended) write sectors
+    that a later read returns. Carry and `AH` status match the read
+    path's style. A stand-in prints `write=ok`. Depends on: `x86-int13`
+    (done).
+
+- [x] `x86-int15-a20` — `INT 15h` A20 control.
+  - Acceptance: the usual A20 query/enable/disable functions (document
+    the exact `AX` values in the contract) match the gate from
+    `x86-a20`. A stand-in prints `int15a20=ok`. E820 unchanged.
+    Depends on: `x86-a20`.
+
+- [x] `x86-slave` — Boot from the primary slave when the master is absent.
+  - Acceptance: with the image only on the slave, the firmware loads it
+    and sets `DL` appropriately; a case prints `dl=ok`. Master-present
+    behaviour unchanged. Depends on: `x86-int13` (done).
+
+## 11. x86 system tables and high loaders
+
+- [x] `x86-acpi` — Build ACPI tables the OS can find.
+  - Acceptance: RSDP (and a minimal RSDT/XSDT + FADT or equivalent
+    QEMU-friendly set) is in a documented place; a stand-in checks the
+    RSDP checksum and prints `acpi=ok`. No UEFI. Depends on: `x86-a20`.
+
+- [x] `x86-smbios` — SMBIOS entry point and a minimal structure set.
+  - Acceptance: a stand-in finds the anchor and prints `smbios=ok`.
+    Depends on: `x86-a20`.
+
+- [x] `x86-bzimage` — Load a Linux `bzImage`.
+  - Acceptance: detect the setup header, load the protected-mode kernel
+    above 1 MB, jump the documented entry with the usual register
+    protocol for this loader. A tiny protected-mode stand-in (or a
+    pinned tiny bzImage under `build/`, not committed) prints `bz=ok`
+    on COM1. Depends on: `x86-a20`.
+
+- [x] `x86-option-roms` — Scan legacy option ROM regions and call
+  initialisation entry points that have a valid signature.
+  - Acceptance: a stand-in ROM mapped by QEMU prints `optrom=ok` from
+    its init. Bad signatures are skipped. Depends on: `x86-a20`.
+
+## 12. v1.0.0 release
+
+- [x] `release-v1.0.0` — Tag the comprehensive PC BIOS.
+  - Acceptance: `release-notes/v1.0.0.md` lists the IVT surface and
+    known gaps (no VESA, no UEFI). `make test` green. Tag `v1.0.0`.
+    Depends on: every unchecked box in sections 8–11.
+
+## Beyond v1.0.0
+
+Phases A and B of the [post-1.0 roadmap](ROADMAP.md#beyond-v100-v11--v40).
+Later phases (C–F) get boxes here when Phase B is finished. Every PR says
+`Refs #N` / `Fixes #N` for the issue it advances.
+
+## 13. Phase A — modular tree (v1.1, epic #82)
+
+- [x] `x86-v1-followups` — v1.0.0 follow-ups (#84). Roadmap A3, done
+  first because these are bugs in the released ROM.
+  - Acceptance: bzImage protected-mode kernels over 64 KB are copied in
+    full to 1 MB (a >64 KB synthetic bzImage checks its tail);
+    `boot_params` has the E820 table, `cmd_line_ptr` and
+    `type_of_loader` (a stand-in checks them); slave detection selects
+    the drive and reads fresh status before IDENTIFY; `INT 13h AH=08h`
+    on an absent drive returns `CF=1`, `AH=07h` (`x86-slave-absent`).
+
+- [x] `build-configs` — `make PLATFORM=<p> CONFIG=<c>` with
+  `configs/<platform>/<name>.cfg`.
+  - Acceptance: platforms `x86-pc`, `aarch64-virt`, `riscv64-virt`; a
+    config generates `build/<p>/config.inc` (or `config.h`). Plain
+    `make` and `make test` behave as today (58 cases). A test checks the
+    `x86-pc/default` ROM is byte-for-byte the pre-change ROM.
+
+- [x] `x86-modules` — Split `x86/squirrel-bios.asm` into `core/`,
+  `drivers/{ata,vga,kbd8042,rtc}/`, `tables/{acpi,smbios}/`, `boot/`,
+  each behind `CONFIG_*`.
+  - Acceptance: default ROM unchanged; a `CONFIG=minimal` ROM boots the
+    `x86-boot` stand-in. Depends on: `build-configs`.
+
+## 14. Phase B — storage and I/O on x86 legacy (v1.2–v1.4, epic #83)
+
+One box per PR, in order. Acceptance for each is the test in the
+roadmap item, run under QEMU in `make test`.
+
+- [x] `x86-floppy` — 82077 FDC, `INT 13h DL=00h/01h`, `INT 1Eh`, boot
+  `-fda`.
+- [x] `x86-pci` — PCI enumeration, `$PIR`, PCI BIOS `INT 1Ah B1xx`.
+  Bus 0 only; still open: numbering and scanning behind PCI-to-PCI
+  bridges, q35 (ICH9) interrupt routing, and a BIOS32 entry.
+- [x] `x86-edd` — `INT 13h` EDD 3.0, LBA48, El Torito over ATAPI.
+  - [x] El Torito diskette emulation (media 1.2/1.44/2.88 MB) as drive
+    00h, read-only; Squirrel-OS/2 `cd.iso` boots on x86-pc and through
+    the CSM.
+  - [x] El Torito hard-disk emulation (media type 4) as drive 80h,
+    read-only, geometry from the MBR's first partition; Squirrel-OS/2
+    `os.img` on a CD boots this way.
+  A real ISOLINUX 6.04 CD boots to its `boot:` prompt; it also wants
+  `INT 10h` `AH=01h/09h` and `INT 16h` `AH=10h/11h`, which are not there yet.
+- [x] `x86-ahci` — AHCI/SATA with `INT 13h` on top. Depends on:
+  `x86-pci`. Squirrel-OS/2 1.0.0 boots from a q35 SATA disk. One SATA
+  disk only, and only when no IDE hard disk answered; no port
+  multipliers; `INT 13h` on it from real mode only (not V86).
+- [x] `x86-nvme` — NVMe with `INT 13h` on top. Depends on: `x86-pci`.
+  Squirrel-OS/2 1.0.0 boots from `-device nvme`. Namespace 1 only, with
+  512-byte blocks; one controller; BAR0 must be below 4 GB.
+- [x] `x86-uhci`, `x86-ohci`, `x86-ehci`, `x86-xhci` — USB host
+  controllers, one PR each. Depends on: `x86-pci`.
+  - [x] `x86-uhci`, with the USB core (enumeration, hubs). Devices are
+    listed at POST; nothing runs after it until B7/B8 need it.
+  - [x] `x86-ohci`
+  - [x] `x86-ehci`. High-speed devices on the root ports; the rest go to
+    the companion controllers. No split transactions yet.
+  - [x] `x86-xhci`. Eight slots, given back by every device that is not
+    a hub once it is listed; up to 10 scratchpad pages (3 when the
+    controller's structures are in the EBDA); hubs are not marked as
+    hubs in their slot context (see the handoff notes).
+- [x] `x86-usb-hid` — USB keyboard/mouse feeding `INT 16h` / `INT 15h
+  C2xx`.
+  - [x] Keyboard on UHCI (boot protocol, polled from IRQ0)
+  - [x] Keyboard on OHCI (and on EHCI ports, through the companions)
+  - [x] Keyboard on xHCI (EHCI hands keyboards to its companions)
+  - [x] Mouse, `INT 15h C2xx`
+- [x] `x86-usb-storage` — Boot from USB mass storage (BOT, then UAS).
+  - [x] Bulk-only transport on xHCI: `INT 13h` and booting, as DL 80h
+    when no IDE, SATA or NVMe disk answered.
+  - [x] Bulk-only transport on UHCI and OHCI (full speed) and EHCI (high
+    speed): `INT 13h`, EDD and booting as DL 80h; a full-speed keyboard on
+    an ICH9 UHCI companion keeps working while the disk is on EHCI.
+  - [x] UAS: a high-speed UAS disk on EHCI as DL 80h (boot, `INT 13h`
+    read/write, EDD), without streams.
+  - [x] UAS at super speed on xHCI, with streams.
+  - [x] Stall recovery: after a stall, stray status wrapper or phase
+    error, BOT reset recovery (mass storage reset, CLEAR_FEATURE(HALT) on
+    both bulk endpoints and the host side) and one retry, on UHCI, OHCI,
+    EHCI and xHCI. Tested in QEMU with an injected bad CBW; not yet on
+    real hardware.
+- [x] `x86-virtio-net-boot` — virtio-blk/net and an original TFTP boot
+  of `SQBL`.
+  - [x] virtio-blk (legacy interface) as DL 80h, after NVMe. One
+    request at a time; a modern-only device (1042h) is not found.
+  - [x] virtio-blk modern interface (1AF4:1042, or 1001 with the
+    legacy BAR off) through the virtio PCI capabilities, VERSION_1.
+  - [x] virtio-net, DHCP, ARP and TFTP: the boot file loaded at 0x7C00
+    when no disk or CD booted. No routing; files up to 230400 bytes.
+  - [x] Routed network boot: the DHCP subnet mask and router are kept,
+    and an off-network boot server is reached through the router's MAC.
+- [x] `x86-vbe` — VBE 2.0/3.0 linear-framebuffer modes. VBE 3.0 on QEMU's
+  standard VGA: 16- and 32-bit modes up to 1280x1024, linear frame buffer
+  only at first; the sub-boxes below added the rest.
+  - [x] Banked windows (64 KB at A000h, 4F05h and the far WinFuncPtr),
+    8-bit palette modes 100h-107h, 4F08h and 4F09h.
+  - [x] Protected-mode interface (4F0Ah): Set Window, Set Display
+    Start and Set Primary Palette, position-independent 32-bit code.
+
+## 15. Phase C1 — x86-64 UEFI-class firmware (v2.0.0-alpha, epic #82)
+
+`PLATFORM=x86_64-uefi`, in `x86_64/`: freestanding C with a NASM reset
+stub, a 1 MB flash image for `qemu-system-x86_64 -bios`. One PR each.
+
+- [x] `x86_64-reset` — reset vector to long mode (first 4 GB mapped 1:1
+  with 2 MB pages), the body copied from flash to RAM at 2 MB, COM1
+  console, CPU name, memory map from fw_cfg `etc/e820` (CMOS as a
+  fallback). Tests: `x86_64-uefi`, `-4g`, `-pc`.
+- [x] `x86_64-boot-services` — system table, boot services core, memory
+  allocation and the UEFI memory map. Allocations below 4 GB only;
+  pool allocations take whole pages.
+- [x] `x86_64-pe` — PE32+ loader, LoadImage/StartImage/Exit/UnloadImage,
+  the protocol database and configuration tables, a hand-written test
+  app through fw_cfg. Loading from a device path comes with `x86_64-fat`.
+- [x] `x86_64-console` — Simple Text Input/Output on COM1 (UTF-8 and ANSI),
+  events and timers (polled), Stall. No PS/2 or USB keyboard, no VGA
+  text yet.
+- [x] `x86_64-fat` — Block I/O (virtio-blk legacy) and a FAT12/16/32
+  Simple File System; GPT/MBR partitions; boot `\EFI\BOOT\BOOTX64.EFI`.
+- [x] `x86_64-gop` — Graphics Output Protocol (Bochs DISPI / QEMU std
+  VGA), runtime services (GetTime, ResetSystem, in-RAM variables),
+  ExitBootServices.
+- [x] `x86_64-setupui` — Phase G Setup UI: Warp-look boot menu shell
+  on GOP + serial (`setupui.c`), entered with
+  `opt/org.squirrelworks/setupui`. Navigable items; Continue returns
+  to the normal boot path. Depends on: `x86_64-gop`.
+- [x] `x86_64-setupui-f2` — Same Setup UI via F2 on ConIn without
+  fw_cfg (`setup_ui_hotkey`); `ESC O Q` / CSI 12~. fw_cfg path kept.
+  Depends on: `x86_64-setupui`.
+- [x] `x86_64-setupui-bootorder` — Phase G Setup UI Boot Manager
+  (lane `-2eaf`): seed demo `Boot####`/`BootOrder` when empty, Left
+  reorders, Enter `SetVariable`s `BootOrder` and read-backs.
+  Depends on: `x86_64-setupui`.
+- [x] `x86_64-setupui-secboot` — Phase G Setup UI Secure Boot keys /
+  TPM clear (lane `-2eaf`): view PK/KEK/db/dbx (seed demo stubs when
+  empty), confirm and clear; TPM clear confirmation skips with no TPM.
+  Depends on: `x86_64-setupui`.
+- [x] `x86_64-setupui-datetime` — Phase G Setup UI date-time / NVRAM
+  reset (lane `-2eaf`): view/edit CMOS RTC (`GetTime`/`SetTime`);
+  confirm and clear user NV vars (seed demo under fw_cfg; leave
+  Secure Boot keys). Depends on: `x86_64-setupui`.
+- [x] `make fuzz-authenticode` — Phase G host Authenticode/PKCS#7
+  corpus smoke (lane `-2eaf`): `fuzz/authenticode_harness.c` +
+  synthetic `fuzz/corpus-authenticode/`; no QEMU. Epic #82.
+- [x] `make fuzz-net` — Phase G host DHCP/TFTP/HTTP corpus smoke
+  (lane `-2eaf`): `fuzz/net_harness.c` + `common/efi/net_parse.c` +
+  synthetic `fuzz/corpus-net/`; no QEMU. Epic #82.
+- [x] `make fuzz-usb` — Phase G host USB descriptor corpus smoke
+  (lane `-2eaf`): `fuzz/usb_harness.c` + `common/efi/usb_desc.c` +
+  synthetic `fuzz/corpus-usb/`; no QEMU. Epic #82.
+- [x] `make fuzz-fdt` — Phase G host FDT corpus smoke (lane `-2eaf`):
+  `fuzz/fdt_harness.c` + `common/fw/fdt.c` + synthetic
+  `fuzz/corpus-fdt/`; no QEMU. Epic #82.
+- [x] `x86_64-capsule` — Phase G UpdateCapsule + ESRT (lane `-2eaf`):
+  `common/efi/capsule.c` installs the ESRT, implements
+  `UpdateCapsule` / `QueryCapsuleCapabilities`, sets
+  `OsIndicationsSupported`; stand-in `tests/x86_64-capsule.c`.
+  Folded into `release-notes/v2.2.0.md` for the tag (no v2.2.1 for
+  capsule alone). Depends on: `x86_64-gop`. Epic #82.
+
+- [x] `x86_64-capsule-signed` / `x86_64-capsule-fwcfg` — Phase G
+  signed capsule apply + PersistAcrossReset staging (lane `-2eaf`):
+  SQCP + PKCS#7 detached verify (`capsule_auth.c`), apply without
+  flash rewrite, NV staging / fw_cfg pending capsule. Fixtures
+  `tests/mkcapsule.py`. Notes: `release-notes/capsule-signed-apply.md`.
+  Sarah #193 follow-ups: `release-notes/capsule-signed-followup.md`.
+  Depends on: `x86_64-capsule`. Epic #82.
+
+## Secondary track
+
+Open a PR for one of these when it helps; they are not the laundry list
+above.
+
+- `arm-psci` — Firmware PSCI with QEMU's PSCI disabled; stand-in
+  `CPU_ON` prints `cpu1=ok`.
+- `arm-gic` — GIC + generic timer; stand-in prints `irq=ok`.
+- `riscv-dbcn` — SBI debug console; stand-in prints `dbcn=ok`.
+- `riscv-dtb-devices` — UART and CLINT from the device tree.
+- `riscv-sse` — SBI SSE RAS event once QEMU can inject a corrected error.
+- `riscv-sparse-harts` — Only for a board with gapped hart IDs; QEMU
+  `virt` has none.
+- `linux-image-in-tree` — Not default: distro kernels stay downloaded.

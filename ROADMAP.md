@@ -1,35 +1,108 @@
 # Roadmap
 
-This file is where SquirrelBIOS is going. [TODO.md](TODO.md) is the list of
+This file is where SquirrelBIOS is going. Open work is handed to Cursor / Codex: see [HANDOFF.md](HANDOFF.md). [TODO.md](TODO.md) is the list of
 changes that get there, one PR each. What the firmware guarantees today is
 [common/handoff.md](common/handoff.md). If the firmware and that file
 disagree, the firmware has a bug.
 
-SquirrelBIOS is original firmware for Squirrel-OS/2. It does early init,
-loads an OS image, and jumps to it. Nothing in this repo is a runtime
-BIOS, UEFI, or a vendored third-party firmware.
+SquirrelBIOS is original firmware for Squirrel-OS/2 and for the QEMU
+machines this repo builds. **v0.3.0** closed the hand-off era: early init,
+load an image, jump, with a tested contract on x86 PC, AArch64 `virt`, and
+RISC-V `virt`. **v1.0.0** is a comprehensive **x86 PC BIOS** on QEMU —
+runtime services an OS and boot sector actually call — not a joke thin
+stub and not a copy of SeaBIOS/EDK2.
+
+After v1.0.0 the direction widens: **one modular, original source tree**
+that builds firmware for ancient and modern machines, across the CPU
+families mainstream OSes run on, with storage and I/O from floppy and IDE
+to NVMe and USB, and with **Squirrel-OS/2 as the OS on top**. That plan is
+[Beyond v1.0.0](#beyond-v100-v11--v40) below (epics #82 and #83,
+follow-ups #84).
+
+Nothing in this repo is vendored third-party firmware. A UEFI-class
+interface arrives in Phase C as original code; until then nothing here is
+UEFI.
+
+## Hand-off status (2026-11-14)
+
+The remaining work is left for Cursor / Codex. **[HANDOFF.md](HANDOFF.md)** has a card for every open
+item (files, acceptance, how to test) and the suggested order. In this file: `- [x]` is done on `main`;
+`- [ ]` is **open for Cursor/Codex**; *(in progress)* means a branch exists, finish it rather than redo
+it; *(Squirrel)* means only the owner can do it (publishing, real boards). The same states are labels on
+the GitHub issues (`status: done`, `status: in progress`, `cursor-codex`, `needs: squirrel`). The
+suite-wide continuation plan is `docs/CONTINUANCE.md` in squirrelsoft.
+
+- **Latest release: v2.1.1** (2026-11-13, v2.1.0's `f572f71` with all six images).
+  **v2.2.0 notes are prepared** (`release-notes/v2.2.0.md`, **346** `make test`
+  cases on the #189 tip, including `x86_64-capsule`); publishing is
+  `needs: squirrel`. Capsule/ESRT is folded into the v2.2.0 notes (no
+  separate v2.2.1 for #189 alone).
+- **`main` has everything for v2.2.0:** D4 (shared AHCI/NVMe/virtio, FAT write, USB storage in the UEFI core), F3
+  network boot (with DNS), IPMI and SoL, F4 multi-node boot, C5 NVRAM, authenticated variables and TPM,
+  F2 SMM + EINJ + CXL, all of Phase E, Raspberry Pi bring-up on QEMU `raspi3b` /
+  `raspi4b`, Phase G Setup UI + host fuzz + **UpdateCapsule + ESRT** (#189).
+  F1-scale (1024 CPUs / two ECAM segments, host-side `tests/acpicheck.py`) is in #169.
+- **Open:** C5 real-board flash, D2 desk Raspberry Pi 4/5, RISC-V AIA MSI mode.
+  F4-scale is optional `make f4-scale` (not in CI). Signed capsule apply /
+  flash rewrite remain Phase G follow-ups after the tag.
+
+## Where things were (2026-11-13)
+
+- **Latest release: v1.4.4** (published 2026-11-04, tag on `3388eba`,
+  110 `make test` cases). Phases A and B are finished. The table in
+  [What works today](#what-works-today-v100) is the v1.0.0 baseline; the
+  release notes in `release-notes/` list what each version added.
+- **v2.1.0 is prepared** (`release-notes/v2.1.0.md`, 217 `make test`
+  cases): C1 to C4 are finished (`x86_64-uefi` with ACPI 6.x, SMBIOS 3.x,
+  CSM, SMP and Secure Boot), D1 and D3 are finished (`aarch64-uefi`,
+  `riscv64-uefi` from the shared core in `common/efi/`), and F1/F2 have
+  their x86-64 parts (NUMA, HMAT, extra PCI roots, MCE/BERT/HEST).
+- **Next:** C5 and D2 (real boards, research under `boards/`), D4 (shared
+  drivers), Phase E (POWER, SPARC and others), the rest of F.
+- Release images are attached to GitHub Releases only. Squirrel
+  publishes each release.
 
 ## Goals
 
-1. Hand the machine to the OS after early init, on the three QEMU
-   machines this repo already builds: PC (`qemu-system-i386`), AArch64
+Path to product **v3.0.0** (verified chain + capsule product path + polish;
+not a Phase E redo): [`release-notes/TO_3.0.0.md`](release-notes/TO_3.0.0.md).
+
+### Done (v0.3.0 — hand-off)
+
+1. Hand the machine to the OS after early init on QEMU PC, AArch64
    `virt`, and RISC-V `virt`.
-2. Make every guarantee in the hand-off contract something `make test`
-   can catch if it breaks.
-3. On x86, load a real image. A one-sector image is read to `0x7C00`.
-   An SQBL header asks for more sectors. A Squirrel-OS/2 image, whose
-   last kernel dword is `S2OK`, is read to `0x8000` and entered there.
-   Any other disk is entered at `0x7C00`. `INT 13h` `AH=0x00`, `0x02`,
-   `0x08` and `0x42` read the primary master, so that boot sector can
-   load a kernel itself, and `INT 10h` `AH=0x0E` is a VGA teletype.
-4. On AArch64, enter a Linux `Image` the way the arm64 boot protocol
-   describes. The registers and the device tree are already there; the
-   CPU state, the image header, and the RAM limit are not finished.
-5. On RISC-V, provide an SBI so Linux can boot. QEMU loads the `-kernel`
-   image and passes `fw_dynamic_info` (the struct comment in
-   `riscv/squirrel-bios.S`). The firmware jumps to `next_addr` in M-mode
-   and ignores `next_mode`. There is no SBI. [common/handoff.md](common/handoff.md)
-   already says a Linux kernel will not boot this way.
+2. Every guarantee in the hand-off contract is something `make test` can
+   catch if it breaks.
+3. x86 loads real images (`0xAA55`, `SQBL`, `S2OK`) and serves enough
+   `INT 13h` / `INT 10h` / `INT 15h` E820 for Squirrel-OS/2's boot sector.
+4. AArch64 enters a Linux `Image` per the arm64 boot protocol (with
+   initrd in the device tree when QEMU provides one).
+5. RISC-V provides an original SBI so Linux boots (including a large
+   node: many harts, NUMA, AIA aplic, PCIe smoke, RAS shutdown).
+
+### v1.0.0 — comprehensive x86 PC BIOS
+
+On QEMU's PC machine (`qemu-system-i386` / `x86_64` as needed), the
+firmware is a real BIOS the OS keeps calling after boot:
+
+1. **POST-shaped init.** Program the PIC and PIT, open A20, fill the
+   BIOS data area, leave keyboard and timer interrupts usable.
+2. **Runtime interrupt services.** Grow the IVT beyond today's three
+   vectors: keyboard (`INT 16h`), time (`INT 1Ah`), richer video text
+   (`INT 10h`), disk writes and more disk functions (`INT 13h`), and the
+   usual `INT 15h` helpers (A20, etc.) on top of E820.
+3. **System tables.** Build ACPI (and SMBIOS) tables the OS can find,
+   without making UEFI a requirement.
+4. **Boot paths.** Keep Squirrel-OS/2 and `SQBL`; add Linux `bzImage`
+   load; scan option ROMs; try more than the primary master when
+   present.
+5. **Still original, still tested.** Every new service lands with a
+   `make test` stand-in and a contract update. Do not vendor SeaBIOS,
+   EDK2, or another BIOS.
+
+AArch64 and RISC-V stay supported platform firmware (Linux hand-off and
+SBI). Their extra polish lives on a secondary track and does not block
+x86 v1.0.0.
 
 ## Principles
 
@@ -42,224 +115,357 @@ BIOS, UEFI, or a vendored third-party firmware.
   the item's box in `TODO.md` in that PR.
 - **Branch from `main`.** Every PR targets `main`. Stacked PRs are not
   used. Merge, then start the next item from the new `main`.
-- **QEMU is the machine.** Addresses, CMOS, fw_cfg, and the UARTs are the
-  ones these three QEMU machines already use. A second board is out of
-  scope until one of these three is in good shape.
+- **QEMU is the reference machine.** Addresses, CMOS, fw_cfg, and the
+  UARTs are the ones the QEMU machines already use. Every new platform
+  runs under QEMU in `make test` before any real board. Real boards live
+  under `boards/`, and real-hardware checks are post-merge, never a merge
+  blocker.
 - **Failure is a message and a halt.** Match the messages already in the
   contract (`disk: ...`, `boot: ...`, then `boot halted`). Never jump to
   a partial or missing image.
+- **x86 keeps serving.** After the jump, x86 firmware services stay
+  available through the IVT. That is the point of v1.0.0. RISC-V keeps
+  the SBI; AArch64 remains load-then-jump unless a later milestone says
+  otherwise.
 
-## What works today
-
-Recent work landed the hand-off, not a full boot environment. Leave this
-behaviour in place unless a task below says to change it.
+## What works today (v1.0.0)
 
 | | x86 PC | AArch64 `virt` | RISC-V `virt` |
 |---|---|---|---|
-| Image | ATA PIO of LBA 0 into `0x7C00`, 3 tries, soft reset between them. A `S2OK` image also gets LBAs 1–192 at `0x8000` | `-kernel` via fw_cfg DMA to `0x40200000` | QEMU loads `-kernel`; firmware jumps to `next_addr` |
-| Entry | `0x0000:0x7C00`, or `0x0000:0x8000` for a `S2OK` image. `DL = 0x80` | `0x40200000`, `x0` = DTB, `x1`–`x3` = 0 | `0x80200000`, M-mode, `a0` = hart, `a1` = DTB |
-| Console | COM1 `0x3F8` 115200 8N1, timeouts on the UART | PL011 `0x09000000` | NS16550A `0x10000000` |
-| Memory | E820-style map at `0x0500` from CMOS | DTB `/memory`, checked only for the FDT magic | DTB pointer passed through |
-| On failure | Missing drive, ATAPI, timeout, bad read: reason plus ATA status/error, then halt | No fw_cfg DMA, no kernel, DMA error: message, then halt | No `fw_dynamic_info`: message, then halt |
-| Other CPUs | Boot CPU only | Boot CPU only | Hart 0 boots; other harts sit in `wfi` |
+| Image | ATA PIO: master or slave; `SQBL` / `S2OK` / `bzImage` (`HdrS`) | `-kernel` via fw_cfg DMA; `Image` header; optional `-initrd` in `/chosen` | QEMU loads `-kernel`; S-mode entry when `next_mode` says so |
+| Entry | `0x7C00`, `0x8000` (`S2OK`), or PM `code32_start` (`bzImage`). `DL = 0x80`/`0x81` | Image entry (often `0x40200000`), `x0` = DTB, `x1`–`x3` = 0 | `next_addr`, S-mode, `a0` = hart, `a1` = DTB |
+| Console | COM1 `0x3F8` 115200 8N1; VGA 80x25 text | PL011 `0x09000000` | NS16550A `0x10000000` 115200 8N1 |
+| Memory | SQMM map at `0x0500` from CMOS; `INT 15h` E820 | DTB `/memory` | DTB `/memory`; firmware `no-map` reserved |
+| Firmware services | `INT 08h`/`09h`/`10h`/`13h`/`15h`/`16h`/`1Ah`; ACPI; SMBIOS; option ROMs | None after jump | SBI: base, TIME, IPI, RFENCE, HSM, SRST |
+| Other CPUs | Boot CPU only | Boot CPU only | Boot hart (+ `sbi_hart_start`); up to 512 harts tracked |
 
-`make test` covers six cases: `x86-boot`, `x86-no-drive`, `arm-boot`,
-`arm-no-kernel`, `riscv-boot` (`-smp 2`), `riscv-no-kernel`. The x86
-stand-in checks `DL` and that the map has the `'SQMM'` magic and a
-non-zero count. It does not check the entries. ATAPI, RAM at most 16 MB,
-and RAM above 4 GB are implemented and untested. VGA cells are written
-at `0xB8000`, and the VGA is not put into text mode. The AArch64 fw_cfg
-DMA poll has no timeout. The RISC-V trap vector is never set.
+`make test` is the CI gate (58 cases at v1.0.0). `make linux-x86`,
+`make linux-shell` /
+`make linux-big` are optional RISC-V Linux checks.
 
-## Milestones
+## Milestones (done through v1.0.0)
 
-Do them in this order. Each one is done when its boxes in [TODO.md](TODO.md)
-are checked. Speculative ideas at the bottom are not milestones.
+Hand-off milestones 1–7 and x86 PC BIOS milestones 8–12 are finished
+and stay checked in [TODO.md](TODO.md) as history.
 
-### 1. Pin the contract in `make test`
+### 8. x86 foundations (POST and A20)
 
-The six smoke cases pass, and several paths they never touch are real
-code: the shape of the memory map, the ATAPI reject, the two CMOS RAM
-paths, and `a2 = 0` on RISC-V. Lock those in before changing the
-hand-off. Add a CI run of `make test` so the later PRs are checked
-without a person watching.
+Fill the BIOS data area the way a PC BIOS does for the fields boot code
+reads, enable the A20 line, and program the PIT and PIC so timer and
+keyboard IRQs can be used once their handlers exist. Without this, later
+services fight QEMU's reset defaults.
 
-### 2. RISC-V: S-mode and an SBI
+### 9. x86 human interface and time
 
-This is the known gap for Linux.
+`INT 16h` keyboard (at least check/read keystroke) and `INT 1Ah` time of
+day / RTC, with IRQ handlers that keep the BDA counters honest. Boot
+sectors and DOS-alike code expect these.
 
-QEMU's `-kernel` path fills `fw_dynamic_info.next_mode` with S-mode
-(`1`). The firmware does not read that field. Dropping to S-mode needs a
-PMP entry in the same change: QEMU's CPU implements PMP, and with no
-entry programmed an S-mode load or store faults.
+### 10. x86 richer disk and video
 
-The SBI is original code, a thin `ecall` dispatcher, not a copy of
-OpenSBI. Implement the calls below and advertise each one from
-`probe_extension` only once its task is done. Calling convention: `a7` is
-the extension ID, `a6` is the function ID, arguments in `a0`–`a5`; return
-the error in `a0` and the value in `a1`; preserve every other register;
-advance `mepc` by 4 and `mret`.
+Grow `INT 13h` (writes, reset edge cases, primary slave when the master
+is absent) and `INT 10h` (cursor, scroll, mode query/set for text — not
+a full VESA graphics BIOS). Extend `INT 15h` for A20 control alongside
+E820.
 
-| Extension | ID | Functions this milestone needs |
-|---|---|---|
-| Base | `0x10` | spec version `0x01000000`, impl id, impl version, `probe_extension`, mvendorid, marchid, mimpid |
-| TIME | `0x54494D45` | `sbi_set_timer` |
-| IPI | `0x735049` | `sbi_send_ipi` |
-| RFENCE | `0x52464E43` | remote fence for the running hart |
-| HSM | `0x48534D` | `hart_start`, `hart_get_status`, then stop |
-| SRST | `0x53525354` | `system_reset` |
+### 11. x86 system tables and high loaders
 
-Use an implementation ID other than 0 (Berkeley Boot Loader) and 1
-(OpenSBI), and record it in the hand-off contract.
+ACPI tables the OS can find (RSDP checksum in a stand-in). SMBIOS where
+it helps inventory. Linux `bzImage` load once A20 is on. Option ROM
+scan in the legacy regions. These are what make the firmware look like a
+real PC to modern and classic loaders.
 
-A single hart can reach a Linux early print once S-mode, PMP, exception
-delegation, Base, and TIME are in. IPI, RFENCE, and HSM are what a second
-hart needs. QEMU already placed the image and the initrd and patched the
-device tree; this firmware does not copy them.
+### 12. v1.0.0 release
 
-Supervisor software, timer, and external interrupts are delivered in
-S-mode. The CLINT on this machine is `0x02000000` (`mtime` at `+0xBFF8`,
-`mtimecmp` at `0x4000 + 8 * hart`). `sbi_hart_start` enters the target
-hart in S-mode with `a0` = hart id and `a1` = the opaque argument from
-the call. That `a1` is not the device tree unless the caller passed the
-device tree as the opaque value. The boot hart is the only one that
-receives the device tree in `a1`.
+When milestones 8–11's TODO boxes are checked: release notes, tag
+`v1.0.0`, and a contract that lists the full IVT surface. No SeaBIOS
+inside.
 
-### 3. x86: load more than one sector
+## Beyond v1.0.0 (v1.1 → v4.0)
 
-Keep the entry at `0x0000:0x7C00` with `DL = 0x80` and the memory map in
-`ES:DI`. Refuse a sector whose last word is not `0xAA55`. Then, when
-sector 0 carries the header in [TODO.md](TODO.md), read the following
-sectors into conventional memory and jump to `0x7C00` as today. The boot
-sector is what calls the loaded code. This stays a load-then-jump. It
-does not add `INT 13h` or any other runtime disk service.
+Imported from the SquirrelSoft addendum roadmap (2026-11-04). Epics:
+#82 (modular, multi-platform source) and #83 (storage and I/O range).
+v1.0.0 follow-ups are #84. Phases run in order; inside a phase, items run
+top to bottom. Each item is one PR (or one PR per driver where noted),
+with its `make test` case and contract update, exactly as in the
+Principles above. Squirrel-OS/2 booting on a target is the primary
+acceptance test; Linux and other OS loaders are secondary.
 
-Addresses stay below 1 MB, in real mode. Loading above 1 MB needs the A20
-gate and is speculative.
+Every item below is a checkbox: tick it (`- [x]`) in the PR that merges
+its last piece, and tick the same line on #82 (all phases; #83 was phase B
+and is closed). Nested boxes are the item's PR-sized steps; they match the
+boxes in [TODO.md](TODO.md).
 
-### 4. AArch64: finish the Linux entry
+### Phase A — v1.1: make the tree modular (no behaviour change)
 
-The jump already matches the register rules (`x0` = DTB, `x1`–`x3` = 0,
-MMU left off because QEMU reset left it off). Make that CPU state
-explicit, bound the fw_cfg DMA poll the way the UARTs are already
-bounded, refuse a kernel that does not fit in RAM, and honour the ARM64
-`Image` header when the magic is present. A raw image with no magic,
-which is what `tests/arm-kernel.S` is, keeps loading at `0x40200000`.
+- [x] **A1 (v1.1.0) Build system and configs.** `make PLATFORM=<p>
+  CONFIG=<c>`; `configs/<platform>/<name>.cfg` (key=value) generates
+  `build/<p>/config.inc` / `config.h`. Platforms: `x86-pc` (today's ROM),
+  `aarch64-virt`, `riscv64-virt`. Default `make` builds all three exactly
+  as today. Test: `make test` count unchanged, and the `x86-pc/default`
+  ROM is byte-for-byte v1.0.0's ROM (or a documented, intentional diff).
+- [x] **A2 (v1.1.1) Split x86 into modules.** `x86/core/` (reset, POST,
+  IVT), `drivers/ata/`, `drivers/vga/`, `drivers/kbd8042/`,
+  `drivers/rtc/`, `tables/acpi/`, `tables/smbios/`, `boot/`, each
+  guarded by `CONFIG_*`. Test: a `CONFIG=minimal` ROM boots the
+  `x86-boot` test.
+- [x] **A3 (v1.1.2) v1.0.0 follow-ups (#84).** bzImage loader for kernels
+  over 64 KB; `boot_params` gets the E820 table, command line and
+  `type_of_loader`; slave detection uses fresh status reads; `INT 13h
+  AH=08h` fails for absent drives. Test: an `x86-slave-absent` case and a
+  >64 KB synthetic bzImage; an optional job boots a real Linux bzImage.
 
-QEMU's virt machine advertises PSCI in the device tree and implements it
-itself. This firmware does not implement PSCI.
+### Phase B — v1.2–v1.4: storage and I/O on x86 legacy (#83)
 
-### 5. Consoles and small hardening
+- [x] **B1 (v1.2.0) Floppy.** 82077 FDC driver, `INT 13h` `DL=00h/01h`
+  read/write, `INT 1Eh` diskette parameter table, boot from `-fda`.
+  Test: boot a 1.44 MB Squirrel-OS/2 `floppy.img`; read/write/verify.
+- [x] **B2 (v1.2.1) PCI enumeration.** Config mechanism #1, bus scan, BAR
+  sizing, `$PIR` routing table, PCI BIOS `INT 1Ah AX=B1xx`. Test:
+  enumerate QEMU `i440fx` and `q35`; `B101h` returns `"PCI "`.
+- [x] **B3 (v1.2.2) EDD 3.0 and LBA48.** `INT 13h AH=41h/42h/43h/48h`, disks
+  over 8 GB, El Torito no-emulation boot over ATAPI. Test: a 16 GB disk;
+  an ISO with `-cdrom`.
+- [x] **B4 (v1.3.0) AHCI/SATA.** HBA init, port reset, READ/WRITE DMA EXT,
+  `INT 13h` on top. Test: `-machine q35` AHCI disk boots Squirrel-OS/2.
+- [x] **B5 (v1.3.1) NVMe.** Admin and one I/O queue pair, Identify,
+  Read/Write, `INT 13h` on top. Test: `-device nvme` boots.
+- [x] **B6 (v1.4.0) USB host controllers.** UHCI, OHCI, EHCI, xHCI (in that
+  order, one PR each), enumeration, hubs.
+- [x] **B7 (v1.4.1) USB HID with legacy emulation.** Keyboard feeds
+  `INT 16h` and the BDA buffer; mouse feeds `INT 15h C2xx`. Test:
+  `-device usb-kbd` with scripted keys.
+- [x] **B8 (v1.4.2) USB mass storage boot.** Test: `-device usb-storage`
+  with `os.img` boots.
+  - [x] Bulk-only transport on xHCI, `INT 13h` as `DL = 80h` (#114)
+  - [x] UAS on EHCI and xHCI with streams, stall recovery, and BOT on UHCI/OHCI/EHCI (#133, #134, #138)
+- [x] **B9 (v1.4.3) virtio-blk / virtio-net and network boot.** Original
+  TFTP client; boot `SQBL` over the network. Test: QEMU user-net TFTP.
+- [x] **B10 (v1.4.4) Video.** VBE 2.0/3.0 linear-framebuffer modes on QEMU
+  std VGA (still not a full SVGA option-ROM replacement). Test: mode
+  list, set 800x600x32, read back a pixel.
 
-After the milestones above: a UART baud rate the RISC-V contract states,
-CMOS reads that disable NMI while they run, and a VGA text mode so the
-x86 banner is actually visible. Serial remains the console `make test`
-watches.
+### Phase C — v2.0: x86-64 and a UEFI-class interface
 
-### 6. A large server node (future)
+- [x] **C1 (v2.0.0-alpha) `PLATFORM=x86_64-uefi`.** Reset to long mode in
+  firmware, page tables, PE32+ loader. Original boot services subset an
+  OS loader needs (memory map, GOP, Simple Text In/Out, Block I/O, Simple
+  File System over FAT32, LoadImage/StartImage, ExitBootServices) and
+  runtime services (GetTime, ResetSystem, variables). Test: `-machine
+  q35 -bios` boots a test PE32+ app; a Squirrel-OS/2 UEFI loader boots.
+  - [x] Step 1 `x86_64-reset`: reset vector to long mode, COM1 banner,
+    memory map from fw_cfg (#118)
+  - [x] Step 2 `x86_64-boot-services`: EFI system table, boot services
+    core, memory services (#119)
+  - [x] Step 3 `x86_64-pe`: PE32+ loader, LoadImage/StartImage, a test app
+    (#122)
+  - [x] Step 4 `x86_64-console`: Simple Text Input/Output, events and
+    timers (#123)
+  - [x] Step 5 `x86_64-fat`: Block I/O and FAT32 Simple File System, boot
+    `\EFI\BOOT\BOOTX64.EFI`
+  - [x] Step 6 `x86_64-gop`: GOP, runtime services, ExitBootServices
+    (this PR; depends on step 5)
+- [x] **C2 (v2.0.0) ACPI 2.0+/6.x and SMBIOS 3.x.** MADT, HPET, MCFG, FADT,
+  DSDT (original, generated AML). Test: Linux x86-64 boots to a shell
+  with ACPI; an `acpidump`-style self-check in `make test`.
+- [x] **C3 (v2.0.1) CSM.** Legacy BIOS services kept on the x86-64 build.
+- [x] **C4 (v2.1.x) SMP and Secure Boot.** INIT-SIPI-SIPI, MP table, x2APIC;
+  verify-only Secure Boot with our own keys.
+  - [x] `c4-smp`: AP bring-up (INIT-SIPI-SIPI), AP parking, MP services
+    protocol, MPS table, x2APIC mode; APs parked at ExitBootServices and
+    before the CSM
+  - [x] `c4-secure-boot`: verify-only Secure Boot with our own keys
+    (Authenticode SHA-256, PKCS#7 RSA-2048 signatures, db/dbx)
+- [ ] **C5 (v2.2.x) Real x86 hardware track.** *(Squirrel for the board; the guide is open for Cursor/Codex)* A flashing guide for one
+  cheap board; DDR training is research under `boards/` and never a
+  merge blocker.
+  - [x] `c5-nvram`: non-volatile variables in a flash store (QEMU pflash
+    unit 1, CFI), kept across boots and written after ExitBootServices
+  - [x] `c5-authvar`: authenticated writes to PK, KEK, db and dbx; setup
+    and user mode; keys enrolled at run time
+  - [x] `c5-tpm`: measured boot with a TPM 2.0 on TIS (PCR extends, the
+    TCG2 protocol and event log, the TPM2 table)
+  - [x] `c5-board`: flashing guide and a coreboot-payload `CONFIG=` for the
+    GA-G41M-ES2L (`boards/ga-g41m-es2l/FLASHING.md`, `CONFIG=coreboot`,
+    `x86_64-coreboot` smoke); desk flash stays `needs: squirrel`
 
-Not scheduled. Start it after milestones 1 to 5, when the OS wants more
-than a small virtual machine.
+### Phase D — v2.5: ARM and RISC-V as full firmware
 
-A supercomputer is thousands of separate server boards on a fast
-network, and each board runs its own firmware. So for SquirrelBIOS the
-goal is one big node booting Linux well: tens to hundreds of harts,
-tens of GB of RAM or more, and the devices that join it to the rest of
-the machine. The firmware stays original code and keeps its
-load-then-jump shape; the items below only add what a large node needs.
-RISC-V `virt` goes first, because it is the target with an SBI and a
-Linux shell already.
+- [x] **D1** AArch64 `virt`: UEFI-class interface, device tree and ACPI
+  (SBBR-like), PSCI, GICv3.
+- [ ] **D2** AArch64 boards: Raspberry Pi 4/5 under `boards/rpi4`.
+  - [x] `rpi3`/`rpi4` configs, SDHCI, EL3 + PSCI; `rpi3-uefi-sd` on QEMU `raspi3b` (#157)
+  - [x] `rpi4-uefi-sd` on QEMU `raspi4b` (QEMU 9.0+; skipped on older QEMU), EMMC2, GIC-400 from the tree
+  - [ ] A Pi 4 on the desk boots the firmware from SD *(Squirrel, post-merge)*
+- [x] **D3** RISC-V `virt`: UEFI-class interface while keeping the SBI;
+  `DBCN`, SSE; boards (VisionFive 2, HiFive) under `boards/`.
+- [x] **D4** Shared drivers across architectures (NVMe, xHCI, virtio, FAT,
+  PE/ELF loaders) from the same sources. Test: each QEMU target boots
+  Squirrel-OS/2 (once its port exists) and Linux to a shell.
 
-`make linux-big` is the yardstick. It boots the `linux-shell` kernel and
-busybox on `-smp 64 -m 64G` and passes only when all 64 harts are online.
-What it showed on the first run (QEMU 8.2, Ubuntu 6.8 riscv64 kernel):
+### Phase E — other architectures (historical ROADMAP banner said “v3.0”)
 
-- **RAM is fine.** Linux sees the full 64 GB from the device tree and
-  reaches the shell. QEMU needs `reserve=off` on its RAM backend to start
-  a 64 GB guest on a smaller host; the script sets it.
-- **Harts 8 and up never started.** `MAX_HARTS` was 8, so Linux printed
-  `CPU8: failed to start` and ran on 8. Fixed by `riscv-many-harts`: the
-  firmware now tracks 512 harts.
-- **The test kernel stopped at 32.** Ubuntu 24.04's riscv64 kernel is
-  built with `NR_CPUS=32` and ignores harts 32 to 63 (`Invalid cpuid`).
-  Fixed by `linux-big-kernel`: `make linux-big` uses Ubuntu 25.04's 6.14
-  kernel, and all 64 harts come up. Ubuntu's 7.0 kernel does not boot on
-  QEMU 8.2's default hart: it no longer reads `riscv,isa` and stops
-  with a kernel BUG before SMP.
+**Done under v2.1 / v2.2 content.** The historical heading “v3.0: other
+architectures” does **not** define the product **v3.0.0** tag — that tag is
+the CONTINUANCE M3 companion (see [`release-notes/TO_3.0.0.md`](release-notes/TO_3.0.0.md)).
 
-The work, roughly in order:
+- [x] **E1** `PLATFORM=ppc64le-powernv`: OPAL-like runtime interface, device
+  tree, boot Linux on QEMU `powernv`.
+- [x] **E2** `PLATFORM=sparc64-sun4u`: an IEEE 1275-style client interface
+  subset (no Forth), boot on QEMU `sun4u`.
+- [x] **E3** Stretch: `m68k-virt`, `mips-malta`, `loongarch64-virt`, `s390x`
+  (IPL only). Test: each reaches a firmware prompt under QEMU and hands
+  off to a test kernel.
 
-1. **Many harts.** Raise `MAX_HARTS` to what QEMU `virt` allows, and size
-   the per-hart trap stacks and `hart_table` from it without leaving the
-   2 MB the firmware PMP region covers. The IPI and fence paths walk
-   every hart today; make them cheap when most harts are idle. HSM should
-   still bring harts up one at a time on request. Honour
-   `fw_dynamic_info.boot_hart` (from Speculative) because large machines
-   do not always boot hart 0.
-2. **Large memory and NUMA.** Read `/memory` from the device tree instead
-   of assuming the QEMU layout, keep the firmware reservation right with
-   many memory nodes, and pass through `numa-node-id` and the
-   `distance-map` QEMU writes for `-numa`, so Linux knows which RAM is
-   near which hart. *(Done: on QEMU each NUMA node is a socket with its
-   own CLINT, which the firmware now follows.)*
-3. **A sockets-and-clusters topology.** Check that `cpu-map` survives the
-   device-tree edits, and that the firmware does not depend on hart IDs
-   being dense. *(Checked: the edits add `/reserved-memory` and, on AIA
-   machines, blank the M-level interrupt controller nodes, so `cpu-map`
-   passes through as QEMU wrote it. QEMU `virt` numbers
-   harts densely in every socket, so sparse IDs moved to Speculative.)*
-4. **Interrupt controllers that scale.** QEMU `virt` with `aia=aplic-imsic`
-   replaces the PLIC and CLINT-only IPIs with IMSIC message interrupts.
-   Program the M-mode side so IPIs and the timer still work there.
-   *(Done for `aia=aplic`: sources delegated, M-level controllers hidden.
-   `aia=aplic-imsic` hangs Linux on QEMU 8.2 even with QEMU's own
-   OpenSBI; see `riscv-aia` in TODO.md.)*
-5. **PCIe.** The device tree already describes the `virt` host bridge.
-   The firmware leaves it to Linux; the work is to check that a network
-   card and an NVMe drive enumerate with many harts and lots of RAM.
-   *(Done: `make linux-big` adds both and requires their IDs under
-   `/sys/bus/pci/devices`. No firmware change was needed.)*
-6. **Network boot.** Thousands of diskless nodes start from the network.
-   Load a kernel and initrd over virtio-net (a small original TFTP-style
-   loader), or document the hand-off to a kernel that does it itself.
-   *(Decided: the OS does it; the firmware starts the small first
-   kernel that is already there. See "Network boot" in
-   `common/handoff.md`.)*
-7. **Remote management and error reporting.** A way to power-cycle and
-   watch a node from outside (QEMU's monitor and the SBI SRST path are
-   the stand-ins), and a place to report machine-check style hardware
-   faults instead of a silent halt. *(Planned: see `big-node-errors`
-   in TODO.md for the console line and what the OS is told.)*
-8. **UEFI and ACPI, as an option.** Big ARM and x86 servers expect UEFI
-   and ACPI rather than a device tree. That is a separate, large project
-   and stays out of scope for the hand-off; if it is ever done it is an
-   optional second entry path, not a replacement for this contract.
+### Phase F — v4.0: large and supercomputer-class nodes
 
-[TODO.md](TODO.md) breaks the first part into PR-sized items.
+- [x] **F1** NUMA (SRAT/SLIT/HMAT), more than 1000 CPUs, many PCIe root
+  complexes and ECAM segments.
+  - [x] `f1-x86-numa`: x86_64 SRAT (CPU and memory affinity) and SLIT
+    from QEMU `-numa`, MADT from the SMP list with x2APIC entries past
+    APIC ID 254
+  - [x] `f1-x86-hmat`: x86_64 HMAT (initiator of each memory node, or
+    QEMU's latency, bandwidth and cache structures) and QEMU's `-numa
+    dist` in the SLIT
+  - [x] `f1-x86-roots`: x86_64 extra PCI root buses (QEMU pxb and
+    pxb-pcie) as DSDT host bridges with their own buses and windows, and
+    ACPI table room that grows with the CPU count
+  - [x] `f1-scale`: host-side checks of the tables for 1024 CPUs and two ECAM
+    segments (synthetic topology, `tests/acpicheck.py`)
+- [x] **F2** RAS: machine-check logging (BERT/HEST/EINJ), corrected-error
+  thresholds, CXL memory enumeration.
+  - [x] `f2-x86-stubs`: x86_64 BERT and HEST stubs (MCE logging, EINJ and
+    thresholds still open)
+  - [x] `f2-x86-mce`: x86_64 machine-check banks read at boot, errors
+    from before a reset as CPER records in the BERT, HEST IA-32 MCE and
+    corrected machine check sources with CMCI or polling and thresholds
+    (EINJ still open)
+  - [x] `f2-x86-einj` (#148, #149): x86_64 SMM in q35's TSEG (SMBASE relocation on
+    every CPU, locked at ExitBootServices) serving EINJ: a correctable
+    memory error written as CPER into a polled GHES
+  - [x] `f2-cxl`: CXL host bridges, CEDT (CHBS, CFMWS) and `ACPI0016`/`ACPI0017`
+    on q35 with `cxl=on`
+- [x] **F3** Management: IPMI/Redfish-style BMC stubs, serial-over-LAN, HTTP
+  boot.
+  - [x] `f3-uefi-net`: UEFI Simple Network Protocol on virtio-net and a
+    PXE-style DHCP+TFTP boot on x86_64, aarch64 and riscv64 UEFI
+  - [x] `f3-http-boot`: HTTP boot (own TCP, HTTP/1.1 with Content-Length,
+    chunked, close-delimited bodies and redirects; IPv4 hosts)
+  - [x] `f3-dns`: a DNS A-record client so HTTP boot takes host names
+    (DHCP option 6; `x86_64`/`aarch64`/`riscv64`-uefi-httpboot-dns)
+  - [x] `f3-sol`: serial-over-LAN style console mirror over UDP (output
+    per line, input from the same host), until ExitBootServices
+  - [x] `f3-ipmi`: x86_64 BMC on IPMI KCS (QEMU `ipmi-bmc-sim`), SPMI
+    table, SMBIOS type 38 and a Redfish host interface stub (type 42)
+- [x] **F4** Diskless cluster boot of many nodes from one image server.
+  Test: QEMU `-smp 256 -numa ...`; `make linux-big` already covers part.
+  - [x] `f4-multinode`: four x86_64 UEFI nodes netboot the same image at
+    once from one TFTP server behind a router (simulated network)
+  - [x] `f4-scale`: eight nodes, one with `-smp 256 -numa` (255 under
+    TCG), as optional `make f4-scale` (too slow for default CI)
 
-## Speculative
+### Phase G — firmware as a product (CONTINUANCE)
 
-Not tasks, until the OS needs one of them. They are listed in
-[TODO.md](TODO.md) so they are not mistaken for the milestones above.
+Suite plan: squirrelsoft `docs/CONTINUANCE.md` §4. Fuzz harnesses and the
+Setup UI shell land here as sizeable steps. Fine-grained marks to product
+**v3.0.0** (CONTINUANCE M3 companion; Phase E is already done): 
+[`release-notes/TO_3.0.0.md`](release-notes/TO_3.0.0.md).
 
-- x86 A20, so a load address can sit above 1 MB.
-- x86 Linux `bzImage` / setup-header loading.
-- x86 ACPI tables.
-- x86 disks other than the primary master.
-- AArch64 PSCI in the firmware (QEMU already provides it), GIC and timer
-  setup (the OS drives these from the device tree).
-- RISC-V SBI debug console (`DBCN`), PMU, or vendor extensions.
-- Parsing the device tree for the UART and CLINT instead of the QEMU virt
-  constants.
-- Honouring `fw_dynamic_info.boot_hart` when it is not hart 0 (done
-  in milestone 6).
-- Checking a Linux or Squirrel-OS image into the repo. `make test` stays
-  on the small stand-in images.
+- [x] **G1** Host fuzz smoke for the FAT parser: `fuzz/` builds
+  `common/efi/fat.c` on the host with a libFuzzer-style harness;
+  `make fuzz-fat` runs the seed corpus once (no QEMU). Optional CI:
+  `.github/workflows/fuzz-fat.yml`. Notes in `fuzz/README.md` and
+  `release-notes/host-fuzz-fat.md`.
+- [x] **G2** Same pattern for PE/COFF (`common/efi/image.c`):
+  `make fuzz-pe` / `fuzz/pe_harness.c` / `fuzz/corpus-pe/`; optional
+  `.github/workflows/fuzz-pe.yml`. Notes in `fuzz/README.md` and
+  `release-notes/host-fuzz-pe.md`.
+- [x] **G3 Authenticode/PKCS#7** Same pattern for Secure Boot parsers
+  (`x86_64/secure/der.c`, `pe_authenticode_hash`, `sb_db_walk`):
+  `make fuzz-authenticode` / `fuzz/authenticode_harness.c` /
+  `fuzz/corpus-authenticode/`; optional
+  `.github/workflows/fuzz-authenticode.yml`. Notes in `fuzz/README.md`
+  and `release-notes/host-fuzz-authenticode.md`. Epic #82.
+- [x] **G3 DHCP/TFTP/HTTP + USB descriptors + FDT** Shared parsers
+  `common/efi/net_parse.c`, `common/efi/usb_desc.c`, and existing
+  `common/fw/fdt.c`: `make fuzz-net` / `fuzz-usb` / `fuzz-fdt` with
+  synthetic corpora; optional path-filtered workflows and scheduled
+  `.github/workflows/fuzz-nightly.yml` (60 s libFuzzer budget). Notes
+  in `fuzz/README.md` and `release-notes/host-fuzz-net-usb-fdt.md`.
+  Epic #82.
+- [x] **Setup UI (GOP + F2 + BootOrder + Secure Boot / TPM + date-time /
+  NVRAM)** GOP + serial boot menu shell on `x86_64-uefi` (lane
+  `-2eaf`): Warp-look title and navigable items
+  (`x86_64/core/setupui.c`, original 8×16 font); entered with
+  `opt/org.squirrelworks/setupui` or F2 on ConIn (short post-GOP
+  window). Boot Manager edits UEFI `BootOrder` (seeds demo `Boot####`
+  when empty; Left/Right reorder; Enter `SetVariable`). Secure Boot
+  keys notebook views/clears PK/KEK/db/dbx (demo stubs when empty);
+  TPM clear confirmation skips with no TPM (command stub when
+  present). Date and time views/edits CMOS RTC (12/24h Status B);
+  NVRAM reset confirms and clears user NV vars including BootOrder /
+  Boot#### (not Secure Boot PK/KEK/db/dbx). Smoke:
+  `x86_64-setupui`, `x86_64-setupui-f2`, `x86_64-setupui-bootorder`,
+  `x86_64-setupui-secboot`, `x86_64-setupui-datetime`. Notes in
+  `release-notes/setup-ui-gop.md`, `release-notes/setup-ui-f2.md`,
+  `release-notes/setup-ui-bootorder.md`,
+  `release-notes/setup-ui-secboot.md`,
+  `release-notes/setup-ui-datetime-nvram.md`,
+  `release-notes/setup-ui-datetime-followup.md`.
+- [x] **G3 (rest)** DHCP/TFTP/HTTP, USB descriptors, FDT host corpus
+  smokes and scheduled nightly libFuzzer budget (`fuzz-nightly.yml`).
+- [x] **UpdateCapsule + ESRT** Shared `common/efi/capsule.c` (lane
+  `-2eaf`): ESRT configuration table (one system-firmware resource),
+  `UpdateCapsule` / `QueryCapsuleCapabilities`, 
+  `OsIndicationsSupported` file-capsule bit. Smoke: `x86_64-capsule`.
+  Notes in `release-notes/capsule-esrt.md`. Epic #82.
+- [x] **Signed capsule apply / PersistAcrossReset staging** (lane
+  `-2eaf`): SQCP body + detached PKCS#7 verify
+  (`x86_64/secure/capsule_auth.c`, fw_cfg capsule-db); apply updates
+  ESRT without flash rewrite; PersistAcrossReset stages
+  `SqCapsuleStaging` (fw_cfg capsule as post-reset stand-in). Smoke:
+  `x86_64-capsule-signed`, `x86_64-capsule-fwcfg`. Notes in
+  `release-notes/capsule-signed-apply.md`. Sarah #193 follow-ups
+  (multi-PERSIST refuse, NV size cap, SGL-only refuse, refused-staged
+  log): `release-notes/capsule-signed-followup.md`. Epic #82. Flash
+  image rewrite remains a follow-up.
+
+### Squirrel-OS/2 hand-off on every platform
+
+Every platform build provides the same Squirrel hand-off
+([common/handoff.md](common/handoff.md)): memory map, console,
+framebuffer (if any), ACPI/DTB pointer, boot device. Squirrel-OS/2 boots
+on each new platform as soon as its port exists.
+
+## Secondary track
+
+The older polish items stay valid and fold into Phase D when it starts:
+
+- [ ] RISC-V: `DBCN`, device-tree-derived UART/CLINT addresses, SSE once
+  QEMU can inject corrected errors, `aplic-imsic` when the hypervisor
+  stack allows a shell.
+  - [x] `DBCN` (SBI 2.0 debug console; Linux `earlycon=sbi`)
+  - [x] UART and CLINT/ACLINT addresses taken from the device tree in the
+    M-mode SBI (`CONFIG_UART_BASE`/`CONFIG_CLINT_BASE` as fallbacks)
+  - [x] SSE with the RAS event (`riscv-sse`, #135)
+  - [ ] `aplic-imsic` (MSI mode) to a Linux shell: program `smsiaddrcfg`,
+    retest on QEMU 9.1+ (APLIC-direct smoke is done; see TODO.md item
+    riscv-aia for the MSI-mode note)
+- [x] AArch64: firmware PSCI/GIC only if QEMU's built-ins are disabled for a
+  test; otherwise leave them.
 
 ## Out of scope
 
-- A full video BIOS, or `INT 13h` beyond `AH=0x00`, `0x02`, `0x08` and
-  `0x42` on the primary master. `INT 15h` other than `E820`. UEFI, and
-  ACPI as a requirement for the hand-off.
-- Vendoring another project's firmware and calling it SquirrelBIOS.
-- Boards other than QEMU PC, QEMU AArch64 `virt`, and QEMU RISC-V `virt`.
+- Vendoring SeaBIOS, EDK2, OpenSBI, U-Boot, coreboot, OpenBIOS, or
+  another project's firmware and calling it SquirrelBIOS. Reading public
+  specifications is fine; cite them.
+- A full SVGA option-ROM replacement (VBE linear-framebuffer modes in B10
+  are in scope).
+- Committing firmware or OS images. Release images go only on GitHub
+  Releases, and only Squirrel tags or publishes. The "Draft release"
+  workflow (Actions tab, run by Squirrel) builds and tests a commit and
+  leaves a draft release with the images and `release-notes/v<version>.md`;
+  publishing the draft creates the tag.
+
+UEFI-class interfaces and boards other than the QEMU machines used to be
+listed here. Epic #82 moves both in scope, staged as Phases C and D.
