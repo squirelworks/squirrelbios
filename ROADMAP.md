@@ -425,8 +425,10 @@ Setup UI shell land here as sizeable steps. Fine-grained marks to product
   ESRT without flash rewrite; PersistAcrossReset stages
   `SqCapsuleStaging` (fw_cfg capsule as post-reset stand-in). Smoke:
   `x86_64-capsule-signed`, `x86_64-capsule-fwcfg`. Notes in
-  `release-notes/capsule-signed-apply.md`. Epic #82. Flash image
-  rewrite remains a follow-up.
+  `release-notes/capsule-signed-apply.md`. Sarah #193 follow-ups
+  (multi-PERSIST refuse, NV size cap, SGL-only refuse, refused-staged
+  log): `release-notes/capsule-signed-followup.md`. Epic #82. Flash
+  image rewrite remains a follow-up.
 
 ### Squirrel-OS/2 hand-off on every platform
 
