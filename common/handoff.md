@@ -929,7 +929,7 @@ M-mode entry gets the tree as QEMU wrote it.
 
 | Item | State |
 |------|-------|
-| NS16550A (`0x10000000`) | 115200 8N1 (divisor 2 from `virt`'s 3.6864 MHz UART clock), FIFOs on, interrupts off |
+| UART | From the device tree: `ns16550a` / `snps,dw-apb-uart` (16550-family; on `virt`, `0x10000000`, 115200 8N1, FIFOs on, interrupts off) or `sifive,uart0` (FU540/FU740 / QEMU `sifive_u` at `0x10010000`: `txdata`/`rxdata`/`txctrl`/`rxctrl`/`div`; `CONFIG_UART_KIND=1` on HiFive Unmatched). What the tree does not name keeps the build's `CONFIG_UART_BASE` / `CONFIG_UART_KIND`. |
 | Other harts | Parked in `wfi` in M-mode, with `mstatus.MIE = 0` and only `mie.MSIE` set, until `sbi_hart_start` (below). The firmware tracks hart IDs 0 to 511 (QEMU `virt`'s limit, across all sockets), so harts in every socket can be started, each through its own socket's CLINT (below); higher IDs are never started. |
 | CLINT | One per socket. With `-numa`, QEMU makes each NUMA node a socket whose CLINT is `0x10000` above the previous one, with slots counted from the socket's lowest hart ID; the boot hart reads each `cpu` node's `reg` and `numa-node-id` and uses the right CLINT for every hart (up to 8 sockets). A hart's `mtimecmp` is written only by `sbi_set_timer` and the firmware's timer interrupt. A parked hart's `msip` is written by `sbi_hart_start`. `mtime` runs at 10 MHz (the device tree's `timebase-frequency`). |
 | PLIC | Not touched |

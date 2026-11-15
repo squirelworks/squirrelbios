@@ -1801,9 +1801,11 @@ fi
 
 # HiFive Unmatched (boards/hifive-unmatched): CONFIG=hifive-unmatched
 # links the SBI at RAM / OpenSBI load address 0x80000000 with UART0 at
-# 0x10010000 (sifive,uart0; driver kind still open). Upstream QEMU has
-# no Unmatched machine (sifive_u is FU540-like), so boot smoke is
-# optional; make test only checks the configured image's link address.
+# 0x10010000 (sifive,uart0 / CONFIG_UART_KIND=1). Upstream QEMU has no
+# Unmatched machine; sifive_u is FU540-like with the same UART IP and
+# base, so make test checks the link address and boots the image there
+# far enough for the SBI banner and dt: UART line (putc path). Full UEFI
+# on hart 0 is not required (E51 has no S-mode).
 HFU_BIN=build/riscv64-uefi/hifive-unmatched/squirrel-bios.bin
 HFU_ELF=build/riscv64-uefi/hifive-unmatched/obj/sbi.elf
 HFU_NM=${RISCV64:-riscv64-linux-gnu-}nm
@@ -1819,6 +1821,12 @@ if [ -f "$HFU_BIN" ] && [ -f "$HFU_ELF" ]; then
 else
     echo "FAIL  riscv64-hifive-unmatched-build (image not built)"
     fail=$((fail + 1))
+fi
+if [ -f "$HFU_BIN" ] && "$QEMU_RISCV" -M help 2>/dev/null | grep -q '^sifive_u '; then
+    run riscv64-hifive-unmatched-sifive-u "SquirrelBIOS RISC-V|dt: UART at 0x0000000010010000" \
+        "$QEMU_RISCV" -M sifive_u -smp 5 -m 2G -bios "$HFU_BIN"
+else
+    echo "SKIP  riscv64-hifive-unmatched-sifive-u (no image or no sifive_u machine)"
 fi
 
 # x86-64 firmware: measured boot (C5) with a TPM 2.0 on TIS, from swtpm

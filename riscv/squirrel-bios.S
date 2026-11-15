@@ -37,6 +37,11 @@
         .ifndef CONFIG_UART_CLOCK
         .equ CONFIG_UART_CLOCK, 3686400     /* virt's clock-frequency for the UART */
         .endif
+        /* 0 = 16550-family (ns16550a / snps,dw-apb-uart); 1 = sifive,uart0
+         * (FU540/FU740 / QEMU sifive_u). dt_devices overrides from the tree. */
+        .ifndef CONFIG_UART_KIND
+        .equ CONFIG_UART_KIND, 0
+        .endif
         .ifndef CONFIG_MAX_HARTS
         .equ CONFIG_MAX_HARTS, 512
         .endif
@@ -47,7 +52,9 @@
         .equ CONFIG_FW_BASE, 0x80000000     /* QEMU virt RAM; VisionFive 2 is 0x40000000 */
         .endif
 
-        .equ UART_BASE,     CONFIG_UART_BASE /* 16550-compatible */
+        .equ UART_BASE,     CONFIG_UART_BASE
+        .equ UART_KIND_16550, 0
+        .equ UART_KIND_SIFIVE, 1
         .equ UART_THR,      (0 << CONFIG_UART_SHIFT)
         .equ UART_IER,      (1 << CONFIG_UART_SHIFT)
         .equ UART_FCR,      (2 << CONFIG_UART_SHIFT)
@@ -60,7 +67,19 @@
         .equ UART_CLOCK,    CONFIG_UART_CLOCK
         .equ UART_BAUD,     115200
         .equ UART_DIVISOR,  UART_CLOCK / (16 * UART_BAUD)
-        .equ UART_TIMEOUT,  0x100000        /* LSR polls per character */
+        .equ UART_TIMEOUT,  0x100000        /* polls per character */
+        /* SiFive UART0 (FU740-C000 Manual § UART; same IP on FU540 /
+         * QEMU sifive_u): 32-bit regs at +0x00..+0x18. txdata/rxdata bit 31
+         * is full/empty; txctrl/rxctrl bit 0 enables TX/RX; div =
+         * clock/baud - 1 (not the 16550 16× divisor). */
+        .equ SIFIVE_TXDATA, 0x00
+        .equ SIFIVE_RXDATA, 0x04
+        .equ SIFIVE_TXCTRL, 0x08
+        .equ SIFIVE_RXCTRL, 0x0C
+        .equ SIFIVE_TXEN,   1
+        .equ SIFIVE_RXEN,   1
+        .equ SIFIVE_DIV,    0x18
+        .equ SIFIVE_DIVISOR, UART_CLOCK / UART_BAUD - 1
 
 /* UART store/load: byte registers on QEMU virt (ns16550a); 32-bit
  * registers 4 bytes apart on the JH7110 DesignWare APB UART
@@ -1029,12 +1048,9 @@ sbi_dbcn:
         addi a1, a1, 1
         j 1b
 2:      beq a1, a3, sbi_ok
-        ld t0, uart_base
-        uart_lb t1, UART_LSR
-        andi t1, t1, 1                      /* data ready */
-        beqz t1, sbi_ok
-        uart_lb t1, UART_THR                /* RBR */
-        sb t1, 0(a2)
+        call getc
+        bltz a0, sbi_ok
+        sb a0, 0(a2)
         addi a2, a2, 1
         addi a1, a1, 1
         j 2b
@@ -1945,13 +1961,15 @@ aia_setup:
         addi sp, sp, 80
         ret
 
-/* a0 = device tree.  The NS16550A UART and the CLINT come from it (with
- * -M virt,aclint=on, the ACLINT MSWI and MTIMER), lowest address first
- * when there are several (one CLINT per socket with -numa); clint_layout
- * then counts sockets from there.  What the tree does not name keeps the
- * QEMU virt address the build was configured with.  Every hart_table
- * entry's msip and mtimecmp slot follows the CLINT found.  Runs on the
- * boot hart before the UART is set up and before any other hart starts. */
+/* a0 = device tree.  The UART (ns16550a, snps,dw-apb-uart or sifive,uart0)
+ * and the CLINT come from it (with -M virt,aclint=on, the ACLINT MSWI and
+ * MTIMER), lowest address first when there are several (one CLINT per
+ * socket with -numa); clint_layout then counts sockets from there.  What
+ * the tree does not name keeps the build's CONFIG_UART_BASE / KIND and
+ * CLINT.  Finding a UART also sets uart_kind so putc/getc match the
+ * register layout.  Every hart_table entry's msip and mtimecmp slot
+ * follows the CLINT found.  Runs on the boot hart before the UART is set
+ * up and before any other hart starts. */
 dt_devices:
         addi sp, sp, -16
         sd ra, 0(sp)
@@ -1963,8 +1981,17 @@ dt_devices:
         mv a0, s9
         la a1, str_dw_apb_uart              /* JH7110 / VisionFive 2 */
         call dt_reg_of
+        bnez a0, 01f
+        mv a0, s9
+        la a1, str_sifive_uart0             /* FU540/FU740 / sifive_u */
+        call dt_reg_of
         beqz a0, 1f
-01:     sd a0, uart_base, t0
+        li t1, UART_KIND_SIFIVE
+        sd t1, uart_kind, t0
+        j 02f
+01:     li t1, UART_KIND_16550
+        sd t1, uart_kind, t0
+02:     sd a0, uart_base, t0
 1:      mv a0, s9
         la a1, str_riscv_clint0
         call dt_reg_of
@@ -2145,6 +2172,8 @@ name_is:
 
 uart_init:
         ld t0, uart_base
+        ld t3, uart_kind
+        bnez t3, uart_init_sifive
         li t1, 0
         uart_sb UART_IER, t1
         li t1, UART_LCR_DLAB                /* 115200: divisor latch */
@@ -2158,11 +2187,21 @@ uart_init:
         li t1, 0x07                         /* enable and clear FIFOs */
         uart_sb UART_FCR, t1
         ret
+uart_init_sifive:
+        li t1, SIFIVE_DIVISOR               /* baud = clock / (div + 1) */
+        sw t1, SIFIVE_DIV(t0)
+        li t1, SIFIVE_TXEN
+        sw t1, SIFIVE_TXCTRL(t0)
+        li t1, SIFIVE_RXEN
+        sw t1, SIFIVE_RXCTRL(t0)
+        ret
 
 /* a0 = character.  Gives up after UART_TIMEOUT polls so a stuck UART
  * cannot hang the firmware. */
 putc:
         ld t0, uart_base
+        ld t3, uart_kind
+        bnez t3, putc_sifive
         li t2, UART_TIMEOUT
 1:      uart_lb t1, UART_LSR
         andi t1, t1, UART_LSR_THRE
@@ -2170,6 +2209,35 @@ putc:
         addi t2, t2, -1
         bnez t2, 1b
 2:      uart_sb UART_THR, a0
+        ret
+putc_sifive:
+        li t2, UART_TIMEOUT
+1:      lw t1, SIFIVE_TXDATA(t0)            /* bit 31 set = TX FIFO full */
+        bgez t1, 2f
+        addi t2, t2, -1
+        bnez t2, 1b
+2:      andi a0, a0, 0xff
+        sw a0, SIFIVE_TXDATA(t0)
+        ret
+
+/* a0 = character, or -1 when the receive side has nothing. */
+getc:
+        ld t0, uart_base
+        ld t3, uart_kind
+        bnez t3, getc_sifive
+        uart_lb t1, UART_LSR
+        andi t1, t1, 1                      /* data ready */
+        beqz t1, 1f
+        uart_lb a0, UART_THR                /* RBR */
+        ret
+1:      li a0, -1
+        ret
+getc_sifive:
+        lw t1, SIFIVE_RXDATA(t0)            /* bit 31 set = RX empty */
+        bltz t1, 1f
+        andi a0, t1, 0xff
+        ret
+1:      li a0, -1
         ret
 
 /* a0 = zero-terminated string */
@@ -2240,6 +2308,7 @@ str_reg:        .asciz "reg"
 str_compatible: .asciz "compatible"
 str_ns16550a:   .asciz "ns16550a"
 str_dw_apb_uart: .asciz "snps,dw-apb-uart"
+str_sifive_uart0: .asciz "sifive,uart0"
 str_riscv_clint0: .asciz "riscv,clint0"
 str_sifive_clint0: .asciz "sifive,clint0"
 str_aclint_mswi: .asciz "riscv,aclint-mswi"
@@ -2266,10 +2335,12 @@ trap_stacks:
     .align 3
 sstc_on:                                    /* 1 once enter_s found Sstc */
     .dword 0
-    /* Device addresses: QEMU virt's (and the build's CONFIG_UART_BASE)
-     * until dt_devices reads the device tree */
+    /* Device addresses: QEMU virt's (and the build's CONFIG_UART_BASE /
+     * CONFIG_UART_KIND) until dt_devices reads the device tree */
 uart_base:
     .dword UART_BASE
+uart_kind:
+    .dword CONFIG_UART_KIND
 clint_msip:
     .dword CLINT_MSIP
 clint_mtimecmp:

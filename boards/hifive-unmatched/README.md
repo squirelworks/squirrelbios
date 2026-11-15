@@ -20,7 +20,7 @@ own tree):
 |---|---|---|
 | Harts | hart 0 = S7 monitor core (no S-mode); harts 1-4 = U74 | `CONFIG_MAX_HARTS=5`; every hart may still be an S-mode target (monitor-hart park is open) |
 | RAM | from `0x80000000`, 16 GB | `CONFIG_FW_BASE=0x80000000` for the 2 MB firmware region and PMP |
-| UART0 | `0x10010000`, `sifive,uart0`: its own register layout (txdata, rxdata, txctrl, rxctrl, div), not a 16550 | `CONFIG_UART_BASE=0x10010000`; putc/getc still `ns16550a` only (`sifive,uart0` kind open) |
+| UART0 | `0x10010000`, `sifive,uart0`: its own register layout (txdata, rxdata, txctrl, rxctrl, div), not a 16550 | `CONFIG_UART_BASE=0x10010000`, `CONFIG_UART_KIND=1`; DT `sifive,uart0` also selects the kind |
 | CLINT | `0x02000000` | `CONFIG_CLINT_BASE` fallback; also taken from the tree |
 | Timer | `timebase-frequency` 1 MHz | timeouts assume 10 MHz |
 | Power off / reset | the DA9063 PMIC over I2C; no test finisher | the QEMU test finisher |
@@ -28,11 +28,6 @@ own tree):
 
 ## Gaps beyond the VisionFive 2 list
 
-- **A second UART kind.** `sifive,uart0` needs its own `putc`/`getc`
-  (write `txdata` when bit 31, "full", is clear; read `rxdata` while bit
-  31, "empty", is clear; enable with `txctrl`/`rxctrl`; baud from `div`
-  and the bus clock). `dt_devices` would record which kind it found and
-  `putc` would branch on it; the UEFI core's `arch.c` likewise.
 - **SD over SPI.** The boot SD sits on an SPI controller (`sifive,spi0`)
   in MMC-over-SPI mode: a small SPI driver plus the SD SPI-mode command
   set would give Block I/O for `\EFI\BOOT\BOOTRISCV64.EFI`; the SD
@@ -46,25 +41,30 @@ own tree):
 `make PLATFORM=riscv64-uefi CONFIG=hifive-unmatched` builds
 `build/riscv64-uefi/hifive-unmatched/squirrel-bios.bin` linked at
 `0x80000000` (RAM / the SPL's OpenSBI load address), with UART0 base
-`0x10010000`, CLINT at `0x02000000`, five harts, and no QEMU fw_cfg.
-`make test` builds that image and checks the SBI `_start` address; it
-does **not** boot it under QEMU.
+`0x10010000`, `CONFIG_UART_KIND=1` (`sifive,uart0` putc/getc: wait while
+`txdata` bit 31 is set, then write the byte; read `rxdata` while bit 31
+is clear; enable with `txctrl`/`rxctrl`; `div = clock/baud - 1` from
+`CONFIG_UART_CLOCK`), CLINT at `0x02000000`, five harts, and no QEMU
+fw_cfg. `make test` builds that image, checks the SBI `_start` address,
+and boots it under QEMU `sifive_u` far enough for the SBI banner and
+`dt: UART at 0x0000000010010000` (same UART IP and base as the FU740).
 
-**QEMU smoke is optional.** Upstream QEMU has no HiFive Unmatched
-machine. QEMU's `sifive_u` models an FU540 (the predecessor: same UART
-kind, same CLINT, hart 0 = E51 monitor core), so the monitor-hart
-handling and the `sifive,uart0` driver can be developed and tested in
-QEMU before any board is involved: `qemu-system-riscv64 -M sifive_u
--smp 5 -bios squirrel-bios.bin`. That would make a good later
-`make test` case once the UART kind exists; until then boot smoke stays
-desk-only / never a merge blocker.
+**Full board / UEFI smoke is still optional.** Upstream QEMU has no HiFive
+Unmatched machine. QEMU's `sifive_u` models an FU540 (the predecessor:
+same UART kind, same CLINT, hart 0 = E51 monitor core without S-mode),
+so the putc path is exercised there; entering the UEFI core in S-mode on
+hart 0 and board reset/power-off stay desk-only / never a merge blocker.
+
+```sh
+qemu-system-riscv64 -M sifive_u -smp 5 -m 2G -nographic \
+  -bios build/riscv64-uefi/hifive-unmatched/squirrel-bios.bin
+```
 
 ## Next milestone
 
-Our SBI as the SPL's OpenSBI replacement (or under `sifive_u` in QEMU),
-with console on `sifive,uart0`, monitor-hart park for hart 0, scaled
-timeouts from `timebase-frequency`, and board reset/power-off through
-the DA9063.
+Our SBI as the SPL's OpenSBI replacement (or further under `sifive_u` in
+QEMU), with monitor-hart park for hart 0, scaled timeouts from
+`timebase-frequency`, and board reset/power-off through the DA9063.
 
 ## Reading
 

@@ -8,8 +8,8 @@ qemu-system-riscv64 -M virt -nographic -bios riscv/squirrel-bios.bin -kernel ima
 ```
 
 - One hart boots: the one `fw_dynamic_info.boot_hart` names when it is below 512, otherwise hart 0 (QEMU's `-kernel` path always names 0); other harts park in `wfi` until the OS starts them with `sbi_hart_start`; `sbi_hart_stop` sends a hart back
-- Takes the NS16550A UART and the CLINT (or, with `aclint=on`, the ACLINT MSWI and MTIMER) from the device tree QEMU passes in `a1`, the lowest when there are several; the build's addresses (`0x10000000`, `0x02000000`) stay only for what the tree does not name. It prints `dt: UART at ..., CLINT msip at ..., mtime at ...`
-- Initialises the UART (115200 8N1) and prints `SquirrelBIOS RISC-V`
+- Takes the UART (`ns16550a`, `snps,dw-apb-uart` or `sifive,uart0`) and the CLINT (or, with `aclint=on`, the ACLINT MSWI and MTIMER) from the device tree QEMU passes in `a1`, the lowest when there are several; the build's addresses and `CONFIG_UART_KIND` stay only for what the tree does not name. It prints `dt: UART at ..., CLINT msip at ..., mtime at ...`
+- Initialises the UART (16550-family: 115200 8N1; `sifive,uart0`: TX/RX enable and `div`) and prints `SquirrelBIOS RISC-V`
 - Finds the `-kernel` image QEMU loaded (via the `fw_dynamic_info` block in `a2`)
 - Enters it in the mode QEMU's `next_mode` asks for, S-mode for `-kernel`,
   with PMP closing the firmware region (`0x80000000`–`0x801FFFFF`) to S-mode and opening the rest of memory, `a0` = hart ID, `a1` = device tree
@@ -76,9 +76,10 @@ Known limits:
   (Ubuntu's 7.0 kernel, for example) stops early with `this kernel does
   not parse "riscv,isa"`: QEMU 8.2 writes only `riscv,isa`. That is the
   QEMU version, not the firmware; a newer QEMU writes both.
-- Only QEMU `virt` is supported: the UART and CLINT come from the device
-  tree, but the firmware still assumes virt's test device and memory
-  layout.
+- QEMU `virt` is the primary target (UART and CLINT from the device tree;
+  test device and memory layout as on virt). `CONFIG=hifive-unmatched`
+  also boots under `sifive_u` far enough to exercise `sifive,uart0` putc
+  (see `boards/hifive-unmatched`).
 
 Linux is not part of `make test` or CI, and no kernel, busybox or
 initramfs is kept in the repo.
@@ -103,8 +104,9 @@ loaded (at the 2 MB boundary after the file, `0x80400000`) or 0. The
 core keeps the SBI's first 2 MB reserved, runs with translation off,
 and:
 
-- reads the NS16550A, the timebase and the goldfish RTC from the device
-  tree, and uses the SBI for `ResetSystem` (SRST);
+- reads the UART (`ns16550a` / `snps,dw-apb-uart` / `sifive,uart0`), the
+  timebase and the goldfish RTC from the device tree, and uses the SBI
+  for `ResetSystem` (SRST);
 - builds the UEFI memory map from `/memory` and `/reserved-memory`,
   keeps the `-kernel` image and the `/chosen` initrd as boot services
   data, itself as runtime services code and the RTC as runtime MMIO;

@@ -12,12 +12,20 @@
 #ifndef CONFIG_UART_IO_WIDTH
 #define CONFIG_UART_IO_WIDTH 1
 #endif
+#ifndef CONFIG_UART_KIND
+#define CONFIG_UART_KIND 0
+#endif
 #ifndef CONFIG_FWCFG_BASE
 #define CONFIG_FWCFG_BASE 0x10100000
 #endif
 #ifndef CONFIG_FW_BASE
 #define CONFIG_FW_BASE 0x80000000
 #endif
+
+/* CONFIG_UART_KIND: 0 = 16550-family (ns16550a / snps,dw-apb-uart);
+ * 1 = sifive,uart0 (FU540/FU740). The device tree overrides at runtime. */
+#define UART_KIND_16550  0
+#define UART_KIND_SIFIVE 1
 
 #define ARCH_NAME            "riscv64-uefi"
 #define ARCH_PE_MACHINE      0x5064

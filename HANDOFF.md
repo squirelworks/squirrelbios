@@ -167,10 +167,11 @@ expected serial lines (`|`-separated, `!` = must not appear, `~` = regex).
   `make test` build-checks the link address (no QEMU JH7110 machine —
   boot smoke optional / desk-only). HiFive Unmatched:
   `CONFIG=hifive-unmatched` (`configs/riscv64-uefi/hifive-unmatched.cfg`)
-  with UART0 at `0x10010000` / `CONFIG_FW_BASE=0x80000000` from
-  `boards/hifive-unmatched`; `make test` build-checks the link address
-  (no Unmatched machine — boot / `sifive_u` smoke optional; `sifive,uart0`
-  putc/getc still open).
+  with UART0 at `0x10010000` / `CONFIG_UART_KIND=1` (`sifive,uart0`
+  putc/getc) / `CONFIG_FW_BASE=0x80000000` from `boards/hifive-unmatched`;
+  `make test` build-checks the link address and boots the image on QEMU
+  `sifive_u` for the SBI banner + `dt: UART at …` (no Unmatched machine;
+  full UEFI / board smoke still optional).
 - Squirrel-OS/2 boots on every UEFI target once the OS has a port; today
   `os-boot.sh` checks x86. Keep `tests/os-boot.sh` in step with squirrel-os2 releases.
 
