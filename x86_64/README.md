@@ -131,10 +131,14 @@ on ConIn (`setup: press F2 for Setup UI`; serial `ESC O Q` or
 `ESC [ 12 ~`). Up/Down move the selection, Enter activates (Continue
 leaves the menu; Boot Manager edits UEFI `BootOrder` — seeds demo
 `Boot0001`/`0002`/`0003` when empty, Left/Right reorder, Enter
-`SetVariable`; other rows are stubs), Esc continues boot. Variable
-services are installed before the UI so BootOrder writes persist in
-the NVRAM-backed store. Later: Secure Boot / TPM / NVRAM notebooks.
-Smoke: `x86_64-setupui`, `x86_64-setupui-f2`, `x86_64-setupui-bootorder`.
+`SetVariable`; Secure Boot keys views/clears PK/KEK/db/dbx with
+confirmation; TPM clear confirms and skips when no TPM is present
+(command stub when one is); date/time and NVRAM reset stay stubs),
+Esc continues boot. Variable services are installed before the UI so
+BootOrder and key clears persist in the NVRAM-backed store. Later:
+date-time / NVRAM reset notebooks. Smoke: `x86_64-setupui`,
+`x86_64-setupui-f2`, `x86_64-setupui-bootorder`,
+`x86_64-setupui-secboot`.
 
 Runtime: `GetTime` from the CMOS RTC,
 the variable services (below), `ResetSystem` (ACPI

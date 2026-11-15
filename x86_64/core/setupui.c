@@ -4,12 +4,16 @@
  * setup items on the frame buffer when GOP is up, mirrors the same menu
  * on the serial console, and returns when the user Continues (or presses
  * Esc). Boot Manager edits the UEFI BootOrder variable (and seeds demo
- * Boot#### load options when none exist). Entered when QEMU provides
- * -fw_cfg name=opt/org.squirrelworks/setupui,... or when F2 is pressed
- * during a short post-GOP window (serial ANSI ESC O Q / CSI 12~). Later
- * steps: Secure Boot / TPM / NVRAM notebooks. */
+ * Boot#### load options when none exist). Secure Boot keys shows PK/KEK/
+ * db/dbx status and can clear them (firmware delete before auth hooks);
+ * TPM clear is a confirmation that skips when no TPM is present and is a
+ * safe stub when one is (no TPM2_Clear mid-boot). Entered when QEMU
+ * provides -fw_cfg name=opt/org.squirrelworks/setupui,... or when F2 is
+ * pressed during a short post-GOP window (serial ANSI ESC O Q / CSI 12~).
+ * Later steps: date-time / NVRAM reset notebooks. */
 #include "efi.h"
 #include "vars.h"
+#include "tpm.h"
 #include "font8x16.h"
 
 #define FWCFG_SETUPUI "opt/org.squirrelworks/setupui"
@@ -40,14 +44,20 @@
 #define BOOT_MAX 8
 #define LABEL_MAX 40
 
-/* EFI_GLOBAL_VARIABLE (UEFI Spec): BootOrder and Boot#### live here. */
+/* EFI_GLOBAL_VARIABLE (UEFI Spec): BootOrder, Boot####, PK, KEK. */
 static const EFI_GUID efi_global = {
     0x8be4df61, 0x93ca, 0x11d2, { 0xaa, 0x0d, 0x00, 0xe0, 0x98, 0x03, 0x2b, 0x8c }
+};
+/* EFI_IMAGE_SECURITY_DATABASE_GUID: db and dbx. */
+static const EFI_GUID efi_image_security = {
+    0xd719b2cb, 0x3d3a, 0x4596, { 0xa3, 0xbc, 0xda, 0xd0, 0x0e, 0x67, 0x65, 0x6f }
 };
 
 enum {
     ACT_CONTINUE = 1,
     ACT_BOOTMGR,
+    ACT_SECBOOT,
+    ACT_TPMCLEAR,
     ACT_STUB,
 };
 
@@ -60,8 +70,8 @@ struct menu_item {
 static const struct menu_item items[] = {
     { "Continue boot",     "Continue boot", ACT_CONTINUE },
     { "Boot Manager",      "Boot Manager",  ACT_BOOTMGR },
-    { "Secure Boot keys",  "Secure Boot",   ACT_STUB },
-    { "TPM clear",         "TPM clear",     ACT_STUB },
+    { "Secure Boot keys",  "Secure Boot",   ACT_SECBOOT },
+    { "TPM clear",         "TPM clear",     ACT_TPMCLEAR },
     { "Date and time",     "Date and time", ACT_STUB },
     { "NVRAM reset",       "NVRAM reset",   ACT_STUB },
 };
@@ -435,6 +445,372 @@ static void handle_stub(const struct menu_item *it)
     }
 }
 
+/* ---- Secure Boot keys notebook ------------------------------------- */
+
+static char sb_line[4][LABEL_MAX];
+static char sb_mode[LABEL_MAX];
+static int sb_sel;
+static int sb_confirm;                  /* 0 = main, 1 = clear confirm */
+static int sb_demo_seeded;              /* in-RAM stubs for empty QEMU */
+
+/* Probe without reading the payload: absent vs present (N bytes). */
+static int var_size(const CHAR16 *name, EFI_GUID *vendor, UINTN *out)
+{
+    UINTN size = 0;
+    EFI_STATUS st = vars_get((CHAR16 *)name, vendor, NULL, &size, NULL);
+    if (st == EFI_NOT_FOUND || size == 0)
+        return 0;
+    if (st == EFI_SUCCESS || st == EFI_BUFFER_TOO_SMALL) {
+        *out = size;
+        return 1;
+    }
+    return 0;
+}
+
+static void format_key_line(char *dst, int dst_n, const char *tag,
+                            const CHAR16 *name, EFI_GUID *vendor)
+{
+    UINTN size = 0;
+    int n = 0;
+    for (; tag[n] && n < dst_n - 1; n++)
+        dst[n] = tag[n];
+    if (n < dst_n - 1)
+        dst[n++] = ' ';
+    if (!var_size(name, vendor, &size)) {
+        const char *a = "absent";
+        for (int i = 0; a[i] && n < dst_n - 1; i++)
+            dst[n++] = a[i];
+        dst[n] = 0;
+        return;
+    }
+    /* "present (N bytes)" — N capped for the label width. */
+    const char *p = "present (";
+    for (int i = 0; p[i] && n < dst_n - 1; i++)
+        dst[n++] = p[i];
+    if (size > 9999)
+        size = 9999;
+    char num[5];
+    int nd = 0;
+    UINTN v = size;
+    do {
+        num[nd++] = (char)('0' + (v % 10));
+        v /= 10;
+    } while (v && nd < 4);
+    while (nd-- && n < dst_n - 1)
+        dst[n++] = num[nd];
+    const char *s = " bytes)";
+    for (int i = 0; s[i] && n < dst_n - 1; i++)
+        dst[n++] = s[i];
+    dst[n] = 0;
+}
+
+static void load_secboot_status(void)
+{
+    UINTN pk_size = 0;
+    int have_pk = var_size(u"PK", (EFI_GUID *)&efi_global, &pk_size);
+    const char *mode = have_pk ? "mode user (PK enrolled)" : "mode setup (no PK)";
+    int i = 0;
+    for (; mode[i] && i < LABEL_MAX - 1; i++)
+        sb_mode[i] = mode[i];
+    sb_mode[i] = 0;
+
+    format_key_line(sb_line[0], LABEL_MAX, "PK", u"PK", (EFI_GUID *)&efi_global);
+    format_key_line(sb_line[1], LABEL_MAX, "KEK", u"KEK", (EFI_GUID *)&efi_global);
+    format_key_line(sb_line[2], LABEL_MAX, "db", u"db", (EFI_GUID *)&efi_image_security);
+    format_key_line(sb_line[3], LABEL_MAX, "dbx", u"dbx", (EFI_GUID *)&efi_image_security);
+}
+
+static int delete_sb_var(const CHAR16 *name, EFI_GUID *vendor)
+{
+    EFI_STATUS st = vars_set((CHAR16 *)name, vendor, 0, 0, NULL);
+    return st == EFI_SUCCESS;
+}
+
+/* When NVRAM has no Secure Boot keys (typical QEMU -bios), plant four
+ * 1-byte stubs so the view/clear notebook has something to show. Not
+ * valid EFI_SIGNATURE_LISTs — scrubbed on clear or when leaving so
+ * secure_init (later) still sees setup mode. */
+static void seed_demo_sb_keys(void)
+{
+    UINTN z = 0;
+    if (var_size(u"PK", (EFI_GUID *)&efi_global, &z) ||
+        var_size(u"KEK", (EFI_GUID *)&efi_global, &z) ||
+        var_size(u"db", (EFI_GUID *)&efi_image_security, &z) ||
+        var_size(u"dbx", (EFI_GUID *)&efi_image_security, &z))
+        return;
+    u8 stub = 0x5A;
+    if (vars_set(u"PK", (EFI_GUID *)&efi_global, ATTR_NV_BS_RT, 1, &stub) != EFI_SUCCESS ||
+        vars_set(u"KEK", (EFI_GUID *)&efi_global, ATTR_NV_BS_RT, 1, &stub) != EFI_SUCCESS ||
+        vars_set(u"db", (EFI_GUID *)&efi_image_security, ATTR_NV_BS_RT, 1, &stub) != EFI_SUCCESS ||
+        vars_set(u"dbx", (EFI_GUID *)&efi_image_security, ATTR_NV_BS_RT, 1, &stub) != EFI_SUCCESS)
+        return;
+    sb_demo_seeded = 1;
+    printf("setup: seeded demo Secure Boot key stubs\n");
+}
+
+static void scrub_demo_sb_keys(void)
+{
+    if (!sb_demo_seeded)
+        return;
+    delete_sb_var(u"PK", (EFI_GUID *)&efi_global);
+    delete_sb_var(u"KEK", (EFI_GUID *)&efi_global);
+    delete_sb_var(u"db", (EFI_GUID *)&efi_image_security);
+    delete_sb_var(u"dbx", (EFI_GUID *)&efi_image_security);
+    sb_demo_seeded = 0;
+}
+
+static void clear_secboot_keys(void)
+{
+    int n = 0;
+    n += delete_sb_var(u"PK", (EFI_GUID *)&efi_global);
+    n += delete_sb_var(u"KEK", (EFI_GUID *)&efi_global);
+    n += delete_sb_var(u"db", (EFI_GUID *)&efi_image_security);
+    n += delete_sb_var(u"dbx", (EFI_GUID *)&efi_image_security);
+    sb_demo_seeded = 0;
+    if (n == 0)
+        printf("setup: Secure Boot keys: nothing to clear\n");
+    else
+        printf("setup: Secure Boot keys cleared (%d removed)\n", n);
+    load_secboot_status();
+}
+
+static const char *sb_act_label(int i)
+{
+    static const char *acts[] = { "Clear all keys", "Back" };
+    static const char *conf[] = { "Yes, clear keys", "No, cancel" };
+    return sb_confirm ? conf[i] : acts[i];
+}
+
+static void serial_secboot_menu(void)
+{
+    if (sb_confirm) {
+        printf("setup: Clear all Secure Boot keys?\n");
+        printf("setup: %c Yes, clear keys\n", sb_sel == 0 ? '>' : ' ');
+        printf("setup: %c No, cancel\n", sb_sel == 1 ? '>' : ' ');
+        printf("setup: Up/Down Enter; Esc cancels\n");
+        return;
+    }
+    printf("setup: --- Secure Boot Keys ---\n");
+    printf("setup: %s\n", sb_mode);
+    for (int i = 0; i < 4; i++)
+        printf("setup: %s\n", sb_line[i]);
+    printf("setup: %c Clear all keys\n", sb_sel == 0 ? '>' : ' ');
+    printf("setup: %c Back\n", sb_sel == 1 ? '>' : ' ');
+    printf("setup: Up/Down Enter; Esc backs out\n");
+}
+
+static void draw_secboot_menu(void)
+{
+    if (!have_gop)
+        return;
+    if (sb_confirm) {
+        draw_panel_list("Clear Secure Boot keys?", "Up/Down  Enter  Esc=cancel",
+                        2, sb_sel, sb_act_label);
+        return;
+    }
+    u32 W = gop->mode->info->horizontal_resolution;
+    u32 H = gop->mode->info->vertical_resolution;
+    fill_rect(0, 0, W, H, COL_DESKTOP);
+    u32 bar_h = FONT_H * SCALE + 16;
+    fill_rect(0, 0, W, bar_h, COL_TITLE_BG);
+    put_str(24, 8, "SquirrelBIOS Setup", COL_TITLE_FG, COL_TITLE_BG);
+
+    u32 panel_x = 80, panel_y = bar_h + 40;
+    u32 panel_w = W > 160 ? W - 160 : W;
+    u32 rows = 4 + 2 + 2;               /* status + actions + title/hint */
+    u32 panel_h = FONT_H * SCALE * rows + 48;
+    if (panel_y + panel_h > H)
+        panel_h = H - panel_y;
+    fill_rect(panel_x, panel_y, panel_w, panel_h, COL_PANEL_BG);
+    put_str(panel_x + 16, panel_y + 12, "Secure Boot Keys", COL_PANEL_FG, COL_PANEL_BG);
+
+    u32 y = panel_y + 12 + FONT_H * SCALE + 8;
+    put_str(panel_x + 24, y, sb_mode, COL_HINT_FG, COL_PANEL_BG);
+    y += FONT_H * SCALE + 4;
+    for (int i = 0; i < 4; i++) {
+        put_str(panel_x + 24, y, sb_line[i], COL_PANEL_FG, COL_PANEL_BG);
+        y += FONT_H * SCALE + 2;
+    }
+    y += 6;
+    for (int i = 0; i < 2; i++) {
+        u32 fg = i == sb_sel ? COL_SEL_FG : COL_PANEL_FG;
+        u32 bg = i == sb_sel ? COL_SEL_BG : COL_PANEL_BG;
+        fill_rect(panel_x + 8, y, panel_w - 16, FONT_H * SCALE + 2, bg);
+        put_str(panel_x + 24, y + 1, sb_act_label(i), fg, bg);
+        y += FONT_H * SCALE + 4;
+    }
+    put_str(panel_x + 16, panel_y + panel_h - FONT_H * SCALE - 12,
+            "Up/Down  Enter  Esc=back", COL_HINT_FG, COL_PANEL_BG);
+}
+
+static void secboot_keys_run(void)
+{
+    printf("setup: selected Secure Boot\n");
+    sb_demo_seeded = 0;
+    seed_demo_sb_keys();
+    load_secboot_status();
+    sb_sel = 0;
+    sb_confirm = 0;
+    serial_secboot_menu();
+    draw_secboot_menu();
+
+    for (;;) {
+        EFI_INPUT_KEY key;
+        if (!read_key(&key))
+            continue;
+        if (key.scan_code == 0x01) {            /* up */
+            sb_sel = sb_sel ? sb_sel - 1 : 1;
+            serial_secboot_menu();
+            draw_secboot_menu();
+        } else if (key.scan_code == 0x02) {     /* down */
+            sb_sel = (sb_sel + 1) % 2;
+            serial_secboot_menu();
+            draw_secboot_menu();
+        } else if (key.scan_code == 0x17 ||     /* Esc */
+                   key.unicode_char == 0x1B) {
+            if (sb_confirm) {
+                printf("setup: Secure Boot clear cancelled\n");
+                sb_confirm = 0;
+                sb_sel = 0;
+                serial_secboot_menu();
+                draw_secboot_menu();
+            } else {
+                printf("setup: Secure Boot keys closed\n");
+                break;
+            }
+        } else if (key.unicode_char == '\r') {
+            if (sb_confirm) {
+                if (sb_sel == 0) {
+                    clear_secboot_keys();
+                    break;              /* like BootOrder save: leave notebook */
+                }
+                printf("setup: Secure Boot clear cancelled\n");
+                sb_confirm = 0;
+                sb_sel = 0;
+                serial_secboot_menu();
+                draw_secboot_menu();
+            } else if (sb_sel == 0) {
+                sb_confirm = 1;
+                sb_sel = 0;
+                serial_secboot_menu();
+                draw_secboot_menu();
+            } else {
+                printf("setup: Secure Boot keys closed\n");
+                break;
+            }
+        }
+    }
+    scrub_demo_sb_keys();
+}
+
+/* ---- TPM clear confirmation ---------------------------------------- */
+
+static int tpm_sel;
+static char tpm_status[LABEL_MAX];
+
+static const char *tpm_act_label(int i)
+{
+    static const char *acts[] = { "Confirm clear", "Cancel" };
+    return acts[i];
+}
+
+static void load_tpm_status(void)
+{
+    const char *s = tpm_present() ? "TPM present (clear is a stub)" : "TPM none";
+    int i = 0;
+    for (; s[i] && i < LABEL_MAX - 1; i++)
+        tpm_status[i] = s[i];
+    tpm_status[i] = 0;
+}
+
+static void serial_tpm_menu(void)
+{
+    printf("setup: --- TPM Clear ---\n");
+    printf("setup: %s\n", tpm_status);
+    printf("setup: %c Confirm clear\n", tpm_sel == 0 ? '>' : ' ');
+    printf("setup: %c Cancel\n", tpm_sel == 1 ? '>' : ' ');
+    printf("setup: Up/Down Enter; Esc cancels\n");
+}
+
+static void draw_tpm_menu(void)
+{
+    if (!have_gop)
+        return;
+    u32 W = gop->mode->info->horizontal_resolution;
+    u32 H = gop->mode->info->vertical_resolution;
+    fill_rect(0, 0, W, H, COL_DESKTOP);
+    u32 bar_h = FONT_H * SCALE + 16;
+    fill_rect(0, 0, W, bar_h, COL_TITLE_BG);
+    put_str(24, 8, "SquirrelBIOS Setup", COL_TITLE_FG, COL_TITLE_BG);
+
+    u32 panel_x = 80, panel_y = bar_h + 40;
+    u32 panel_w = W > 160 ? W - 160 : W;
+    u32 panel_h = FONT_H * SCALE * 6 + 48;
+    if (panel_y + panel_h > H)
+        panel_h = H - panel_y;
+    fill_rect(panel_x, panel_y, panel_w, panel_h, COL_PANEL_BG);
+    put_str(panel_x + 16, panel_y + 12, "TPM Clear", COL_PANEL_FG, COL_PANEL_BG);
+
+    u32 y = panel_y + 12 + FONT_H * SCALE + 8;
+    put_str(panel_x + 24, y, tpm_status, COL_HINT_FG, COL_PANEL_BG);
+    y += FONT_H * SCALE + 10;
+    for (int i = 0; i < 2; i++) {
+        u32 fg = i == tpm_sel ? COL_SEL_FG : COL_PANEL_FG;
+        u32 bg = i == tpm_sel ? COL_SEL_BG : COL_PANEL_BG;
+        fill_rect(panel_x + 8, y, panel_w - 16, FONT_H * SCALE + 2, bg);
+        put_str(panel_x + 24, y + 1, tpm_act_label(i), fg, bg);
+        y += FONT_H * SCALE + 4;
+    }
+    put_str(panel_x + 16, panel_y + panel_h - FONT_H * SCALE - 12,
+            "Up/Down  Enter  Esc=cancel", COL_HINT_FG, COL_PANEL_BG);
+}
+
+static void do_tpm_clear(void)
+{
+    if (!tpm_present()) {
+        printf("setup: TPM clear skipped (no TPM)\n");
+        return;
+    }
+    /* Mid-boot TPM2_Clear would disturb measured PCRs already extended
+     * in tpm_init. The confirmation is real; the command stays a stub
+     * so Setup UI smokes stay safe with or without swtpm. */
+    printf("setup: TPM clear confirmed (stub — not sent)\n");
+}
+
+static void tpm_clear_run(void)
+{
+    printf("setup: selected TPM clear\n");
+    load_tpm_status();
+    tpm_sel = 0;
+    serial_tpm_menu();
+    draw_tpm_menu();
+
+    for (;;) {
+        EFI_INPUT_KEY key;
+        if (!read_key(&key))
+            continue;
+        if (key.scan_code == 0x01) {
+            tpm_sel = tpm_sel ? tpm_sel - 1 : 1;
+            serial_tpm_menu();
+            draw_tpm_menu();
+        } else if (key.scan_code == 0x02) {
+            tpm_sel = (tpm_sel + 1) % 2;
+            serial_tpm_menu();
+            draw_tpm_menu();
+        } else if (key.scan_code == 0x17 ||
+                   key.unicode_char == 0x1B) {
+            printf("setup: TPM clear cancelled\n");
+            break;
+        } else if (key.unicode_char == '\r') {
+            if (tpm_sel == 0)
+                do_tpm_clear();
+            else
+                printf("setup: TPM clear cancelled\n");
+            break;
+        }
+    }
+}
+
 /* Boot Manager notebook: reorder BootOrder, SetVariable on Enter. */
 static void boot_manager_run(void)
 {
@@ -526,6 +902,18 @@ void setup_ui_run(void)
             }
             if (it->action == ACT_BOOTMGR) {
                 boot_manager_run();
+                serial_main_menu();
+                draw_main_menu();
+                continue;
+            }
+            if (it->action == ACT_SECBOOT) {
+                secboot_keys_run();
+                serial_main_menu();
+                draw_main_menu();
+                continue;
+            }
+            if (it->action == ACT_TPMCLEAR) {
+                tpm_clear_run();
                 serial_main_menu();
                 draw_main_menu();
                 continue;

@@ -39,7 +39,7 @@ Used here, in `ROADMAP.md` and on the issues (as labels).
   loongarch64 (#155, #159), s390x (#160, #161). Licence is GPL-3.0 (#163).
   Release notes are in `release-notes/v2.2.0.md`; publishing is `needs: squirrel`.
 - **Test gate:** `make test` (docs honesty via `make docs-lint` /
-  `tools/docs_lint.py`, then 337 cases in `tests/smoke.sh`, plus
+  `tools/docs_lint.py`, then 338 cases in `tests/smoke.sh`, plus
   `rpi4-uefi-sd` when QEMU has `raspi4b`), run by
   `.github/workflows/make-test.yml` on every PR. Optional, not in the
   required gate: `make linux-x86`, `make linux-uefi`, `make linux-shell`,
@@ -99,29 +99,34 @@ expected serial lines (`|`-separated, `!` = must not appear, `~` = regex).
    flash a real GA-G41M-ES2L per `boards/ga-g41m-es2l/FLASHING.md`.
 4. **RISC-V AIA MSI** when a newer QEMU is available in CI.
 5. Then Phase G ideas in `docs/CONTINUANCE.md` (squirrelsoft); G1/G2
-  host fuzz smokes and the Setup UI (GOP + F2 + BootOrder) steps are
-  done (`make fuzz-fat`, `make fuzz-pe`, `x86_64-setupui`,
-  `x86_64-setupui-f2`, `x86_64-setupui-bootorder`).
+  host fuzz smokes and the Setup UI (GOP + F2 + BootOrder + Secure Boot
+  keys / TPM clear) steps are done (`make fuzz-fat`, `make fuzz-pe`,
+  `x86_64-setupui`, `x86_64-setupui-f2`, `x86_64-setupui-bootorder`,
+  `x86_64-setupui-secboot`).
 
 ## Task cards
 
-### G-setup-ui — Setup UI / boot menu on GOP + F2 + BootOrder  `status: done`
+### G-setup-ui — Setup UI / boot menu on GOP + F2 + BootOrder + Secure Boot / TPM  `status: done`
 - **Done (lane `-2eaf`):** navigable Warp-look boot menu shell on
   `x86_64-uefi` (`x86_64/core/setupui.c` + `font8x16.h` from the
   original VGA glyphs). Title, Boot Manager list (Continue + Boot
-  Manager + stubs), Up/Down/Enter/Esc on serial and GOP when Bochs
-  DISPI is present. Entered with
+  Manager + Secure Boot keys + TPM clear + stubs), Up/Down/Enter/Esc on
+  serial and GOP when Bochs DISPI is present. Entered with
   `-fw_cfg name=opt/org.squirrelworks/setupui,string=1` or by pressing
   **F2** during the short post-GOP ConIn window (`setup: press F2 for
   Setup UI`). Boot Manager seeds demo `Boot####` / `BootOrder` when
   empty, reorders with Left/Right, and `SetVariable`s `BootOrder`.
+  Secure Boot keys shows PK/KEK/db/dbx status (seeds demo stubs when
+  empty), confirms and clears them; TPM clear confirms and skips with
+  no TPM (stub when a TPM is present — no mid-boot `TPM2_Clear`).
   Notes: `release-notes/setup-ui-gop.md`, `release-notes/setup-ui-f2.md`,
-  `release-notes/setup-ui-bootorder.md`, `x86_64/README.md`.
+  `release-notes/setup-ui-bootorder.md`,
+  `release-notes/setup-ui-secboot.md`, `x86_64/README.md`.
 - **Check:** `x86_64-setupui` (fw_cfg), `x86_64-setupui-f2` (F2, no
-  fw_cfg), and `x86_64-setupui-bootorder` (reorder + save) in
+  fw_cfg), `x86_64-setupui-bootorder` (reorder + save), and
+  `x86_64-setupui-secboot` (Secure Boot clear + TPM clear, no TPM) in
   `make test`.
-- **Next (still Phase G Setup UI):** Secure Boot keys / TPM clear /
-  date-time / NVRAM reset notebooks.
+- **Next (still Phase G Setup UI):** date-time / NVRAM reset notebooks.
 
 ### G1-fuzz-fat — host FAT fuzz / corpus smoke  `status: done`
 - **Done:** host-buildable harness for `common/efi/fat.c` under

@@ -458,6 +458,10 @@ stub, a 1 MB flash image for `qemu-system-x86_64 -bios`. One PR each.
   (lane `-2eaf`): seed demo `Boot####`/`BootOrder` when empty, Left
   reorders, Enter `SetVariable`s `BootOrder` and read-backs.
   Depends on: `x86_64-setupui`.
+- [x] `x86_64-setupui-secboot` — Phase G Setup UI Secure Boot keys /
+  TPM clear (lane `-2eaf`): view PK/KEK/db/dbx (seed demo stubs when
+  empty), confirm and clear; TPM clear confirmation skips with no TPM.
+  Depends on: `x86_64-setupui`.
 
 ## Secondary track
 
