@@ -22,5 +22,5 @@ real, instead of printing a stub.
   `x86_64-setupui-f2` still cover the shell and F2 path.
 - **Docs:** `x86_64/README.md`, HANDOFF / ROADMAP / TODO Phase G card.
 
-Next: Secure Boot keys / TPM clear are in `release-notes/setup-ui-secboot.md`.
-Then date-time / NVRAM reset notebooks.
+Next: Secure Boot keys / TPM clear are in `release-notes/setup-ui-secboot.md`;
+date-time / NVRAM reset in `release-notes/setup-ui-datetime-nvram.md`.

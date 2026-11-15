@@ -462,6 +462,10 @@ stub, a 1 MB flash image for `qemu-system-x86_64 -bios`. One PR each.
   TPM clear (lane `-2eaf`): view PK/KEK/db/dbx (seed demo stubs when
   empty), confirm and clear; TPM clear confirmation skips with no TPM.
   Depends on: `x86_64-setupui`.
+- [x] `x86_64-setupui-datetime` — Phase G Setup UI date-time / NVRAM
+  reset (lane `-2eaf`): view/edit CMOS RTC (`GetTime`/`SetTime`);
+  confirm and clear user NV vars (seed demo under fw_cfg; leave
+  Secure Boot keys). Depends on: `x86_64-setupui`.
 
 ## Secondary track
 

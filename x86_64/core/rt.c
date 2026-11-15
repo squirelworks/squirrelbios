@@ -59,6 +59,51 @@ int arch_rtc_seconds(u64 *secs)
     return 1;
 }
 
+static u8 to_bcd(u8 v)
+{
+    return (u8)(((v / 10) << 4) | (v % 10));
+}
+
+static void cmos_write(u8 idx, u8 v)
+{
+    outb(0x70, idx);
+    outb(0x71, v);
+}
+
+/* Write civil time to the MC146818 CMOS (QEMU and typical PC RTC).
+ * SET bit in register B holds updates while the fields are written. */
+int arch_rtc_set_civil(u16 year, u8 month, u8 day, u8 hour, u8 minute, u8 second)
+{
+    if (year < 1980 || year > 2099 ||
+        month < 1 || month > 12 || day < 1 || day > 31 ||
+        hour > 23 || minute > 59 || second > 59)
+        return 0;
+    for (int i = 0; i < 10000; i++)
+        if (!(cmos(0x0A) & 0x80))
+            break;
+    u8 regb = cmos(0x0B);
+    int use_bcd = !(regb & 0x04);
+    u8 sec = second, min = minute, hr = hour;
+    u8 d = day, mon = month;
+    u8 yr = (u8)(year % 100);
+    u8 century = (u8)(year / 100);
+    if (use_bcd) {
+        sec = to_bcd(sec); min = to_bcd(min); hr = to_bcd(hr);
+        d = to_bcd(d); mon = to_bcd(mon);
+        yr = to_bcd(yr); century = to_bcd(century);
+    }
+    cmos_write(0x0B, (u8)(regb | 0x80));       /* SET: stop updates */
+    cmos_write(0x00, sec);
+    cmos_write(0x02, min);
+    cmos_write(0x04, hr);
+    cmos_write(0x07, d);
+    cmos_write(0x08, mon);
+    cmos_write(0x09, yr);
+    cmos_write(0x32, century);
+    cmos_write(0x0B, regb);                     /* clear SET */
+    return 1;
+}
+
 void arch_reset(int type, u64 status)
 {
     (void)status;

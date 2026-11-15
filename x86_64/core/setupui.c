@@ -8,10 +8,12 @@
  * gate). Secure Boot keys shows PK/KEK/db/dbx status and can clear them
  * (firmware delete before auth hooks); TPM clear is a confirmation that
  * skips when no TPM is present and is a safe stub when one is (no
- * TPM2_Clear mid-boot). Entered when QEMU provides
+ * TPM2_Clear mid-boot). Date and time views/edits the CMOS RTC via
+ * GetTime/SetTime when available. NVRAM reset confirms and deletes
+ * non-volatile user variables (Boot#### / BootOrder / demo; not Secure
+ * Boot PK/KEK/db/dbx). Entered when QEMU provides
  * -fw_cfg name=opt/org.squirrelworks/setupui,... or when F2 is pressed
  * during a short post-GOP window (serial ANSI ESC O Q / CSI 12~).
- * Later steps: date-time / NVRAM reset notebooks.
  *
  * Strings that reach the 8x16 GOP font or COM1 use ASCII only (plain '-'
  * not UTF-8 em dashes): put_glyph indexes one byte per cell. */
@@ -63,7 +65,8 @@ enum {
     ACT_BOOTMGR,
     ACT_SECBOOT,
     ACT_TPMCLEAR,
-    ACT_STUB,
+    ACT_DATETIME,
+    ACT_NVRAM,
 };
 
 struct menu_item {
@@ -77,10 +80,21 @@ static const struct menu_item items[] = {
     { "Boot Manager",      "Boot Manager",  ACT_BOOTMGR },
     { "Secure Boot keys",  "Secure Boot",   ACT_SECBOOT },
     { "TPM clear",         "TPM clear",     ACT_TPMCLEAR },
-    { "Date and time",     "Date and time", ACT_STUB },
-    { "NVRAM reset",       "NVRAM reset",   ACT_STUB },
+    { "Date and time",     "Date and time", ACT_DATETIME },
+    { "NVRAM reset",       "NVRAM reset",   ACT_NVRAM },
 };
+
+/* Original vendor GUID for Setup UI demo user NVRAM (not a Microsoft GUID). */
+static const EFI_GUID squirrel_user_nv = {
+    0xa7c3e91b, 0x2d54, 0x4f18, { 0x9b, 0x6e, 0x51, 0x8c, 0xd0, 0x3e, 0x7a, 0x22 }
+};
+
+typedef EFI_STATUS (EFIAPI *get_time_fn)(EFI_TIME *, EFI_TIME_CAPABILITIES *);
+typedef EFI_STATUS (EFIAPI *set_time_fn)(EFI_TIME *);
 #define NITEMS ((int)(sizeof items / sizeof items[0]))
+
+/* Defined with the Secure Boot notebook; used by NVRAM seed too. */
+static int var_size(const CHAR16 *name, EFI_GUID *vendor, UINTN *out);
 
 typedef EFI_STATUS (EFIAPI *locate_protocol_fn)(EFI_GUID *, void *, void **);
 typedef EFI_STATUS (EFIAPI *wait_for_event_fn)(UINTN, EFI_EVENT *, UINTN *);
@@ -446,15 +460,527 @@ static int read_key(EFI_INPUT_KEY *key)
     return in->read_key_stroke(in, key) == EFI_SUCCESS;
 }
 
-static void handle_stub(const struct menu_item *it)
+/* ---- Date and time notebook ---------------------------------------- */
+
+enum { DT_YEAR = 0, DT_MONTH, DT_DAY, DT_HOUR, DT_MIN, DT_SEC, DT_NFIELDS };
+static const char *dt_field_name[] = {
+    "Year", "Month", "Day", "Hour", "Minute", "Second"
+};
+
+static EFI_TIME dt_time;
+static int dt_have_rtc;
+static int dt_field;
+static char dt_line[LABEL_MAX];
+static char dt_field_line[LABEL_MAX];
+
+static int days_in_month(u16 year, u8 month)
 {
-    printf("setup: selected %s (stub)\n", it->serial_tag);
-    if (have_gop) {
-        u32 W = gop->mode->info->horizontal_resolution;
-        u32 H = gop->mode->info->vertical_resolution;
-        u32 y = H - FONT_H * SCALE - 8;
-        fill_rect(0, y, W, FONT_H * SCALE + 8, COL_DESKTOP);
-        put_str(24, y, "Not implemented yet - pick Continue boot", COL_TITLE_BG, COL_DESKTOP);
+    static const u8 mdays[] = { 0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
+    if (month < 1 || month > 12)
+        return 31;
+    if (month == 2) {
+        int leap = ((year % 4) == 0 && ((year % 100) != 0 || (year % 400) == 0));
+        return leap ? 29 : 28;
+    }
+    return mdays[month];
+}
+
+static void clamp_dt_day(void)
+{
+    int dim = days_in_month(dt_time.year, dt_time.month);
+    if (dt_time.day > dim)
+        dt_time.day = (u8)dim;
+    if (dt_time.day < 1)
+        dt_time.day = 1;
+}
+
+static void format_dt_line(void)
+{
+    /* "RTC YYYY-MM-DD HH:MM:SS" fits LABEL_MAX. */
+    if (!dt_have_rtc) {
+        const char *s = "RTC unavailable";
+        int i = 0;
+        for (; s[i] && i < LABEL_MAX - 1; i++)
+            dt_line[i] = s[i];
+        dt_line[i] = 0;
+        dt_field_line[0] = 0;
+        return;
+    }
+    printf("setup: RTC %04d-%02d-%02d %02d:%02d:%02d\n",
+           dt_time.year, dt_time.month, dt_time.day,
+           dt_time.hour, dt_time.minute, dt_time.second);
+    /* Rebuild a short GOP/status line without relying on snprintf. */
+    {
+        char tmp[40];
+        int n = 0;
+        const char *p = "RTC ";
+        for (; *p && n < (int)sizeof tmp - 1; p++)
+            tmp[n++] = *p;
+        /* year */
+        u16 y = dt_time.year;
+        tmp[n++] = (char)('0' + (y / 1000) % 10);
+        tmp[n++] = (char)('0' + (y / 100) % 10);
+        tmp[n++] = (char)('0' + (y / 10) % 10);
+        tmp[n++] = (char)('0' + y % 10);
+        tmp[n++] = '-';
+        tmp[n++] = (char)('0' + dt_time.month / 10);
+        tmp[n++] = (char)('0' + dt_time.month % 10);
+        tmp[n++] = '-';
+        tmp[n++] = (char)('0' + dt_time.day / 10);
+        tmp[n++] = (char)('0' + dt_time.day % 10);
+        tmp[n++] = ' ';
+        tmp[n++] = (char)('0' + dt_time.hour / 10);
+        tmp[n++] = (char)('0' + dt_time.hour % 10);
+        tmp[n++] = ':';
+        tmp[n++] = (char)('0' + dt_time.minute / 10);
+        tmp[n++] = (char)('0' + dt_time.minute % 10);
+        tmp[n++] = ':';
+        tmp[n++] = (char)('0' + dt_time.second / 10);
+        tmp[n++] = (char)('0' + dt_time.second % 10);
+        tmp[n] = 0;
+        int i = 0;
+        for (; tmp[i] && i < LABEL_MAX - 1; i++)
+            dt_line[i] = tmp[i];
+        dt_line[i] = 0;
+    }
+    {
+        const char *f = "editing ";
+        int n = 0;
+        for (; f[n] && n < LABEL_MAX - 1; n++)
+            dt_field_line[n] = f[n];
+        const char *name = dt_field_name[dt_field];
+        for (int i = 0; name[i] && n < LABEL_MAX - 1; i++)
+            dt_field_line[n++] = name[i];
+        dt_field_line[n] = 0;
+    }
+}
+
+static int load_datetime(void)
+{
+    get_time_fn get =
+        (get_time_fn)efi_st->runtime_services->get_time;
+    memset(&dt_time, 0, sizeof dt_time);
+    dt_have_rtc = 0;
+    dt_field = DT_YEAR;
+    if (!get || get(&dt_time, NULL) != EFI_SUCCESS) {
+        format_dt_line();
+        return 0;
+    }
+    if (dt_time.year < 1980 || dt_time.year > 2099)
+        dt_time.year = 2000;
+    clamp_dt_day();
+    dt_have_rtc = 1;
+    format_dt_line();
+    return 1;
+}
+
+static void adjust_dt_field(int delta)
+{
+    if (!dt_have_rtc)
+        return;
+    switch (dt_field) {
+    case DT_YEAR: {
+        int y = (int)dt_time.year + delta;
+        if (y < 1980)
+            y = 2099;
+        if (y > 2099)
+            y = 1980;
+        dt_time.year = (u16)y;
+        clamp_dt_day();
+        break;
+    }
+    case DT_MONTH: {
+        int m = (int)dt_time.month + delta;
+        if (m < 1)
+            m = 12;
+        if (m > 12)
+            m = 1;
+        dt_time.month = (u8)m;
+        clamp_dt_day();
+        break;
+    }
+    case DT_DAY: {
+        int dim = days_in_month(dt_time.year, dt_time.month);
+        int d = (int)dt_time.day + delta;
+        if (d < 1)
+            d = dim;
+        if (d > dim)
+            d = 1;
+        dt_time.day = (u8)d;
+        break;
+    }
+    case DT_HOUR: {
+        int h = (int)dt_time.hour + delta;
+        if (h < 0)
+            h = 23;
+        if (h > 23)
+            h = 0;
+        dt_time.hour = (u8)h;
+        break;
+    }
+    case DT_MIN: {
+        int m = (int)dt_time.minute + delta;
+        if (m < 0)
+            m = 59;
+        if (m > 59)
+            m = 0;
+        dt_time.minute = (u8)m;
+        break;
+    }
+    case DT_SEC: {
+        int s = (int)dt_time.second + delta;
+        if (s < 0)
+            s = 59;
+        if (s > 59)
+            s = 0;
+        dt_time.second = (u8)s;
+        break;
+    }
+    }
+    format_dt_line();
+}
+
+static int apply_datetime(void)
+{
+    set_time_fn set =
+        (set_time_fn)efi_st->runtime_services->set_time;
+    if (!dt_have_rtc || !set) {
+        printf("setup: date-time apply skipped (no RTC)\n");
+        return 0;
+    }
+    clamp_dt_day();
+    if (set(&dt_time) != EFI_SUCCESS) {
+        printf("setup: date-time apply failed\n");
+        return 0;
+    }
+    /* Read back so the smoke sees CMOS, not only the workspace. Second
+     * may tick between SetTime and GetTime; require Y/M/D/H/M. */
+    get_time_fn get =
+        (get_time_fn)efi_st->runtime_services->get_time;
+    EFI_TIME check;
+    memset(&check, 0, sizeof check);
+    if (!get || get(&check, NULL) != EFI_SUCCESS ||
+        check.year != dt_time.year || check.month != dt_time.month ||
+        check.day != dt_time.day || check.hour != dt_time.hour ||
+        check.minute != dt_time.minute) {
+        printf("setup: date-time read-back mismatch\n");
+        return 0;
+    }
+    printf("setup: date-time applied %04d-%02d-%02d %02d:%02d:%02d\n",
+           check.year, check.month, check.day,
+           check.hour, check.minute, check.second);
+    return 1;
+}
+
+static void serial_datetime_menu(void)
+{
+    printf("setup: --- Date and Time ---\n");
+    if (!dt_have_rtc) {
+        printf("setup: RTC unavailable\n");
+        printf("setup: Esc backs out\n");
+        return;
+    }
+    /* format_dt_line already printed the RTC line when refreshing. */
+    printf("setup: %s\n", dt_field_line);
+    printf("setup: Up/Down adjust; Left/Right field; Enter applies; Esc cancels\n");
+}
+
+static void draw_datetime_menu(void)
+{
+    if (!have_gop)
+        return;
+    u32 W = gop->mode->info->horizontal_resolution;
+    u32 H = gop->mode->info->vertical_resolution;
+    fill_rect(0, 0, W, H, COL_DESKTOP);
+    u32 bar_h = FONT_H * SCALE + 16;
+    fill_rect(0, 0, W, bar_h, COL_TITLE_BG);
+    put_str(24, 8, "SquirrelBIOS Setup", COL_TITLE_FG, COL_TITLE_BG);
+
+    u32 panel_x = 80, panel_y = bar_h + 40;
+    u32 panel_w = W > 160 ? W - 160 : W;
+    u32 panel_h = FONT_H * SCALE * 6 + 48;
+    if (panel_y + panel_h > H)
+        panel_h = H - panel_y;
+    fill_rect(panel_x, panel_y, panel_w, panel_h, COL_PANEL_BG);
+    put_str(panel_x + 16, panel_y + 12, "Date and Time", COL_PANEL_FG, COL_PANEL_BG);
+
+    u32 y = panel_y + 12 + FONT_H * SCALE + 8;
+    put_str(panel_x + 24, y, dt_line, COL_PANEL_FG, COL_PANEL_BG);
+    y += FONT_H * SCALE + 8;
+    if (dt_have_rtc)
+        put_str(panel_x + 24, y, dt_field_line, COL_HINT_FG, COL_PANEL_BG);
+    put_str(panel_x + 16, panel_y + panel_h - FONT_H * SCALE - 12,
+            dt_have_rtc ? "Up/Down  L/R field  Enter=apply  Esc"
+                        : "Esc=back",
+            COL_HINT_FG, COL_PANEL_BG);
+}
+
+static void datetime_run(void)
+{
+    printf("setup: selected Date and time\n");
+    load_datetime();
+    /* First serial paint: print RTC once (format_dt_line already did when
+     * RTC is present); avoid a duplicate by only calling the menu shell. */
+    printf("setup: --- Date and Time ---\n");
+    if (!dt_have_rtc) {
+        printf("setup: RTC unavailable\n");
+        printf("setup: Esc backs out\n");
+    } else {
+        printf("setup: %s\n", dt_field_line);
+        printf("setup: Up/Down adjust; Left/Right field; Enter applies; Esc cancels\n");
+    }
+    draw_datetime_menu();
+
+    for (;;) {
+        EFI_INPUT_KEY key;
+        if (!read_key(&key)) {
+            printf("setup: ConIn wait failed, leaving Date and time\n");
+            break;
+        }
+        if (!dt_have_rtc) {
+            if (key.scan_code == 0x17 || key.unicode_char == 0x1B ||
+                key.unicode_char == '\r') {
+                printf("setup: Date and time closed\n");
+                break;
+            }
+            continue;
+        }
+        if (key.scan_code == 0x01) {            /* up: +1 */
+            adjust_dt_field(+1);
+            serial_datetime_menu();
+            draw_datetime_menu();
+        } else if (key.scan_code == 0x02) {     /* down: -1 */
+            adjust_dt_field(-1);
+            serial_datetime_menu();
+            draw_datetime_menu();
+        } else if (key.scan_code == 0x04 ||     /* left: previous field */
+                   key.unicode_char == '-') {
+            dt_field = dt_field ? dt_field - 1 : DT_NFIELDS - 1;
+            format_dt_line();
+            serial_datetime_menu();
+            draw_datetime_menu();
+        } else if (key.scan_code == 0x03 ||     /* right: next field */
+                   key.unicode_char == '+') {
+            dt_field = (dt_field + 1) % DT_NFIELDS;
+            format_dt_line();
+            serial_datetime_menu();
+            draw_datetime_menu();
+        } else if (key.scan_code == 0x17 ||
+                   key.unicode_char == 0x1B) {
+            printf("setup: date-time cancelled\n");
+            break;
+        } else if (key.unicode_char == '\r') {
+            apply_datetime();
+            break;
+        }
+    }
+}
+
+/* ---- NVRAM reset notebook ------------------------------------------ */
+
+static int nv_sel;
+static int nv_count;
+static char nv_status[LABEL_MAX];
+
+static int name_is(const CHAR16 *a, const char *b)
+{
+    for (; *b; a++, b++) {
+        if (!*a || *a != (CHAR16)(u8)*b)
+            return 0;
+    }
+    return *a == 0;
+}
+
+/* Secure Boot keys stay under their own notebook; NVRAM reset leaves them. */
+static int is_secboot_var(const CHAR16 *name, const EFI_GUID *vendor)
+{
+    if (guid_eq(vendor, &efi_global) &&
+        (name_is(name, "PK") || name_is(name, "KEK")))
+        return 1;
+    if (guid_eq(vendor, &efi_image_security) &&
+        (name_is(name, "db") || name_is(name, "dbx")))
+        return 1;
+    return 0;
+}
+
+#define NV_CLEAR_MAX 32
+struct nv_entry {
+    CHAR16 name[32];
+    EFI_GUID vendor;
+};
+static struct nv_entry nv_list[NV_CLEAR_MAX];
+
+static int collect_user_nv(void)
+{
+    CHAR16 name[32];
+    EFI_GUID vendor;
+    UINTN size;
+    int n = 0;
+
+    name[0] = 0;
+    size = sizeof name;
+    for (;;) {
+        EFI_STATUS st = vars_next(&size, name, &vendor);
+        if (st == EFI_NOT_FOUND)
+            break;
+        if (st == EFI_BUFFER_TOO_SMALL) {
+            /* Name longer than our buffer: skip by not enumerating further
+             * safely - reset and stop so we do not loop forever. */
+            break;
+        }
+        if (st != EFI_SUCCESS)
+            break;
+        u32 attr = 0;
+        UINTN dsz = 0;
+        EFI_STATUS gst = vars_get(name, &vendor, &attr, &dsz, NULL);
+        if (gst == EFI_BUFFER_TOO_SMALL || gst == EFI_SUCCESS) {
+            /* NV bit: user non-volatile settings (BootOrder, Boot####, ...). */
+            if ((attr & 0x01u) && !is_secboot_var(name, &vendor) && n < NV_CLEAR_MAX) {
+                int i = 0;
+                for (; i < 31 && name[i]; i++)
+                    nv_list[n].name[i] = name[i];
+                nv_list[n].name[i] = 0;
+                nv_list[n].vendor = vendor;
+                n++;
+            }
+        }
+        size = sizeof name;
+    }
+    return n;
+}
+
+static void format_nv_status(void)
+{
+    const char *p = "user NV vars: ";
+    int n = 0;
+    for (; p[n] && n < LABEL_MAX - 1; n++)
+        nv_status[n] = p[n];
+    int c = nv_count;
+    if (c > 99)
+        c = 99;
+    if (c >= 10)
+        nv_status[n++] = (char)('0' + c / 10);
+    nv_status[n++] = (char)('0' + c % 10);
+    nv_status[n] = 0;
+}
+
+static void seed_demo_user_nv(void)
+{
+    u16 sel;
+    u32 fsz;
+    UINTN z = 0;
+    if (!fwcfg_find(FWCFG_SETUPUI, &sel, &fsz))
+        return;
+    if (var_size(u"SquirrelDemo", (EFI_GUID *)&squirrel_user_nv, &z))
+        return;
+    u8 stub = 0xA5;
+    if (vars_set(u"SquirrelDemo", (EFI_GUID *)&squirrel_user_nv,
+                 ATTR_NV_BS_RT, 1, &stub) != EFI_SUCCESS) {
+        printf("setup: demo user NV seed failed\n");
+        return;
+    }
+    printf("setup: seeded demo user NV var\n");
+}
+
+static int clear_user_nv(void)
+{
+    int removed = 0;
+    for (int i = 0; i < nv_count; i++) {
+        if (vars_set(nv_list[i].name, &nv_list[i].vendor, 0, 0, NULL) == EFI_SUCCESS)
+            removed++;
+    }
+    if (removed == 0)
+        printf("setup: NVRAM reset: nothing to clear\n");
+    else
+        printf("setup: NVRAM reset cleared %d user var%s\n",
+               removed, removed == 1 ? "" : "s");
+    return removed;
+}
+
+static const char *nv_act_label(int i)
+{
+    static const char *acts[] = { "Confirm reset", "Cancel" };
+    return acts[i];
+}
+
+static void serial_nvram_menu(void)
+{
+    printf("setup: --- NVRAM Reset ---\n");
+    printf("setup: %s\n", nv_status);
+    printf("setup: %c Confirm reset\n", nv_sel == 0 ? '>' : ' ');
+    printf("setup: %c Cancel\n", nv_sel == 1 ? '>' : ' ');
+    printf("setup: Up/Down Enter; Esc cancels\n");
+}
+
+static void draw_nvram_menu(void)
+{
+    if (!have_gop)
+        return;
+    u32 W = gop->mode->info->horizontal_resolution;
+    u32 H = gop->mode->info->vertical_resolution;
+    fill_rect(0, 0, W, H, COL_DESKTOP);
+    u32 bar_h = FONT_H * SCALE + 16;
+    fill_rect(0, 0, W, bar_h, COL_TITLE_BG);
+    put_str(24, 8, "SquirrelBIOS Setup", COL_TITLE_FG, COL_TITLE_BG);
+
+    u32 panel_x = 80, panel_y = bar_h + 40;
+    u32 panel_w = W > 160 ? W - 160 : W;
+    u32 fill_w = panel_w > 16 ? panel_w - 16 : panel_w;
+    u32 panel_h = FONT_H * SCALE * 6 + 48;
+    if (panel_y + panel_h > H)
+        panel_h = H - panel_y;
+    fill_rect(panel_x, panel_y, panel_w, panel_h, COL_PANEL_BG);
+    put_str(panel_x + 16, panel_y + 12, "NVRAM Reset", COL_PANEL_FG, COL_PANEL_BG);
+
+    u32 y = panel_y + 12 + FONT_H * SCALE + 8;
+    put_str(panel_x + 24, y, nv_status, COL_HINT_FG, COL_PANEL_BG);
+    y += FONT_H * SCALE + 10;
+    for (int i = 0; i < 2; i++) {
+        u32 fg = i == nv_sel ? COL_SEL_FG : COL_PANEL_FG;
+        u32 bg = i == nv_sel ? COL_SEL_BG : COL_PANEL_BG;
+        fill_rect(panel_x + 8, y, fill_w, FONT_H * SCALE + 2, bg);
+        put_str(panel_x + 24, y + 1, nv_act_label(i), fg, bg);
+        y += FONT_H * SCALE + 4;
+    }
+    put_str(panel_x + 16, panel_y + panel_h - FONT_H * SCALE - 12,
+            "Up/Down  Enter  Esc=cancel", COL_HINT_FG, COL_PANEL_BG);
+}
+
+static void nvram_reset_run(void)
+{
+    printf("setup: selected NVRAM reset\n");
+    seed_demo_user_nv();
+    nv_count = collect_user_nv();
+    format_nv_status();
+    nv_sel = 0;
+    serial_nvram_menu();
+    draw_nvram_menu();
+
+    for (;;) {
+        EFI_INPUT_KEY key;
+        if (!read_key(&key)) {
+            printf("setup: ConIn wait failed, leaving NVRAM reset\n");
+            break;
+        }
+        if (key.scan_code == 0x01) {
+            nv_sel = nv_sel ? nv_sel - 1 : 1;
+            serial_nvram_menu();
+            draw_nvram_menu();
+        } else if (key.scan_code == 0x02) {
+            nv_sel = (nv_sel + 1) % 2;
+            serial_nvram_menu();
+            draw_nvram_menu();
+        } else if (key.scan_code == 0x17 ||
+                   key.unicode_char == 0x1B) {
+            printf("setup: NVRAM reset cancelled\n");
+            break;
+        } else if (key.unicode_char == '\r') {
+            if (nv_sel == 0)
+                clear_user_nv();
+            else
+                printf("setup: NVRAM reset cancelled\n");
+            break;
+        }
     }
 }
 
@@ -955,8 +1481,18 @@ void setup_ui_run(void)
                 draw_main_menu();
                 continue;
             }
-            if (it->action == ACT_STUB)
-                handle_stub(it);
+            if (it->action == ACT_DATETIME) {
+                datetime_run();
+                serial_main_menu();
+                draw_main_menu();
+                continue;
+            }
+            if (it->action == ACT_NVRAM) {
+                nvram_reset_run();
+                serial_main_menu();
+                draw_main_menu();
+                continue;
+            }
         }
     }
     printf("setup: UI closed\n");

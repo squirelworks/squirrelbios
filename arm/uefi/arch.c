@@ -102,6 +102,13 @@ void arch_sync_icache(void *p, usize n)
     __asm__ volatile("dsb ish; isb");
 }
 
+int arch_rtc_set_civil(u16 year, u8 month, u8 day, u8 hour, u8 minute, u8 second)
+{
+    (void)year; (void)month; (void)day;
+    (void)hour; (void)minute; (void)second;
+    return 0;                                   /* PL031 write not wired */
+}
+
 int arch_rtc_seconds(u64 *secs)
 {
     if (!rtc)
