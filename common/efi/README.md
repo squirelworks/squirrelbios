@@ -42,7 +42,8 @@ disk.c, fat.c   Block I/O for each disk and its GPT/MBR partitions, a
                 FAT12/16/32 Simple File System (8.3 and long names; read,
                 write, create, mkdir, delete, rename, resize, directory
                 listing; written through to every FAT copy), and the ESP
-                boot with the architecture's boot file name
+                boot with the architecture's boot file name. Host fuzz
+                smoke (Phase G): `make fuzz-fat` in `fuzz/`
 fdt.c           the tree QEMU hands over, read with the shared reader in common/fw/fdt.c
 acpi.c, aml.c   ACPI table store (headers, checksums, XSDT, RSDP as the
                 ACPI 2.0 configuration table) and the AML writer every

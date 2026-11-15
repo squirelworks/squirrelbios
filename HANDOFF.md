@@ -41,9 +41,11 @@ Used here, in `ROADMAP.md` and on the issues (as labels).
 - **Test gate:** `make test` (docs honesty via `make docs-lint` /
   `tools/docs_lint.py`, then 337 cases in `tests/smoke.sh`, plus
   `rpi4-uefi-sd` when QEMU has `raspi4b`), run by
-  `.github/workflows/make-test.yml` on every PR. Optional, not in CI:
-  `make linux-x86`, `make linux-uefi`, `make linux-shell`, `make linux-big`,
-  `make f4-scale`.
+  `.github/workflows/make-test.yml` on every PR. Optional, not in the
+  required gate: `make linux-x86`, `make linux-uefi`, `make linux-shell`,
+  `make linux-big`, `make f4-scale`, `make fuzz-fat` (Phase G host FAT
+  corpus smoke; optional path-filtered workflow
+  `.github/workflows/fuzz-fat.yml`).
 - **Open PRs at hand-off:** #170 (D2-rpi4); F1-scale, F2-CXL + F3-DNS and REL-2.2.0 notes are on `main`.
 
 ## Rules (Squirrel's; do not break)
@@ -91,9 +93,21 @@ expected serial lines (`|`-separated, `!` = must not appear, `~` = regex).
 3. **C5-board** desk flash *(Squirrel)*: docs and `CONFIG=coreboot` are done;
    flash a real GA-G41M-ES2L per `boards/ga-g41m-es2l/FLASHING.md`.
 4. **RISC-V AIA MSI** when a newer QEMU is available in CI.
-5. Then Phase G ideas in `docs/CONTINUANCE.md` (squirrelsoft).
+5. Then Phase G ideas in `docs/CONTINUANCE.md` (squirrelsoft); first step
+   is G1-fuzz-fat (`make fuzz-fat`).
 
 ## Task cards
+
+### G1-fuzz-fat — host FAT fuzz / corpus smoke  `status: done`
+- **Done:** host-buildable harness for `common/efi/fat.c` under
+  `fuzz/` (`LLVMFuzzerTestOneInput`, host EFI stubs, seed corpus).
+  `make fuzz-fat` runs a short corpus smoke without QEMU; optional
+  `make fuzz-fat-libfuzzer` and `.github/workflows/fuzz-fat.yml`
+  (path-filtered / `workflow_dispatch`, not the required gate).
+  Notes: `fuzz/README.md`, `release-notes/host-fuzz-fat.md`.
+- **Check:** `make fuzz-fat` prints `PASS  fuzz-fat (…)`.
+- **Next (still Phase G):** PE/COFF (`image.c`) the same way; then a
+  scheduled nightly with a fixed libFuzzer budget.
 
 ### REL-2.2.0 — release notes for what `main` has since v2.1.1  `needs: squirrel`
 - **Done (notes):** `release-notes/v2.2.0.md` (style of `v2.1.0.md`; Known

@@ -12,7 +12,8 @@ A box "names a check" when its text contains:
   - a smoke-shaped id used with claim language (Smoke-test, "case",
     "`name` smoke", or "Test:"), even if the case is not in the harness yet,
   - a harness path under tests/ (script or helper), or
-  - a make-test gate: make test, make linux-*, make f4-scale, make os-boot*.
+  - a make-test gate: make test, make linux-*, make f4-scale, make os-boot*,
+    make fuzz-fat.
 
 Wrapped checkbox bodies (indented continuation lines) are joined so a
 Test:/smoke reference on the next line still counts.
@@ -44,10 +45,10 @@ TESTS_PATH_RE = re.compile(
     r"^(?:\.\/)?tests/(?:[\w./-]+\.(?:sh|py|asm|S|c)|[\w./-]+)$"
 )
 MAKE_GATE_RE = re.compile(
-    r"^make\s+(?:test|linux[\w-]*|f4-scale|os-boot[\w-]*)$"
+    r"^make\s+(?:test|linux[\w-]*|f4-scale|os-boot[\w-]*|fuzz-fat)$"
 )
 BARE_MAKE_GATE_RE = re.compile(
-    r"(?<![`\w])make\s+(?:test|linux[\w-]*|f4-scale|os-boot[\w-]*)(?![`\w-])"
+    r"(?<![`\w])make\s+(?:test|linux[\w-]*|f4-scale|os-boot[\w-]*|fuzz-fat)(?![`\w-])"
 )
 # Smoke case ids look like x86-boot / x86_64-uefi-sol / rpi4-uefi-sd.
 # Artifact names (floppy.img, os.img) are not case ids.
@@ -84,7 +85,7 @@ MAKE_TARGET_RE = re.compile(r"^([A-Za-z_][\w-]*)\s*:[^=]", re.MULTILINE)
 
 # Makefile targets that count as the make-test / optional gate surface.
 GATE_TARGET_RE = re.compile(
-    r"^(?:test|linux[\w-]*|f4-scale|os-boot[\w-]*)$"
+    r"^(?:test|linux[\w-]*|f4-scale|os-boot[\w-]*|fuzz-fat)$"
 )
 
 
