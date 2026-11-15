@@ -283,23 +283,6 @@ static void EFIAPI reset_system(EFI_RESET_TYPE type, EFI_STATUS status, UINTN si
     arch_reset(type, status);
 }
 
-static EFI_STATUS EFIAPI update_capsule(void *a, UINTN b, EFI_PHYSICAL_ADDRESS c)
-{
-    (void)a;
-    (void)b;
-    (void)c;
-    return EFI_UNSUPPORTED;
-}
-
-static EFI_STATUS EFIAPI query_capsule(void *a, UINTN b, u64 *c, EFI_RESET_TYPE *d)
-{
-    (void)a;
-    (void)b;
-    (void)c;
-    (void)d;
-    return EFI_UNSUPPORTED;
-}
-
 static EFI_STATUS EFIAPI query_variable_info(u32 attr, u64 *max, u64 *rem, u64 *maxsz)
 {
     (void)attr;
@@ -351,7 +334,7 @@ void efi_runtime_init(EFI_RUNTIME_SERVICES *rt)
     rt->set_variable = (void *)set_variable;
     rt->get_next_high_monotonic_count = (void *)get_next_high_mono;
     rt->reset_system = (void *)reset_system;
-    rt->update_capsule = (void *)update_capsule;
-    rt->query_capsule_capabilities = (void *)query_capsule;
+    rt->update_capsule = (void *)efi_update_capsule;
+    rt->query_capsule_capabilities = (void *)efi_query_capsule_capabilities;
     rt->query_variable_info = (void *)query_variable_info;
 }

@@ -1166,6 +1166,23 @@ Expect `SquirrelBIOS RISC-V`, then `jumping to kernel at
 Linux kernel, see "Trying Linux" in `riscv/README.md`.
 `tests/riscv-kernel.S` is a minimal image.
 
+## x86_64 UEFI (`PLATFORM=x86_64-uefi`)
+
+The UEFI-class build keeps serving after the OS calls
+`ExitBootServices` (runtime services pages). Phase G capsule plumbing:
+
+- The EFI System Resource Table is a configuration table (UEFI 2.10
+  §4.6): one system-firmware resource, `FwVersion` from `SQ_VERSION`.
+- `UpdateCapsule` / `QueryCapsuleCapabilities` (UEFI 2.10 §8.5.3)
+  accept the project system-firmware capsule GUID and update ESRT
+  `LastAttempt*`. Persist-across-reset needs a scatter-gather list;
+  `CAPSULE_FLAGS_INITIATE_RESET` warm-resets. The QEMU image is not
+  rewritten.
+- `OsIndicationsSupported` advertises file-capsule delivery.
+
+Details: [x86_64/README.md](../x86_64/README.md),
+`release-notes/capsule-esrt.md`. Smoke: `x86_64-capsule`.
+
 ## POWER (QEMU powernv9 / powernv10)
 
 Roadmap E1, `PLATFORM=ppc64le-powernv`; details in

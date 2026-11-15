@@ -58,11 +58,12 @@ include/   arch.h (what the shared core needs to know about x86-64, and
            the x86-only helpers), acpi.h; sq.h and efi.h are
            common/efi's
 link.ld    the body, linked at FW_BASE; common/efi/runtime.c, lib.c,
-           core/rt.c, core/variables.c and secure/{authvar,der,rsa,sha256}.c
-           (built apart, sections renamed .rt.*) go in page-aligned
-           runtime code and data, the only part of the image the OS
-           keeps after ExitBootServices, with the system, runtime
-           services and configuration tables
+           capsule.c, core/rt.c, core/variables.c and
+           secure/{authvar,der,rsa,sha256}.c (built apart, sections
+           renamed .rt.*) go in page-aligned runtime code and data, the
+           only part of the image the OS keeps after ExitBootServices,
+           with the system, runtime services and configuration tables
+           (including the ESRT from capsule.c)
 ```
 
 Flash layout: the body from offset 0, zero padding, the stub in the
@@ -147,6 +148,16 @@ UTF-8). Variable services are installed before the UI so BootOrder
 edits hit the NVRAM-backed store. Smoke: `x86_64-setupui`,
 `x86_64-setupui-f2`, `x86_64-setupui-bootorder`,
 `x86_64-setupui-secboot`, `x86_64-setupui-datetime`.
+
+Capsules / ESRT (Phase G): after the variable store is installed the
+firmware publishes the EFI System Resource Table (one system-firmware
+resource; `FwVersion` from `SQ_VERSION`) and
+`OsIndicationsSupported` with the file-capsule bit. `UpdateCapsule` /
+`QueryCapsuleCapabilities` accept the project system-firmware capsule
+GUID, update ESRT `LastAttempt*`, and may warm-reset when
+`CAPSULE_FLAGS_INITIATE_RESET` is set. QEMU smoke does not rewrite the
+flash image. Smoke: `x86_64-capsule`. Notes:
+`release-notes/capsule-esrt.md`.
 
 Runtime: `GetTime` / `SetTime` from the CMOS RTC,
 the variable services (below), `ResetSystem` (ACPI

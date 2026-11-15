@@ -478,6 +478,11 @@ stub, a 1 MB flash image for `qemu-system-x86_64 -bios`. One PR each.
 - [x] `make fuzz-fdt` — Phase G host FDT corpus smoke (lane `-2eaf`):
   `fuzz/fdt_harness.c` + `common/fw/fdt.c` + synthetic
   `fuzz/corpus-fdt/`; no QEMU. Epic #82.
+- [x] `x86_64-capsule` — Phase G UpdateCapsule + ESRT (lane `-2eaf`):
+  `common/efi/capsule.c` installs the ESRT, implements
+  `UpdateCapsule` / `QueryCapsuleCapabilities`, sets
+  `OsIndicationsSupported`; stand-in `tests/x86_64-capsule.c`.
+  Depends on: `x86_64-gop`. Epic #82.
 
 ## Secondary track
 

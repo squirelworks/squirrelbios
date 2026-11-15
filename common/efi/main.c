@@ -273,6 +273,7 @@ void efi_main(const void *dtb)
     efi_install_configuration_table((EFI_GUID *)&dtb_guid, (void *)dtb);
     printf("efi: device tree installed as a configuration table\n");
     arch_efi_init();
+    efi_capsule_init();
     efi_disk_init();
     efi_net_init();
 

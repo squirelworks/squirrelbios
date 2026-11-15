@@ -1968,6 +1968,12 @@ run x86_64-ipmi-pc "APP ipmi spmi=ok smbios38=ok kcs=ok redfish=none|!=bad" \
 run x86_64-ipmi-none "ipmi: none|APP ipmi none|!SPMI" \
     "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-ipmi.efi
 
+# UpdateCapsule + ESRT (Phase G): the firmware publishes the EFI System
+# Resource Table and OsIndicationsSupported; x86_64-capsule queries
+# capabilities, submits a system-firmware capsule, and checks LastAttempt*.
+run x86_64-capsule "capsule: ESRT at|capsule: UpdateCapsule n=1 persist=0 populate=0 reset=0|APP capsule esrt=ok query=ok update=ok attempt=ok osind=ok|efi: image returned 0x0|!=bad" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-capsule.efi
+
 # E3 stretch ports: LoongArch64 on QEMU virt and MIPS on QEMU Malta. Each
 # reaches its prompt and hands off to a test kernel: by autoboot, through
 # the prompt (help, info, an unknown command, backspace, boot), and with
