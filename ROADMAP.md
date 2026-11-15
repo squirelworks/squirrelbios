@@ -353,6 +353,19 @@ boxes in [TODO.md](TODO.md).
   - [x] `f4-scale`: eight nodes, one with `-smp 256 -numa` (255 under
     TCG), as optional `make f4-scale` (too slow for default CI)
 
+### Phase G — firmware as a product (CONTINUANCE)
+
+Suite plan: squirrelsoft `docs/CONTINUANCE.md` §4. First step only here.
+
+- [x] **G1** Host fuzz smoke for the FAT parser: `fuzz/` builds
+  `common/efi/fat.c` on the host with a libFuzzer-style harness;
+  `make fuzz-fat` runs the seed corpus once (no QEMU). Optional CI:
+  `.github/workflows/fuzz-fat.yml`. Notes in `fuzz/README.md` and
+  `release-notes/host-fuzz-fat.md`.
+- [ ] **G2** Same pattern for PE/COFF (`common/efi/image.c`), then
+  Authenticode/PKCS#7, DHCP/TFTP/HTTP, USB descriptors, FDT; a
+  scheduled nightly with a fixed libFuzzer budget *(later)*.
+
 ### Squirrel-OS/2 hand-off on every platform
 
 Every platform build provides the same Squirrel hand-off
