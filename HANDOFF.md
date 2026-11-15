@@ -6,6 +6,11 @@ with enough detail to start any open item cold. The suite-wide plan for what
 comes after this list is
 [squirrelsoft `docs/CONTINUANCE.md`](https://github.com/squirelworks/squirrelsoft/blob/main/docs/CONTINUANCE.md).
 
+**Path to 3.0.0:** the fine-grained BIOS ladder (M0…M20, version bumps,
+resume-after-credit-reset, Phase E vs product v3.0.0 semantics) lives in
+[`release-notes/TO_3.0.0.md`](release-notes/TO_3.0.0.md). Soft PATH is suite
+index only; lane **`-2eaf`** owns BIOS marks (no `-b55f` on this repo).
+
 Source of truth, in order: `ROADMAP.md` and `TODO.md` on `main`, then the
 GitHub issues (epic #82, hand-off tracker), then this file. If they
 disagree, `main`'s code and `tests/smoke.sh` win; fix the docs in your PR.
@@ -23,23 +28,16 @@ Used here, in `ROADMAP.md` and on the issues (as labels).
 
 ## Where things are
 
-- **Released:** v2.1.1 (2026-11-13; v2.1.0's firmware from `f572f71` with all
-  six images attached).
-- **`main` is ready for v2.2.0** (`4a3d29f`, including F2-CXL + F3-DNS #167):
-  native AHCI / NVMe / virtio disks and AML on the x86_64 UEFI core (D4,
-  #142), FAT write and USB mass storage in the shared UEFI core (#145),
-  UEFI network boot (SNP, DHCP+TFTP, HTTP boot with DNS) and serial-over-LAN
-  on all three UEFI targets (#143, #146, #167), multi-node diskless boot
-  (F4, #146), non-volatile and authenticated variables (C5, #144), TPM 2.0
-  measured boot (#147), SMM, EINJ and CXL CEDT (F2, #148, #149, #167),
-  IPMI KCS / SPMI / Redfish host interface stub (F3, #154), legacy El Torito
-  hard-disk emulation and VBE 4F0Ah (#141), AArch64 EL3 + PSCI, SDHCI and
-  Raspberry Pi bring-up on QEMU `raspi3b` (#157), and all of Phase E:
-  powernv (#150, #158), sun4u (#153, #159, #161), m68k, mips-malta,
-  loongarch64 (#155, #159), s390x (#160, #161). Licence is GPL-3.0 (#163).
-  Release notes are in `release-notes/v2.2.0.md`; publishing is `needs: squirrel`.
+- **Released:** **v2.2.0** (2026-11-15,
+  https://github.com/squirelworks/squirrelbios/releases/tag/v2.2.0 ,
+  tip `0051c40`). Prior: v2.1.1 (2026-11-13).
+- **`main` after v2.2.0:** D4 shared drivers, network/HTTP boot, NVRAM +
+  authenticated variables, TPM, SMM/EINJ, IPMI, all of Phase E, Raspberry Pi
+  on QEMU, F1–F4 as tested, Phase G Setup UI + host fuzz + UpdateCapsule/ESRT
+  (#189). Licence GPL-3.0. Notes: `release-notes/v2.2.0.md`. Next agent cut:
+  **M1** signed capsule (`2.2.1`) per `release-notes/TO_3.0.0.md`.
 - **Test gate:** `make test` (docs honesty via `make docs-lint` /
-  `tools/docs_lint.py`, then 340 cases in `tests/smoke.sh`, plus
+  `tools/docs_lint.py`, then ~346 cases in `tests/smoke.sh`, plus
   `rpi4-uefi-sd` when QEMU has `raspi4b`), run by
   `.github/workflows/make-test.yml` on every PR. Optional, not in the
   required gate: `make linux-x86`, `make linux-uefi`, `make linux-shell`,
@@ -49,8 +47,8 @@ Used here, in `ROADMAP.md` and on the issues (as labels).
   DHCP/TFTP/HTTP, USB descriptor and FDT corpus smokes; optional
   path-filtered workflows `.github/workflows/fuzz-*.yml` and scheduled
   `fuzz-nightly.yml`).
-- **Open PRs at hand-off:** none required at this refresh (Setup UI GOP, F1/F2/F3,
-  host fuzz on `main`). REL-2.2.0 publish and board flashes stay `needs: squirrel`.
+- **Open PRs at hand-off:** path-to-3.0.0 docs (#192) if still open; board
+  flashes stay `needs: squirrel`.
 - **Agent lanes:** suite split in squirrelsoft
   [`docs/AGENT_LANES.md`](https://github.com/squirelworks/squirrelsoft/blob/main/docs/AGENT_LANES.md).
   Lane `-2eaf` may take free BIOS `cursor-codex` follow-ups; lane `-b55f` is OS/2 2.9.
@@ -93,26 +91,32 @@ expected serial lines (`|`-separated, `!` = must not appear, `~` = regex).
 
 ## Suggested order
 
-1. **REL-2.2.0** *(Squirrel — Publish)*: `v2.2.0` **draft** at
-   https://github.com/squirelworks/squirrelbios/releases (`0051c40`)
-   holds the six images + `SHA256SUMS.txt` + full `release-notes/v2.2.0.md`
-   body (same set `Actions → Draft release` attaches). Never stub-publish.
-   This PR is **M1** signed capsule (`2.2.1`); flash rewrite remains.
-2. **D2-rpi4** board flash *(Squirrel)*: the QEMU `raspi4b` case is done;
-   try the SD layout in `boards/rpi4/README.md` on a desk Pi 4.
-3. **C5-board** desk flash *(Squirrel)*: docs and `CONFIG=coreboot` are done;
-   flash a real GA-G41M-ES2L per `boards/ga-g41m-es2l/FLASHING.md`.
-4. **RISC-V AIA MSI** when a newer QEMU is available in CI.
-5. Phase G after this PR: **flash rewrite**. Already on / after v2.2.0
-   tip plus this PR:
-   G1–G3 host fuzz, Setup UI, UpdateCapsule + ESRT, signed apply /
-   PersistAcrossReset staging
+Full mark list (versions, acceptance, issue titles):
+[`release-notes/TO_3.0.0.md`](release-notes/TO_3.0.0.md). Short form:
+
+1. ~~**REL-2.2.0 / M0**~~ *(published **v2.2.0**, 2026-11-15)* —
+   https://github.com/squirelworks/squirrelbios/releases/tag/v2.2.0
+   (`0051c40`; six images + `SHA256SUMS.txt` + full notes). Always fill
+   via `Actions → Draft release` before Publish — never stub-publish.
+2. **Phase G product remainder** (`-2eaf`, **M1–M5**): ~~**M1** signed
+   capsule~~ (#193 on `main`) → **flash rewrite** → project-key / ESRT
+   path; optional Setup polish; measured TPM event-log hand-off to OS/2.
+3. **D2-rpi4** board flash *(Squirrel, **M11**)*: the QEMU `raspi4b` case
+   is done; try the SD layout in `boards/rpi4/README.md` on a desk Pi 4.
+4. **C5-board** desk flash *(Squirrel, **M12**)*: docs and
+   `CONFIG=coreboot` are done; flash a real GA-G41M-ES2L per
+   `boards/ga-g41m-es2l/FLASHING.md`.
+5. **RISC-V AIA MSI** (**M10**) when a newer QEMU (≥ 9.1) is available in
+   CI — blocked on 8.2 today.
+6. Already on `main` (do not re-cut for these alone): G1–G3 host fuzz,
+   Setup UI, UpdateCapsule + ESRT, signed apply / PersistAcrossReset
    (`make fuzz-fat`, `make fuzz-pe`, `make fuzz-authenticode`,
    `make fuzz-net`, `make fuzz-usb`, `make fuzz-fdt`,
    `x86_64-setupui`, `x86_64-setupui-f2`, `x86_64-setupui-bootorder`,
    `x86_64-setupui-secboot`, `x86_64-setupui-datetime`,
    `x86_64-capsule`, `x86_64-capsule-signed`, `x86_64-capsule-fwcfg`).
-6. Ladder: `release-notes/TO_3.0.0.md` (PR #192 if still open / on `main`).
+7. Climb **M2–M20** in `TO_3.0.0.md` toward product **v3.0.0**
+   (CONTINUANCE M3 companion — **not** a Phase E redo).
 
 ## Task cards
 
@@ -223,19 +227,19 @@ expected serial lines (`|`-separated, `!` = must not appear, `~` = regex).
 - **Check:** `make fuzz-net`, `make fuzz-usb`, `make fuzz-fdt` each
   print `PASS  fuzz-… (…)`.
 
-### REL-2.2.0 — release notes for what `main` has since v2.1.1  `needs: squirrel` (draft ready)
-- **Done (notes + draft assets):** `release-notes/v2.2.0.md` (style of
+### REL-2.2.0 — release notes for what `main` has since v2.1.1  `status: done` (published v2.2.0)
+- **Done (notes + assets):** `release-notes/v2.2.0.md` (style of
   `v2.1.0.md`; Known gaps refreshed; UEFI banner `SQ_VERSION` `2.2.0`).
   Refreshed after #189 so UpdateCapsule + ESRT / `x86_64-capsule` (and
   Phase G Setup UI + host fuzz) are listed as **in the v2.2.0 tag**, not
-  a follow-up cut. `make test` count: **346** on the #189 tip. Draft at
-  https://github.com/squirelworks/squirrelbios/releases (`v2.2.0`,
-  `0051c40`) holds the six images + `SHA256SUMS.txt` + the full notes
-  body — same set `.github/workflows/release-draft.yml` attaches.
-- **Open (Squirrel):** **Publish** that draft. An earlier stub publish
-  without assets was reverted and refilled. Always run
-  `Actions → Draft release` before Publish. No v2.2.1 for #189 alone
-  (signed apply here is the **2.2.1** / M1 slice).
+  a follow-up cut. `make test` count: **346** on the #189 tip. Release
+  holds the six images + `SHA256SUMS.txt` + the full notes body (same
+  set `.github/workflows/release-draft.yml` attaches).
+- **Done (Squirrel):** published
+  https://github.com/squirelworks/squirrelbios/releases/tag/v2.2.0
+  (2026-11-15, `0051c40`). Signed apply landed as **M1** / #193 on
+  `main` (not a v2.2.1 re-cut of #189 alone). Always run
+  `Actions → Draft release` before Publish — never stub-publish empty.
 - **Check:** `make test` green on the tagged commit; every image boots its
   `make test` cases; `SHA256SUMS.txt` covers every attached image.
 

@@ -64,6 +64,9 @@ suite-wide continuation plan is `docs/CONTINUANCE.md` in squirrelsoft.
 
 ## Goals
 
+Path to product **v3.0.0** (verified chain + capsule product path + polish;
+not a Phase E redo): [`release-notes/TO_3.0.0.md`](release-notes/TO_3.0.0.md).
+
 ### Done (v0.3.0 — hand-off)
 
 1. Hand the machine to the OS after early init on QEMU PC, AArch64
@@ -300,7 +303,11 @@ boxes in [TODO.md](TODO.md).
   PE/ELF loaders) from the same sources. Test: each QEMU target boots
   Squirrel-OS/2 (once its port exists) and Linux to a shell.
 
-### Phase E — v3.0: other architectures
+### Phase E — other architectures (historical ROADMAP banner said “v3.0”)
+
+**Done under v2.1 / v2.2 content.** The historical heading “v3.0: other
+architectures” does **not** define the product **v3.0.0** tag — that tag is
+the CONTINUANCE M3 companion (see [`release-notes/TO_3.0.0.md`](release-notes/TO_3.0.0.md)).
 
 - [x] **E1** `PLATFORM=ppc64le-powernv`: OPAL-like runtime interface, device
   tree, boot Linux on QEMU `powernv`.
@@ -360,7 +367,9 @@ boxes in [TODO.md](TODO.md).
 ### Phase G — firmware as a product (CONTINUANCE)
 
 Suite plan: squirrelsoft `docs/CONTINUANCE.md` §4. Fuzz harnesses and the
-Setup UI shell land here as sizeable steps.
+Setup UI shell land here as sizeable steps. Fine-grained marks to product
+**v3.0.0** (CONTINUANCE M3 companion; Phase E is already done): 
+[`release-notes/TO_3.0.0.md`](release-notes/TO_3.0.0.md).
 
 - [x] **G1** Host fuzz smoke for the FAT parser: `fuzz/` builds
   `common/efi/fat.c` on the host with a libFuzzer-style harness;
