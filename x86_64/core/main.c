@@ -156,6 +156,11 @@ void fw_main(void)
     efi_gop_init();
     chipset_ebs_init();
 
+    /* Phase G Setup UI: navigable boot/setup menu on serial (+ GOP when
+     * present). Only when QEMU hands over opt/org.squirrelworks/setupui. */
+    if (setup_ui_wanted())
+        setup_ui_run();
+
     efi_initrd_init();
     vars_init();
     vars_install(efi_st->runtime_services);

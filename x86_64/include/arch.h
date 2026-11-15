@@ -98,4 +98,8 @@ void x86_rt_init(u16 pm_base);      /* the PM block ResetSystem uses */
 void efi_initrd_init(void);
 void efi_set_load_options(void *image);
 
+/* setupui.c: Phase G Setup UI / boot menu shell (GOP + serial) */
+int setup_ui_wanted(void);              /* fw_cfg opt/org.squirrelworks/setupui */
+void setup_ui_run(void);
+
 #endif
