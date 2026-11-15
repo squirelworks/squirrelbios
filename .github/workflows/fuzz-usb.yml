@@ -1,0 +1,40 @@
+# Optional CONTINUANCE Phase G smoke: host USB descriptor fuzzer corpus
+# (not a nightly). Not part of the required make-test gate.
+name: fuzz-usb
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "common/efi/usb_desc.c"
+      - "common/efi/usb_desc.h"
+      - "common/efi/xhci.c"
+      - "common/efi/lib.c"
+      - "common/efi/include/**"
+      - "fuzz/**"
+      - "Makefile"
+      - ".github/workflows/fuzz-usb.yml"
+  push:
+    paths:
+      - "common/efi/usb_desc.c"
+      - "common/efi/usb_desc.h"
+      - "common/efi/xhci.c"
+      - "common/efi/lib.c"
+      - "common/efi/include/**"
+      - "fuzz/**"
+      - "Makefile"
+      - ".github/workflows/fuzz-usb.yml"
+
+jobs:
+  fuzz-usb:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install host toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends make gcc python3
+
+      - name: make fuzz-usb
+        run: make fuzz-usb

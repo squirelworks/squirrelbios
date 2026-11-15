@@ -1,0 +1,42 @@
+# Optional CONTINUANCE Phase G smoke: host DHCP/TFTP/HTTP fuzzer corpus
+# (not a nightly). Not part of the required make-test gate.
+name: fuzz-net
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "common/efi/net_parse.c"
+      - "common/efi/net_parse.h"
+      - "common/efi/net_ip.c"
+      - "common/efi/net_http.c"
+      - "common/efi/lib.c"
+      - "common/efi/include/**"
+      - "fuzz/**"
+      - "Makefile"
+      - ".github/workflows/fuzz-net.yml"
+  push:
+    paths:
+      - "common/efi/net_parse.c"
+      - "common/efi/net_parse.h"
+      - "common/efi/net_ip.c"
+      - "common/efi/net_http.c"
+      - "common/efi/lib.c"
+      - "common/efi/include/**"
+      - "fuzz/**"
+      - "Makefile"
+      - ".github/workflows/fuzz-net.yml"
+
+jobs:
+  fuzz-net:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install host toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends make gcc python3
+
+      - name: make fuzz-net
+        run: make fuzz-net

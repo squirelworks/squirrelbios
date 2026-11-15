@@ -11,6 +11,7 @@
  * addressed but unconfigured. No hubs, no streams (UAS). Data goes
  * through a page-aligned bounce buffer of BOUNCE bytes. */
 #include "efi.h"
+#include "usb_desc.h"
 
 #define BOUNCE      (64u * 1024)
 #define RING_TRBS   256                 /* one page; the last is the link */
@@ -334,25 +335,15 @@ static int usb_write(struct sq_blk *b, u64 lba, void *buf, u32 bytes)
  * bounce buffer): its endpoints; the configuration's value */
 static int find_bot(struct usb_dev *d, u32 total, u8 *config)
 {
-    u8 *p = d->hc->bounce;
-    *config = p[5];
-    int in_iface = 0;
-    for (u32 at = 0; at + 2 <= total && p[at] >= 2; at += p[at]) {
-        u8 *x = p + at;
-        if (x[1] == 4)                      /* interface */
-            in_iface = x[5] == 8 && x[6] == 6 && x[7] == 0x50;
-        else if (x[1] == 5 && in_iface && (x[3] & 3) == 2) {    /* bulk endpoint */
-            u32 num = x[2] & 0x0F, mps = x[4] | (x[5] & 7) << 8;
-            if (x[2] & 0x80) {
-                d->dci_in = 2 * num + 1;
-                d->mps_in = mps;
-            } else {
-                d->dci_out = 2 * num;
-                d->mps_out = mps;
-            }
-        }
-    }
-    return d->dci_in && d->dci_out;
+    struct usb_bot_info bot;
+    if (!usb_config_find_bot(d->hc->bounce, total, &bot))
+        return 0;
+    *config = bot.config_value;
+    d->dci_in = bot.dci_in;
+    d->dci_out = bot.dci_out;
+    d->mps_in = bot.mps_in;
+    d->mps_out = bot.mps_out;
+    return 1;
 }
 
 /* Pci(..)/USB(port - 1, interface 0) */

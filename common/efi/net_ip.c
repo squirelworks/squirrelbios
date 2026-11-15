@@ -11,6 +11,7 @@
  * a reply sent while another frame waits on ARP cannot clobber it. IPv4
  * addresses are kept as four bytes in a u32 (a.b.c.d in memory order). */
 #include "net.h"
+#include "net_parse.h"
 
 #define ETH_HDR     14
 #define IP_HDR      20
@@ -383,65 +384,27 @@ static struct {
     struct net_cfg *cfg;
 } dh;
 
-static void dhcp_parse(const u8 *d, u32 len, struct net_cfg *c, u8 *type, u32 *sid)
-{
-    u32 i = 240;
-    int overload = 0;
-    while (i < len && d[i] != 255) {
-        if (d[i] == 0) {
-            i++;
-            continue;
-        }
-        if (i + 1 >= len || i + 2 + d[i + 1] > len)
-            break;
-        u8 code = d[i], n = d[i + 1];
-        const u8 *v = d + i + 2;
-        if (code == 53 && n >= 1)
-            *type = v[0];
-        else if (code == 54 && n >= 4)
-            *sid = ipget(v);
-        else if (code == 1 && n >= 4)
-            c->mask = ipget(v);
-        else if (code == 3 && n >= 4)
-            c->gw = ipget(v);
-        else if (code == 6 && n >= 4)
-            c->dns = ipget(v);
-        else if (code == 52 && n >= 1)
-            overload = v[0];
-        else if (code == 66 && n) {
-            u32 m = n < sizeof c->server_name - 1 ? n : sizeof c->server_name - 1;
-            memcpy(c->server_name, v, m);
-            c->server_name[m] = 0;
-        } else if (code == 67 && n) {
-            u32 m = n < sizeof c->file - 1 ? n : sizeof c->file - 1;
-            memcpy(c->file, v, m);
-            c->file[m] = 0;
-        }
-        i += 2u + n;
-    }
-    if (!c->file[0] && !(overload & 1) && d[108]) {
-        memcpy(c->file, d + 108, 127);
-        c->file[127] = 0;
-    }
-    if (!c->server_name[0] && !(overload & 2) && d[44]) {
-        memcpy(c->server_name, d + 44, 63);
-        c->server_name[63] = 0;
-    }
-}
-
 static void dhcp_input(u32 src, u16 sport, const u8 *d, u32 len)
 {
-    (void)src;
-    if (sport != DHCP_SERVER || len < 240 || d[0] != 2 || memcmp(d + 4, &dh.xid, 4) ||
-        memcmp(d + 28, nd->mac, 6) || d[236] != 99 || d[237] != 130 || d[238] != 83 || d[239] != 99)
-        return;
+    struct net_parse_cfg pc;
     struct net_cfg c;
-    memset(&c, 0, sizeof c);
     u8 type = 0;
     u32 sid = 0;
-    dhcp_parse(d, len, &c, &type, &sid);
-    c.ip = ipget(d + 16);
-    c.server = ipget(d + 20);
+
+    (void)src;
+    if (sport != DHCP_SERVER || len < 240 || memcmp(d + 4, &dh.xid, 4) ||
+        memcmp(d + 28, nd->mac, 6))
+        return;
+    if (!net_parse_dhcp(d, len, &pc, &type, &sid))
+        return;
+    memset(&c, 0, sizeof c);
+    c.ip = pc.ip;
+    c.mask = pc.mask;
+    c.gw = pc.gw;
+    c.server = pc.server;
+    c.dns = pc.dns;
+    memcpy(c.file, pc.file, sizeof c.file);
+    memcpy(c.server_name, pc.server_name, sizeof c.server_name);
     if (dh.stage == 0 && type == 2) {
         dh.offer = c.ip;
         dh.server_id = sid;
@@ -614,26 +577,6 @@ static void tf_fail(const char *why)
     memcpy(tf.err, why, n + 1);
 }
 
-static u32 tf_num(const u8 *s, u32 n)
-{
-    u32 v = 0;
-    for (u32 i = 0; i < n && s[i] >= '0' && s[i] <= '9'; i++)
-        v = v * 10 + (u32)(s[i] - '0');
-    return v;
-}
-
-static int tf_ieq(const u8 *a, const char *b, u32 n)
-{
-    for (u32 i = 0; i < n; i++) {
-        u8 c = a[i];
-        if (c >= 'A' && c <= 'Z')
-            c = (u8)(c + 32);
-        if (c != (u8)b[i])
-            return 0;
-    }
-    return !b[n];
-}
-
 static void tftp_input(u32 src, u16 sport, const u8 *d, u32 len)
 {
     if (src != tf.server || len < 4 || tf.done)
@@ -644,33 +587,31 @@ static void tftp_input(u32 src, u16 sport, const u8 *d, u32 len)
         return;
     u16 op = get16(d);
     if (op == 5) {
-        u32 m = len - 4 < sizeof tf.err - 1 ? len - 4 : sizeof tf.err - 1;
-        memcpy(tf.err, d + 4, m);
-        tf.err[m] = 0;
+        struct net_tftp_view v;
+        if (net_parse_tftp(d, len, &v)) {
+            memcpy(tf.err, v.err, sizeof tf.err);
+        } else {
+            tf.err[0] = 0;
+        }
         tf.done = -1;
     } else if (op == 6 && tf.block == 0 && !tf.oack) {
-        u32 i = 2;
-        while (i < len) {
-            u32 k = i;
-            while (i < len && d[i])
-                i++;
-            u32 kl = i - k, v = ++i;
-            while (i < len && d[i])
-                i++;
-            if (tf_ieq(d + k, "blksize", kl))
-                tf.blksize = tf_num(d + v, i - v);
-            else if (tf_ieq(d + k, "tsize", kl))
-                tf.tsize = tf_num(d + v, i - v);
-            i++;
-        }
+        struct net_tftp_view v;
+        if (!net_parse_tftp(d, len, &v) || v.opcode != 6)
+            return;
+        if (v.blksize)
+            tf.blksize = v.blksize;
+        if (v.tsize)
+            tf.tsize = v.tsize;
         if (tf.blksize < 8 || tf.blksize > TFTP_BLK)
             tf.blksize = 512;
         tf.oack = 1;
         tf.progress = 1;
     } else if (op == 3) {
-        u16 b = get16(d + 2);
-        if (b == (u16)(tf.block + 1)) {
-            u32 n = len - 4;
+        struct net_tftp_view v;
+        if (!net_parse_tftp(d, len, &v) || v.opcode != 3)
+            return;
+        if (v.block == (u16)(tf.block + 1)) {
+            u32 n = v.payload_len;
             if (n > tf.blksize)
                 return;
             if (!tf_grow((u64)tf.size + n)) {
@@ -678,9 +619,9 @@ static void tftp_input(u32 src, u16 sport, const u8 *d, u32 len)
                 tf.done = -1;
                 return;
             }
-            memcpy(tf.buf + tf.size, d + 4, n);
+            memcpy(tf.buf + tf.size, v.payload, n);
             tf.size += n;
-            tf.block = b;
+            tf.block = v.block;
             if (n < tf.blksize)
                 tf.done = 1;
         }

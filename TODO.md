@@ -469,6 +469,15 @@ stub, a 1 MB flash image for `qemu-system-x86_64 -bios`. One PR each.
 - [x] `make fuzz-authenticode` — Phase G host Authenticode/PKCS#7
   corpus smoke (lane `-2eaf`): `fuzz/authenticode_harness.c` +
   synthetic `fuzz/corpus-authenticode/`; no QEMU. Epic #82.
+- [x] `make fuzz-net` — Phase G host DHCP/TFTP/HTTP corpus smoke
+  (lane `-2eaf`): `fuzz/net_harness.c` + `common/efi/net_parse.c` +
+  synthetic `fuzz/corpus-net/`; no QEMU. Epic #82.
+- [x] `make fuzz-usb` — Phase G host USB descriptor corpus smoke
+  (lane `-2eaf`): `fuzz/usb_harness.c` + `common/efi/usb_desc.c` +
+  synthetic `fuzz/corpus-usb/`; no QEMU. Epic #82.
+- [x] `make fuzz-fdt` — Phase G host FDT corpus smoke (lane `-2eaf`):
+  `fuzz/fdt_harness.c` + `common/fw/fdt.c` + synthetic
+  `fuzz/corpus-fdt/`; no QEMU. Epic #82.
 
 ## Secondary track
 

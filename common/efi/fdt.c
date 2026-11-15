@@ -10,8 +10,10 @@ static const void *blob;
 
 int fdt_init(const void *p)
 {
-    if (!p || dtb_check(p) || dtb_root(p) < 0)
+    if (!p || dtb_check(p) || dtb_root(p) < 0) {
+        blob = NULL;
         return 0;
+    }
     blob = p;
     return 1;
 }

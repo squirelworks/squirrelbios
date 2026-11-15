@@ -6,239 +6,31 @@
  * net_tcp.c. The response body is taken by Content-Length, chunked
  * transfer coding, or the connection closing; 301/302/303/307/308 are
  * followed up to four times. The body grows in a pool buffer the caller
- * frees. */
+ * frees. Header / chunked / URL parsing lives in net_parse.c so the
+ * host fuzz harness exercises the same code. */
 #include "net.h"
+#include "net_parse.h"
 
-#define HDR_MAX     4096
 #define REDIRECTS   4
 #define IDLE_MS     10000
 
-static struct {
-    char hdr[HDR_MAX];
-    u32 hlen;
-    int in_body, done, failed;
-    int too_large;              /* over NET_FILE_MAX */
-    int status;
-    int chunked;
-    u32 clen;                   /* Content-Length, or ~0 */
-    u8 *buf;
-    u32 size, cap;
-    /* chunked: 0 size line, 1 data, 2 CRLF after data, 3 trailers */
-    int cstate;
-    u32 cleft;
-    int cdigits;
-    char location[256];
-} h;
+static struct net_http_rx h;
 
-static int lower(int c) { return c >= 'A' && c <= 'Z' ? c + 32 : c; }
-
-static int prefix_ieq(const char *s, const char *p)
+static int pool_alloc(void *ctx, u64 need, void **p)
 {
-    for (; *p; s++, p++)
-        if (lower(*s) != lower(*p))
-            return 0;
-    return 1;
+    (void)ctx;
+    return efi_allocate_pool(EfiBootServicesData, need, p) == EFI_SUCCESS ? 0 : -1;
 }
 
-/* Room for need bytes, doubling; no more than NET_FILE_MAX */
-static int grow(u64 need)
+static void pool_free(void *ctx, void *p)
 {
-    if (need <= h.cap)
-        return 1;
-    if (need > NET_FILE_MAX)
-        return 0;
-    u64 cap = h.cap ? h.cap : 65536;
-    while (cap < need)
-        cap *= 2;
-    if (cap > NET_FILE_MAX)
-        cap = NET_FILE_MAX;
-    void *nb;
-    if (efi_allocate_pool(EfiBootServicesData, cap, &nb) != EFI_SUCCESS)
-        return 0;
-    if (h.buf) {
-        memcpy(nb, h.buf, h.size);
-        efi_free_pool(h.buf);
-    }
-    h.buf = nb;
-    h.cap = (u32)cap;
-    return 1;
-}
-
-static void body_bytes(const u8 *d, u32 n)
-{
-    if (h.done || !n)
-        return;
-    if (!grow((u64)h.size + n)) {
-        h.too_large = (u64)h.size + n > NET_FILE_MAX;
-        h.failed = 1;
-        h.done = 1;
-        return;
-    }
-    memcpy(h.buf + h.size, d, n);
-    h.size += n;
-}
-
-static void chunked(const u8 *d, u32 n)
-{
-    for (u32 i = 0; i < n && !h.done;) {
-        u8 c = d[i];
-        switch (h.cstate) {
-        case 0:                 /* hex size, extensions, CRLF */
-            if (c == '\n') {
-                if (!h.cdigits) {
-                    h.failed = h.done = 1;
-                    return;
-                }
-                h.cstate = h.cleft ? 1 : 3;
-                h.cdigits = 0;
-            } else if (h.cdigits >= 0) {
-                int v = c >= '0' && c <= '9' ? c - '0' : lower(c) >= 'a' && lower(c) <= 'f' ? lower(c) - 'a' + 10 : -1;
-                if (v >= 0 && h.cdigits < 8) {
-                    h.cleft = h.cleft << 4 | (u32)v;
-                    h.cdigits++;
-                } else if (v >= 0) {
-                    h.failed = h.done = 1;
-                    return;
-                } else {
-                    h.cdigits = h.cdigits ? -h.cdigits : 0;  /* the rest of the line */
-                }
-            }
-            i++;
-            break;
-        case 1: {
-            u32 take = n - i < h.cleft ? n - i : h.cleft;
-            body_bytes(d + i, take);
-            h.cleft -= take;
-            i += take;
-            if (!h.cleft)
-                h.cstate = 2;
-            break;
-        }
-        case 2:                 /* the CRLF after a chunk */
-            if (c == '\n')
-                h.cstate = 0;
-            i++;
-            break;
-        case 3:                 /* trailers: done at the empty line */
-            h.done = 1;
-            break;
-        }
-    }
-}
-
-static void parse_headers(void)
-{
-    h.clen = ~0u;
-    h.status = 0;
-    const char *p = h.hdr;
-    if (!prefix_ieq(p, "HTTP/1.")) {
-        h.failed = h.done = 1;
-        return;
-    }
-    while (*p && *p != ' ')
-        p++;
-    while (*p == ' ')
-        p++;
-    for (int i = 0; i < 3 && *p >= '0' && *p <= '9'; i++, p++)
-        h.status = h.status * 10 + (*p - '0');
-    for (;;) {
-        while (*p && *p != '\n')
-            p++;
-        if (!*p)
-            break;
-        p++;
-        if (prefix_ieq(p, "content-length:")) {
-            const char *v = p + 15;
-            while (*v == ' ' || *v == '\t')
-                v++;
-            u32 n = 0;
-            while (*v >= '0' && *v <= '9')
-                n = n * 10 + (u32)(*v++ - '0');
-            h.clen = n;
-        } else if (prefix_ieq(p, "transfer-encoding:")) {
-            for (const char *v = p + 18; *v && *v != '\r' && *v != '\n'; v++)
-                if (prefix_ieq(v, "chunked"))
-                    h.chunked = 1;
-        } else if (prefix_ieq(p, "location:")) {
-            const char *v = p + 9;
-            while (*v == ' ' || *v == '\t')
-                v++;
-            u32 n = 0;
-            while (v[n] && v[n] != '\r' && v[n] != '\n' && n < sizeof h.location - 1)
-                n++;
-            memcpy(h.location, v, n);
-            h.location[n] = 0;
-        }
-    }
-    if (h.chunked)
-        h.clen = ~0u;
+    (void)ctx;
+    efi_free_pool(p);
 }
 
 static void on_data(const u8 *d, u32 n)
 {
-    while (n && !h.in_body && !h.done) {
-        if (h.hlen >= HDR_MAX - 1) {
-            h.failed = h.done = 1;
-            return;
-        }
-        h.hdr[h.hlen++] = (char)*d++;
-        n--;
-        if (h.hlen >= 4 && !memcmp(h.hdr + h.hlen - 4, "\r\n\r\n", 4)) {
-            h.hdr[h.hlen] = 0;
-            parse_headers();
-            h.in_body = 1;
-            if (h.status != 200 || h.clen == 0)
-                h.done = 1;     /* nothing more wanted */
-            else if (h.clen != ~0u && !grow(h.clen))
-            {
-                h.failed = h.done = 1;
-                h.too_large = h.clen > NET_FILE_MAX;
-            }
-        }
-    }
-    if (!n || h.done)
-        return;
-    if (h.chunked) {
-        chunked(d, n);
-    } else {
-        if (h.clen != ~0u && h.size + n > h.clen)
-            n = h.clen - h.size;
-        body_bytes(d, n);
-        if (h.clen != ~0u && h.size >= h.clen)
-            h.done = 1;
-    }
-}
-
-/* http://host[:port][/path]: 1 with the pieces. *ip is set when host is
- * already an IPv4 address; otherwise it is left 0 for the caller to
- * resolve. */
-static int parse_url(const char *url, u32 *ip, u16 *port, const char **path, char *host, u32 hmax)
-{
-    if (!prefix_ieq(url, "http://"))
-        return 0;
-    const char *p = url + 7;
-    u32 n = 0;
-    while (p[n] && p[n] != ':' && p[n] != '/')
-        n++;
-    if (!n || n >= hmax)
-        return 0;
-    memcpy(host, p, n);
-    host[n] = 0;
-    *ip = net_ip_parse(host);
-    p += n;
-    u32 pt = 80;
-    if (*p == ':') {
-        pt = 0;
-        for (p++; *p >= '0' && *p <= '9'; p++)
-            pt = pt * 10 + (u32)(*p - '0');
-        if (!pt || pt > 65535)
-            return 0;
-    }
-    if (*p && *p != '/')
-        return 0;
-    *port = (u16)pt;
-    *path = *p ? p : "/";
-    return 1;
+    net_http_rx_feed(&h, d, n);
 }
 
 static void append(char *dst, u32 *n, u32 max, const char *s)
@@ -262,7 +54,7 @@ int net_http_get(const char *url, void **buf, u32 *size)
         u16 port;
         const char *path;
         char host[64];
-        if (!parse_url(cur, &ip, &port, &path, host, sizeof host)) {
+        if (!net_parse_http_url(cur, &ip, &port, &path, host, sizeof host)) {
             printf("net: not an http:// URL: %s\n", cur);
             return 0;
         }
@@ -273,7 +65,7 @@ int net_http_get(const char *url, void **buf, u32 *size)
                 return 0;
             }
         }
-        memset(&h, 0, sizeof h);
+        net_http_rx_init(&h, NET_FILE_MAX, pool_alloc, pool_free, NULL);
         if (!net_tcp_connect(ip, port, on_data)) {
             printf("net: no connection to %s port %u\n", host, port);
             return 0;
@@ -288,6 +80,7 @@ int net_http_get(const char *url, void **buf, u32 *size)
         if (net_tcp_send(req, rn)) {
             printf("net: the HTTP request was not taken\n");
             net_tcp_abort();
+            net_http_rx_clear(&h);
             return 0;
         }
         u64 seen = net_ms();
@@ -318,6 +111,7 @@ int net_http_get(const char *url, void **buf, u32 *size)
         if (h.in_body && h.status >= 300 && h.status < 400 && h.status != 304 && h.location[0]) {
             if (h.buf)
                 efi_free_pool(h.buf);
+            h.buf = NULL;
             if (h.location[0] == '/') {     /* same server */
                 char next[256];
                 u32 nn = 0;

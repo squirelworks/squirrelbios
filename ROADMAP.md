@@ -373,6 +373,13 @@ Setup UI shell land here as sizeable steps.
   `fuzz/corpus-authenticode/`; optional
   `.github/workflows/fuzz-authenticode.yml`. Notes in `fuzz/README.md`
   and `release-notes/host-fuzz-authenticode.md`. Epic #82.
+- [x] **G3 DHCP/TFTP/HTTP + USB descriptors + FDT** Shared parsers
+  `common/efi/net_parse.c`, `common/efi/usb_desc.c`, and existing
+  `common/fw/fdt.c`: `make fuzz-net` / `fuzz-usb` / `fuzz-fdt` with
+  synthetic corpora; optional path-filtered workflows and scheduled
+  `.github/workflows/fuzz-nightly.yml` (60 s libFuzzer budget). Notes
+  in `fuzz/README.md` and `release-notes/host-fuzz-net-usb-fdt.md`.
+  Epic #82.
 - [x] **Setup UI (GOP + F2 + BootOrder + Secure Boot / TPM + date-time /
   NVRAM)** GOP + serial boot menu shell on `x86_64-uefi` (lane
   `-2eaf`): Warp-look title and navigable items
@@ -392,8 +399,8 @@ Setup UI shell land here as sizeable steps.
   `release-notes/setup-ui-secboot.md`,
   `release-notes/setup-ui-datetime-nvram.md`,
   `release-notes/setup-ui-datetime-followup.md`.
-- [ ] **G3 (rest)** DHCP/TFTP/HTTP, USB descriptors, FDT; a scheduled
-  nightly with a fixed libFuzzer budget *(later)*.
+- [x] **G3 (rest)** DHCP/TFTP/HTTP, USB descriptors, FDT host corpus
+  smokes and scheduled nightly libFuzzer budget (`fuzz-nightly.yml`).
 
 ### Squirrel-OS/2 hand-off on every platform
 
