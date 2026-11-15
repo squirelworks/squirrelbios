@@ -38,7 +38,8 @@ Used here, in `ROADMAP.md` and on the issues (as labels).
   powernv (#150, #158), sun4u (#153, #159, #161), m68k, mips-malta,
   loongarch64 (#155, #159), s390x (#160, #161). Licence is GPL-3.0 (#163).
   Release notes are in `release-notes/v2.2.0.md`; publishing is `needs: squirrel`.
-- **Test gate:** `make test` (337 cases in `tests/smoke.sh`, plus
+- **Test gate:** `make test` (docs honesty via `make docs-lint` /
+  `tools/docs_lint.py`, then 337 cases in `tests/smoke.sh`, plus
   `rpi4-uefi-sd` when QEMU has `raspi4b`), run by
   `.github/workflows/make-test.yml` on every PR. Optional, not in CI:
   `make linux-x86`, `make linux-uefi`, `make linux-shell`, `make linux-big`,

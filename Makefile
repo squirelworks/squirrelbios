@@ -4,7 +4,9 @@
 #   make PLATFORM=x86-pc CONFIG=default
 #                   build one platform from configs/<platform>/<config>.cfg
 #                   into build/<platform>/<config>/ (see configs/README.md)
-#   make test       build, then boot each one under QEMU (tests/smoke.sh)
+#   make test       docs-lint, then build and boot each firmware under QEMU
+#                   (tests/smoke.sh)
+#   make docs-lint  CONTINUANCE §3c: ROADMAP/TODO/HANDOFF vs smoke harness
 #   make linux-shell  boot a downloaded Linux kernel on riscv to a busybox shell
 #   make linux-big    the same on a large virtual node (64 harts, 64 GB)
 #   make f4-scale   multi-node UEFI netboot with a large -smp/-numa node
@@ -134,7 +136,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/sb/sb-authrt.efi \
              $(TEST_DIR)/tftp/snp-x64.efi $(TEST_DIR)/tftp/snp-aa64.efi $(TEST_DIR)/tftp/snp-rv64.efi
 
-.PHONY: all x86 x86_64 arm arm-uefi riscv riscv-uefi test linux-shell linux-arm linux-arm-acpi linux-riscv-uefi linux-x86 linux-big linux-stress f4-scale os-boot clean linux-uefi os-boot-csm
+.PHONY: all x86 x86_64 arm arm-uefi riscv riscv-uefi test docs-lint linux-shell linux-arm linux-arm-acpi linux-riscv-uefi linux-x86 linux-big linux-stress f4-scale os-boot clean linux-uefi os-boot-csm
 .DELETE_ON_ERROR:
 
 PLATFORMS := x86-pc x86_64-uefi aarch64-virt riscv64-virt aarch64-uefi riscv64-uefi
@@ -950,7 +952,12 @@ stretch: | $(TEST_DIR)
 	else echo "stretch: no $(MIPS)as, MIPS not built"; rm -f $(MIPS_BIN); fi
 .PHONY: loongarch mips stretch
 
-test: x86 x86_64 arm riscv arm-uefi riscv-uefi config-default $(TEST_BINS) build/x86_64-uefi/x2apic/squirrel-bios.fd \
+# CONTINUANCE §3c: checked ROADMAP/TODO/HANDOFF boxes that name a smoke
+# case or make-test gate must find it in tests/smoke.sh / the Makefile.
+docs-lint:
+	python3 tools/docs_lint.py
+
+test: docs-lint x86 x86_64 arm riscv arm-uefi riscv-uefi config-default $(TEST_BINS) build/x86_64-uefi/x2apic/squirrel-bios.fd \
 		build/x86_64-uefi/coreboot/squirrel-bios.fd \
 		build/aarch64-uefi/rpi3/squirrel-bios.fd build/aarch64-uefi/rpi4/squirrel-bios.fd \
 		build/riscv64-uefi/visionfive2/squirrel-bios.bin \

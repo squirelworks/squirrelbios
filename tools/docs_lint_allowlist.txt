@@ -1,0 +1,11 @@
+# Docs honesty allowlist (CONTINUANCE §3c).
+# One entry per line: <rule> <doc> <check>
+#   missing-check      checked box names a check that is not in the harness
+#   unexpected-check   open box names a check that already exists
+# Use only for known historical mismatches that cannot be fixed without
+# reticking many boxes. Prefer fixing ROADMAP/TODO/HANDOFF in the same PR.
+#
+# TODO.md item titles are often feature ids (x86-handoff-check, ci-make-test),
+# not smoke case names; the linter only treats backtick tokens that match the
+# smoke/make-test inventory (or tests/ paths / make gates) as named checks.
+# No allowlist entries are needed on a clean tree.
