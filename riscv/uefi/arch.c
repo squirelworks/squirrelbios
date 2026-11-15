@@ -1,22 +1,24 @@
 /* SquirrelBIOS riscv64-uefi: the RISC-V / QEMU virt side of the UEFI
  * core, which runs in S-mode on top of the SquirrelBIOS SBI. Original
  * code, written from the RISC-V privileged specification, the RISC-V
- * SBI specification, the NS16550A data sheet, the RISC-V UEFI boot
- * protocol (RISCV_EFI_BOOT_PROTOCOL) and QEMU's goldfish RTC
- * documentation.
+ * SBI specification, the NS16550A data sheet, the SiFive FU740-C000
+ * Manual (UART chapter: sifive,uart0), the RISC-V UEFI boot protocol
+ * (RISCV_EFI_BOOT_PROTOCOL) and QEMU's goldfish RTC documentation.
  *
- * Console: the NS16550A the device tree names (the SBI set it up).
- * Time: the time CSR at /cpus timebase-frequency; the goldfish RTC.
- * Reset: SBI SRST. Memory: physical, translation off. The SBI keeps the
- * first 2 MB of RAM; the core is right after it. A -kernel image QEMU
- * loaded (the a2 the SBI passes) is started as an EFI application, with
- * /chosen bootargs as its LoadOptions and the /chosen initrd for the
- * Linux initrd LoadFile2 path. */
+ * Console: the UART the device tree names (ns16550a, snps,dw-apb-uart
+ * or sifive,uart0); the SBI set it up. Time: the time CSR at /cpus
+ * timebase-frequency; the goldfish RTC. Reset: SBI SRST. Memory:
+ * physical, translation off. The SBI keeps the first 2 MB of RAM; the
+ * core is right after it. A -kernel image QEMU loaded (the a2 the SBI
+ * passes) is started as an EFI application, with /chosen bootargs as
+ * its LoadOptions and the /chosen initrd for the Linux initrd LoadFile2
+ * path. */
 #include "efi.h"
 
 extern char __fw_start[], __fw_end[];
 
 static uptr uart = CONFIG_UART_BASE;
+static int uart_kind = CONFIG_UART_KIND;
 static uptr rtc;
 static u64 timebase = 10000000;
 static u64 boot_hart;
@@ -26,6 +28,11 @@ static u32 kernel_size;
 #define UART_RBR (0 << CONFIG_UART_SHIFT)
 #define UART_THR (0 << CONFIG_UART_SHIFT)
 #define UART_LSR (5 << CONFIG_UART_SHIFT)
+
+/* SiFive UART0: 32-bit regs (FU740-C000 Manual); bit 31 of txdata/rxdata
+ * is full/empty. */
+#define SIFIVE_TXDATA 0x00
+#define SIFIVE_RXDATA 0x04
 
 #if CONFIG_UART_IO_WIDTH == 4
 static u8 uart_rd(uptr a) { return (u8)mmio_read32(a); }
@@ -39,11 +46,17 @@ static void uart_wr(uptr a, u8 v) { mmio_write8(a, v); }
 
 void arch_con_init(void)
 {
-    /* the SBI programmed it: 115200 8N1 */
+    /* the SBI programmed it: 115200 8N1 (or sifive,uart0 TX/RX enable) */
 }
 
 void arch_con_putc(u8 c)
 {
+    if (uart_kind == UART_KIND_SIFIVE) {
+        for (int i = 0; i < 1000000 && (mmio_read32(uart + SIFIVE_TXDATA) & 0x80000000u); i++)
+            ;
+        mmio_write32(uart + SIFIVE_TXDATA, c);
+        return;
+    }
     for (int i = 0; i < 1000000 && !(uart_rd(uart + UART_LSR) & 0x20); i++)
         ;
     uart_wr(uart + UART_THR, c);
@@ -51,6 +64,12 @@ void arch_con_putc(u8 c)
 
 int arch_con_getc(void)
 {
+    if (uart_kind == UART_KIND_SIFIVE) {
+        u32 v = mmio_read32(uart + SIFIVE_RXDATA);
+        if (v & 0x80000000u)
+            return -1;
+        return (int)(v & 0xffu);
+    }
     if (!(uart_rd(uart + UART_LSR) & 0x01))
         return -1;
     return uart_rd(uart + UART_RBR);
@@ -182,8 +201,12 @@ void arch_init(void)
 {
     u64 b;
     int n = fdt_find_compatible("ns16550a", -1);
-    if (n < 0)
-        n = fdt_find_compatible("snps,dw-apb-uart", -1);
+    if (n >= 0)
+        uart_kind = UART_KIND_16550;
+    else if ((n = fdt_find_compatible("snps,dw-apb-uart", -1)) >= 0)
+        uart_kind = UART_KIND_16550;
+    else if ((n = fdt_find_compatible("sifive,uart0", -1)) >= 0)
+        uart_kind = UART_KIND_SIFIVE;
     if (n >= 0 && fdt_reg(n, 0, &b, NULL))
         uart = (uptr)b;
     n = fdt_find_compatible("google,goldfish-rtc", -1);
@@ -197,7 +220,8 @@ void arch_init(void)
     struct sbiret v = sbi(SBI_EXT_BASE, 0, 0, 0), id = sbi(SBI_EXT_BASE, 1, 0, 0);
     printf("cpu: hart %lu, S-mode, SBI %lu.%lu implementation 0x%lx\n", boot_hart,
            (u64)(v.value >> 24) & 0x7F, (u64)v.value & 0xFFFFFF, (u64)id.value);
-    printf("uart: NS16550A at %p\n", (void *)uart);
+    printf("uart: %s at %p\n",
+           uart_kind == UART_KIND_SIFIVE ? "sifive,uart0" : "NS16550A", (void *)uart);
     printf("timer: time CSR at %lu Hz\n", timebase);
     if (rtc)
         printf("rtc: goldfish at %p\n", (void *)rtc);

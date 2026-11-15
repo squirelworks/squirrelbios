@@ -96,10 +96,11 @@ The C sources include `config.h` when built with `-DSQ_CONFIG`.
 | Key | Default | Meaning |
 |---|---|---|
 | `CONFIG_FW_BASE` | `0x80000000` | SBI link address and start of the 2 MB PMP-protected firmware region; the UEFI core is linked 2 MB later. VisionFive 2 uses `0x40000000` (SPL OpenSBI load address); HiFive Unmatched keeps `0x80000000` |
-| `CONFIG_UART_BASE` | `0x10000000` | 16550-compatible UART for the SBI, and for the UEFI core until the device tree is read. HiFive Unmatched uses `0x10010000` (`sifive,uart0`; register kind still open) |
-| `CONFIG_UART_SHIFT` | `0` | Register offset shift (`0` = byte ns16550a; `2` = DesignWare APB, 4-byte stride) |
-| `CONFIG_UART_IO_WIDTH` | `1` | Access width in bytes (`1` = `sb`/`lbu`; `4` = `sw`/`lw`) |
-| `CONFIG_UART_CLOCK` | `3686400` | UART input clock for the 115200 divisor (`24000000` on the JH7110) |
+| `CONFIG_UART_BASE` | `0x10000000` | UART for the SBI, and for the UEFI core until the device tree is read. HiFive Unmatched uses `0x10010000` (`sifive,uart0`) |
+| `CONFIG_UART_KIND` | `0` | `0` = 16550-family (`ns16550a` / `snps,dw-apb-uart`); `1` = `sifive,uart0` (FU540/FU740). The device tree overrides when it names one of those |
+| `CONFIG_UART_SHIFT` | `0` | Register offset shift for 16550-family (`0` = byte ns16550a; `2` = DesignWare APB, 4-byte stride); unused for `sifive,uart0` |
+| `CONFIG_UART_IO_WIDTH` | `1` | Access width in bytes for 16550-family (`1` = `sb`/`lbu`; `4` = `sw`/`lw`); `sifive,uart0` always uses 32-bit accesses |
+| `CONFIG_UART_CLOCK` | `3686400` | UART input clock for the 115200 divisor (`24000000` on the JH7110; for `sifive,uart0`, `div = clock/baud - 1`) |
 | `CONFIG_MAX_HARTS` | `512` | Hart IDs the SBI tracks |
 | `CONFIG_CLINT_BASE` | `0x02000000` | CLINT when the device tree has no CLINT/ACLINT node |
 | `CONFIG_FWCFG_BASE` | `0x10100000` | QEMU fw_cfg MMIO when the device tree has no `qemu,fw-cfg-mmio` node; `0` for none |
@@ -108,10 +109,11 @@ The C sources include `config.h` when built with `-DSQ_CONFIG`.
 ([boards/visionfive2](../boards/visionfive2/README.md)). `hifive-unmatched.cfg`
 builds the HiFive Unmatched image
 ([boards/hifive-unmatched](../boards/hifive-unmatched/README.md)). Upstream
-QEMU has neither board machine, so `make test` only checks each image's
-link address (no boot smoke); board bring-up is optional / desk-only.
-QEMU's `sifive_u` (FU540-like) is a path for a later `sifive,uart0` driver
-smoke, not a merge blocker.
+QEMU has no JH7110 or Unmatched machine; `make test` checks each image's
+link address. For Unmatched it also boots the image on QEMU `sifive_u`
+(FU540-like: same `sifive,uart0` at `0x10010000`) far enough to print the
+SBI banner and `dt: UART at …` (putc path). Full board bring-up stays
+optional / desk-only.
 
 ### riscv64-virt
 
