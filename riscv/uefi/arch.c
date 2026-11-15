@@ -125,6 +125,13 @@ void arch_sync_icache(void *p, usize n)
     __asm__ volatile("fence.i" ::: "memory");   /* the other harts are parked */
 }
 
+int arch_rtc_set_civil(u16 year, u8 month, u8 day, u8 hour, u8 minute, u8 second)
+{
+    (void)year; (void)month; (void)day;
+    (void)hour; (void)minute; (void)second;
+    return 0;                                   /* goldfish write not wired */
+}
+
 int arch_rtc_seconds(u64 *secs)
 {
     if (!rtc)

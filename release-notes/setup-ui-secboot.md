@@ -25,4 +25,4 @@ notebooks, instead of printing stubs.
   still cover the shell, F2, and BootOrder paths.
 - **Docs:** `x86_64/README.md`, HANDOFF / ROADMAP / TODO Phase G card.
 
-Next: date-time / NVRAM reset notebooks.
+Next: date-time / NVRAM reset are in `release-notes/setup-ui-datetime-nvram.md`.

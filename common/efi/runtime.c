@@ -75,8 +75,12 @@ static EFI_STATUS EFIAPI get_time(EFI_TIME *time, EFI_TIME_CAPABILITIES *caps)
 
 static EFI_STATUS EFIAPI set_time(EFI_TIME *time)
 {
-    (void)time;
-    return EFI_UNSUPPORTED;
+    if (!time)
+        return EFI_INVALID_PARAMETER;
+    if (!arch_rtc_set_civil(time->year, time->month, time->day,
+                            time->hour, time->minute, time->second))
+        return EFI_UNSUPPORTED;
+    return EFI_SUCCESS;
 }
 
 static EFI_STATUS EFIAPI get_wakeup(BOOLEAN *enabled, BOOLEAN *pending, EFI_TIME *time)

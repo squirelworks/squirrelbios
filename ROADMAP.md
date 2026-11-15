@@ -367,20 +367,23 @@ Setup UI shell land here as sizeable steps.
   `make fuzz-pe` / `fuzz/pe_harness.c` / `fuzz/corpus-pe/`; optional
   `.github/workflows/fuzz-pe.yml`. Notes in `fuzz/README.md` and
   `release-notes/host-fuzz-pe.md`.
-- [x] **Setup UI (GOP + F2 + BootOrder + Secure Boot / TPM)** GOP +
-  serial boot menu shell on `x86_64-uefi` (lane `-2eaf`): Warp-look
-  title and navigable items (`x86_64/core/setupui.c`, original 8×16
-  font); entered with `opt/org.squirrelworks/setupui` or F2 on ConIn
-  (short post-GOP window). Boot Manager edits UEFI `BootOrder` (seeds
-  demo `Boot####` when empty; Left/Right reorder; Enter `SetVariable`).
-  Secure Boot keys notebook views/clears PK/KEK/db/dbx (demo stubs when
-  empty); TPM clear confirmation skips with no TPM (command stub when
-  present). Smoke: `x86_64-setupui`, `x86_64-setupui-f2`,
-  `x86_64-setupui-bootorder`, `x86_64-setupui-secboot`. Notes in
+- [x] **Setup UI (GOP + F2 + BootOrder + Secure Boot / TPM + date-time /
+  NVRAM)** GOP + serial boot menu shell on `x86_64-uefi` (lane
+  `-2eaf`): Warp-look title and navigable items
+  (`x86_64/core/setupui.c`, original 8×16 font); entered with
+  `opt/org.squirrelworks/setupui` or F2 on ConIn (short post-GOP
+  window). Boot Manager edits UEFI `BootOrder` (seeds demo `Boot####`
+  when empty; Left/Right reorder; Enter `SetVariable`). Secure Boot
+  keys notebook views/clears PK/KEK/db/dbx (demo stubs when empty);
+  TPM clear confirmation skips with no TPM (command stub when
+  present). Date and time views/edits CMOS RTC; NVRAM reset confirms
+  and clears user NV vars (not Secure Boot keys). Smoke:
+  `x86_64-setupui`, `x86_64-setupui-f2`, `x86_64-setupui-bootorder`,
+  `x86_64-setupui-secboot`, `x86_64-setupui-datetime`. Notes in
   `release-notes/setup-ui-gop.md`, `release-notes/setup-ui-f2.md`,
   `release-notes/setup-ui-bootorder.md`,
-  `release-notes/setup-ui-secboot.md`. Next: date-time / NVRAM reset
-  notebooks.
+  `release-notes/setup-ui-secboot.md`,
+  `release-notes/setup-ui-datetime-nvram.md`.
 - [ ] **G3** Authenticode/PKCS#7, DHCP/TFTP/HTTP, USB descriptors, FDT;
   a scheduled nightly with a fixed libFuzzer budget *(later)*.
 

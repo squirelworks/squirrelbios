@@ -97,6 +97,8 @@ void arch_relax(void);
 void arch_halt(void) __attribute__((noreturn));
 void arch_sync_icache(void *p, usize n);
 int arch_rtc_seconds(u64 *secs);    /* 1 and seconds since 1970, or 0 */
+/* Write civil wall time to the platform RTC when supported (1), else 0. */
+int arch_rtc_set_civil(u16 year, u8 month, u8 day, u8 hour, u8 minute, u8 second);
 void arch_reset(int type, u64 status) __attribute__((noreturn));
 void arch_memory_reserve(void);     /* efi_memory_mark the firmware's areas */
 int arch_disk_probe(void);          /* disks found (efi_disk_add each) */

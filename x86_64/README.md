@@ -136,15 +136,17 @@ demo `Boot0001`/`0002`/`0003` when empty; Left/Right reorder; Enter
 views/clears PK/KEK/db/dbx with confirmation - demo stubs are
 volatile BS|RT and fw_cfg-gated; clears apply this boot because Setup
 runs before `secure_init`; TPM clear confirms and skips when no TPM
-is present (command stub when one is); date/time and NVRAM reset stay
-stubs), Esc continues boot. Menu strings use ASCII `-` (the 8×16 font
-and serial path are not UTF-8). Variable services are installed before
-the UI so BootOrder edits hit the NVRAM-backed store. Later:
-date-time / NVRAM reset notebooks. Smoke: `x86_64-setupui`,
+is present (command stub when one is); Date and time views/edits the
+CMOS RTC (`GetTime` / `SetTime` via `arch_rtc_set_civil`); NVRAM reset
+confirms and clears non-volatile user variables, leaving Secure Boot
+keys alone - demo `SquirrelDemo` is fw_cfg-gated), Esc continues boot.
+Menu strings use ASCII `-` (the 8×16 font and serial path are not
+UTF-8). Variable services are installed before the UI so BootOrder
+edits hit the NVRAM-backed store. Smoke: `x86_64-setupui`,
 `x86_64-setupui-f2`, `x86_64-setupui-bootorder`,
-`x86_64-setupui-secboot`.
+`x86_64-setupui-secboot`, `x86_64-setupui-datetime`.
 
-Runtime: `GetTime` from the CMOS RTC,
+Runtime: `GetTime` / `SetTime` from the CMOS RTC,
 the variable services (below), `ResetSystem` (ACPI
 shutdown or keyboard-controller reset), and `ExitBootServices` (signals
 exit-boot events, nulls `BootServices`, reseals the system table). At

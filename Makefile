@@ -116,6 +116,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/x86_64-setupui-f2.keys \
              $(TEST_DIR)/x86_64-setupui-bootorder.keys \
              $(TEST_DIR)/x86_64-setupui-secboot.keys \
+             $(TEST_DIR)/x86_64-setupui-datetime.keys \
              $(TEST_DIR)/x86_64-mp.efi \
              $(TEST_DIR)/x86_64-acpi.efi \
              $(TEST_DIR)/sb/sb-signed.efi $(TEST_DIR)/x86_64-sb-esp.img \
@@ -405,6 +406,10 @@ $(TEST_DIR)/x86_64-setupui-bootorder.keys: | $(TEST_DIR)
 # Enter Yes; Down→TPM clear, Enter, Enter Confirm; Up×3→Continue, Enter
 $(TEST_DIR)/x86_64-setupui-secboot.keys: | $(TEST_DIR)
 	printf '\033[B\033[B\r\r\r\033[B\r\r\033[A\033[A\033[A\r' > $@
+# Setup UI date-time + NVRAM reset: Down×4→Date and time, Enter, Up (year+1),
+# Enter apply; Down→NVRAM, Enter, Enter Confirm; Up×5→Continue, Enter
+$(TEST_DIR)/x86_64-setupui-datetime.keys: | $(TEST_DIR)
+	printf '\033[B\033[B\033[B\033[B\r\033[A\r\033[B\r\r\033[A\033[A\033[A\033[A\033[A\r' > $@
 # MP services and the MP table (C4)
 $(TEST_DIR)/x86_64-mp.efi: tests/x86_64-mp.asm tests/x86_64-pe.inc | $(TEST_DIR)
 	$(NASM) -f bin -i tests/ $< -o $@
