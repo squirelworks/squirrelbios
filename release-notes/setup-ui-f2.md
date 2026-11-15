@@ -8,7 +8,7 @@ the Warp-look boot menu with **F2** on ConIn, without needing
   `setup: press F2 for Setup UI` and polls ConIn for a short window
   (~250 ms). Serial ANSI `ESC O Q` (and CSI `ESC [ 12 ~`) map to UEFI
   scan code F2 in `common/efi/textcon.c`. Seeing F2 opens the same menu
-  as the fw_cfg path (`setup: F2 — opening Setup UI`).
+  as the fw_cfg path (`setup: F2 - opening Setup UI`).
 - **fw_cfg kept:** `-fw_cfg name=opt/org.squirrelworks/setupui,...`
   still forces the menu immediately (no hotkey wait), so
   `x86_64-setupui` is unchanged.
