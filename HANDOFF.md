@@ -99,26 +99,29 @@ expected serial lines (`|`-separated, `!` = must not appear, `~` = regex).
    flash a real GA-G41M-ES2L per `boards/ga-g41m-es2l/FLASHING.md`.
 4. **RISC-V AIA MSI** when a newer QEMU is available in CI.
 5. Then Phase G ideas in `docs/CONTINUANCE.md` (squirrelsoft); G1/G2
-  host fuzz smokes and the Setup UI (GOP + F2) steps are done
-  (`make fuzz-fat`, `make fuzz-pe`, `x86_64-setupui`,
-  `x86_64-setupui-f2`).
+  host fuzz smokes and the Setup UI (GOP + F2 + BootOrder) steps are
+  done (`make fuzz-fat`, `make fuzz-pe`, `x86_64-setupui`,
+  `x86_64-setupui-f2`, `x86_64-setupui-bootorder`).
 
 ## Task cards
 
-### G-setup-ui — Setup UI / boot menu on GOP + F2 hotkey  `status: done`
-- **Done:** navigable Warp-look boot menu shell on `x86_64-uefi`
-  (`x86_64/core/setupui.c` + `font8x16.h` from the original VGA
-  glyphs). Title, Boot Manager list (Continue + stubs), Up/Down/Enter/
-  Esc on serial and GOP when Bochs DISPI is present. Entered with
+### G-setup-ui — Setup UI / boot menu on GOP + F2 + BootOrder  `status: done`
+- **Done (lane `-2eaf`):** navigable Warp-look boot menu shell on
+  `x86_64-uefi` (`x86_64/core/setupui.c` + `font8x16.h` from the
+  original VGA glyphs). Title, Boot Manager list (Continue + Boot
+  Manager + stubs), Up/Down/Enter/Esc on serial and GOP when Bochs
+  DISPI is present. Entered with
   `-fw_cfg name=opt/org.squirrelworks/setupui,string=1` or by pressing
   **F2** during the short post-GOP ConIn window (`setup: press F2 for
-  Setup UI`). Notes: `release-notes/setup-ui-gop.md`,
-  `release-notes/setup-ui-f2.md`, `x86_64/README.md`.
-- **Check:** `x86_64-setupui` (fw_cfg) and `x86_64-setupui-f2` (F2,
-  no fw_cfg) in `make test` print `setup: UI open (serial+GOP)` …
-  `setup: selected Continue boot`.
-- **Next (still Phase G Setup UI):** real BootOrder edits, Secure Boot
-  keys / TPM clear / date-time / NVRAM reset notebooks.
+  Setup UI`). Boot Manager seeds demo `Boot####` / `BootOrder` when
+  empty, reorders with Left/Right, and `SetVariable`s `BootOrder`.
+  Notes: `release-notes/setup-ui-gop.md`, `release-notes/setup-ui-f2.md`,
+  `release-notes/setup-ui-bootorder.md`, `x86_64/README.md`.
+- **Check:** `x86_64-setupui` (fw_cfg), `x86_64-setupui-f2` (F2, no
+  fw_cfg), and `x86_64-setupui-bootorder` (reorder + save) in
+  `make test`.
+- **Next (still Phase G Setup UI):** Secure Boot keys / TPM clear /
+  date-time / NVRAM reset notebooks.
 
 ### G1-fuzz-fat — host FAT fuzz / corpus smoke  `status: done`
 - **Done:** host-buildable harness for `common/efi/fat.c` under
