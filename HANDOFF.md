@@ -39,7 +39,7 @@ Used here, in `ROADMAP.md` and on the issues (as labels).
   loongarch64 (#155, #159), s390x (#160, #161). Licence is GPL-3.0 (#163).
   Release notes are in `release-notes/v2.2.0.md`; publishing is `needs: squirrel`.
 - **Test gate:** `make test` (docs honesty via `make docs-lint` /
-  `tools/docs_lint.py`, then 339 cases in `tests/smoke.sh`, plus
+  `tools/docs_lint.py`, then 340 cases in `tests/smoke.sh`, plus
   `rpi4-uefi-sd` when QEMU has `raspi4b`), run by
   `.github/workflows/make-test.yml` on every PR. Optional, not in the
   required gate: `make linux-x86`, `make linux-uefi`, `make linux-shell`,
@@ -101,14 +101,29 @@ expected serial lines (`|`-separated, `!` = must not appear, `~` = regex).
    flash a real GA-G41M-ES2L per `boards/ga-g41m-es2l/FLASHING.md`.
 4. **RISC-V AIA MSI** when a newer QEMU is available in CI.
 5. Then Phase G ideas in `docs/CONTINUANCE.md` (squirrelsoft); G1–G3
-  host fuzz smokes and the Setup UI (GOP + F2 + BootOrder + Secure Boot
-  keys / TPM clear + date-time / NVRAM reset) steps are done
+  host fuzz smokes, the Setup UI (GOP + F2 + BootOrder + Secure Boot
+  keys / TPM clear + date-time / NVRAM reset), and UpdateCapsule + ESRT
+  are done
   (`make fuzz-fat`, `make fuzz-pe`, `make fuzz-authenticode`,
   `make fuzz-net`, `make fuzz-usb`, `make fuzz-fdt`,
   `x86_64-setupui`, `x86_64-setupui-f2`, `x86_64-setupui-bootorder`,
-  `x86_64-setupui-secboot`, `x86_64-setupui-datetime`).
+  `x86_64-setupui-secboot`, `x86_64-setupui-datetime`,
+  `x86_64-capsule`).
 
 ## Task cards
+
+### G-capsule-esrt — UpdateCapsule + ESRT  `status: done`
+- **Done (lane `-2eaf`):** UEFI-class capsule plumbing in
+  `common/efi/capsule.c` (x86_64 runtime pages + shared DT UEFI
+  cores). Installs the EFI System Resource Table (one system-firmware
+  resource), implements `UpdateCapsule` /
+  `QueryCapsuleCapabilities` (UEFI 2.10 §8.5.3 / §4.6), and publishes
+  `OsIndicationsSupported` with the file-capsule bit. QEMU smoke does
+  not rewrite flash; signed capsule apply is a follow-up. Notes:
+  `release-notes/capsule-esrt.md`. Epic #82.
+- **Check:** `x86_64-capsule` in `make test`.
+- **Next (Phase G):** signed capsule apply / flash rewrite; optional
+  Setup polish; further CONTINUANCE product work.
 
 ### G-setup-ui — Setup UI / boot menu on GOP + F2 + BootOrder + Secure Boot / TPM + date-time / NVRAM  `status: done`
 - **Done (lane `-2eaf`):** navigable Warp-look boot menu shell on
@@ -144,7 +159,8 @@ expected serial lines (`|`-separated, `!` = must not appear, `~` = regex).
   and `x86_64-setupui-datetime` (RTC edit + NVRAM clear) in
   `make test`.
 - **Next (Phase G):** optional Setup polish; fuzz nightly already
-  scheduled (`fuzz-nightly.yml`); further CONTINUANCE product work.
+  scheduled (`fuzz-nightly.yml`); capsule/ESRT is in
+  `G-capsule-esrt`.
 
 ### G1-fuzz-fat — host FAT fuzz / corpus smoke  `status: done`
 - **Done:** host-buildable harness for `common/efi/fat.c` under

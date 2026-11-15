@@ -401,6 +401,12 @@ Setup UI shell land here as sizeable steps.
   `release-notes/setup-ui-datetime-followup.md`.
 - [x] **G3 (rest)** DHCP/TFTP/HTTP, USB descriptors, FDT host corpus
   smokes and scheduled nightly libFuzzer budget (`fuzz-nightly.yml`).
+- [x] **UpdateCapsule + ESRT** Shared `common/efi/capsule.c` (lane
+  `-2eaf`): ESRT configuration table (one system-firmware resource),
+  `UpdateCapsule` / `QueryCapsuleCapabilities`, 
+  `OsIndicationsSupported` file-capsule bit. Smoke: `x86_64-capsule`.
+  Notes in `release-notes/capsule-esrt.md`. Epic #82. Flash rewrite /
+  signed apply remain follow-ups.
 
 ### Squirrel-OS/2 hand-off on every platform
 

@@ -35,7 +35,8 @@ X64_FD      := x86_64/squirrel-bios.fd
 # The shared UEFI core (common/efi) supplies the services (roadmap D4).
 # runtime.c, lib.c and rt.c are built on their own, their sections renamed
 # .rt.*: link.ld puts them in the pages the OS keeps after ExitBootServices
-X64_RT_C    := common/efi/runtime.c common/efi/lib.c x86_64/core/rt.c x86_64/core/variables.c \
+X64_RT_C    := common/efi/runtime.c common/efi/lib.c common/efi/capsule.c x86_64/core/rt.c \
+               x86_64/core/variables.c \
                x86_64/secure/authvar.c x86_64/secure/der.c x86_64/secure/rsa.c x86_64/secure/sha256.c
 X64_EFI_C   := $(addprefix common/efi/,ahci.c aml.c console.c devicepath.c disk.c event.c fat.c \
                  image.c memory.c nvme.c protocol.c tables.c textcon.c virtio.c virtio_pci.c xhci.c \
@@ -128,6 +129,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/x86_64-cxl.efi \
              $(TEST_DIR)/x86_64-smmlock.efi \
              $(TEST_DIR)/x86_64-ipmi.efi \
+             $(TEST_DIR)/x86_64-capsule.efi \
              $(TEST_DIR)/x86_64-tables \
              $(TEST_DIR)/x86_64-bigload.img \
              $(TEST_DIR)/x86_64-handoff.efi \
@@ -505,6 +507,10 @@ $(TEST_DIR)/x86_64-smmlock.efi: tests/x86_64-smmlock.c tests/efi-app.ld tests/mk
 	python3 tests/mkpe.py x86_64 $(@:.efi=.elf) $@
 # The BMC as an OS sees it: SPMI, SMBIOS 38 and 42, KCS
 $(TEST_DIR)/x86_64-ipmi.efi: tests/x86_64-ipmi.c tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)
+	$(CC64) $(X64_APP_CFLAGS) $< -o $(@:.efi=.elf)
+	python3 tests/mkpe.py x86_64 $(@:.efi=.elf) $@
+# UpdateCapsule + ESRT (Phase G)
+$(TEST_DIR)/x86_64-capsule.efi: tests/x86_64-capsule.c tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)
 	$(CC64) $(X64_APP_CFLAGS) $< -o $(@:.efi=.elf)
 	python3 tests/mkpe.py x86_64 $(@:.efi=.elf) $@
 # A 3 MB BOOTX64.EFI on an ESP with 512-byte clusters: the disk read path

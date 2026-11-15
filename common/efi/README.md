@@ -59,12 +59,14 @@ acpi.c, aml.c   ACPI table store (headers, checksums, XSDT, RSDP as the
 memmap.c        usable RAM from device_type "memory", /reserved-memory
 fwcfg.c         QEMU fw_cfg, memory-mapped, with DMA for big reads
 memory.c, protocol.c, image.c, event.c, textcon.c, tables.c,
-runtime.c, devicepath.c, console.c, lib.c
+runtime.c, capsule.c, devicepath.c, console.c, lib.c
                 the services: LocateDevicePath, PE section alignment
                 (64 KB for arm64 Linux), runtime allocations marked
                 EFI_MEMORY_RUNTIME, SetVirtualAddressMap / ConvertPointer
-                (runtime.c and lib.c hold all that runs after
-                ExitBootServices: x86-64 keeps only those pages)
+                (runtime.c, capsule.c and lib.c hold all that runs after
+                ExitBootServices: x86-64 keeps only those pages);
+                UpdateCapsule / QueryCapsuleCapabilities and the ESRT
+                configuration table (Phase G; `x86_64-capsule`)
 ```
 
 An architecture provides `arch.h` (the `ARCH_*` constants listed in

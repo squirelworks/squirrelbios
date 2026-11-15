@@ -530,10 +530,85 @@ typedef enum {
     EfiResetCold, EfiResetWarm, EfiResetShutdown, EfiResetPlatformSpecific
 } EFI_RESET_TYPE;
 
+/* Capsules and ESRT (UEFI 2.10 §8.5.3 UpdateCapsule / QueryCapsuleCapabilities,
+ * §4.6 EFI System Resource Table). Original definitions from the public
+ * specification; no EDK2/OVMF sources. */
+#define CAPSULE_FLAGS_PERSIST_ACROSS_RESET   0x00010000u
+#define CAPSULE_FLAGS_POPULATE_SYSTEM_TABLE  0x00020000u
+#define CAPSULE_FLAGS_INITIATE_RESET         0x00040000u
+
+typedef struct {
+    EFI_GUID CapsuleGuid;
+    u32 HeaderSize;
+    u32 Flags;
+    u32 CapsuleImageSize;
+} EFI_CAPSULE_HEADER;
+
+typedef struct {
+    u64 Length;
+    union {
+        EFI_PHYSICAL_ADDRESS DataBlock;
+        EFI_PHYSICAL_ADDRESS ContinuationPointer;
+    } Union;
+} EFI_CAPSULE_BLOCK_DESCRIPTOR;
+
+#define EFI_SYSTEM_RESOURCE_TABLE_GUID \
+    { 0xb122a263, 0x3661, 0x4f68, { 0x99, 0x29, 0x78, 0xf8, 0xb5, 0x12, 0x3d, 0x86 } }
+
+#define ESRT_FW_TYPE_UNKNOWN            0x00000000u
+#define ESRT_FW_TYPE_SYSTEMFIRMWARE     0x00000001u
+#define ESRT_FW_TYPE_DEVICEFIRMWARE     0x00000002u
+#define ESRT_FW_TYPE_UEFIDRIVER         0x00000003u
+
+#define LAST_ATTEMPT_STATUS_SUCCESS                 0x00000000u
+#define LAST_ATTEMPT_STATUS_ERROR_UNSUCCESSFUL      0x00000001u
+#define LAST_ATTEMPT_STATUS_ERROR_INSUFFICIENT_RESOURCES 0x00000002u
+#define LAST_ATTEMPT_STATUS_ERROR_INCORRECT_VERSION 0x00000003u
+#define LAST_ATTEMPT_STATUS_ERROR_INVALID_FORMAT    0x00000004u
+#define LAST_ATTEMPT_STATUS_ERROR_AUTH_ERROR        0x00000005u
+#define LAST_ATTEMPT_STATUS_ERROR_PWR_EVT_AC        0x00000006u
+#define LAST_ATTEMPT_STATUS_ERROR_PWR_EVT_BATT      0x00000007u
+#define LAST_ATTEMPT_STATUS_ERROR_UNSATISFIED_DEPENDENCIES 0x00000008u
+
+typedef struct {
+    EFI_GUID FwClass;
+    u32 FwType;
+    u32 FwVersion;
+    u32 LowestSupportedFwVersion;
+    u32 CapsuleFlags;
+    u32 LastAttemptVersion;
+    u32 LastAttemptStatus;
+} EFI_SYSTEM_RESOURCE_ENTRY;
+
+typedef struct {
+    u32 FwResourceCount;
+    u32 FwResourceCountMax;
+    u64 FwResourceVersion;
+    EFI_SYSTEM_RESOURCE_ENTRY Entries[];
+} EFI_SYSTEM_RESOURCE_TABLE;
+
+/* Global variable vendor (UEFI §3.3); OsIndicationsSupported bits (§8.5.4). */
+#define EFI_GLOBAL_VARIABLE_GUID \
+    { 0x8BE4DF61, 0x93CA, 0x11d2, { 0xAA, 0x0D, 0x00, 0xE0, 0x98, 0x03, 0x2B, 0x8C } }
+#define EFI_OS_INDICATIONS_FILE_CAPSULE_DELIVERY_SUPPORTED  0x0000000000000004ULL
+#define EFI_OS_INDICATIONS_FMP_CAPSULE_SUPPORTED            0x0000000000000008ULL
+#define EFI_OS_INDICATIONS_CAPSULE_RESULT_VAR_SUPPORTED     0x0000000000000010ULL
+
+/* SquirrelBIOS system-firmware capsule / ESRT FwClass (project-local GUID). */
+#define SQUIRREL_SYSTEM_FIRMWARE_GUID \
+    { 0xa7c4e9f2, 0x3b1d, 0x4e8a, { 0x9c, 0x55, 0x12, 0x84, 0x6f, 0x91, 0xde, 0x30 } }
+
 void efi_runtime_init(EFI_RUNTIME_SERVICES *rt);
 void efi_note_map_key(UINTN key);
 EFI_STATUS EFIAPI efi_exit_boot_services(EFI_HANDLE image, UINTN map_key);
 int efi_boot_services_exited(void);
+
+/* capsule.c: UpdateCapsule / QueryCapsuleCapabilities and the ESRT */
+void efi_capsule_init(void);
+EFI_STATUS EFIAPI efi_update_capsule(EFI_CAPSULE_HEADER **headers, UINTN count,
+                                     EFI_PHYSICAL_ADDRESS scatter_gather);
+EFI_STATUS EFIAPI efi_query_capsule_capabilities(EFI_CAPSULE_HEADER **headers, UINTN count,
+                                                 u64 *max_size, EFI_RESET_TYPE *reset_type);
 
 /* event.c */
 void efi_event_init(EFI_BOOT_SERVICES *bs);

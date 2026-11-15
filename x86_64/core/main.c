@@ -162,6 +162,10 @@ void fw_main(void)
     vars_init();
     vars_install(efi_st->runtime_services);
 
+    /* Phase G capsule / ESRT: after variables so OsIndicationsSupported
+     * lands in the real store; UpdateCapsule stays on the runtime pages. */
+    efi_capsule_init();
+
     /* Phase G Setup UI: navigable boot/setup menu on serial (+ GOP when
      * present). fw_cfg opt/org.squirrelworks/setupui still forces entry;
      * otherwise a short window accepts F2 on ConIn (serial ANSI). */
