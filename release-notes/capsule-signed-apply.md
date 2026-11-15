@@ -16,5 +16,7 @@ QEMU without rewriting the flash image.
   rewrite)`. Auth failure: `AUTH_ERROR` / `EFI_SECURITY_VIOLATION`.
 - **PersistAcrossReset:** stages NV `SqCapsuleStaging`; fw_cfg
   `opt/org.squirrelworks/capsule` applies pending at init.
-- **Deferred:** flash image rewrite; SGL-only multi-block gather.
+- **Deferred:** flash image rewrite; SGL-only multi-block gather (SGL-only
+  UpdateCapsule is refused until then — see
+  `capsule-signed-followup.md`).
 - **Smoke:** `x86_64-capsule-signed`, `x86_64-capsule-fwcfg`.

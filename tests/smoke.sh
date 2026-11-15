@@ -1976,7 +1976,7 @@ run x86_64-capsule "capsule: ESRT at|capsule: UpdateCapsule n=1 persist=0 popula
 
 CAP_DB=name=opt/org.squirrelworks/capsule-db
 CAP_FILE=name=opt/org.squirrelworks/capsule
-run x86_64-capsule-signed "capsule: trust ESL|capsule: apply ok version=0x00020300 (no flash rewrite)|capsule: apply refused (auth)|capsule: staged version=0x00020300|APP capsule-signed good=ok bad=ok stage=ok attempt=ok|efi: image returned 0x0|!=bad" \
+run x86_64-capsule-signed "capsule: trust ESL|capsule: apply ok version=0x00020300 (no flash rewrite)|capsule: apply refused (auth)|capsule: UpdateCapsule SGL-only unsupported|capsule: UpdateCapsule persist supports one capsule only|capsule: staged version=0x00020300|APP capsule-signed good=ok bad=ok stage=ok sgl=ok multi=ok attempt=ok|efi: image returned 0x0|!=bad" \
     "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd \
     -fw_cfg $CAP_DB,file=$SB/sb-db-x509.esl \
     -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-capsule-signed.efi

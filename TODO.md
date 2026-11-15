@@ -490,6 +490,7 @@ stub, a 1 MB flash image for `qemu-system-x86_64 -bios`. One PR each.
   SQCP + PKCS#7 detached verify (`capsule_auth.c`), apply without
   flash rewrite, NV staging / fw_cfg pending capsule. Fixtures
   `tests/mkcapsule.py`. Notes: `release-notes/capsule-signed-apply.md`.
+  Sarah #193 follow-ups: `release-notes/capsule-signed-followup.md`.
   Depends on: `x86_64-capsule`. Epic #82.
 
 ## Secondary track

@@ -16,6 +16,8 @@
 #include "efi.h"
 
 #define CAPSULE_MAX_BYTES       (1024u * 1024u)
+/* NV staging must fit one variable (x86_64 pflash: 32 KB; DT RAM: 256 B). */
+#define CAPSULE_STAGE_FALLBACK  (32u * 1024u)
 #define CAPSULE_SGL_MAX_BLOCKS  64
 #define CAPSULE_FWCFG           "opt/org.squirrelworks/capsule"
 #define CAPSULE_STAGE_ATTR      0x7u   /* NV | BS | RT */
@@ -110,11 +112,30 @@ static void apply_verified(const EFI_CAPSULE_HEADER *h)
         printf("capsule: apply ok version=0x%08x (no flash rewrite)\n", ver);
 }
 
+static u32 stage_max_bytes(void)
+{
+    typedef EFI_STATUS (EFIAPI *q_fn)(u32, u64 *, u64 *, u64 *);
+    q_fn q = (q_fn)efi_st->runtime_services->query_variable_info;
+    u64 max = 0, rem = 0, maxsz = 0;
+    if (q && q(CAPSULE_STAGE_ATTR, &max, &rem, &maxsz) == EFI_SUCCESS && maxsz) {
+        if (maxsz > CAPSULE_MAX_BYTES) maxsz = CAPSULE_MAX_BYTES;
+        return (u32)maxsz;
+    }
+    return CAPSULE_STAGE_FALLBACK;
+}
+
 static EFI_STATUS stage_capsule(const EFI_CAPSULE_HEADER *h)
 {
     typedef EFI_STATUS (EFIAPI *set_fn)(CHAR16 *, EFI_GUID *, u32, UINTN, void *);
     set_fn set = (set_fn)efi_st->runtime_services->set_variable;
     if (!set) return EFI_UNSUPPORTED;
+    u32 lim = stage_max_bytes();
+    if (h->CapsuleImageSize > lim) {
+        if (!efi_boot_services_exited())
+            printf("capsule: staging too large for NV (%u > %u)\n",
+                   h->CapsuleImageSize, lim);
+        return EFI_OUT_OF_RESOURCES;
+    }
     EFI_STATUS s = set(stage_name, (EFI_GUID *)&sysfw_guid, CAPSULE_STAGE_ATTR,
                        h->CapsuleImageSize, (void *)h);
     if (s != EFI_SUCCESS) {
@@ -211,14 +232,15 @@ static EFI_STATUS process_one(EFI_CAPSULE_HEADER *h, int persist, int *want_rese
                           want_reset);
 }
 
-static void apply_pending_buffer(EFI_CAPSULE_HEADER *h, const char *src)
+/* 0 = applied, non-zero = refused (caller still clears staging). */
+static int apply_pending_buffer(EFI_CAPSULE_HEADER *h, const char *src)
 {
     (void)src;
     if (validate_header(h) != EFI_SUCCESS || !guid_same(&h->CapsuleGuid, &sysfw_guid) ||
         !is_sqcp(h)) {
         esrt_note_attempt(0, LAST_ATTEMPT_STATUS_ERROR_INVALID_FORMAT);
         printf("capsule: pending capsule bad format\n");
-        return;
+        return -1;
     }
     EFI_STATUS s = arch_capsule_verify(h);
     if (s != EFI_SUCCESS) {
@@ -227,9 +249,10 @@ static void apply_pending_buffer(EFI_CAPSULE_HEADER *h, const char *src)
                               ? LAST_ATTEMPT_STATUS_ERROR_AUTH_ERROR
                               : LAST_ATTEMPT_STATUS_ERROR_UNSUCCESSFUL);
         printf("capsule: pending apply refused\n");
-        return;
+        return -1;
     }
     apply_verified(h);
+    return 0;
 }
 
 static void apply_staged_variable(void)
@@ -253,8 +276,10 @@ static void apply_staged_variable(void)
     s = get(stage_name, (EFI_GUID *)&sysfw_guid, &attr, &size, buf);
     if (s != EFI_SUCCESS) { efi_free_pages(base, pages); return; }
     printf("capsule: applying staged capsule (%lu bytes)\n", (unsigned long)size);
-    apply_pending_buffer((EFI_CAPSULE_HEADER *)buf, "staged");
+    int refused = apply_pending_buffer((EFI_CAPSULE_HEADER *)buf, "staged");
     clear_staging();
+    if (refused)
+        printf("capsule: cleared refused staged capsule\n");
     efi_free_pages(base, pages);
 }
 
@@ -286,14 +311,28 @@ EFI_STATUS EFIAPI efi_update_capsule(EFI_CAPSULE_HEADER **headers, UINTN count,
 {
     if (!count) return EFI_INVALID_PARAMETER;
     if (!headers && !scatter_gather) return EFI_INVALID_PARAMETER;
+    /* SGL-only (no header array) is not gathered/verified yet — never
+     * claim SUCCESS or skip signature checks (Sarah #193 follow-up). */
+    if (!headers) {
+        esrt_note_attempt(0, LAST_ATTEMPT_STATUS_ERROR_UNSUCCESSFUL);
+        if (!efi_boot_services_exited())
+            printf("capsule: UpdateCapsule SGL-only unsupported (need header array)\n");
+        return EFI_UNSUPPORTED;
+    }
     int persist = 0, populate = 0, initiate = 0;
-    if (headers) {
-        for (UINTN i = 0; i < count; i++) {
-            if (!headers[i]) return EFI_INVALID_PARAMETER;
-            if (headers[i]->Flags & CAPSULE_FLAGS_PERSIST_ACROSS_RESET) persist = 1;
-            if (headers[i]->Flags & CAPSULE_FLAGS_POPULATE_SYSTEM_TABLE) populate = 1;
-            if (headers[i]->Flags & CAPSULE_FLAGS_INITIATE_RESET) initiate = 1;
-        }
+    for (UINTN i = 0; i < count; i++) {
+        if (!headers[i]) return EFI_INVALID_PARAMETER;
+        if (headers[i]->Flags & CAPSULE_FLAGS_PERSIST_ACROSS_RESET) persist = 1;
+        if (headers[i]->Flags & CAPSULE_FLAGS_POPULATE_SYSTEM_TABLE) populate = 1;
+        if (headers[i]->Flags & CAPSULE_FLAGS_INITIATE_RESET) initiate = 1;
+    }
+    /* One NV staging slot (SqCapsuleStaging) — multi PERSIST would
+     * last-win; refuse instead of silently dropping capsules. */
+    if (persist && count > 1) {
+        esrt_note_attempt(0, LAST_ATTEMPT_STATUS_ERROR_INSUFFICIENT_RESOURCES);
+        if (!efi_boot_services_exited())
+            printf("capsule: UpdateCapsule persist supports one capsule only\n");
+        return EFI_UNSUPPORTED;
     }
     if (persist && !scatter_gather) {
         if (!efi_boot_services_exited())
@@ -306,14 +345,6 @@ EFI_STATUS EFIAPI efi_update_capsule(EFI_CAPSULE_HEADER **headers, UINTN count,
             esrt_note_attempt(0, LAST_ATTEMPT_STATUS_ERROR_INVALID_FORMAT);
             return EFI_INVALID_PARAMETER;
         }
-    }
-    if (!headers) {
-        esrt_note_attempt(fw_version_enc, LAST_ATTEMPT_STATUS_SUCCESS);
-        if (!efi_boot_services_exited())
-            printf("capsule: UpdateCapsule n=%lu persist=%d (SGL only)\n",
-                   (unsigned long)count, persist);
-        if (initiate) arch_reset(EfiResetWarm, 0);
-        return EFI_SUCCESS;
     }
     int want_reset = 0;
     for (UINTN i = 0; i < count; i++) {

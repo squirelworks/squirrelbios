@@ -65,6 +65,7 @@ static void copy_cap(u8 *dst, const u8 *src, u32 n) { for (u32 i = 0; i < n; i++
 #define AUTH_ERROR 5u
 #define EFI_SECURITY_VIOLATION 0x800000000000001aULL
 #define EFI_BUFFER_TOO_SMALL   0x8000000000000005ULL
+#define EFI_UNSUPPORTED        0x8000000000000003ULL
 EFIAPI status efi_main(handle image, system_table *st)
 {
     (void)image;
@@ -92,16 +93,26 @@ EFIAPI status efi_main(handle image, system_table *st)
     sgl[0].length = pers->capsule_image_size;
     sgl[0].data_or_cont = (u64)(unsigned long)persist_buf;
     sgl[1].length = 0; sgl[1].data_or_cont = 0;
+    /* SGL-only must not succeed without a header array / signature check. */
+    status sgl_only = st->rt->update_capsule(0, 1, (u64)(unsigned long)sgl);
+    int sgl_ok = sgl_only == EFI_UNSUPPORTED;
+    /* Multi PERSIST would last-win one NV slot — refuse. */
+    capsule_header *multi[2] = { pers, pers };
+    status ms = st->rt->update_capsule(multi, 2, (u64)(unsigned long)sgl);
+    int multi_ok = ms == EFI_UNSUPPORTED;
     status ss = st->rt->update_capsule(parr, 1, (u64)(unsigned long)sgl);
     static u16 stage_name[] = { 'S','q','C','a','p','s','u','l','e','S','t','a','g','i','n','g', 0 };
     guid sysfw = { SYSFW_D1, SYSFW_D2, SYSFW_D3, { 0x9c, 0x55, 0x12, 0x84, 0x6f, 0x91, 0xde, 0x30 } };
     u64 st_size = 0; u32 attr = 0;
     status gs = st->rt->get_variable(stage_name, &sysfw, &attr, &st_size, 0);
     int stage_ok = ss == 0 && gs == EFI_BUFFER_TOO_SMALL && st_size == pers->capsule_image_size;
+    int all = good_ok && bad_ok && stage_ok && sgl_ok && multi_ok;
     puts("APP capsule-signed good="); puts(good_ok ? "ok" : "bad");
     puts(" bad="); puts(bad_ok ? "ok" : "bad");
     puts(" stage="); puts(stage_ok ? "ok" : "bad");
+    puts(" sgl="); puts(sgl_ok ? "ok" : "bad");
+    puts(" multi="); puts(multi_ok ? "ok" : "bad");
     puts(" attempt="); puts(good_ok ? "ok" : "bad");
-    puts((good_ok && bad_ok && stage_ok) ? "\n" : " =bad\n");
+    puts(all ? "\n" : " =bad\n");
     return 0;
 }

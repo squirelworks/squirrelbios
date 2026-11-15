@@ -129,6 +129,11 @@ Full mark list (versions, acceptance, issue titles):
   `SqCapsuleStaging` and applies on the next boot (fw_cfg
   `opt/org.squirrelworks/capsule` as a QEMU post-reset stand-in).
   Notes: `release-notes/capsule-signed-apply.md`. Epic #82.
+- **Sarah #193 follow-ups (this PR):** multi-PERSIST refused (one NV
+  slot); staging capped to `QueryVariableInfo` max (not 1 MB);
+  SGL-only UpdateCapsule unsupported (no SUCCESS without verify);
+  refused staged apply logs `cleared refused staged capsule`. Notes:
+  `release-notes/capsule-signed-followup.md`.
 - **Check:** `x86_64-capsule-signed`, `x86_64-capsule-fwcfg` in
   `make test` (plus existing `x86_64-capsule`).
 - **Next (Phase G):** flash image rewrite under QEMU/pflash; optional
