@@ -3,9 +3,10 @@
 > **Joke branch: `klingon-font`.** An alien world where the PC's text font
 > was never ASCII. The x86 ROM puts the VGA into 80x25 text mode itself and
 > loads a hand-drawn pIqaD 8x16 font, so every letter and digit on
-> screen is drawn in Klingon script. COM1 output is unchanged, so the smoke
-> tests still pass. Not for merging into `main`; see
-> [Klingon font](#klingon-font-joke-branch) below.
+> screen is drawn in Klingon script. COM1 is still Latin *for now* (smoke
+> expects); the planned end state is **no Latin anywhere**, including
+> serial — see [ASCII purge](docs/KLINGON_ASCII_PURGE.md). Not for merging
+> into `main`; see [Klingon font](#klingon-font-joke-branch) below.
 >
 > ![SquirrelBIOS booting with the Klingon font](docs/klingon-font.png)
 
@@ -414,17 +415,27 @@ One item in that list is one PR, branched from `main`.
   `x`→`Q`, `f`→`v`, `z`→`S`); only `q` and `Q` differ by case. Digits use
   pIqaD numerals, and `'` is the glottal stop letter.
 - `con_putc` in `x86/core/console.inc` folds the romanized `ch`, `gh`, `ng`
-  and `tlh` into one glyph each (code points 0x80-0x83) on the VGA side only.
+  and `tlh` into one glyph each (code points 0x80-0x83) on the VGA side only
+  (COM1 still gets Latin bytes until the purge).
 - `x86/drivers/vga/vga.inc` is the same 80x25 set-up as on `main`, but
   includes `klingon-font.inc` (as `font_8x16`) instead of the latin `font.inc`.
 - `x86/core/entry.inc` prints `banner_tlh` under the normal banner.
+
+### End state: ASCII purge (scaffolding)
+
+**Goal:** strip every Latin runtime string and make COM1 speak Klingon too.
+Breaking Latin smoke/serial clients is fine — if you attach over COM1, you
+need to be in on the joke. Checklist, encoding options, and string inventory
+live in [`docs/KLINGON_ASCII_PURGE.md`](docs/KLINGON_ASCII_PURGE.md). Do not
+implement that purge on `main`.
 
 ### Refreshing the branch later
 
 The joke lives in a few self-contained places: digraph folding in
 `core/console.inc`, `banner_tlh` in `entry.inc` / `squirrel-bios.asm`, the
-`vga.inc` font swap, `x86/klingon-font.inc`, `tools/klingon-font.py`, this
-section and the Makefile dependency. To pick up new work from `main`:
+`vga.inc` font swap, `x86/klingon-font.inc`, `tools/klingon-font.py`,
+`docs/KLINGON_ASCII_PURGE.md`, this section and the Makefile dependency. To
+pick up new work from `main`:
 
 ```bash
 git fetch origin main
@@ -434,8 +445,9 @@ make x86 && make test
 git push origin klingon-font
 ```
 
-New messages need nothing extra; anything printed through `con_print`
-comes out in Klingon.
+New messages need nothing extra for VGA; anything printed through `con_print`
+shows as Klingon on screen. After the purge, author messages as Hol and
+update branch-local smoke expects.
 
 ## License
 
