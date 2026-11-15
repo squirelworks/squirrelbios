@@ -5,8 +5,9 @@
 > loads a hand-drawn pIqaD 8x16 font, so every letter and digit on
 > screen is drawn in Klingon script. COM1 is still Latin *for now* (smoke
 > expects); the planned end state is **no Latin anywhere**, including
-> serial — see [ASCII purge](docs/KLINGON_ASCII_PURGE.md). Not for merging
-> into `main`; see [Klingon font](#klingon-font-joke-branch) below.
+> serial — see [ASCII purge](docs/KLINGON_ASCII_PURGE.md). **Core branch**
+> alongside `main` ([`docs/CORE_BRANCHES.md`](docs/CORE_BRANCHES.md)); never
+> merge into `main`. See [Klingon font](#klingon-font-joke-branch) below.
 >
 > ![SquirrelBIOS booting with the Klingon font](docs/klingon-font.png)
 

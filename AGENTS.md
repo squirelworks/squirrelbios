@@ -17,3 +17,7 @@ m68k, MIPS, LoongArch, s390x) tested under QEMU.
   ticked in `ROADMAP.md`/`TODO.md` and on epic #82. Failures print a message and `boot halted`.
 - Never commit firmware or OS images, never tag or publish releases, never delete branches, never
   merge `klingon-font*` branches. Release notes go in `release-notes/`; the owner publishes.
+- **Core branches:** `main` and `klingon-font` (see `docs/CORE_BRANCHES.md` on
+  `klingon-font`). Refresh the joke by merging `main` into `klingon-font` and
+  pushing there; never open a PR that lands `klingon-font` on `main`. Branch
+  protection / rulesets for both cores are owner-only in GitHub Settings.

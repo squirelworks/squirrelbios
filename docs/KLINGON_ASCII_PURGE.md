@@ -1,7 +1,8 @@
 # Klingon ASCII purge (joke branch only)
 
-**Branch:** `klingon-font` only. Never merge this plan or its eventual
-implementation into `main`. Refresh by merging `main` *into* this branch.
+**Branch:** `klingon-font` only (a [core branch](CORE_BRANCHES.md) beside
+`main`). Never merge this plan or its eventual implementation into `main`.
+Refresh by merging `main` *into* this branch.
 
 ## End state
 
