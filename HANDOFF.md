@@ -93,22 +93,24 @@ expected serial lines (`|`-separated, `!` = must not appear, `~` = regex).
 
 ## Suggested order
 
-1. **REL-2.2.0** *(Squirrel)*: `Actions → Draft release` for v2.2.0 on the
-   merge commit, then publish.
+1. **REL-2.2.0** *(Squirrel)*: tag current `main` (includes #189
+   capsule/ESRT). `Actions → Draft release` for v2.2.0, then publish.
+   Notes already list Setup UI, host fuzz, and `x86_64-capsule` as in
+   the tag.
 2. **D2-rpi4** board flash *(Squirrel)*: the QEMU `raspi4b` case is done;
    try the SD layout in `boards/rpi4/README.md` on a desk Pi 4.
 3. **C5-board** desk flash *(Squirrel)*: docs and `CONFIG=coreboot` are done;
    flash a real GA-G41M-ES2L per `boards/ga-g41m-es2l/FLASHING.md`.
 4. **RISC-V AIA MSI** when a newer QEMU is available in CI.
-5. Then Phase G ideas in `docs/CONTINUANCE.md` (squirrelsoft); G1–G3
-  host fuzz smokes, the Setup UI (GOP + F2 + BootOrder + Secure Boot
-  keys / TPM clear + date-time / NVRAM reset), and UpdateCapsule + ESRT
-  are done
-  (`make fuzz-fat`, `make fuzz-pe`, `make fuzz-authenticode`,
-  `make fuzz-net`, `make fuzz-usb`, `make fuzz-fdt`,
-  `x86_64-setupui`, `x86_64-setupui-f2`, `x86_64-setupui-bootorder`,
-  `x86_64-setupui-secboot`, `x86_64-setupui-datetime`,
-  `x86_64-capsule`).
+5. Then further Phase G product work in `docs/CONTINUANCE.md`
+   (squirrelsoft): signed capsule apply / flash rewrite; optional Setup
+   polish. Already on the v2.2.0 tag (do not re-cut for these alone):
+   G1–G3 host fuzz, Setup UI, and UpdateCapsule + ESRT
+   (`make fuzz-fat`, `make fuzz-pe`, `make fuzz-authenticode`,
+   `make fuzz-net`, `make fuzz-usb`, `make fuzz-fdt`,
+   `x86_64-setupui`, `x86_64-setupui-f2`, `x86_64-setupui-bootorder`,
+   `x86_64-setupui-secboot`, `x86_64-setupui-datetime`,
+   `x86_64-capsule`).
 
 ## Task cards
 
@@ -120,7 +122,8 @@ expected serial lines (`|`-separated, `!` = must not appear, `~` = regex).
   `QueryCapsuleCapabilities` (UEFI 2.10 §8.5.3 / §4.6), and publishes
   `OsIndicationsSupported` with the file-capsule bit. QEMU smoke does
   not rewrite flash; signed capsule apply is a follow-up. Notes:
-  `release-notes/capsule-esrt.md`. Epic #82.
+  `release-notes/capsule-esrt.md`; also folded into
+  `release-notes/v2.2.0.md` for the tag. Epic #82.
 - **Check:** `x86_64-capsule` in `make test`.
 - **Next (Phase G):** signed capsule apply / flash rewrite; optional
   Setup polish; further CONTINUANCE product work.
@@ -207,9 +210,13 @@ expected serial lines (`|`-separated, `!` = must not appear, `~` = regex).
 
 ### REL-2.2.0 — release notes for what `main` has since v2.1.1  `needs: squirrel`
 - **Done (notes):** `release-notes/v2.2.0.md` (style of `v2.1.0.md`; Known
-  gaps refreshed; UEFI banner `SQ_VERSION` `2.2.0`).
-- **Open (Squirrel):** run `Actions → Draft release` on the merge commit and
-  publish; give the draft / release link.
+  gaps refreshed; UEFI banner `SQ_VERSION` `2.2.0`). Refreshed after
+  #189 so UpdateCapsule + ESRT / `x86_64-capsule` (and Phase G Setup UI
+  + host fuzz) are listed as **in the v2.2.0 tag**, not a follow-up cut.
+  `make test` count: **346** on the #189 tip.
+- **Open (Squirrel):** tag current `main`, run `Actions → Draft release`,
+  publish; give the draft / release link. No v2.2.1 needed for capsule
+  alone.
 - **Check:** `make test` green on the tagged commit; every image boots its
   `make test` cases; `SHA256SUMS.txt` covers every attached image.
 

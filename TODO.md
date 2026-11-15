@@ -482,7 +482,8 @@ stub, a 1 MB flash image for `qemu-system-x86_64 -bios`. One PR each.
   `common/efi/capsule.c` installs the ESRT, implements
   `UpdateCapsule` / `QueryCapsuleCapabilities`, sets
   `OsIndicationsSupported`; stand-in `tests/x86_64-capsule.c`.
-  Depends on: `x86_64-gop`. Epic #82.
+  Folded into `release-notes/v2.2.0.md` for the tag (no v2.2.1 for
+  capsule alone). Depends on: `x86_64-gop`. Epic #82.
 
 ## Secondary track
 
