@@ -19,5 +19,5 @@ look, with the same menu mirrored on the serial console.
   Down/Up/Enter, expects `setup: selected Continue boot`).
 - **Docs:** `x86_64/README.md`, HANDOFF / ROADMAP / TODO Phase G card.
 
-Next: F2 (or similar) without fw_cfg, then real BootOrder and the
-Secure Boot / TPM / NVRAM notebooks.
+Follow-up: F2 without fw_cfg is in `release-notes/setup-ui-f2.md`.
+Next: real BootOrder and the Secure Boot / TPM / NVRAM notebooks.

@@ -447,10 +447,13 @@ stub, a 1 MB flash image for `qemu-system-x86_64 -bios`. One PR each.
 - [x] `x86_64-gop` — Graphics Output Protocol (Bochs DISPI / QEMU std
   VGA), runtime services (GetTime, ResetSystem, in-RAM variables),
   ExitBootServices.
-- [x] `x86_64-setupui` — Phase G Setup UI first step: Warp-look boot
-  menu shell on GOP + serial (`setupui.c`), entered with
+- [x] `x86_64-setupui` — Phase G Setup UI: Warp-look boot menu shell
+  on GOP + serial (`setupui.c`), entered with
   `opt/org.squirrelworks/setupui`. Navigable items; Continue returns
   to the normal boot path. Depends on: `x86_64-gop`.
+- [x] `x86_64-setupui-f2` — Same Setup UI via F2 on ConIn without
+  fw_cfg (`setup_ui_hotkey`); `ESC O Q` / CSI 12~. fw_cfg path kept.
+  Depends on: `x86_64-setupui`.
 
 ## Secondary track
 

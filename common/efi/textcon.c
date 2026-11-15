@@ -187,6 +187,17 @@ static void push_key(u16 scan, CHAR16 ch)
     key_tail = next;
 }
 
+/* Put one stroke back so the next ReadKeyStroke sees it first. Used when
+ * the Setup UI F2 window samples ConIn and must not steal app keys. */
+void efi_con_unread_key(EFI_INPUT_KEY key)
+{
+    int prev = (key_head + KEYS - 1) % KEYS;
+    if (prev == key_tail)
+        return;                         /* full: drop */
+    keys[prev] = key;
+    key_head = prev;
+}
+
 /* A byte from the line, waiting up to about 20 ms for it */
 static int getc_wait(void)
 {
@@ -221,6 +232,10 @@ static void csi(void)
         case 4: scan = 0x06; break;
         case 5: scan = 0x09; break;     /* page up */
         case 6: scan = 0x0A; break;     /* page down */
+        case 11: scan = 0x0B; break;    /* F1 (CSI form) */
+        case 12: scan = 0x0C; break;    /* F2 */
+        case 13: scan = 0x0D; break;    /* F3 */
+        case 14: scan = 0x0E; break;    /* F4 */
         case 15: scan = 0x0F; break;    /* F5 */
         case 17: case 18: case 19: case 20: case 21:
             scan = (u16)(0x10 + n - 17); break;         /* F6-F10 */

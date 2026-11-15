@@ -1,16 +1,22 @@
-/* SquirrelBIOS x86_64-uefi: Setup UI / boot menu shell (Phase G, first step).
+/* SquirrelBIOS x86_64-uefi: Setup UI / boot menu shell (Phase G).
  * Original code. CONTINUANCE asks for a graphical setup and boot menu on
- * GOP in the Warp look. This step draws a title and a navigable list of
- * boot / setup stubs on the frame buffer when GOP is up, mirrors the same
- * menu on the serial console, and returns when the user Continues (or
- * presses Esc). Entered only when QEMU provides
- * -fw_cfg name=opt/org.squirrelworks/setupui,... so ordinary boot smokes
- * are unchanged. Later steps: F2 hotkey, real BootOrder edits, Secure
- * Boot / TPM / NVRAM notebooks. */
+ * GOP in the Warp look. This draws a title and a navigable list of boot /
+ * setup stubs on the frame buffer when GOP is up, mirrors the same menu
+ * on the serial console, and returns when the user Continues (or presses
+ * Esc). Entered when QEMU provides
+ * -fw_cfg name=opt/org.squirrelworks/setupui,... or when F2 is pressed
+ * during a short post-GOP window (serial ANSI ESC O Q / CSI 12~). Later
+ * steps: real BootOrder edits, Secure Boot / TPM / NVRAM notebooks. */
 #include "efi.h"
 #include "font8x16.h"
 
 #define FWCFG_SETUPUI "opt/org.squirrelworks/setupui"
+#define SCAN_F2       0x0Cu
+/* Hotkey window: short so ordinary smokes stay fast; SERIAL_IN delivers
+ * F2 as soon as the guest reads COM1, and keys typed during earlier
+ * firmware messages sit in the UART FIFO. */
+#define HOTKEY_MS     250
+#define HOTKEY_STEP_US 10000
 
 /* Warp-ish palette (BGRX as Bochs DISPI / our GOP use). Teal desktop,
  * light grey title strip, dark ink, blue selection like a Warp menu. */
@@ -46,6 +52,7 @@ static const struct menu_item items[] = {
 
 typedef EFI_STATUS (EFIAPI *locate_protocol_fn)(EFI_GUID *, void *, void **);
 typedef EFI_STATUS (EFIAPI *wait_for_event_fn)(UINTN, EFI_EVENT *, UINTN *);
+typedef EFI_STATUS (EFIAPI *check_event_fn)(EFI_EVENT);
 
 static EFI_GRAPHICS_OUTPUT_PROTOCOL *gop;
 static int have_gop;
@@ -216,4 +223,39 @@ int setup_ui_wanted(void)
     u16 sel;
     u32 size;
     return fwcfg_find(FWCFG_SETUPUI, &sel, &size) != 0;
+}
+
+/* Non-blocking ConIn read: CheckEvent on WaitForKey runs the serial
+ * poll notify, then ReadKeyStroke if a stroke is queued. */
+static int try_read_key(EFI_INPUT_KEY *key)
+{
+    EFI_SIMPLE_TEXT_INPUT_PROTOCOL *in = efi_st->con_in;
+    if (!in || !key)
+        return 0;
+    check_event_fn check = (check_event_fn)efi_st->boot_services->check_event;
+    if (check(in->wait_for_key) != EFI_SUCCESS)
+        return 0;
+    return in->read_key_stroke(in, key) == EFI_SUCCESS;
+}
+
+/* Brief post-GOP window for F2 without fw_cfg. Returns 1 if F2 was seen.
+ * Any other stroke is pushed back and ends the wait so ConIn apps (and
+ * SERIAL_IN fixtures like x86_64-con) still see their keys. */
+int setup_ui_hotkey(void)
+{
+    printf("setup: press F2 for Setup UI\n");
+    int steps = HOTKEY_MS * 1000 / HOTKEY_STEP_US;
+    for (int i = 0; i < steps; i++) {
+        EFI_INPUT_KEY key;
+        if (try_read_key(&key)) {
+            if (key.scan_code == SCAN_F2) {
+                printf("setup: F2 — opening Setup UI\n");
+                return 1;
+            }
+            efi_con_unread_key(key);
+            return 0;
+        }
+        efi_stall(HOTKEY_STEP_US);
+    }
+    return 0;
 }

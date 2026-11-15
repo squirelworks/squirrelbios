@@ -157,8 +157,9 @@ void fw_main(void)
     chipset_ebs_init();
 
     /* Phase G Setup UI: navigable boot/setup menu on serial (+ GOP when
-     * present). Only when QEMU hands over opt/org.squirrelworks/setupui. */
-    if (setup_ui_wanted())
+     * present). fw_cfg opt/org.squirrelworks/setupui still forces entry;
+     * otherwise a short window accepts F2 on ConIn (serial ANSI). */
+    if (setup_ui_wanted() || setup_ui_hotkey())
         setup_ui_run();
 
     efi_initrd_init();
