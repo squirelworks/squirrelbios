@@ -466,6 +466,9 @@ stub, a 1 MB flash image for `qemu-system-x86_64 -bios`. One PR each.
   reset (lane `-2eaf`): view/edit CMOS RTC (`GetTime`/`SetTime`);
   confirm and clear user NV vars (seed demo under fw_cfg; leave
   Secure Boot keys). Depends on: `x86_64-setupui`.
+- [x] `make fuzz-authenticode` — Phase G host Authenticode/PKCS#7
+  corpus smoke (lane `-2eaf`): `fuzz/authenticode_harness.c` +
+  synthetic `fuzz/corpus-authenticode/`; no QEMU. Epic #82.
 
 ## Secondary track
 

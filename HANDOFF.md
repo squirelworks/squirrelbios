@@ -43,10 +43,11 @@ Used here, in `ROADMAP.md` and on the issues (as labels).
   `rpi4-uefi-sd` when QEMU has `raspi4b`), run by
   `.github/workflows/make-test.yml` on every PR. Optional, not in the
   required gate: `make linux-x86`, `make linux-uefi`, `make linux-shell`,
-  `make linux-big`, `make f4-scale`, `make fuzz-fat` / `make fuzz-pe`
-  (Phase G host FAT and PE/COFF corpus smokes; optional path-filtered
-  workflows `.github/workflows/fuzz-fat.yml` /
-  `.github/workflows/fuzz-pe.yml`).
+  `make linux-big`, `make f4-scale`, `make fuzz-fat` / `make fuzz-pe` /
+  `make fuzz-authenticode` (Phase G host FAT, PE/COFF and
+  Authenticode/PKCS#7 corpus smokes; optional path-filtered workflows
+  `.github/workflows/fuzz-fat.yml` / `.github/workflows/fuzz-pe.yml` /
+  `.github/workflows/fuzz-authenticode.yml`).
 - **Open PRs at hand-off:** none required at this refresh (Setup UI GOP, F1/F2/F3,
   host fuzz on `main`). REL-2.2.0 publish and board flashes stay `needs: squirrel`.
 - **Agent lanes:** suite split in squirrelsoft
@@ -101,8 +102,8 @@ expected serial lines (`|`-separated, `!` = must not appear, `~` = regex).
 5. Then Phase G ideas in `docs/CONTINUANCE.md` (squirrelsoft); G1/G2
   host fuzz smokes and the Setup UI (GOP + F2 + BootOrder + Secure Boot
   keys / TPM clear + date-time / NVRAM reset) steps are done
-  (`make fuzz-fat`, `make fuzz-pe`, `x86_64-setupui`,
-  `x86_64-setupui-f2`, `x86_64-setupui-bootorder`,
+  (`make fuzz-fat`, `make fuzz-pe`, `make fuzz-authenticode`,
+  `x86_64-setupui`, `x86_64-setupui-f2`, `x86_64-setupui-bootorder`,
   `x86_64-setupui-secboot`, `x86_64-setupui-datetime`).
 
 ## Task cards
@@ -140,8 +141,8 @@ expected serial lines (`|`-separated, `!` = must not appear, `~` = regex).
   `x86_64-setupui-secboot` (Secure Boot clear + TPM clear, no TPM),
   and `x86_64-setupui-datetime` (RTC edit + NVRAM clear) in
   `make test`.
-- **Next (Phase G):** optional Setup polish; G3 fuzz parsers / nightly
-  budget per CONTINUANCE.
+- **Next (Phase G):** optional Setup polish; remaining G3 fuzz parsers
+  (network/USB/FDT) / nightly budget per CONTINUANCE.
 
 ### G1-fuzz-fat — host FAT fuzz / corpus smoke  `status: done`
 - **Done:** host-buildable harness for `common/efi/fat.c` under
@@ -160,7 +161,19 @@ expected serial lines (`|`-separated, `!` = must not appear, `~` = regex).
   `make fuzz-pe-libfuzzer` and `.github/workflows/fuzz-pe.yml`.
   Notes: `fuzz/README.md`, `release-notes/host-fuzz-pe.md`.
 - **Check:** `make fuzz-pe` prints `PASS  fuzz-pe (…)`.
-- **Next (still Phase G fuzz):** Authenticode/PKCS#7 and network/USB/FDT
+
+### G3-fuzz-authenticode — host Authenticode/PKCS#7 fuzz / corpus smoke  `status: done`
+- **Done (lane `-2eaf`):** host-buildable harness for
+  `x86_64/secure/der.c` (PKCS#7 Authenticode + detached, X.509),
+  `pe_authenticode_hash` / PE certificate-table walk, and `sb_db_walk`
+  under `fuzz/` (`authenticode_harness.c`, `secure_host_stubs.c`,
+  synthetic corpus). `make fuzz-authenticode` runs a short corpus
+  smoke without QEMU. Optional `make fuzz-authenticode-libfuzzer` and
+  `.github/workflows/fuzz-authenticode.yml`. Notes: `fuzz/README.md`,
+  `release-notes/host-fuzz-authenticode.md`. Epic #82.
+- **Check:** `make fuzz-authenticode` prints
+  `PASS  fuzz-authenticode (…)`.
+- **Next (still Phase G fuzz):** DHCP/TFTP/HTTP, USB descriptors, FDT
   parsers the same way; then a scheduled nightly with a fixed
   libFuzzer budget.
 

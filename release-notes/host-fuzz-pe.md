@@ -17,5 +17,6 @@ QEMU. Mirrors the FAT harness (`make fuzz-fat`).
   (`workflow_dispatch` and path-filtered push/PR). Short corpus only.
 - **Docs:** `fuzz/README.md`, HANDOFF / ROADMAP Phase G card.
 
-Next parsers: Authenticode/PKCS#7, DHCP/TFTP/HTTP, USB descriptors, FDT;
-then a scheduled nightly with a fixed libFuzzer budget.
+Next parsers after Authenticode (`make fuzz-authenticode`):
+DHCP/TFTP/HTTP, USB descriptors, FDT; then a scheduled nightly with a
+fixed libFuzzer budget.
