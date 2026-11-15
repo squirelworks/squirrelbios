@@ -33,14 +33,18 @@ the GitHub issues (`status: done`, `status: in progress`, `cursor-codex`, `needs
 suite-wide continuation plan is `docs/CONTINUANCE.md` in squirrelsoft.
 
 - **Latest release: v2.1.1** (2026-11-13, v2.1.0's `f572f71` with all six images).
-  **v2.2.0 notes are prepared** (`release-notes/v2.2.0.md`, 337 `make test` cases);
-  publishing is `needs: squirrel`.
+  **v2.2.0 notes are prepared** (`release-notes/v2.2.0.md`, **346** `make test`
+  cases on the #189 tip, including `x86_64-capsule`); publishing is
+  `needs: squirrel`. Capsule/ESRT is folded into the v2.2.0 notes (no
+  separate v2.2.1 for #189 alone).
 - **`main` has everything for v2.2.0:** D4 (shared AHCI/NVMe/virtio, FAT write, USB storage in the UEFI core), F3
   network boot (with DNS), IPMI and SoL, F4 multi-node boot, C5 NVRAM, authenticated variables and TPM,
-  F2 SMM + EINJ + CXL, all of Phase E, Raspberry Pi bring-up on QEMU `raspi3b`. F1-scale
-  (1024 CPUs / two ECAM segments, host-side `tests/acpicheck.py`) is in #169.
-- **Open:** C5 real board, D2 Raspberry Pi 4/5, RISC-V AIA MSI mode.
-  F4-scale is optional `make f4-scale` (not in CI).
+  F2 SMM + EINJ + CXL, all of Phase E, Raspberry Pi bring-up on QEMU `raspi3b` /
+  `raspi4b`, Phase G Setup UI + host fuzz + **UpdateCapsule + ESRT** (#189).
+  F1-scale (1024 CPUs / two ECAM segments, host-side `tests/acpicheck.py`) is in #169.
+- **Open:** C5 real-board flash, D2 desk Raspberry Pi 4/5, RISC-V AIA MSI mode.
+  F4-scale is optional `make f4-scale` (not in CI). Signed capsule apply /
+  flash rewrite remain Phase G follow-ups after the tag.
 
 ## Where things were (2026-11-13)
 
