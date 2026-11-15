@@ -66,7 +66,15 @@ Mirror of the OS/2 scheme, with BIOS examples:
 1. Only the **owner** creates GitHub tags / Releases (`AGENTS.md`). Agents
    prepare `release-notes/vX.Y.Z.md` (or a design note under `release-notes/`),
    bump `SQ_VERSION` in `common/efi/include/sq.h` when the cut asks for it,
-   and leave a prefilled `releases/new?…` link in HANDOFF.
+   and leave a **draft** ready for Publish — never a stub empty release.
+   Preferred path: `Actions → Draft release` (`.github/workflows/release-draft.yml`)
+   with `version` + tip SHA. That workflow runs `make` / `make test`, attaches
+   the six images + `SHA256SUMS.txt`, and sets the release body from
+   `release-notes/vX.Y.Z.md` via `--notes-file` (full markdown, not a
+   download link). If workflow dispatch is denied to the agent, rebuild
+   the same file set locally and `gh release upload` onto a draft; still
+   never Publish. Do **not** hand the owner a `releases/new?…` stub that
+   omits the notes body or the assets.
 2. **Original code only.** Specs (UEFI, ACPI, TCG, PI) are fine; cite them.
    Never vendor SeaBIOS, EDK2/OVMF, OpenSBI, U-Boot, coreboot, OpenBIOS, SLOF,
    or Linux firmware sources.
@@ -104,17 +112,19 @@ Notes refresh **#190** is on `main`. Soft PATH’s fold-into-2.2.0 advice is sat
 | Field | Value |
 |-------|-------|
 | **Version** | `2.2.0` (`SQ_VERSION` already `2.2.0` on `main`) |
-| **Tag target** | current `main` HEAD — tip includes #189 capsule/ESRT and #190 notes |
-| **Notes** | [`v2.2.0.md`](v2.2.0.md) (refreshed by #190) |
-| **Acceptance** | Notes match tip; Actions → Draft release assets from that commit; owner Publishes; `SHA256SUMS.txt` covers every attached image |
-| **Agents** | No unilateral tag; next coding is **M1** |
-| **Published** | https://github.com/squirelworks/squirrelbios/releases/tag/v2.2.0 (`0051c40`, 2026-11-15) |
+| **Tag target** | `0051c40` on `main` — tip includes #189 capsule/ESRT and #190 notes |
+| **Notes** | [`v2.2.0.md`](v2.2.0.md) (refreshed by #190) — release body is this file verbatim |
+| **Acceptance** | Notes match tip; Draft release held the six images + `SHA256SUMS.txt`; owner Published; never publish with an empty asset list |
+| **Agents** | No unilateral tag/Publish; next coding is **M2** (M1 landed) |
+| **Published** | https://github.com/squirelworks/squirrelbios/releases/tag/v2.2.0 (`0051c40`, 2026-11-15; six images + `SHA256SUMS.txt` + full notes). An earlier stub without assets was reverted, refilled via the Draft-release asset set, then Published. |
 | **Compatibility matrix** | Row: BIOS **v2.2.0** ↔ OS/2 **v2.1.x / tip** (BIOS/CSM/UEFI paths as already documented); cite `uefi-squirrelbios` / `os-boot.sh` when reliable |
 
 **Handshake after M0:**
 
-1. **Owner:** **Published** `v2.2.0` — https://github.com/squirelworks/squirrelbios/releases/tag/v2.2.0
-2. **`-2eaf`:** Start **M1** signed capsule verify/apply (unless already merged into the tip — then skip to M2/M3).
+1. **Owner:** **Published** `v2.2.0` —
+   https://github.com/squirelworks/squirrelbios/releases/tag/v2.2.0
+2. **`-2eaf`:** **M1** signed capsule landed as #193 on `main` — next is
+   **M2** flash rewrite (MERGE-WAIT / freeze may pause coding).
 3. Soft PATH stays index-only; do not move this ladder into Soft.
 
 ---
@@ -123,14 +133,14 @@ Notes refresh **#190** is on `main`. Soft PATH’s fold-into-2.2.0 advice is sat
 
 Lanes: **only `-2eaf`** for code. Owner marks wait on `needs: squirrel`.
 
-### M1 — `2.2.1` signed capsule verify + apply  ·  `-2eaf`  ·  depends: M0 (or parallel prep if #190 still open — **rebase onto tip before merge**)
+### M1 — `2.2.1` signed capsule verify + apply  ·  **done (#193)**  ·  depends: M0
 
 | Field | Value |
 |-------|-------|
-| **Bump** | `+0.0.1` |
+| **Bump** | `+0.0.1` (landed on `main` via #193; patch tag optional) |
 | **Box** | `G-capsule-signed` / TODO Phase G follow-up after #189 |
-| **Issue to file** | *(draft)* `G-capsule-signed: PKCS#7 verify + UpdateCapsule apply / PersistAcrossReset staging` |
-| **Suggested check** | `x86_64-capsule-signed` (and/or `x86_64-capsule-fwcfg` for post-reset staging) |
+| **PR** | [#193](https://github.com/squirelworks/squirrelbios/pull/193) merged |
+| **Suggested check** | `x86_64-capsule-signed`, `x86_64-capsule-fwcfg` |
 | **Design note** | `release-notes/capsule-signed-apply.md` |
 | **Acceptance** | Detached PKCS#7 / `WIN_CERTIFICATE_UEFI_GUID` verified against a project capsule-db (fw_cfg stand-in OK); apply updates ESRT `LastAttempt*`; bad signature refused with a clear serial line and halt/return style matching existing capsule failures; `make test` + `make docs-lint` green; epic #82 comment |
 | **Release note** | Short `v2.2.1.md` when owner wants a patch tag; else fold into next mark |
