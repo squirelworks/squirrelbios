@@ -1176,12 +1176,17 @@ The UEFI-class build keeps serving after the OS calls
 - `UpdateCapsule` / `QueryCapsuleCapabilities` (UEFI 2.10 §8.5.3)
   accept the project system-firmware capsule GUID and update ESRT
   `LastAttempt*`. Persist-across-reset needs a scatter-gather list;
-  `CAPSULE_FLAGS_INITIATE_RESET` warm-resets. The QEMU image is not
-  rewritten.
+  `CAPSULE_FLAGS_INITIATE_RESET` warm-resets.
+- Signed SQCP capsules verify against fw_cfg
+  `opt/org.squirrelworks/capsule-db`. Apply updates `LastAttempt*`
+  without flash rewrite; PersistAcrossReset stages `SqCapsuleStaging`;
+  fw_cfg `opt/org.squirrelworks/capsule` applies pending at init.
 - `OsIndicationsSupported` advertises file-capsule delivery.
 
 Details: [x86_64/README.md](../x86_64/README.md),
-`release-notes/capsule-esrt.md`. Smoke: `x86_64-capsule`.
+`release-notes/capsule-esrt.md`,
+`release-notes/capsule-signed-apply.md`. Smoke: `x86_64-capsule`,
+`x86_64-capsule-signed`, `x86_64-capsule-fwcfg`.
 
 ## POWER (QEMU powernv9 / powernv10)
 

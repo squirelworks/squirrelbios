@@ -155,9 +155,12 @@ resource; `FwVersion` from `SQ_VERSION`) and
 `OsIndicationsSupported` with the file-capsule bit. `UpdateCapsule` /
 `QueryCapsuleCapabilities` accept the project system-firmware capsule
 GUID, update ESRT `LastAttempt*`, and may warm-reset when
-`CAPSULE_FLAGS_INITIATE_RESET` is set. QEMU smoke does not rewrite the
-flash image. Smoke: `x86_64-capsule`. Notes:
-`release-notes/capsule-esrt.md`.
+`CAPSULE_FLAGS_INITIATE_RESET` is set. Signed SQCP capsules verify
+against fw_cfg `opt/org.squirrelworks/capsule-db`; apply updates ESRT
+without flash rewrite; PersistAcrossReset stages `SqCapsuleStaging`.
+Smoke: `x86_64-capsule`, `x86_64-capsule-signed`,
+`x86_64-capsule-fwcfg`. Notes: `release-notes/capsule-esrt.md`,
+`release-notes/capsule-signed-apply.md`.
 
 Runtime: `GetTime` / `SetTime` from the CMOS RTC,
 the variable services (below), `ResetSystem` (ACPI

@@ -37,7 +37,8 @@ X64_FD      := x86_64/squirrel-bios.fd
 # .rt.*: link.ld puts them in the pages the OS keeps after ExitBootServices
 X64_RT_C    := common/efi/runtime.c common/efi/lib.c common/efi/capsule.c x86_64/core/rt.c \
                x86_64/core/variables.c \
-               x86_64/secure/authvar.c x86_64/secure/der.c x86_64/secure/rsa.c x86_64/secure/sha256.c
+               x86_64/secure/authvar.c x86_64/secure/der.c x86_64/secure/rsa.c x86_64/secure/sha256.c \
+               x86_64/secure/capsule_auth.c
 X64_EFI_C   := $(addprefix common/efi/,ahci.c aml.c console.c devicepath.c disk.c event.c fat.c \
                  image.c memory.c nvme.c protocol.c tables.c textcon.c virtio.c virtio_pci.c xhci.c \
                  sdhci.c usb_desc.c)
@@ -129,7 +130,8 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/x86_64-cxl.efi \
              $(TEST_DIR)/x86_64-smmlock.efi \
              $(TEST_DIR)/x86_64-ipmi.efi \
-             $(TEST_DIR)/x86_64-capsule.efi \
+             $(TEST_DIR)/x86_64-capsule.efi $(TEST_DIR)/x86_64-capsule-signed.efi \
+             $(TEST_DIR)/sb/capsule-good.cap \
              $(TEST_DIR)/x86_64-tables \
              $(TEST_DIR)/x86_64-bigload.img \
              $(TEST_DIR)/x86_64-handoff.efi \
@@ -512,6 +514,19 @@ $(TEST_DIR)/x86_64-ipmi.efi: tests/x86_64-ipmi.c tests/efi-app.ld tests/mkpe.py 
 # UpdateCapsule + ESRT (Phase G)
 $(TEST_DIR)/x86_64-capsule.efi: tests/x86_64-capsule.c tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)
 	$(CC64) $(X64_APP_CFLAGS) $< -o $(@:.efi=.elf)
+	python3 tests/mkpe.py x86_64 $(@:.efi=.elf) $@
+# Signed SQCP capsules (Phase G follow-up)
+$(TEST_DIR)/sb:
+	mkdir -p $@
+$(TEST_DIR)/sb/capsule-good.cap: tests/mkcapsule.py tests/mksigned.py | $(TEST_DIR)/sb
+	python3 tests/mkcapsule.py $(TEST_DIR)/sb
+$(TEST_DIR)/sb/capsule-bad.cap $(TEST_DIR)/sb/capsule-persist.cap \
+$(TEST_DIR)/sb/capsule_good_blob.h $(TEST_DIR)/sb/capsule_bad_blob.h \
+$(TEST_DIR)/sb/capsule_persist_blob.h: $(TEST_DIR)/sb/capsule-good.cap
+$(TEST_DIR)/x86_64-capsule-signed.efi: tests/x86_64-capsule-signed.c \
+		$(TEST_DIR)/sb/capsule_good_blob.h $(TEST_DIR)/sb/capsule_bad_blob.h \
+		$(TEST_DIR)/sb/capsule_persist_blob.h tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)
+	$(CC64) $(X64_APP_CFLAGS) -I$(TEST_DIR)/sb $< -o $(@:.efi=.elf)
 	python3 tests/mkpe.py x86_64 $(@:.efi=.elf) $@
 # A 3 MB BOOTX64.EFI on an ESP with 512-byte clusters: the disk read path
 $(TEST_DIR)/x86_64-bigload.efi: tests/x86_64-bigload.c tests/fillblob.py tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)

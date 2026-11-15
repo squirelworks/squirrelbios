@@ -66,7 +66,7 @@ runtime.c, capsule.c, devicepath.c, console.c, lib.c
                 (runtime.c, capsule.c and lib.c hold all that runs after
                 ExitBootServices: x86-64 keeps only those pages);
                 UpdateCapsule / QueryCapsuleCapabilities and the ESRT
-                configuration table (Phase G; `x86_64-capsule`)
+                configuration table (Phase G; `x86_64-capsule`); signed SQCP apply (`x86_64-capsule-signed`, `x86_64-capsule-fwcfg`)
 ```
 
 An architecture provides `arch.h` (the `ARCH_*` constants listed in

@@ -52,6 +52,7 @@ typedef struct {
 #define EFI_MEDIA_CHANGED         EFI_ERR(13)
 #define EFI_NOT_FOUND             EFI_ERR(14)
 #define EFI_ACCESS_DENIED         EFI_ERR(15)
+#define EFI_SECURITY_VIOLATION    EFI_ERR(26)
 
 typedef struct {
     u64 signature;
@@ -597,6 +598,21 @@ typedef struct {
 /* SquirrelBIOS system-firmware capsule / ESRT FwClass (project-local GUID). */
 #define SQUIRREL_SYSTEM_FIRMWARE_GUID \
     { 0xa7c4e9f2, 0x3b1d, 0x4e8a, { 0x9c, 0x55, 0x12, 0x84, 0x6f, 0x91, 0xde, 0x30 } }
+
+/* Signed system-firmware capsule body (after EFI_CAPSULE_HEADER). Original
+ * layout for Phase G; not an EDK2 FMP capsule. */
+#define SQUIRREL_FW_CAPSULE_MAGIC 0x50435153u   /* 'SQCP' little-endian */
+typedef struct {
+    u32 Magic;
+    u32 TargetVersion;
+    u32 BodySize;
+    u32 Reserved;
+} SQUIRREL_FW_CAPSULE_HDR;
+
+#define WIN_CERT_TYPE_EFI_GUID 0x0EF1
+#define EFI_CERT_TYPE_PKCS7_GUID \
+    { 0x4aafd29d, 0x68df, 0x49ee, { 0x8a, 0xa9, 0x34, 0x7d, 0x37, 0x56, 0x65, 0xa7 } }
+
 
 void efi_runtime_init(EFI_RUNTIME_SERVICES *rt);
 void efi_note_map_key(UINTN key);

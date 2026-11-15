@@ -93,26 +93,40 @@ expected serial lines (`|`-separated, `!` = must not appear, `~` = regex).
 
 ## Suggested order
 
-1. **REL-2.2.0** *(Squirrel)*: tag current `main` (includes #189
-   capsule/ESRT). `Actions → Draft release` for v2.2.0, then publish.
-   Notes already list Setup UI, host fuzz, and `x86_64-capsule` as in
-   the tag.
+1. ~~**REL-2.2.0**~~ *(published **v2.2.0**, 2026-11-15)* —
+   https://github.com/squirelworks/squirrelbios/releases/tag/v2.2.0
+   (`0051c40`).
 2. **D2-rpi4** board flash *(Squirrel)*: the QEMU `raspi4b` case is done;
    try the SD layout in `boards/rpi4/README.md` on a desk Pi 4.
 3. **C5-board** desk flash *(Squirrel)*: docs and `CONFIG=coreboot` are done;
    flash a real GA-G41M-ES2L per `boards/ga-g41m-es2l/FLASHING.md`.
 4. **RISC-V AIA MSI** when a newer QEMU is available in CI.
-5. Then further Phase G product work in `docs/CONTINUANCE.md`
-   (squirrelsoft): signed capsule apply / flash rewrite; optional Setup
-   polish. Already on the v2.2.0 tag (do not re-cut for these alone):
-   G1–G3 host fuzz, Setup UI, and UpdateCapsule + ESRT
+5. Phase G next (`-2eaf`): this PR's signed capsule apply is the **M1**
+   slice; **flash rewrite** remains. Already on / after v2.2.0:
+   G1–G3 host fuzz, Setup UI, UpdateCapsule + ESRT, and (this PR)
+   signed apply / PersistAcrossReset staging
    (`make fuzz-fat`, `make fuzz-pe`, `make fuzz-authenticode`,
    `make fuzz-net`, `make fuzz-usb`, `make fuzz-fdt`,
    `x86_64-setupui`, `x86_64-setupui-f2`, `x86_64-setupui-bootorder`,
    `x86_64-setupui-secboot`, `x86_64-setupui-datetime`,
-   `x86_64-capsule`).
+   `x86_64-capsule`, `x86_64-capsule-signed`, `x86_64-capsule-fwcfg`).
+6. Ladder: `release-notes/TO_3.0.0.md` (PR #192 if still open / on `main`).
 
 ## Task cards
+
+### G-capsule-signed — signed capsule apply / PersistAcrossReset staging  `status: done`
+- **Done (lane `-2eaf`):** SQCP signed system-firmware capsules
+  (detached PKCS#7 / `WIN_CERTIFICATE_UEFI_GUID`) verified against
+  fw_cfg `opt/org.squirrelworks/capsule-db` (`x86_64/secure/capsule_auth.c`).
+  Immediate apply updates ESRT `LastAttempt*` without rewriting flash;
+  `CAPSULE_FLAGS_PERSIST_ACROSS_RESET` stages into NV
+  `SqCapsuleStaging` and applies on the next boot (fw_cfg
+  `opt/org.squirrelworks/capsule` as a QEMU post-reset stand-in).
+  Notes: `release-notes/capsule-signed-apply.md`. Epic #82.
+- **Check:** `x86_64-capsule-signed`, `x86_64-capsule-fwcfg` in
+  `make test` (plus existing `x86_64-capsule`).
+- **Next (Phase G):** flash image rewrite under QEMU/pflash; optional
+  Setup polish; further CONTINUANCE product work.
 
 ### G-capsule-esrt — UpdateCapsule + ESRT  `status: done`
 - **Done (lane `-2eaf`):** UEFI-class capsule plumbing in
@@ -121,12 +135,11 @@ expected serial lines (`|`-separated, `!` = must not appear, `~` = regex).
   resource), implements `UpdateCapsule` /
   `QueryCapsuleCapabilities` (UEFI 2.10 §8.5.3 / §4.6), and publishes
   `OsIndicationsSupported` with the file-capsule bit. QEMU smoke does
-  not rewrite flash; signed capsule apply is a follow-up. Notes:
-  `release-notes/capsule-esrt.md`; also folded into
-  `release-notes/v2.2.0.md` for the tag. Epic #82.
+  not rewrite flash. Notes: `release-notes/capsule-esrt.md`; also folded
+  into `release-notes/v2.2.0.md` for the tag. Epic #82.
 - **Check:** `x86_64-capsule` in `make test`.
-- **Next (Phase G):** signed capsule apply / flash rewrite; optional
-  Setup polish; further CONTINUANCE product work.
+- **Next:** signed apply landed in `G-capsule-signed`; flash rewrite
+  remains open.
 
 ### G-setup-ui — Setup UI / boot menu on GOP + F2 + BootOrder + Secure Boot / TPM + date-time / NVRAM  `status: done`
 - **Done (lane `-2eaf`):** navigable Warp-look boot menu shell on

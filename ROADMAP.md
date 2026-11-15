@@ -409,8 +409,15 @@ Setup UI shell land here as sizeable steps.
   `-2eaf`): ESRT configuration table (one system-firmware resource),
   `UpdateCapsule` / `QueryCapsuleCapabilities`, 
   `OsIndicationsSupported` file-capsule bit. Smoke: `x86_64-capsule`.
-  Notes in `release-notes/capsule-esrt.md`. Epic #82. Flash rewrite /
-  signed apply remain follow-ups.
+  Notes in `release-notes/capsule-esrt.md`. Epic #82.
+- [x] **Signed capsule apply / PersistAcrossReset staging** (lane
+  `-2eaf`): SQCP body + detached PKCS#7 verify
+  (`x86_64/secure/capsule_auth.c`, fw_cfg capsule-db); apply updates
+  ESRT without flash rewrite; PersistAcrossReset stages
+  `SqCapsuleStaging` (fw_cfg capsule as post-reset stand-in). Smoke:
+  `x86_64-capsule-signed`, `x86_64-capsule-fwcfg`. Notes in
+  `release-notes/capsule-signed-apply.md`. Epic #82. Flash image
+  rewrite remains a follow-up.
 
 ### Squirrel-OS/2 hand-off on every platform
 
