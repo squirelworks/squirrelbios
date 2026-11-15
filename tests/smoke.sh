@@ -1062,6 +1062,15 @@ run x86_64-gop "gop: 800x600x32 at|APP gop mode=ok fb=ok blt=ok time=ok var=ok|e
     -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
     -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-gop.efi
 
+# x86-64 firmware Setup UI (Phase G, first step): with
+# opt/org.squirrelworks/setupui the boot menu opens on serial and GOP.
+# Keys: Down, Up, Enter — move onto Boot Manager then back to Continue.
+SERIAL_IN=$TEST_DIR/x86_64-setupui.keys
+run x86_64-setupui "gop: 800x600x32 at|setup: UI open (serial+GOP)|setup: SquirrelBIOS Setup|setup: --- Boot Manager ---|setup: > Continue boot|setup: > Boot Manager (stub)|setup: selected Continue boot|setup: UI closed|fw: nothing to boot (no opt/org.squirrelworks/boot.efi), trying the CSM" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd \
+    -fw_cfg name=opt/org.squirrelworks/setupui,string=1
+SERIAL_IN=
+
 # x86-64 firmware CSM (C3): with nothing to boot the UEFI way, the legacy
 # x86-pc BIOS built into the image goes to shadow RAM at F0000 (PAM on
 # i440FX and Q35), the CPU leaves long mode for its reset vector, and it

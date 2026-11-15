@@ -95,9 +95,24 @@ expected serial lines (`|`-separated, `!` = must not appear, `~` = regex).
    flash a real GA-G41M-ES2L per `boards/ga-g41m-es2l/FLASHING.md`.
 4. **RISC-V AIA MSI** when a newer QEMU is available in CI.
 5. Then Phase G ideas in `docs/CONTINUANCE.md` (squirrelsoft); G1/G2
-   host fuzz smokes are done (`make fuzz-fat`, `make fuzz-pe`).
+   host fuzz smokes and the Setup UI first step are done
+   (`make fuzz-fat`, `make fuzz-pe`, `x86_64-setupui`).
 
 ## Task cards
+
+### G-setup-ui — Setup UI / boot menu on GOP (first step)  `status: done`
+- **Done:** navigable Warp-look boot menu shell on `x86_64-uefi`
+  (`x86_64/core/setupui.c` + `font8x16.h` from the original VGA
+  glyphs). Title, Boot Manager list (Continue + stubs), Up/Down/Enter/
+  Esc on serial and GOP when Bochs DISPI is present. Gated by
+  `-fw_cfg name=opt/org.squirrelworks/setupui,string=1` so ordinary
+  boots stay unchanged. Notes: `release-notes/setup-ui-gop.md`,
+  `x86_64/README.md`.
+- **Check:** `x86_64-setupui` in `make test` prints
+  `setup: UI open (serial+GOP)` … `setup: selected Continue boot`.
+- **Next (still Phase G Setup UI):** F2 hotkey without fw_cfg, real
+  BootOrder edits, Secure Boot keys / TPM clear / date-time / NVRAM
+  reset notebooks.
 
 ### G1-fuzz-fat — host FAT fuzz / corpus smoke  `status: done`
 - **Done:** host-buildable harness for `common/efi/fat.c` under
@@ -116,7 +131,7 @@ expected serial lines (`|`-separated, `!` = must not appear, `~` = regex).
   `make fuzz-pe-libfuzzer` and `.github/workflows/fuzz-pe.yml`.
   Notes: `fuzz/README.md`, `release-notes/host-fuzz-pe.md`.
 - **Check:** `make fuzz-pe` prints `PASS  fuzz-pe (…)`.
-- **Next (still Phase G):** Authenticode/PKCS#7 and network/USB/FDT
+- **Next (still Phase G fuzz):** Authenticode/PKCS#7 and network/USB/FDT
   parsers the same way; then a scheduled nightly with a fixed
   libFuzzer budget.
 

@@ -20,7 +20,8 @@ core/      start.asm (clears .bss, calls fw_main), main.c, arch.c (the
            the Microsoft x64 convention, Secure Boot's image check),
            rt.c (its runtime part: the CMOS clock, ResetSystem),
            variables.c (the variable services and their flash store),
-           gop.c (Graphics Output Protocol on Bochs DISPI), acpi.c
+           gop.c (Graphics Output Protocol on Bochs DISPI), setupui.c
+           (Phase G Setup UI / boot menu shell on serial+GOP), acpi.c
            (ACPI 6.x tables, the DSDT through common/efi/aml.c),
            smbios.c (SMBIOS 3.x), bootopt.c (command line and initrd
            for the booted image)
@@ -119,7 +120,18 @@ and 1024×768 at 32 bpp (BGRX); `QueryMode`/`SetMode`/`Blt` (fill,
 buffer↔video, video↔video). Every mode set also sets the VGA
 miscellaneous output register's colour bit and the attribute
 controller's palette address source bit, without which the adapter
-shows nothing, and clears the frame buffer. Runtime: `GetTime` from the CMOS RTC,
+shows nothing, and clears the frame buffer.
+
+Setup UI (Phase G, first step): with
+`-fw_cfg name=opt/org.squirrelworks/setupui,string=1` the firmware
+opens a Warp-look boot menu on the GOP frame buffer (title bar, panel,
+navigable items drawn with the original 8×16 font) and mirrors it on
+COM1. Up/Down move the selection, Enter activates (Continue leaves the
+menu; other rows are stubs), Esc continues boot. Without that fw_cfg
+file the menu is skipped. Later: F2 hotkey, real BootOrder / Secure
+Boot / TPM / NVRAM notebooks. Smoke: `x86_64-setupui`.
+
+Runtime: `GetTime` from the CMOS RTC,
 the variable services (below), `ResetSystem` (ACPI
 shutdown or keyboard-controller reset), and `ExitBootServices` (signals
 exit-boot events, nulls `BootServices`, reseals the system table). At
