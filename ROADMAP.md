@@ -372,7 +372,8 @@ The older polish items stay valid and fold into Phase D when it starts:
     M-mode SBI (`CONFIG_UART_BASE`/`CONFIG_CLINT_BASE` as fallbacks)
   - [x] SSE with the RAS event (`riscv-sse`, #135)
   - [ ] `aplic-imsic` (MSI mode) to a Linux shell: program `smsiaddrcfg`,
-    retest on QEMU 9.1+ (see TODO.md `riscv-aia`)
+    retest on QEMU 9.1+ (APLIC-direct smoke is done; see TODO.md item
+    riscv-aia for the MSI-mode note)
 - [x] AArch64: firmware PSCI/GIC only if QEMU's built-ins are disabled for a
   test; otherwise leave them.
 
