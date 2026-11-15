@@ -1,0 +1,40 @@
+# Optional CONTINUANCE Phase G smoke: host Authenticode/PKCS#7 fuzzer corpus
+# (not a nightly). Not part of the required make-test gate.
+name: fuzz-authenticode
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "x86_64/secure/**"
+      - "x86_64/include/secure.h"
+      - "x86_64/include/vars.h"
+      - "common/efi/lib.c"
+      - "common/efi/include/**"
+      - "fuzz/**"
+      - "Makefile"
+      - ".github/workflows/fuzz-authenticode.yml"
+  push:
+    paths:
+      - "x86_64/secure/**"
+      - "x86_64/include/secure.h"
+      - "x86_64/include/vars.h"
+      - "common/efi/lib.c"
+      - "common/efi/include/**"
+      - "fuzz/**"
+      - "Makefile"
+      - ".github/workflows/fuzz-authenticode.yml"
+
+jobs:
+  fuzz-authenticode:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install host toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends make gcc python3
+
+      - name: make fuzz-authenticode
+        run: make fuzz-authenticode

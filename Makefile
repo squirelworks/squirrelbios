@@ -9,6 +9,7 @@
 #   make docs-lint  CONTINUANCE §3c: ROADMAP/TODO/HANDOFF vs smoke harness
 #   make fuzz-fat   host corpus smoke for common/efi/fat.c (no QEMU; Phase G)
 #   make fuzz-pe    host corpus smoke for common/efi/image.c (no QEMU; Phase G)
+#   make fuzz-authenticode  host corpus smoke for Authenticode/PKCS#7 (no QEMU)
 #   make linux-shell  boot a downloaded Linux kernel on riscv to a busybox shell
 #   make linux-big    the same on a large virtual node (64 harts, 64 GB)
 #   make f4-scale   multi-node UEFI netboot with a large -smp/-numa node
@@ -145,6 +146,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
 
 .PHONY: all x86 x86_64 arm arm-uefi riscv riscv-uefi test docs-lint \
         fuzz-fat fuzz-fat-libfuzzer fuzz-pe fuzz-pe-libfuzzer \
+        fuzz-authenticode fuzz-authenticode-libfuzzer \
         linux-shell linux-arm linux-arm-acpi linux-riscv-uefi linux-x86 linux-big linux-stress \
         f4-scale os-boot clean linux-uefi os-boot-csm
 .DELETE_ON_ERROR:
@@ -1087,11 +1089,20 @@ FUZZ_FAT      := $(FUZZ_DIR)/fat-fuzz
 FUZZ_FAT_LIBF := $(FUZZ_DIR)/fat-fuzz-libfuzzer
 FUZZ_PE       := $(FUZZ_DIR)/pe-fuzz
 FUZZ_PE_LIBF  := $(FUZZ_DIR)/pe-fuzz-libfuzzer
+FUZZ_AUTH     := $(FUZZ_DIR)/authenticode-fuzz
+FUZZ_AUTH_LIBF := $(FUZZ_DIR)/authenticode-fuzz-libfuzzer
 FUZZ_CC       ?= $(CC64)
 FUZZ_CFLAGS   := -std=gnu11 -O1 -g -Wall -Wextra -Werror -fno-builtin \
                  -fno-stack-protector -Ifuzz -Icommon/efi/include
+# Authenticode parsers live under x86_64/secure; fuzz/arch.h must win over
+# x86_64/include/arch.h (put -Ifuzz first).
+FUZZ_AUTH_CFLAGS := $(FUZZ_CFLAGS) -Ix86_64/include
 FUZZ_FAT_SRCS := fuzz/fat_harness.c fuzz/host_stubs.c common/efi/fat.c common/efi/lib.c
 FUZZ_PE_SRCS  := fuzz/pe_harness.c fuzz/host_stubs.c common/efi/image.c common/efi/lib.c
+FUZZ_AUTH_SRCS := fuzz/authenticode_harness.c fuzz/host_stubs.c fuzz/secure_host_stubs.c \
+                  common/efi/lib.c \
+                  x86_64/secure/der.c x86_64/secure/sha256.c x86_64/secure/rsa.c \
+                  x86_64/secure/authvar.c x86_64/secure/secure.c
 
 $(FUZZ_FAT): $(FUZZ_FAT_SRCS) fuzz/arch.h fuzz/host_stubs.h
 	@mkdir -p $(FUZZ_DIR)
@@ -1114,6 +1125,17 @@ fuzz-pe: $(FUZZ_PE)
 	    python3 fuzz/mkcorpus_pe.py -o fuzz/corpus-pe; \
 	fi
 	fuzz/smoke-pe.sh
+
+$(FUZZ_AUTH): $(FUZZ_AUTH_SRCS) fuzz/arch.h fuzz/host_stubs.h x86_64/include/secure.h
+	@mkdir -p $(FUZZ_DIR)
+	$(FUZZ_CC) $(FUZZ_AUTH_CFLAGS) -o $@ $(FUZZ_AUTH_SRCS)
+
+fuzz-authenticode: $(FUZZ_AUTH)
+	@chmod +x fuzz/smoke-authenticode.sh fuzz/mkcorpus_authenticode.py
+	@if ! find fuzz/corpus-authenticode -type f 2>/dev/null | grep -q .; then \
+	    python3 fuzz/mkcorpus_authenticode.py -o fuzz/corpus-authenticode; \
+	fi
+	fuzz/smoke-authenticode.sh
 
 # Desk / nightly helper: same harness under libFuzzer + ASan (needs clang
 # with the fuzzer/ASan runtimes, e.g. clang + libclang-rt). Not in CI.
@@ -1139,6 +1161,17 @@ fuzz-pe-libfuzzer: $(FUZZ_PE_SRCS) fuzz/arch.h fuzz/host_stubs.h
 	fi
 	@echo "built $(FUZZ_PE_LIBF) — run with a corpus dir, e.g.:"
 	@echo "  $(FUZZ_PE_LIBF) -max_total_time=60 fuzz/corpus-pe"
+
+fuzz-authenticode-libfuzzer: $(FUZZ_AUTH_SRCS) fuzz/arch.h fuzz/host_stubs.h x86_64/include/secure.h
+	@mkdir -p $(FUZZ_DIR)
+	@if ! $(FUZZ_CLANG) $(FUZZ_AUTH_CFLAGS) -DFUZZ_NO_MAIN -fsanitize=fuzzer,address \
+	    -o $(FUZZ_AUTH_LIBF) $(FUZZ_AUTH_SRCS); then \
+	    echo "fuzz-authenticode-libfuzzer: clang libFuzzer/ASan runtime not available" >&2; \
+	    echo "  install clang's compiler-rt fuzzer/asan libs, or use make fuzz-authenticode" >&2; \
+	    exit 1; \
+	fi
+	@echo "built $(FUZZ_AUTH_LIBF) — run with a corpus dir, e.g.:"
+	@echo "  $(FUZZ_AUTH_LIBF) -max_total_time=60 fuzz/corpus-authenticode"
 
 clean:
 	rm -f $(X86_ROM) $(X64_FD) $(ARM_FD) $(RV_UEFI_BIN) \

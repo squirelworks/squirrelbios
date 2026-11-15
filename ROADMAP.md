@@ -367,6 +367,12 @@ Setup UI shell land here as sizeable steps.
   `make fuzz-pe` / `fuzz/pe_harness.c` / `fuzz/corpus-pe/`; optional
   `.github/workflows/fuzz-pe.yml`. Notes in `fuzz/README.md` and
   `release-notes/host-fuzz-pe.md`.
+- [x] **G3 Authenticode/PKCS#7** Same pattern for Secure Boot parsers
+  (`x86_64/secure/der.c`, `pe_authenticode_hash`, `sb_db_walk`):
+  `make fuzz-authenticode` / `fuzz/authenticode_harness.c` /
+  `fuzz/corpus-authenticode/`; optional
+  `.github/workflows/fuzz-authenticode.yml`. Notes in `fuzz/README.md`
+  and `release-notes/host-fuzz-authenticode.md`. Epic #82.
 - [x] **Setup UI (GOP + F2 + BootOrder + Secure Boot / TPM + date-time /
   NVRAM)** GOP + serial boot menu shell on `x86_64-uefi` (lane
   `-2eaf`): Warp-look title and navigable items
@@ -386,8 +392,8 @@ Setup UI shell land here as sizeable steps.
   `release-notes/setup-ui-secboot.md`,
   `release-notes/setup-ui-datetime-nvram.md`,
   `release-notes/setup-ui-datetime-followup.md`.
-- [ ] **G3** Authenticode/PKCS#7, DHCP/TFTP/HTTP, USB descriptors, FDT;
-  a scheduled nightly with a fixed libFuzzer budget *(later)*.
+- [ ] **G3 (rest)** DHCP/TFTP/HTTP, USB descriptors, FDT; a scheduled
+  nightly with a fixed libFuzzer budget *(later)*.
 
 ### Squirrel-OS/2 hand-off on every platform
 
