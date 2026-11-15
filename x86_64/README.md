@@ -137,9 +137,11 @@ views/clears PK/KEK/db/dbx with confirmation - demo stubs are
 volatile BS|RT and fw_cfg-gated; clears apply this boot because Setup
 runs before `secure_init`; TPM clear confirms and skips when no TPM
 is present (command stub when one is); Date and time views/edits the
-CMOS RTC (`GetTime` / `SetTime` via `arch_rtc_set_civil`); NVRAM reset
-confirms and clears non-volatile user variables, leaving Secure Boot
-keys alone - demo `SquirrelDemo` is fw_cfg-gated), Esc continues boot.
+CMOS RTC (`GetTime` / `SetTime` via `arch_rtc_set_civil`, 12/24h Status
+B); NVRAM reset confirms and clears non-volatile user variables
+(BootOrder / Boot#### / dbt/dbr/MOK-style), leaving Secure Boot
+PK/KEK/db/dbx alone - demos including a long name are fw_cfg-gated),
+Esc continues boot.
 Menu strings use ASCII `-` (the 8×16 font and serial path are not
 UTF-8). Variable services are installed before the UI so BootOrder
 edits hit the NVRAM-backed store. Smoke: `x86_64-setupui`,

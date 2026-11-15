@@ -124,13 +124,16 @@ expected serial lines (`|`-separated, `!` = must not appear, `~` = regex).
   confirms and clears them (clears apply this boot: Setup runs before
   `secure_init`); TPM clear confirms and skips with no TPM (stub when
   a TPM is present - no mid-boot `TPM2_Clear`). Date and time
-  views/edits the CMOS RTC (`GetTime` / `SetTime`); NVRAM reset
-  confirms and clears user NV vars (fw_cfg-gated demo `SquirrelDemo`;
-  leaves Secure Boot keys). Menu/printf strings use ASCII `-`. Notes:
+  views/edits the CMOS RTC (`GetTime` / `SetTime`, including 12h RTC
+  Status B); NVRAM reset confirms and clears user NV vars (BootOrder /
+  Boot#### / dbt/dbr/MOK-style; fw_cfg-gated demos including a long
+  name; leaves Secure Boot PK/KEK/db/dbx; enum grows past 31-char
+  names). Menu/printf strings use ASCII `-`. Notes:
   `release-notes/setup-ui-gop.md`, `release-notes/setup-ui-f2.md`,
   `release-notes/setup-ui-bootorder.md`,
   `release-notes/setup-ui-secboot.md`,
   `release-notes/setup-ui-datetime-nvram.md`,
+  `release-notes/setup-ui-datetime-followup.md`,
   `release-notes/setup-ui-followups.md`, `x86_64/README.md`.
 - **Check:** `x86_64-setupui` (fw_cfg), `x86_64-setupui-f2` (F2, no
   fw_cfg), `x86_64-setupui-bootorder` (reorder + save),

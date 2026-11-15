@@ -1094,7 +1094,7 @@ SERIAL_IN=
 # Keys: Down×4, Enter, Up (year+1), Enter apply; Down, Enter, Enter Confirm;
 # Up×5, Enter Continue.
 SERIAL_IN=$TEST_DIR/x86_64-setupui-datetime.keys
-run x86_64-setupui-datetime "gop: 800x600x32 at|setup: UI open (serial+GOP)|setup: selected Date and time|setup: --- Date and Time ---|~setup: RTC [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}|setup: editing Year|~setup: date-time applied [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}|setup: selected NVRAM reset|setup: seeded demo user NV var|setup: --- NVRAM Reset ---|setup: user NV vars: 1|setup: NVRAM reset cleared 1 user var|setup: selected Continue boot|setup: UI closed|!date-time apply failed|!date-time read-back mismatch|!RTC unavailable" \
+run x86_64-setupui-datetime "gop: 800x600x32 at|setup: UI open (serial+GOP)|setup: selected Date and time|setup: --- Date and Time ---|~setup: RTC [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}|setup: editing Year|~setup: date-time applied [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}|setup: selected NVRAM reset|setup: seeded demo user NV var|setup: --- NVRAM Reset ---|setup: Clears BootOrder, Boot####, dbt/dbr/MOK|setup: and other user NV; keeps PK/KEK/db/dbx|setup: user NV vars: 2|setup: NVRAM reset cleared 2 user vars|setup: selected Continue boot|setup: UI closed|!date-time apply failed|!date-time read-back mismatch|!RTC unavailable|!NVRAM enum partial" \
     "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd \
     -fw_cfg name=opt/org.squirrelworks/setupui,string=1
 SERIAL_IN=

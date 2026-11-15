@@ -376,14 +376,16 @@ Setup UI shell land here as sizeable steps.
   when empty; Left/Right reorder; Enter `SetVariable`). Secure Boot
   keys notebook views/clears PK/KEK/db/dbx (demo stubs when empty);
   TPM clear confirmation skips with no TPM (command stub when
-  present). Date and time views/edits CMOS RTC; NVRAM reset confirms
-  and clears user NV vars (not Secure Boot keys). Smoke:
+  present). Date and time views/edits CMOS RTC (12/24h Status B);
+  NVRAM reset confirms and clears user NV vars including BootOrder /
+  Boot#### (not Secure Boot PK/KEK/db/dbx). Smoke:
   `x86_64-setupui`, `x86_64-setupui-f2`, `x86_64-setupui-bootorder`,
   `x86_64-setupui-secboot`, `x86_64-setupui-datetime`. Notes in
   `release-notes/setup-ui-gop.md`, `release-notes/setup-ui-f2.md`,
   `release-notes/setup-ui-bootorder.md`,
   `release-notes/setup-ui-secboot.md`,
-  `release-notes/setup-ui-datetime-nvram.md`.
+  `release-notes/setup-ui-datetime-nvram.md`,
+  `release-notes/setup-ui-datetime-followup.md`.
 - [ ] **G3** Authenticode/PKCS#7, DHCP/TFTP/HTTP, USB descriptors, FDT;
   a scheduled nightly with a fixed libFuzzer budget *(later)*.
 

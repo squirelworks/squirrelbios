@@ -13,11 +13,13 @@ of printing stubs.
   `GetTime` fails the notebook reports `RTC unavailable` and Esc backs
   out.
 - **NVRAM reset:** Enter opens a confirmation notebook. Under the
-  setupui fw_cfg gate only, seeds a one-byte NV|BS|RT demo
-  `SquirrelDemo` when absent so clear has something to remove. Lists
-  the count of non-volatile **user** variables (not Secure Boot
-  PK/KEK/db/dbx — those stay under their own notebook). Confirm deletes
+  setupui fw_cfg gate only, seeds NV|BS|RT demo vars (`SquirrelDemo`
+  and a long name for enum coverage) when absent so clear has something
+  to remove. The confirm text states that BootOrder / Boot#### /
+  dbt/dbr/MOK-style and other user NV vars are cleared, while Secure
+  Boot PK/KEK/db/dbx stay under their own notebook. Confirm deletes
   them with firmware `SetVariable` size 0; Cancel / Esc leave them.
+  See also `release-notes/setup-ui-datetime-followup.md`.
 - **Smoke:** `x86_64-setupui-datetime` in `tests/smoke.sh` (bump year,
   apply, NVRAM confirm clear, Continue). Existing `x86_64-setupui`,
   `x86_64-setupui-f2`, `x86_64-setupui-bootorder`, and
