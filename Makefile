@@ -10,6 +10,7 @@
 #   make fuzz-fat   host corpus smoke for common/efi/fat.c (no QEMU; Phase G)
 #   make fuzz-pe    host corpus smoke for common/efi/image.c (no QEMU; Phase G)
 #   make fuzz-authenticode  host corpus smoke for Authenticode/PKCS#7 (no QEMU)
+#   make fuzz-net / fuzz-usb / fuzz-fdt  DHCP/TFTP/HTTP, USB desc, FDT (Phase G)
 #   make linux-shell  boot a downloaded Linux kernel on riscv to a busybox shell
 #   make linux-big    the same on a large virtual node (64 harts, 64 GB)
 #   make f4-scale   multi-node UEFI netboot with a large -smp/-numa node
@@ -38,7 +39,7 @@ X64_RT_C    := common/efi/runtime.c common/efi/lib.c x86_64/core/rt.c x86_64/cor
                x86_64/secure/authvar.c x86_64/secure/der.c x86_64/secure/rsa.c x86_64/secure/sha256.c
 X64_EFI_C   := $(addprefix common/efi/,ahci.c aml.c console.c devicepath.c disk.c event.c fat.c \
                  image.c memory.c nvme.c protocol.c tables.c textcon.c virtio.c virtio_pci.c xhci.c \
-                 sdhci.c)
+                 sdhci.c usb_desc.c)
 X64_C       := $(filter-out $(X64_RT_C),$(wildcard x86_64/*/*.c)) $(X64_EFI_C) $(wildcard common/efi/net_*.c)
 X64_H       := $(wildcard x86_64/include/*.h) $(wildcard common/efi/include/*.h) common/efi/net.h
 X64_FLASH   := 0x100000
@@ -147,6 +148,8 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
 .PHONY: all x86 x86_64 arm arm-uefi riscv riscv-uefi test docs-lint \
         fuzz-fat fuzz-fat-libfuzzer fuzz-pe fuzz-pe-libfuzzer \
         fuzz-authenticode fuzz-authenticode-libfuzzer \
+        fuzz-net fuzz-net-libfuzzer fuzz-usb fuzz-usb-libfuzzer \
+        fuzz-fdt fuzz-fdt-libfuzzer \
         linux-shell linux-arm linux-arm-acpi linux-riscv-uefi linux-x86 linux-big linux-stress \
         f4-scale os-boot clean linux-uefi os-boot-csm
 .DELETE_ON_ERROR:
@@ -1091,18 +1094,29 @@ FUZZ_PE       := $(FUZZ_DIR)/pe-fuzz
 FUZZ_PE_LIBF  := $(FUZZ_DIR)/pe-fuzz-libfuzzer
 FUZZ_AUTH     := $(FUZZ_DIR)/authenticode-fuzz
 FUZZ_AUTH_LIBF := $(FUZZ_DIR)/authenticode-fuzz-libfuzzer
+FUZZ_NET      := $(FUZZ_DIR)/net-fuzz
+FUZZ_NET_LIBF := $(FUZZ_DIR)/net-fuzz-libfuzzer
+FUZZ_USB      := $(FUZZ_DIR)/usb-fuzz
+FUZZ_USB_LIBF := $(FUZZ_DIR)/usb-fuzz-libfuzzer
+FUZZ_FDT      := $(FUZZ_DIR)/fdt-fuzz
+FUZZ_FDT_LIBF := $(FUZZ_DIR)/fdt-fuzz-libfuzzer
 FUZZ_CC       ?= $(CC64)
 FUZZ_CFLAGS   := -std=gnu11 -O1 -g -Wall -Wextra -Werror -fno-builtin \
-                 -fno-stack-protector -Ifuzz -Icommon/efi/include
+                 -fno-stack-protector -Ifuzz -Icommon/efi/include -Icommon/efi
 # Authenticode parsers live under x86_64/secure; fuzz/arch.h must win over
 # x86_64/include/arch.h (put -Ifuzz first).
 FUZZ_AUTH_CFLAGS := $(FUZZ_CFLAGS) -Ix86_64/include
+FUZZ_FDT_CFLAGS := $(FUZZ_CFLAGS) -Icommon/fw
 FUZZ_FAT_SRCS := fuzz/fat_harness.c fuzz/host_stubs.c common/efi/fat.c common/efi/lib.c
 FUZZ_PE_SRCS  := fuzz/pe_harness.c fuzz/host_stubs.c common/efi/image.c common/efi/lib.c
 FUZZ_AUTH_SRCS := fuzz/authenticode_harness.c fuzz/host_stubs.c fuzz/secure_host_stubs.c \
                   common/efi/lib.c \
                   x86_64/secure/der.c x86_64/secure/sha256.c x86_64/secure/rsa.c \
                   x86_64/secure/authvar.c x86_64/secure/secure.c
+FUZZ_NET_SRCS := fuzz/net_harness.c fuzz/host_stubs.c common/efi/net_parse.c common/efi/lib.c
+FUZZ_USB_SRCS := fuzz/usb_harness.c fuzz/host_stubs.c common/efi/usb_desc.c common/efi/lib.c
+FUZZ_FDT_SRCS := fuzz/fdt_harness.c fuzz/host_stubs.c common/efi/fdt.c common/fw/fdt.c \
+                 common/efi/lib.c
 
 $(FUZZ_FAT): $(FUZZ_FAT_SRCS) fuzz/arch.h fuzz/host_stubs.h
 	@mkdir -p $(FUZZ_DIR)
@@ -1136,6 +1150,39 @@ fuzz-authenticode: $(FUZZ_AUTH)
 	    python3 fuzz/mkcorpus_authenticode.py -o fuzz/corpus-authenticode; \
 	fi
 	fuzz/smoke-authenticode.sh
+
+$(FUZZ_NET): $(FUZZ_NET_SRCS) fuzz/arch.h fuzz/host_stubs.h common/efi/net_parse.h
+	@mkdir -p $(FUZZ_DIR)
+	$(FUZZ_CC) $(FUZZ_CFLAGS) -o $@ $(FUZZ_NET_SRCS)
+
+fuzz-net: $(FUZZ_NET)
+	@chmod +x fuzz/smoke-net.sh fuzz/mkcorpus_net.py
+	@if ! find fuzz/corpus-net -type f 2>/dev/null | grep -q .; then \
+	    python3 fuzz/mkcorpus_net.py -o fuzz/corpus-net; \
+	fi
+	fuzz/smoke-net.sh
+
+$(FUZZ_USB): $(FUZZ_USB_SRCS) fuzz/arch.h fuzz/host_stubs.h common/efi/usb_desc.h
+	@mkdir -p $(FUZZ_DIR)
+	$(FUZZ_CC) $(FUZZ_CFLAGS) -o $@ $(FUZZ_USB_SRCS)
+
+fuzz-usb: $(FUZZ_USB)
+	@chmod +x fuzz/smoke-usb.sh fuzz/mkcorpus_usb.py
+	@if ! find fuzz/corpus-usb -type f 2>/dev/null | grep -q .; then \
+	    python3 fuzz/mkcorpus_usb.py -o fuzz/corpus-usb; \
+	fi
+	fuzz/smoke-usb.sh
+
+$(FUZZ_FDT): $(FUZZ_FDT_SRCS) fuzz/arch.h fuzz/host_stubs.h common/fw/fdt.h
+	@mkdir -p $(FUZZ_DIR)
+	$(FUZZ_CC) $(FUZZ_FDT_CFLAGS) -o $@ $(FUZZ_FDT_SRCS)
+
+fuzz-fdt: $(FUZZ_FDT)
+	@chmod +x fuzz/smoke-fdt.sh fuzz/mkcorpus_fdt.py
+	@if ! find fuzz/corpus-fdt -type f 2>/dev/null | grep -q .; then \
+	    python3 fuzz/mkcorpus_fdt.py -o fuzz/corpus-fdt; \
+	fi
+	fuzz/smoke-fdt.sh
 
 # Desk / nightly helper: same harness under libFuzzer + ASan (needs clang
 # with the fuzzer/ASan runtimes, e.g. clang + libclang-rt). Not in CI.
@@ -1172,6 +1219,39 @@ fuzz-authenticode-libfuzzer: $(FUZZ_AUTH_SRCS) fuzz/arch.h fuzz/host_stubs.h x86
 	fi
 	@echo "built $(FUZZ_AUTH_LIBF) — run with a corpus dir, e.g.:"
 	@echo "  $(FUZZ_AUTH_LIBF) -max_total_time=60 fuzz/corpus-authenticode"
+
+fuzz-net-libfuzzer: $(FUZZ_NET_SRCS) fuzz/arch.h fuzz/host_stubs.h common/efi/net_parse.h
+	@mkdir -p $(FUZZ_DIR)
+	@if ! $(FUZZ_CLANG) $(FUZZ_CFLAGS) -DFUZZ_NO_MAIN -fsanitize=fuzzer,address \
+	    -o $(FUZZ_NET_LIBF) $(FUZZ_NET_SRCS); then \
+	    echo "fuzz-net-libfuzzer: clang libFuzzer/ASan runtime not available" >&2; \
+	    echo "  install clang's compiler-rt fuzzer/asan libs, or use make fuzz-net" >&2; \
+	    exit 1; \
+	fi
+	@echo "built $(FUZZ_NET_LIBF) — run with a corpus dir, e.g.:"
+	@echo "  $(FUZZ_NET_LIBF) -max_total_time=60 fuzz/corpus-net"
+
+fuzz-usb-libfuzzer: $(FUZZ_USB_SRCS) fuzz/arch.h fuzz/host_stubs.h common/efi/usb_desc.h
+	@mkdir -p $(FUZZ_DIR)
+	@if ! $(FUZZ_CLANG) $(FUZZ_CFLAGS) -DFUZZ_NO_MAIN -fsanitize=fuzzer,address \
+	    -o $(FUZZ_USB_LIBF) $(FUZZ_USB_SRCS); then \
+	    echo "fuzz-usb-libfuzzer: clang libFuzzer/ASan runtime not available" >&2; \
+	    echo "  install clang's compiler-rt fuzzer/asan libs, or use make fuzz-usb" >&2; \
+	    exit 1; \
+	fi
+	@echo "built $(FUZZ_USB_LIBF) — run with a corpus dir, e.g.:"
+	@echo "  $(FUZZ_USB_LIBF) -max_total_time=60 fuzz/corpus-usb"
+
+fuzz-fdt-libfuzzer: $(FUZZ_FDT_SRCS) fuzz/arch.h fuzz/host_stubs.h common/fw/fdt.h
+	@mkdir -p $(FUZZ_DIR)
+	@if ! $(FUZZ_CLANG) $(FUZZ_FDT_CFLAGS) -DFUZZ_NO_MAIN -fsanitize=fuzzer,address \
+	    -o $(FUZZ_FDT_LIBF) $(FUZZ_FDT_SRCS); then \
+	    echo "fuzz-fdt-libfuzzer: clang libFuzzer/ASan runtime not available" >&2; \
+	    echo "  install clang's compiler-rt fuzzer/asan libs, or use make fuzz-fdt" >&2; \
+	    exit 1; \
+	fi
+	@echo "built $(FUZZ_FDT_LIBF) — run with a corpus dir, e.g.:"
+	@echo "  $(FUZZ_FDT_LIBF) -max_total_time=60 fuzz/corpus-fdt"
 
 clean:
 	rm -f $(X86_ROM) $(X64_FD) $(ARM_FD) $(RV_UEFI_BIN) \
