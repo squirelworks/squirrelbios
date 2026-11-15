@@ -19,7 +19,7 @@ riscv/      RISC-V QEMU virt — UART banner + S-mode entry to -kernel, DTB in a
             riscv/uefi: the UEFI core in S-mode on top of the SBI (roadmap D3)
 tests/      stand-in OS images and smoke tests (make test)
 fuzz/       host libFuzzer-style harness for common/efi parsers (Phase G;
-            make fuzz-fat corpus smoke, no QEMU)
+            make fuzz-fat / make fuzz-pe corpus smoke, no QEMU)
 common/     hand-off contract; common/efi: the UEFI core shared by the
             device-tree machines and x86_64 (roadmap D4)
 configs/    build configurations, one directory per platform (make PLATFORM= CONFIG=)
@@ -320,18 +320,20 @@ the script falls back to 255 CPUs and says so; with KVM and a host CPU
 that has x2APIC, 256 runs as asked. Not part of `make test` or CI (a
 few minutes under TCG). Logs are `build/f4-scale/node-*.log`.
 
-### Host FAT fuzz corpus smoke (optional, Phase G)
+### Host FAT / PE fuzz corpus smoke (optional, Phase G)
 
 ```bash
-make fuzz-fat                 # build host harness + run seed corpus once
+make fuzz-fat                 # build host FAT harness + run seed corpus once
+make fuzz-pe                  # same for PE/COFF (common/efi/image.c)
 make fuzz-fat-libfuzzer       # desk: clang -fsanitize=fuzzer,address
+make fuzz-pe-libfuzzer
 ```
 
-Builds `common/efi/fat.c` for the host with small EFI stubs
-(`fuzz/`), feeds each seed in `fuzz/corpus/` through
-`LLVMFuzzerTestOneInput`, and prints `PASS  fuzz-fat`. No QEMU; seconds
-only — not a long nightly. Optional path-filtered workflow
-`.github/workflows/fuzz-fat.yml`. See `fuzz/README.md`.
+Builds `common/efi/fat.c` / `image.c` for the host with small EFI stubs
+(`fuzz/`), feeds each seed through `LLVMFuzzerTestOneInput`, and prints
+`PASS  fuzz-fat` / `PASS  fuzz-pe`. No QEMU; seconds only — not a long
+nightly. Optional path-filtered workflows `.github/workflows/fuzz-fat.yml`
+and `.github/workflows/fuzz-pe.yml`. See `fuzz/README.md`.
 
 ```bash
 make linux-stress                          # 1, 2, 3, 4 and 8 harts, 3 boots each

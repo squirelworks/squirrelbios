@@ -16,5 +16,5 @@ harness, without QEMU.
   (`workflow_dispatch` and path-filtered push/PR). Short corpus only.
 - **Docs:** `fuzz/README.md`, HANDOFF / ROADMAP Phase G card.
 
-Next parsers to host-build the same way: PE/COFF (`image.c`), then the
-network and USB descriptor readers.
+Next: PE/COFF is `make fuzz-pe` (`release-notes/host-fuzz-pe.md`); then
+Authenticode and the network / USB descriptor readers.

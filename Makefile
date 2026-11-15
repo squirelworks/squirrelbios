@@ -8,6 +8,7 @@
 #                   (tests/smoke.sh)
 #   make docs-lint  CONTINUANCE §3c: ROADMAP/TODO/HANDOFF vs smoke harness
 #   make fuzz-fat   host corpus smoke for common/efi/fat.c (no QEMU; Phase G)
+#   make fuzz-pe    host corpus smoke for common/efi/image.c (no QEMU; Phase G)
 #   make linux-shell  boot a downloaded Linux kernel on riscv to a busybox shell
 #   make linux-big    the same on a large virtual node (64 harts, 64 GB)
 #   make f4-scale   multi-node UEFI netboot with a large -smp/-numa node
@@ -137,7 +138,8 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/sb/sb-authrt.efi \
              $(TEST_DIR)/tftp/snp-x64.efi $(TEST_DIR)/tftp/snp-aa64.efi $(TEST_DIR)/tftp/snp-rv64.efi
 
-.PHONY: all x86 x86_64 arm arm-uefi riscv riscv-uefi test docs-lint fuzz-fat fuzz-fat-libfuzzer \
+.PHONY: all x86 x86_64 arm arm-uefi riscv riscv-uefi test docs-lint \
+        fuzz-fat fuzz-fat-libfuzzer fuzz-pe fuzz-pe-libfuzzer \
         linux-shell linux-arm linux-arm-acpi linux-riscv-uefi linux-x86 linux-big linux-stress \
         f4-scale os-boot clean linux-uefi os-boot-csm
 .DELETE_ON_ERROR:
@@ -1056,19 +1058,22 @@ linux-stress: riscv
 f4-scale: x86_64 $(TEST_DIR)/x86_64-app.efi
 	tests/f4-scale.sh
 
-# Optional CONTINUANCE Phase G: host-build common/efi/fat.c and run a short
+# Optional CONTINUANCE Phase G: host-build common/efi parsers and run a short
 # seed-corpus smoke (no QEMU, not a long nightly). See fuzz/README.md.
 FUZZ_DIR      := build/fuzz
 FUZZ_FAT      := $(FUZZ_DIR)/fat-fuzz
 FUZZ_FAT_LIBF := $(FUZZ_DIR)/fat-fuzz-libfuzzer
+FUZZ_PE       := $(FUZZ_DIR)/pe-fuzz
+FUZZ_PE_LIBF  := $(FUZZ_DIR)/pe-fuzz-libfuzzer
 FUZZ_CC       ?= $(CC64)
 FUZZ_CFLAGS   := -std=gnu11 -O1 -g -Wall -Wextra -Werror -fno-builtin \
                  -fno-stack-protector -Ifuzz -Icommon/efi/include
-FUZZ_SRCS     := fuzz/fat_harness.c fuzz/host_stubs.c common/efi/fat.c common/efi/lib.c
+FUZZ_FAT_SRCS := fuzz/fat_harness.c fuzz/host_stubs.c common/efi/fat.c common/efi/lib.c
+FUZZ_PE_SRCS  := fuzz/pe_harness.c fuzz/host_stubs.c common/efi/image.c common/efi/lib.c
 
-$(FUZZ_FAT): $(FUZZ_SRCS) fuzz/arch.h fuzz/host_stubs.h
+$(FUZZ_FAT): $(FUZZ_FAT_SRCS) fuzz/arch.h fuzz/host_stubs.h
 	@mkdir -p $(FUZZ_DIR)
-	$(FUZZ_CC) $(FUZZ_CFLAGS) -o $@ $(FUZZ_SRCS)
+	$(FUZZ_CC) $(FUZZ_CFLAGS) -o $@ $(FUZZ_FAT_SRCS)
 
 fuzz-fat: $(FUZZ_FAT)
 	@chmod +x fuzz/smoke.sh fuzz/mkcorpus.py
@@ -1077,19 +1082,41 @@ fuzz-fat: $(FUZZ_FAT)
 	fi
 	fuzz/smoke.sh
 
+$(FUZZ_PE): $(FUZZ_PE_SRCS) fuzz/arch.h fuzz/host_stubs.h
+	@mkdir -p $(FUZZ_DIR)
+	$(FUZZ_CC) $(FUZZ_CFLAGS) -o $@ $(FUZZ_PE_SRCS)
+
+fuzz-pe: $(FUZZ_PE)
+	@chmod +x fuzz/smoke-pe.sh fuzz/mkcorpus_pe.py
+	@if ! find fuzz/corpus-pe -type f 2>/dev/null | grep -q .; then \
+	    python3 fuzz/mkcorpus_pe.py -o fuzz/corpus-pe; \
+	fi
+	fuzz/smoke-pe.sh
+
 # Desk / nightly helper: same harness under libFuzzer + ASan (needs clang
 # with the fuzzer/ASan runtimes, e.g. clang + libclang-rt). Not in CI.
 FUZZ_CLANG ?= clang
-fuzz-fat-libfuzzer: $(FUZZ_SRCS) fuzz/arch.h fuzz/host_stubs.h
+fuzz-fat-libfuzzer: $(FUZZ_FAT_SRCS) fuzz/arch.h fuzz/host_stubs.h
 	@mkdir -p $(FUZZ_DIR)
 	@if ! $(FUZZ_CLANG) $(FUZZ_CFLAGS) -DFUZZ_NO_MAIN -fsanitize=fuzzer,address \
-	    -o $(FUZZ_FAT_LIBF) $(FUZZ_SRCS); then \
+	    -o $(FUZZ_FAT_LIBF) $(FUZZ_FAT_SRCS); then \
 	    echo "fuzz-fat-libfuzzer: clang libFuzzer/ASan runtime not available" >&2; \
 	    echo "  install clang's compiler-rt fuzzer/asan libs, or use make fuzz-fat" >&2; \
 	    exit 1; \
 	fi
 	@echo "built $(FUZZ_FAT_LIBF) — run with a corpus dir, e.g.:"
 	@echo "  $(FUZZ_FAT_LIBF) -max_total_time=60 fuzz/corpus"
+
+fuzz-pe-libfuzzer: $(FUZZ_PE_SRCS) fuzz/arch.h fuzz/host_stubs.h
+	@mkdir -p $(FUZZ_DIR)
+	@if ! $(FUZZ_CLANG) $(FUZZ_CFLAGS) -DFUZZ_NO_MAIN -fsanitize=fuzzer,address \
+	    -o $(FUZZ_PE_LIBF) $(FUZZ_PE_SRCS); then \
+	    echo "fuzz-pe-libfuzzer: clang libFuzzer/ASan runtime not available" >&2; \
+	    echo "  install clang's compiler-rt fuzzer/asan libs, or use make fuzz-pe" >&2; \
+	    exit 1; \
+	fi
+	@echo "built $(FUZZ_PE_LIBF) — run with a corpus dir, e.g.:"
+	@echo "  $(FUZZ_PE_LIBF) -max_total_time=60 fuzz/corpus-pe"
 
 clean:
 	rm -f $(X86_ROM) $(X64_FD) $(ARM_FD) $(RV_UEFI_BIN) \
