@@ -203,7 +203,8 @@ int LLVMFuzzerTestOneInput(const u8 *data, usize size)
     disk.bio.write_blocks = bio_write;
     disk.bio.flush_blocks = bio_flush;
 
-    if (fat_install((EFI_HANDLE)(uptr)0x1, &disk.bio))
+    /* NULL handle: install_protocol allocates a fresh handle (host stubs). */
+    if (fat_install(NULL, &disk.bio))
         poke_volume(host_last_sfs());
 
     free(img);

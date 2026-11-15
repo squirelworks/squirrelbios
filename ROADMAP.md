@@ -362,9 +362,12 @@ Suite plan: squirrelsoft `docs/CONTINUANCE.md` §4. First step only here.
   `make fuzz-fat` runs the seed corpus once (no QEMU). Optional CI:
   `.github/workflows/fuzz-fat.yml`. Notes in `fuzz/README.md` and
   `release-notes/host-fuzz-fat.md`.
-- [ ] **G2** Same pattern for PE/COFF (`common/efi/image.c`), then
-  Authenticode/PKCS#7, DHCP/TFTP/HTTP, USB descriptors, FDT; a
-  scheduled nightly with a fixed libFuzzer budget *(later)*.
+- [x] **G2** Same pattern for PE/COFF (`common/efi/image.c`):
+  `make fuzz-pe` / `fuzz/pe_harness.c` / `fuzz/corpus-pe/`; optional
+  `.github/workflows/fuzz-pe.yml`. Notes in `fuzz/README.md` and
+  `release-notes/host-fuzz-pe.md`.
+- [ ] **G3** Authenticode/PKCS#7, DHCP/TFTP/HTTP, USB descriptors, FDT;
+  a scheduled nightly with a fixed libFuzzer budget *(later)*.
 
 ### Squirrel-OS/2 hand-off on every platform
 
