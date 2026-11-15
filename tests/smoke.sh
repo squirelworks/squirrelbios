@@ -1072,7 +1072,7 @@ run x86_64-setupui "gop: 800x600x32 at|setup: UI open (serial+GOP)|setup: Squirr
 SERIAL_IN=
 # Same menu via F2 on ConIn (ESC O Q) without the fw_cfg gate.
 SERIAL_IN=$TEST_DIR/x86_64-setupui-f2.keys
-run x86_64-setupui-f2 "gop: 800x600x32 at|setup: press F2 for Setup UI|setup: F2 — opening Setup UI|setup: UI open (serial+GOP)|setup: SquirrelBIOS Setup|setup: --- Boot Manager ---|setup: > Continue boot|setup: > Boot Manager|setup: selected Continue boot|setup: UI closed|fw: nothing to boot (no opt/org.squirrelworks/boot.efi), trying the CSM|!opt/org.squirrelworks/setupui" \
+run x86_64-setupui-f2 "gop: 800x600x32 at|setup: press F2 for Setup UI|setup: F2 - opening Setup UI|setup: UI open (serial+GOP)|setup: SquirrelBIOS Setup|setup: --- Boot Manager ---|setup: > Continue boot|setup: > Boot Manager|setup: selected Continue boot|setup: UI closed|fw: nothing to boot (no opt/org.squirrelworks/boot.efi), trying the CSM|!opt/org.squirrelworks/setupui" \
     "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd
 SERIAL_IN=
 # Boot Manager: seed Boot#### + BootOrder, reorder with Left, SetVariable,

@@ -128,14 +128,18 @@ opens a Warp-look boot menu on the GOP frame buffer (title bar, panel,
 navigable items drawn with the original 8×16 font) and mirrors it on
 COM1. Without that fw_cfg file, a short post-GOP window accepts **F2**
 on ConIn (`setup: press F2 for Setup UI`; serial `ESC O Q` or
-`ESC [ 12 ~`). Up/Down move the selection, Enter activates (Continue
-leaves the menu; Boot Manager edits UEFI `BootOrder` — seeds demo
-`Boot0001`/`0002`/`0003` when empty, Left/Right reorder, Enter
-`SetVariable`; Secure Boot keys views/clears PK/KEK/db/dbx with
-confirmation; TPM clear confirms and skips when no TPM is present
-(command stub when one is); date/time and NVRAM reset stay stubs),
-Esc continues boot. Variable services are installed before the UI so
-BootOrder and key clears persist in the NVRAM-backed store. Later:
+`ESC [ 12 ~`; skipped when ConIn is absent). Up/Down move the
+selection, Enter activates (Continue leaves the menu; Boot Manager
+edits UEFI `BootOrder` - under the setupui fw_cfg gate only, seeds
+demo `Boot0001`/`0002`/`0003` when empty; Left/Right reorder; Enter
+`SetVariable` only when the order changed; Secure Boot keys
+views/clears PK/KEK/db/dbx with confirmation - demo stubs are
+volatile BS|RT and fw_cfg-gated; clears apply this boot because Setup
+runs before `secure_init`; TPM clear confirms and skips when no TPM
+is present (command stub when one is); date/time and NVRAM reset stay
+stubs), Esc continues boot. Menu strings use ASCII `-` (the 8×16 font
+and serial path are not UTF-8). Variable services are installed before
+the UI so BootOrder edits hit the NVRAM-backed store. Later:
 date-time / NVRAM reset notebooks. Smoke: `x86_64-setupui`,
 `x86_64-setupui-f2`, `x86_64-setupui-bootorder`,
 `x86_64-setupui-secboot`.

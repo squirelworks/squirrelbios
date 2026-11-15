@@ -5,13 +5,15 @@ Third step of CONTINUANCE Phase G **Setup UI** on SquirrelBIOS (lane
 real, instead of printing a stub.
 
 - **Boot Manager:** Enter opens a Boot Order notebook on serial + GOP.
-  When `BootOrder` / `Boot####` are missing (typical under QEMU without a
-  prior installer), the firmware seeds `Boot0001` Disk, `Boot0002`
-  Network, `Boot0003` USB (minimal `EFI_LOAD_OPTION` with an End device
-  path) and `BootOrder = {0001,0002,0003}`.
+  When `BootOrder` / `Boot####` are missing and the setupui fw_cfg test
+  gate is set, the firmware seeds `Boot0001` Disk, `Boot0002` Network,
+  `Boot0003` USB (minimal `EFI_LOAD_OPTION` with an End device path) and
+  `BootOrder = {0001,0002,0003}`. F2-only entry does not plant fake
+  load options into NVRAM.
 - **Keys:** Up/Down select an entry; Left/`-` or Right/`+` swap it earlier
   or later in the order; Enter calls `SetVariable` on `BootOrder`
-  (NV|BS|RT) and read-backs the value; Esc cancels without writing.
+  (NV|BS|RT) only when the order changed, then read-backs the value;
+  Esc cancels without writing.
 - **Vars early:** `vars_init` / `vars_install` run before the Setup UI so
   edits hit the NVRAM-backed store, not the temporary in-RAM runtime
   stubs.

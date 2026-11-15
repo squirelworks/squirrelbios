@@ -4,13 +4,17 @@
  * setup items on the frame buffer when GOP is up, mirrors the same menu
  * on the serial console, and returns when the user Continues (or presses
  * Esc). Boot Manager edits the UEFI BootOrder variable (and seeds demo
- * Boot#### load options when none exist). Secure Boot keys shows PK/KEK/
- * db/dbx status and can clear them (firmware delete before auth hooks);
- * TPM clear is a confirmation that skips when no TPM is present and is a
- * safe stub when one is (no TPM2_Clear mid-boot). Entered when QEMU
- * provides -fw_cfg name=opt/org.squirrelworks/setupui,... or when F2 is
- * pressed during a short post-GOP window (serial ANSI ESC O Q / CSI 12~).
- * Later steps: date-time / NVRAM reset notebooks. */
+ * Boot#### load options when none exist under the setupui fw_cfg test
+ * gate). Secure Boot keys shows PK/KEK/db/dbx status and can clear them
+ * (firmware delete before auth hooks); TPM clear is a confirmation that
+ * skips when no TPM is present and is a safe stub when one is (no
+ * TPM2_Clear mid-boot). Entered when QEMU provides
+ * -fw_cfg name=opt/org.squirrelworks/setupui,... or when F2 is pressed
+ * during a short post-GOP window (serial ANSI ESC O Q / CSI 12~).
+ * Later steps: date-time / NVRAM reset notebooks.
+ *
+ * Strings that reach the 8x16 GOP font or COM1 use ASCII only (plain '-'
+ * not UTF-8 em dashes): put_glyph indexes one byte per cell. */
 #include "efi.h"
 #include "vars.h"
 #include "tpm.h"
@@ -20,7 +24,7 @@
 #define SCAN_F2       0x0Cu
 /* Hotkey window: short so ordinary smokes stay fast; SERIAL_IN delivers
  * F2 as soon as the guest reads COM1, and keys typed during earlier
- * firmware messages sit in the UART FIFO. */
+ * firmware messages sit in the UART FIFO. Skipped when ConIn is absent. */
 #define HOTKEY_MS     250
 #define HOTKEY_STEP_US 10000
 
@@ -40,6 +44,7 @@
 #define SCALE  2                        /* 16x32 cells on the 800x600 mode */
 
 #define ATTR_NV_BS_RT 0x07u             /* NV | BS | RT */
+#define ATTR_BS_RT    0x06u             /* BS | RT (volatile, not NV) */
 #define LOAD_OPTION_ACTIVE 0x00000001u
 #define BOOT_MAX 8
 #define LABEL_MAX 40
@@ -63,7 +68,7 @@ enum {
 
 struct menu_item {
     const char *label;
-    const char *serial_tag;             /* short id in "setup: selected …" */
+    const char *serial_tag;             /* short id in "setup: selected ..." */
     int action;
 };
 
@@ -262,8 +267,10 @@ static void load_boot_label(int idx)
 static int seed_demo_boot_options(void)
 {
     /* Three original demo load options so Boot Manager has something to
-     * reorder under QEMU without an OS installer. Descriptions only —
-     * FilePathList is an End node (not a real boot path). */
+     * reorder under QEMU without an OS installer. Descriptions only -
+     * FilePathList is an End node (not a real boot path). Only called
+     * when the setupui fw_cfg test gate is set, so fake Boot#### do not
+     * land in NVRAM on real hardware via F2 alone. */
     static const struct {
         u16 id;
         const char *desc;
@@ -294,7 +301,10 @@ static int load_boot_order(void)
     boot_sel = 0;
     EFI_STATUS st = vars_get(u"BootOrder", (EFI_GUID *)&efi_global, NULL, &size, buf);
     if (st != EFI_SUCCESS || size < 2 || (size & 1)) {
-        if (!seed_demo_boot_options())
+        /* Demo seed only under the test fw_cfg gate - not on F2 alone. */
+        u16 sel;
+        u32 fsz;
+        if (!fwcfg_find(FWCFG_SETUPUI, &sel, &fsz) || !seed_demo_boot_options())
             return 0;
     } else {
         boot_n = (int)(size / 2);
@@ -387,6 +397,7 @@ static void draw_panel_list(const char *title, const char *hint,
 
     u32 panel_x = 80, panel_y = bar_h + 40;
     u32 panel_w = W > 160 ? W - 160 : W;
+    u32 fill_w = panel_w > 16 ? panel_w - 16 : panel_w;
     u32 panel_h = FONT_H * SCALE * (n + 3) + 40;
     if (panel_y + panel_h > H)
         panel_h = H - panel_y;
@@ -398,7 +409,7 @@ static void draw_panel_list(const char *title, const char *hint,
         u32 fg = i == sel ? COL_SEL_FG : COL_PANEL_FG;
         u32 bg = i == sel ? COL_SEL_BG : COL_PANEL_BG;
         u32 row_y = list_y + (u32)i * (FONT_H * SCALE + 4);
-        fill_rect(panel_x + 8, row_y, panel_w - 16, FONT_H * SCALE + 2, bg);
+        fill_rect(panel_x + 8, row_y, fill_w, FONT_H * SCALE + 2, bg);
         put_str(panel_x + 24, row_y + 1, label_at(i), fg, bg);
     }
 
@@ -421,10 +432,12 @@ static void draw_boot_menu(void)
                     boot_n, boot_sel, boot_label_at);
 }
 
+/* 1 = key ready, 0 = ConIn missing or WaitForEvent/ReadKeyStroke failed.
+ * Callers break out of their menu loop on 0 so boot can continue. */
 static int read_key(EFI_INPUT_KEY *key)
 {
     EFI_SIMPLE_TEXT_INPUT_PROTOCOL *in = efi_st->con_in;
-    if (!in || !key)
+    if (!in || !key || !in->wait_for_key)
         return 0;
     wait_for_event_fn wait = (wait_for_event_fn)efi_st->boot_services->wait_for_event;
     UINTN idx = 0;
@@ -441,7 +454,7 @@ static void handle_stub(const struct menu_item *it)
         u32 H = gop->mode->info->vertical_resolution;
         u32 y = H - FONT_H * SCALE - 8;
         fill_rect(0, y, W, FONT_H * SCALE + 8, COL_DESKTOP);
-        put_str(24, y, "Not implemented yet — pick Continue boot", COL_TITLE_BG, COL_DESKTOP);
+        put_str(24, y, "Not implemented yet - pick Continue boot", COL_TITLE_BG, COL_DESKTOP);
     }
 }
 
@@ -483,7 +496,7 @@ static void format_key_line(char *dst, int dst_n, const char *tag,
         dst[n] = 0;
         return;
     }
-    /* "present (N bytes)" — N capped for the label width. */
+    /* "present (N bytes)" - N capped for the label width. */
     const char *p = "present (";
     for (int i = 0; p[i] && n < dst_n - 1; i++)
         dst[n++] = p[i];
@@ -527,27 +540,10 @@ static int delete_sb_var(const CHAR16 *name, EFI_GUID *vendor)
 }
 
 /* When NVRAM has no Secure Boot keys (typical QEMU -bios), plant four
- * 1-byte stubs so the view/clear notebook has something to show. Not
- * valid EFI_SIGNATURE_LISTs — scrubbed on clear or when leaving so
- * secure_init (later) still sees setup mode. */
-static void seed_demo_sb_keys(void)
-{
-    UINTN z = 0;
-    if (var_size(u"PK", (EFI_GUID *)&efi_global, &z) ||
-        var_size(u"KEK", (EFI_GUID *)&efi_global, &z) ||
-        var_size(u"db", (EFI_GUID *)&efi_image_security, &z) ||
-        var_size(u"dbx", (EFI_GUID *)&efi_image_security, &z))
-        return;
-    u8 stub = 0x5A;
-    if (vars_set(u"PK", (EFI_GUID *)&efi_global, ATTR_NV_BS_RT, 1, &stub) != EFI_SUCCESS ||
-        vars_set(u"KEK", (EFI_GUID *)&efi_global, ATTR_NV_BS_RT, 1, &stub) != EFI_SUCCESS ||
-        vars_set(u"db", (EFI_GUID *)&efi_image_security, ATTR_NV_BS_RT, 1, &stub) != EFI_SUCCESS ||
-        vars_set(u"dbx", (EFI_GUID *)&efi_image_security, ATTR_NV_BS_RT, 1, &stub) != EFI_SUCCESS)
-        return;
-    sb_demo_seeded = 1;
-    printf("setup: seeded demo Secure Boot key stubs\n");
-}
-
+ * 1-byte volatile (BS|RT) stubs so the view/clear notebook has something
+ * to show under the setupui fw_cfg test gate. Not valid
+ * EFI_SIGNATURE_LISTs - scrubbed on clear, on partial seed failure, or
+ * when leaving so secure_init (later this boot) still sees setup mode. */
 static void scrub_demo_sb_keys(void)
 {
     if (!sb_demo_seeded)
@@ -557,6 +553,33 @@ static void scrub_demo_sb_keys(void)
     delete_sb_var(u"db", (EFI_GUID *)&efi_image_security);
     delete_sb_var(u"dbx", (EFI_GUID *)&efi_image_security);
     sb_demo_seeded = 0;
+}
+
+static void seed_demo_sb_keys(void)
+{
+    u16 sel;
+    u32 fsz;
+    UINTN z = 0;
+    /* Test fw_cfg only: do not plant stubs on F2 / real hardware. */
+    if (!fwcfg_find(FWCFG_SETUPUI, &sel, &fsz))
+        return;
+    if (var_size(u"PK", (EFI_GUID *)&efi_global, &z) ||
+        var_size(u"KEK", (EFI_GUID *)&efi_global, &z) ||
+        var_size(u"db", (EFI_GUID *)&efi_image_security, &z) ||
+        var_size(u"dbx", (EFI_GUID *)&efi_image_security, &z))
+        return;
+    u8 stub = 0x5A;
+    /* Mark seeded before the writes so a partial failure still scrubs. */
+    sb_demo_seeded = 1;
+    if (vars_set(u"PK", (EFI_GUID *)&efi_global, ATTR_BS_RT, 1, &stub) != EFI_SUCCESS ||
+        vars_set(u"KEK", (EFI_GUID *)&efi_global, ATTR_BS_RT, 1, &stub) != EFI_SUCCESS ||
+        vars_set(u"db", (EFI_GUID *)&efi_image_security, ATTR_BS_RT, 1, &stub) != EFI_SUCCESS ||
+        vars_set(u"dbx", (EFI_GUID *)&efi_image_security, ATTR_BS_RT, 1, &stub) != EFI_SUCCESS) {
+        scrub_demo_sb_keys();
+        printf("setup: demo Secure Boot key seed failed (scrubbed)\n");
+        return;
+    }
+    printf("setup: seeded demo Secure Boot key stubs\n");
 }
 
 static void clear_secboot_keys(void)
@@ -570,6 +593,7 @@ static void clear_secboot_keys(void)
     if (n == 0)
         printf("setup: Secure Boot keys: nothing to clear\n");
     else
+        /* Setup UI runs before secure_init, so clears apply this boot. */
         printf("setup: Secure Boot keys cleared (%d removed)\n", n);
     load_secboot_status();
 }
@@ -617,6 +641,7 @@ static void draw_secboot_menu(void)
 
     u32 panel_x = 80, panel_y = bar_h + 40;
     u32 panel_w = W > 160 ? W - 160 : W;
+    u32 fill_w = panel_w > 16 ? panel_w - 16 : panel_w;
     u32 rows = 4 + 2 + 2;               /* status + actions + title/hint */
     u32 panel_h = FONT_H * SCALE * rows + 48;
     if (panel_y + panel_h > H)
@@ -635,7 +660,7 @@ static void draw_secboot_menu(void)
     for (int i = 0; i < 2; i++) {
         u32 fg = i == sb_sel ? COL_SEL_FG : COL_PANEL_FG;
         u32 bg = i == sb_sel ? COL_SEL_BG : COL_PANEL_BG;
-        fill_rect(panel_x + 8, y, panel_w - 16, FONT_H * SCALE + 2, bg);
+        fill_rect(panel_x + 8, y, fill_w, FONT_H * SCALE + 2, bg);
         put_str(panel_x + 24, y + 1, sb_act_label(i), fg, bg);
         y += FONT_H * SCALE + 4;
     }
@@ -656,8 +681,10 @@ static void secboot_keys_run(void)
 
     for (;;) {
         EFI_INPUT_KEY key;
-        if (!read_key(&key))
-            continue;
+        if (!read_key(&key)) {
+            printf("setup: ConIn wait failed, leaving Secure Boot\n");
+            break;
+        }
         if (key.scan_code == 0x01) {            /* up */
             sb_sel = sb_sel ? sb_sel - 1 : 1;
             serial_secboot_menu();
@@ -745,6 +772,7 @@ static void draw_tpm_menu(void)
 
     u32 panel_x = 80, panel_y = bar_h + 40;
     u32 panel_w = W > 160 ? W - 160 : W;
+    u32 fill_w = panel_w > 16 ? panel_w - 16 : panel_w;
     u32 panel_h = FONT_H * SCALE * 6 + 48;
     if (panel_y + panel_h > H)
         panel_h = H - panel_y;
@@ -757,7 +785,7 @@ static void draw_tpm_menu(void)
     for (int i = 0; i < 2; i++) {
         u32 fg = i == tpm_sel ? COL_SEL_FG : COL_PANEL_FG;
         u32 bg = i == tpm_sel ? COL_SEL_BG : COL_PANEL_BG;
-        fill_rect(panel_x + 8, y, panel_w - 16, FONT_H * SCALE + 2, bg);
+        fill_rect(panel_x + 8, y, fill_w, FONT_H * SCALE + 2, bg);
         put_str(panel_x + 24, y + 1, tpm_act_label(i), fg, bg);
         y += FONT_H * SCALE + 4;
     }
@@ -774,7 +802,7 @@ static void do_tpm_clear(void)
     /* Mid-boot TPM2_Clear would disturb measured PCRs already extended
      * in tpm_init. The confirmation is real; the command stays a stub
      * so Setup UI smokes stay safe with or without swtpm. */
-    printf("setup: TPM clear confirmed (stub — not sent)\n");
+    printf("setup: TPM clear confirmed (stub - not sent)\n");
 }
 
 static void tpm_clear_run(void)
@@ -787,8 +815,10 @@ static void tpm_clear_run(void)
 
     for (;;) {
         EFI_INPUT_KEY key;
-        if (!read_key(&key))
-            continue;
+        if (!read_key(&key)) {
+            printf("setup: ConIn wait failed, leaving TPM clear\n");
+            break;
+        }
         if (key.scan_code == 0x01) {
             tpm_sel = tpm_sel ? tpm_sel - 1 : 1;
             serial_tpm_menu();
@@ -824,8 +854,10 @@ static void boot_manager_run(void)
 
     for (;;) {
         EFI_INPUT_KEY key;
-        if (!read_key(&key))
-            continue;
+        if (!read_key(&key)) {
+            printf("setup: ConIn wait failed, leaving Boot Manager\n");
+            break;
+        }
         if (key.scan_code == 0x01) {            /* up */
             if (boot_sel > 0)
                 boot_sel--;
@@ -853,8 +885,11 @@ static void boot_manager_run(void)
             printf("setup: BootOrder cancelled\n");
             break;
         } else if (key.unicode_char == '\r') {
-            if (boot_dirty || boot_n > 0)
+            /* Skip SetVariable when nothing moved (avoids flash wear). */
+            if (boot_dirty)
                 save_boot_order();
+            else
+                printf("setup: BootOrder unchanged\n");
             break;
         }
     }
@@ -877,8 +912,10 @@ void setup_ui_run(void)
 
     for (;;) {
         EFI_INPUT_KEY key;
-        if (!read_key(&key))
-            continue;
+        if (!read_key(&key)) {
+            printf("setup: ConIn wait failed, continuing boot\n");
+            break;
+        }
         if (key.scan_code == 0x01) {            /* up */
             if (selected > 0)
                 selected--;
@@ -892,7 +929,7 @@ void setup_ui_run(void)
             draw_main_menu();
         } else if (key.scan_code == 0x17 ||     /* Esc */
                    key.unicode_char == 0x1B) {
-            printf("setup: Escape — Continue boot\n");
+            printf("setup: Escape - Continue boot\n");
             break;
         } else if (key.unicode_char == '\r') {
             const struct menu_item *it = &items[selected];
@@ -947,16 +984,20 @@ static int try_read_key(EFI_INPUT_KEY *key)
 
 /* Brief post-GOP window for F2 without fw_cfg. Returns 1 if F2 was seen.
  * Any other stroke is pushed back and ends the wait so ConIn apps (and
- * SERIAL_IN fixtures like x86_64-con) still see their keys. */
+ * SERIAL_IN fixtures like x86_64-con) still see their keys. Skipped when
+ * ConIn is missing so boots without a console do not stall 250 ms. */
 int setup_ui_hotkey(void)
 {
+    EFI_SIMPLE_TEXT_INPUT_PROTOCOL *in = efi_st->con_in;
+    if (!in || !in->wait_for_key)
+        return 0;
     printf("setup: press F2 for Setup UI\n");
     int steps = HOTKEY_MS * 1000 / HOTKEY_STEP_US;
     for (int i = 0; i < steps; i++) {
         EFI_INPUT_KEY key;
         if (try_read_key(&key)) {
             if (key.scan_code == SCAN_F2) {
-                printf("setup: F2 — opening Setup UI\n");
+                printf("setup: F2 - opening Setup UI\n");
                 return 1;
             }
             efi_con_unread_key(key);

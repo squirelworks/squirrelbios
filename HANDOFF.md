@@ -114,14 +114,18 @@ expected serial lines (`|`-separated, `!` = must not appear, `~` = regex).
   serial and GOP when Bochs DISPI is present. Entered with
   `-fw_cfg name=opt/org.squirrelworks/setupui,string=1` or by pressing
   **F2** during the short post-GOP ConIn window (`setup: press F2 for
-  Setup UI`). Boot Manager seeds demo `Boot####` / `BootOrder` when
-  empty, reorders with Left/Right, and `SetVariable`s `BootOrder`.
-  Secure Boot keys shows PK/KEK/db/dbx status (seeds demo stubs when
-  empty), confirms and clears them; TPM clear confirms and skips with
-  no TPM (stub when a TPM is present — no mid-boot `TPM2_Clear`).
-  Notes: `release-notes/setup-ui-gop.md`, `release-notes/setup-ui-f2.md`,
-  `release-notes/setup-ui-bootorder.md`,
-  `release-notes/setup-ui-secboot.md`, `x86_64/README.md`.
+  Setup UI`; skipped if ConIn is absent). Boot Manager seeds demo
+  `Boot####` / `BootOrder` when empty only under the setupui fw_cfg
+  gate, reorders with Left/Right, and `SetVariable`s `BootOrder` only
+  when dirty. Secure Boot keys shows PK/KEK/db/dbx status (volatile
+  BS|RT demo stubs under fw_cfg; scrubbed on partial seed failure),
+  confirms and clears them (clears apply this boot: Setup runs before
+  `secure_init`); TPM clear confirms and skips with no TPM (stub when
+  a TPM is present - no mid-boot `TPM2_Clear`). Menu/printf strings
+  use ASCII `-`. Notes: `release-notes/setup-ui-gop.md`,
+  `release-notes/setup-ui-f2.md`, `release-notes/setup-ui-bootorder.md`,
+  `release-notes/setup-ui-secboot.md`,
+  `release-notes/setup-ui-followups.md`, `x86_64/README.md`.
 - **Check:** `x86_64-setupui` (fw_cfg), `x86_64-setupui-f2` (F2, no
   fw_cfg), `x86_64-setupui-bootorder` (reorder + save), and
   `x86_64-setupui-secboot` (Secure Boot clear + TPM clear, no TPM) in
