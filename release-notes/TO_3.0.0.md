@@ -92,23 +92,22 @@ Mirror of the OS/2 scheme, with BIOS examples:
 
 | Item | Lane | Branch / PR | Purpose | Merge gate |
 |------|------|-------------|---------|------------|
-| [#190](https://github.com/squirelworks/squirrelbios/pull/190) | `-2eaf` | `cursor/bios-rel-2.2.0-refresh-2eaf` | Fold UpdateCapsule/ESRT (#189) into `release-notes/v2.2.0.md`; HANDOFF/ROADMAP/TODO honesty | CI green; mergeable; **docs-only preferred before tag** |
+| [#190](https://github.com/squirelworks/squirrelbios/pull/190) | `-2eaf` | `cursor/bios-rel-2.2.0-refresh-2eaf` | Fold UpdateCapsule/ESRT (#189) into `release-notes/v2.2.0.md`; HANDOFF/ROADMAP/TODO honesty | **MERGED** on `main` |
 | Signed capsule worker *(if in flight)* | `-2eaf` | check `gh pr list` / local WIP | Verify + apply / PersistAcrossReset staging | Prefer **land after M0** as M1 unless already CI-green and owner wants it in the tip; do **not** hold M0 forever |
 
 Capsule/ESRT plumbing is **already on `main`** via
 [#189](https://github.com/squirelworks/squirrelbios/pull/189) (`x86_64-capsule`).
-Soft PATH’s “fold into 2.2.0 or cut 2.2.1” advice is satisfied by **#190 →
-tag v2.2.0** (no separate v2.2.1 for #189 alone).
+Notes refresh **#190** is on `main`. Soft PATH’s fold-into-2.2.0 advice is satisfied — owner can tag **v2.2.0** (no separate v2.2.1 for #189 alone).
 
-### M0 — `v2.2.0` tip cut  ·  **needs: squirrel**  ·  depends: #190 on `main`
+### M0 — `v2.2.0` tip cut  ·  **needs: squirrel**  ·  depends: #190 on `main` *(done)*
 
 | Field | Value |
 |-------|-------|
 | **Version** | `2.2.0` (`SQ_VERSION` already `2.2.0` on `main`) |
-| **Tag target** | `main` HEAD **after** #190 merges — tip includes #189 capsule/ESRT |
+| **Tag target** | current `main` HEAD — tip includes #189 capsule/ESRT and #190 notes |
 | **Notes** | [`v2.2.0.md`](v2.2.0.md) (refreshed by #190) |
 | **Acceptance** | Notes match tip; Actions → Draft release assets from that commit; owner Publishes; `SHA256SUMS.txt` covers every attached image |
-| **Agents** | Finish #190; no unilateral tag |
+| **Agents** | No unilateral tag; next coding is **M1** |
 | **Compatibility matrix** | Row: BIOS **v2.2.0** ↔ OS/2 **v2.1.x / tip** (BIOS/CSM/UEFI paths as already documented); cite `uefi-squirrelbios` / `os-boot.sh` when reliable |
 
 **Handshake after M0:**
