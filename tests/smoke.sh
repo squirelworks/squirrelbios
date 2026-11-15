@@ -1082,6 +1082,14 @@ run x86_64-setupui-bootorder "gop: 800x600x32 at|setup: UI open (serial+GOP)|set
     "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd \
     -fw_cfg name=opt/org.squirrelworks/setupui,string=1
 SERIAL_IN=
+# Secure Boot keys view/clear + TPM clear confirmation (no TPM under -bios).
+# Keys: Down×2, Enter, Enter Clear, Enter Yes; Down, Enter, Enter Confirm;
+# Up×3, Enter Continue.
+SERIAL_IN=$TEST_DIR/x86_64-setupui-secboot.keys
+run x86_64-setupui-secboot "gop: 800x600x32 at|setup: UI open (serial+GOP)|setup: selected Secure Boot|setup: seeded demo Secure Boot key stubs|setup: --- Secure Boot Keys ---|setup: mode user (PK enrolled)|setup: PK present (1 bytes)|setup: Clear all Secure Boot keys?|setup: Secure Boot keys cleared (4 removed)|setup: selected TPM clear|setup: --- TPM Clear ---|setup: TPM none|setup: TPM clear skipped (no TPM)|setup: selected Continue boot|setup: UI closed|!TPM clear confirmed" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd \
+    -fw_cfg name=opt/org.squirrelworks/setupui,string=1
+SERIAL_IN=
 
 # x86-64 firmware CSM (C3): with nothing to boot the UEFI way, the legacy
 # x86-pc BIOS built into the image goes to shadow RAM at F0000 (PAM on

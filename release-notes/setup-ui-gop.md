@@ -20,5 +20,6 @@ look, with the same menu mirrored on the serial console.
 - **Docs:** `x86_64/README.md`, HANDOFF / ROADMAP / TODO Phase G card.
 
 Follow-up: F2 without fw_cfg is in `release-notes/setup-ui-f2.md`;
-BootOrder edits in `release-notes/setup-ui-bootorder.md`.
-Next: Secure Boot / TPM / NVRAM notebooks.
+BootOrder edits in `release-notes/setup-ui-bootorder.md`; Secure Boot
+keys / TPM clear in `release-notes/setup-ui-secboot.md`.
+Next: date-time / NVRAM reset notebooks.
