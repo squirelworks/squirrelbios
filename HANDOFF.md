@@ -93,18 +93,20 @@ expected serial lines (`|`-separated, `!` = must not appear, `~` = regex).
 
 ## Suggested order
 
-1. ~~**REL-2.2.0**~~ *(published **v2.2.0**, 2026-11-15)* —
-   https://github.com/squirelworks/squirrelbios/releases/tag/v2.2.0
-   (`0051c40`).
+1. **REL-2.2.0** *(Squirrel — Publish)*: `v2.2.0` **draft** at
+   https://github.com/squirelworks/squirrelbios/releases (`0051c40`)
+   holds the six images + `SHA256SUMS.txt` + full `release-notes/v2.2.0.md`
+   body (same set `Actions → Draft release` attaches). Never stub-publish.
+   This PR is **M1** signed capsule (`2.2.1`); flash rewrite remains.
 2. **D2-rpi4** board flash *(Squirrel)*: the QEMU `raspi4b` case is done;
    try the SD layout in `boards/rpi4/README.md` on a desk Pi 4.
 3. **C5-board** desk flash *(Squirrel)*: docs and `CONFIG=coreboot` are done;
    flash a real GA-G41M-ES2L per `boards/ga-g41m-es2l/FLASHING.md`.
 4. **RISC-V AIA MSI** when a newer QEMU is available in CI.
-5. Phase G next (`-2eaf`): this PR's signed capsule apply is the **M1**
-   slice; **flash rewrite** remains. Already on / after v2.2.0:
-   G1–G3 host fuzz, Setup UI, UpdateCapsule + ESRT, and (this PR)
-   signed apply / PersistAcrossReset staging
+5. Phase G after this PR: **flash rewrite**. Already on / after v2.2.0
+   tip plus this PR:
+   G1–G3 host fuzz, Setup UI, UpdateCapsule + ESRT, signed apply /
+   PersistAcrossReset staging
    (`make fuzz-fat`, `make fuzz-pe`, `make fuzz-authenticode`,
    `make fuzz-net`, `make fuzz-usb`, `make fuzz-fdt`,
    `x86_64-setupui`, `x86_64-setupui-f2`, `x86_64-setupui-bootorder`,
@@ -221,15 +223,19 @@ expected serial lines (`|`-separated, `!` = must not appear, `~` = regex).
 - **Check:** `make fuzz-net`, `make fuzz-usb`, `make fuzz-fdt` each
   print `PASS  fuzz-… (…)`.
 
-### REL-2.2.0 — release notes for what `main` has since v2.1.1  `needs: squirrel`
-- **Done (notes):** `release-notes/v2.2.0.md` (style of `v2.1.0.md`; Known
-  gaps refreshed; UEFI banner `SQ_VERSION` `2.2.0`). Refreshed after
-  #189 so UpdateCapsule + ESRT / `x86_64-capsule` (and Phase G Setup UI
-  + host fuzz) are listed as **in the v2.2.0 tag**, not a follow-up cut.
-  `make test` count: **346** on the #189 tip.
-- **Open (Squirrel):** tag current `main`, run `Actions → Draft release`,
-  publish; give the draft / release link. No v2.2.1 needed for capsule
-  alone.
+### REL-2.2.0 — release notes for what `main` has since v2.1.1  `needs: squirrel` (draft ready)
+- **Done (notes + draft assets):** `release-notes/v2.2.0.md` (style of
+  `v2.1.0.md`; Known gaps refreshed; UEFI banner `SQ_VERSION` `2.2.0`).
+  Refreshed after #189 so UpdateCapsule + ESRT / `x86_64-capsule` (and
+  Phase G Setup UI + host fuzz) are listed as **in the v2.2.0 tag**, not
+  a follow-up cut. `make test` count: **346** on the #189 tip. Draft at
+  https://github.com/squirelworks/squirrelbios/releases (`v2.2.0`,
+  `0051c40`) holds the six images + `SHA256SUMS.txt` + the full notes
+  body — same set `.github/workflows/release-draft.yml` attaches.
+- **Open (Squirrel):** **Publish** that draft. An earlier stub publish
+  without assets was reverted and refilled. Always run
+  `Actions → Draft release` before Publish. No v2.2.1 for #189 alone
+  (signed apply here is the **2.2.1** / M1 slice).
 - **Check:** `make test` green on the tagged commit; every image boots its
   `make test` cases; `SHA256SUMS.txt` covers every attached image.
 
