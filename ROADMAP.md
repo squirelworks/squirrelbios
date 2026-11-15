@@ -367,12 +367,13 @@ Setup UI shell land here as sizeable steps.
   `make fuzz-pe` / `fuzz/pe_harness.c` / `fuzz/corpus-pe/`; optional
   `.github/workflows/fuzz-pe.yml`. Notes in `fuzz/README.md` and
   `release-notes/host-fuzz-pe.md`.
-- [x] **Setup UI (first step)** GOP + serial boot menu shell on
+- [x] **Setup UI (GOP + F2)** GOP + serial boot menu shell on
   `x86_64-uefi`: Warp-look title and navigable items
   (`x86_64/core/setupui.c`, original 8×16 font); entered with
-  `opt/org.squirrelworks/setupui`. Smoke: `x86_64-setupui`. Notes in
-  `release-notes/setup-ui-gop.md`. Next: F2 hotkey, BootOrder, Secure
-  Boot / TPM / NVRAM notebooks.
+  `opt/org.squirrelworks/setupui` or F2 on ConIn (short post-GOP
+  window). Smoke: `x86_64-setupui`, `x86_64-setupui-f2`. Notes in
+  `release-notes/setup-ui-gop.md`, `release-notes/setup-ui-f2.md`.
+  Next: BootOrder, Secure Boot / TPM / NVRAM notebooks.
 - [ ] **G3** Authenticode/PKCS#7, DHCP/TFTP/HTTP, USB descriptors, FDT;
   a scheduled nightly with a fixed libFuzzer budget *(later)*.
 

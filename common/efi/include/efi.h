@@ -546,6 +546,7 @@ EFI_STATUS EFIAPI efi_stall(UINTN);
 
 /* textcon.c */
 void efi_console_init(void);
+void efi_con_unread_key(EFI_INPUT_KEY key); /* push back one stroke */
 
 /* protocol.c */
 void efi_protocol_init(EFI_BOOT_SERVICES *bs);

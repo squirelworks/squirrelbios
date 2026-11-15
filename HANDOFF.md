@@ -99,24 +99,26 @@ expected serial lines (`|`-separated, `!` = must not appear, `~` = regex).
    flash a real GA-G41M-ES2L per `boards/ga-g41m-es2l/FLASHING.md`.
 4. **RISC-V AIA MSI** when a newer QEMU is available in CI.
 5. Then Phase G ideas in `docs/CONTINUANCE.md` (squirrelsoft); G1/G2
-   host fuzz smokes and the Setup UI first step are done
-   (`make fuzz-fat`, `make fuzz-pe`, `x86_64-setupui`).
+  host fuzz smokes and the Setup UI (GOP + F2) steps are done
+  (`make fuzz-fat`, `make fuzz-pe`, `x86_64-setupui`,
+  `x86_64-setupui-f2`).
 
 ## Task cards
 
-### G-setup-ui — Setup UI / boot menu on GOP (first step)  `status: done`
+### G-setup-ui — Setup UI / boot menu on GOP + F2 hotkey  `status: done`
 - **Done:** navigable Warp-look boot menu shell on `x86_64-uefi`
   (`x86_64/core/setupui.c` + `font8x16.h` from the original VGA
   glyphs). Title, Boot Manager list (Continue + stubs), Up/Down/Enter/
-  Esc on serial and GOP when Bochs DISPI is present. Gated by
-  `-fw_cfg name=opt/org.squirrelworks/setupui,string=1` so ordinary
-  boots stay unchanged. Notes: `release-notes/setup-ui-gop.md`,
-  `x86_64/README.md`.
-- **Check:** `x86_64-setupui` in `make test` prints
-  `setup: UI open (serial+GOP)` … `setup: selected Continue boot`.
-- **Next (still Phase G Setup UI):** F2 hotkey without fw_cfg, real
-  BootOrder edits, Secure Boot keys / TPM clear / date-time / NVRAM
-  reset notebooks.
+  Esc on serial and GOP when Bochs DISPI is present. Entered with
+  `-fw_cfg name=opt/org.squirrelworks/setupui,string=1` or by pressing
+  **F2** during the short post-GOP ConIn window (`setup: press F2 for
+  Setup UI`). Notes: `release-notes/setup-ui-gop.md`,
+  `release-notes/setup-ui-f2.md`, `x86_64/README.md`.
+- **Check:** `x86_64-setupui` (fw_cfg) and `x86_64-setupui-f2` (F2,
+  no fw_cfg) in `make test` print `setup: UI open (serial+GOP)` …
+  `setup: selected Continue boot`.
+- **Next (still Phase G Setup UI):** real BootOrder edits, Secure Boot
+  keys / TPM clear / date-time / NVRAM reset notebooks.
 
 ### G1-fuzz-fat — host FAT fuzz / corpus smoke  `status: done`
 - **Done:** host-buildable harness for `common/efi/fat.c` under

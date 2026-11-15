@@ -122,14 +122,16 @@ miscellaneous output register's colour bit and the attribute
 controller's palette address source bit, without which the adapter
 shows nothing, and clears the frame buffer.
 
-Setup UI (Phase G, first step): with
+Setup UI (Phase G): with
 `-fw_cfg name=opt/org.squirrelworks/setupui,string=1` the firmware
 opens a Warp-look boot menu on the GOP frame buffer (title bar, panel,
 navigable items drawn with the original 8×16 font) and mirrors it on
-COM1. Up/Down move the selection, Enter activates (Continue leaves the
-menu; other rows are stubs), Esc continues boot. Without that fw_cfg
-file the menu is skipped. Later: F2 hotkey, real BootOrder / Secure
-Boot / TPM / NVRAM notebooks. Smoke: `x86_64-setupui`.
+COM1. Without that fw_cfg file, a short post-GOP window accepts **F2**
+on ConIn (`setup: press F2 for Setup UI`; serial `ESC O Q` or
+`ESC [ 12 ~`). Up/Down move the selection, Enter activates (Continue
+leaves the menu; other rows are stubs), Esc continues boot. Later:
+real BootOrder / Secure Boot / TPM / NVRAM notebooks. Smoke:
+`x86_64-setupui`, `x86_64-setupui-f2`.
 
 Runtime: `GetTime` from the CMOS RTC,
 the variable services (below), `ResetSystem` (ACPI

@@ -113,6 +113,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/x86_64-con.efi $(TEST_DIR)/x86_64-con.keys \
              $(TEST_DIR)/x86_64-esp.img $(TEST_DIR)/x86_64-gop.efi \
              $(TEST_DIR)/x86_64-setupui.keys \
+             $(TEST_DIR)/x86_64-setupui-f2.keys \
              $(TEST_DIR)/x86_64-mp.efi \
              $(TEST_DIR)/x86_64-acpi.efi \
              $(TEST_DIR)/sb/sb-signed.efi $(TEST_DIR)/x86_64-sb-esp.img \
@@ -392,6 +393,9 @@ $(TEST_DIR)/x86_64-gop.efi: tests/x86_64-gop.asm tests/x86_64-pe.inc | $(TEST_DI
 # Setup UI (Phase G): Down, Up, Enter → navigate then Continue boot
 $(TEST_DIR)/x86_64-setupui.keys: | $(TEST_DIR)
 	printf '\033[B\033[A\r' > $@
+# Setup UI F2 hotkey (no fw_cfg): ESC O Q = F2, then same navigation
+$(TEST_DIR)/x86_64-setupui-f2.keys: | $(TEST_DIR)
+	printf '\033OQ\033[B\033[A\r' > $@
 # MP services and the MP table (C4)
 $(TEST_DIR)/x86_64-mp.efi: tests/x86_64-mp.asm tests/x86_64-pe.inc | $(TEST_DIR)
 	$(NASM) -f bin -i tests/ $< -o $@
