@@ -472,7 +472,7 @@ ISM `fighter-jet/interfaces/firmware-bringup.yaml` BIT line. Gap analysis:
 - [x] **H2** Boot-integrity check (image hash/signature) and safe-state on
   failure (neutral outputs; no jump to a bad image). Smoke:
   `avionics-integrity`.
-- [ ] **H3** Clean hand-off interface to an RTOS / application image
+- [x] **H3** Clean hand-off interface to an RTOS / application image
   (MCU-sized contract in `common/handoff.md`). Smoke: `avionics-handoff`.
 - [ ] **H4** First target: Eric’s ISM RC flight controller
   (`boards/ism-rc-fc/`). Smoke: `avionics-rc-fc`.
