@@ -19,6 +19,8 @@ page later on the OS lane).
   `ExitBootServices` the SQTL pointer and Spec ID Event03 header remain
   readable (stand-in checks this).
 - **Smoke:** `x86_64-tpm-log-handoff` (needs `swtpm`).
+- **Version:** `SQ_VERSION` **2.3.0**; capsule test `TargetVersion` moves
+  to `0x00020400` so apply smokes still upgrade past the new ESRT base.
 - **OS follow-up:** Squirrel-OS/2 Control Panel “boot security” consumer
   and OS regress name are **not** invented here — coordinate with the
   OS/2 lane when ready (`TO_3.0.0.md` compatibility matrix).
