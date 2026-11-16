@@ -127,11 +127,11 @@ Notes refresh **#190** is on `main`. Soft PATH’s fold-into-2.2.0 advice is sat
    flash rewrite, **M4** project-key / ESRT, **M5** measured hand-off,
    **M6** os-boot sync, **M7** docs_lint harden, **M3** Setup UI
    polish, **M9** VisionFive2 / HiFive desk notes, **M15** Secure
-   Boot everyday path, and **M16** measured-boot polish landed. Optional
-   **M8** CI shard is **skipped** while `make test` wall-clock stays
-   ~4–5 minutes. **M10** AIA MSI stays blocked on CI QEMU 8.2. Next
-   coding is **M14** (banner prep) / **M17+** (not desk M11–M12; those
-   are `needs: squirrel`).
+   Boot everyday path, **M16** measured-boot polish, and **M17** suite
+   matrix hardening landed. Optional **M8** CI shard is **skipped**
+   while `make test` wall-clock stays ~4–5 minutes. **M10** AIA MSI
+   stays blocked on CI QEMU 8.2. Next coding is **M14** (banner prep)
+   / **M18+** (not desk M11–M12; those are `needs: squirrel`).
 3. Soft PATH stays index-only; do not move this ladder into Soft.
 
 ---
@@ -345,17 +345,18 @@ Lanes: **only `-2eaf`** for code. Owner marks wait on `needs: squirrel`.
 | **Lane** | `-2eaf` |
 | **Status** | **Done** — SQTL `ActiveBanks` + PCR policy v1 / TCG2 field layout; stand-in `banks=ok parse=ok policy=ok` |
 
-### M17 — `2.8.0` suite matrix hardening (BIOS ↔ OS/2 tags)  ·  `-2eaf`  ·  depends: M6 + recent OS/2 tags
+### M17 — `2.8.0` suite matrix hardening (BIOS ↔ OS/2 tags)  ·  **done**  ·  `-2eaf`  ·  depends: M6 + recent OS/2 tags
 
 | Field | Value |
 |-------|-------|
-| **Bump** | Jump to **`2.8.0`** |
+| **Bump** | Ladder **`2.8.0`**; `SQ_VERSION` stays **2.3.0** until M14 cuts `2.6.0` |
 | **Box** | `compat-matrix` |
 | **Issue to file** | *(draft)* `Release notes: compatibility matrix vs OS/2 tags (BIOS/CSM/UEFI)` |
-| **Suggested check** | docs_lint or a small table test that cited tags exist |
-| **Design note** | every `release-notes/v*.md` from here on includes the matrix section |
+| **Suggested check** | `compat-matrix` (`tools/compat_matrix_lint.py`, `--self-test`) |
+| **Design note** | `release-notes/compat-matrix.md` (canonical table; every `v2.2.0+` note has Compatibility) |
 | **Acceptance** | Matrix lists BIOS tag, OS/2 tag, path (legacy BIOS / CSM / UEFI), QEMU machine |
 | **Lane** | `-2eaf` |
+| **Status** | **Done** — canonical matrix + host honesty check vs pin and published notes |
 
 ### M18 — `2.9.0` pre-3.0 verified-chain rehearsal  ·  `-2eaf`  ·  depends: M15 + M16; OS/2 2.9+ when available
 
@@ -408,17 +409,20 @@ Do not burn a minor bump for typos.
 
 ## Compatibility matrix (paste into release notes)
 
-Every BIOS release note from **v2.2.0** onward should carry a short table.
-Fill real SHAs/tags at publish time:
+Canonical table: [`compat-matrix.md`](compat-matrix.md) (M17 /
+`compat-matrix` host check). Every BIOS release note from **v2.2.0**
+onward must carry a Compatibility section (short row and/or pointer).
+Fill real SHAs/tags at publish time; keep columns stable:
 
 | BIOS tag | OS/2 tag (min) | Path | QEMU machine | Check / script |
 |----------|----------------|------|--------------|----------------|
-| v2.1.1 | v2.1.x / tip | legacy BIOS, CSM, UEFI | `pc` / `q35` | `tests/os-boot.sh`, OS `uefi-squirrelbios` |
-| v2.2.0 | OS/2 tip at cut | same + capsule/ESRT present | `q35` + swtpm for TPM cases | `x86_64-capsule`, Setup UI cases |
-| v2.3.0 | OS/2 with event-log consumer *(when ready)* | UEFI + TPM | `q35` + swtpm | `x86_64-tpm-log-handoff` + OS name TBD |
+| v2.1.1 | v2.1.0 / tip | legacy BIOS, CSM, UEFI | `pc` / `q35` | `tests/os-boot.sh`, OS `uefi-squirrelbios` |
+| v2.2.0 | OS/2 tip at cut | legacy BIOS, CSM, UEFI (+ capsule/ESRT) | `q35` (+ swtpm for TPM) | `x86_64-capsule`, Setup UI cases |
+| v2.3.0 | OS/2 event-log consumer *(when ready)* | UEFI + TPM | `q35` + swtpm | `x86_64-tpm-log-handoff` |
 | v2.3.1 *(mark; SQ_VERSION still 2.3.0)* | **OS/2 `v2.3.0`** (pinned) | legacy BIOS / CSM `os-boot` | `pc` / `q35` | `os-boot-sync`, `tests/os-boot.sh` |
-| v2.9.0 | OS/2 2.9.x | UEFI SB + TPM rehearsal | `q35` + swtpm | `x86_64-m3-rehearsal` |
-| **v3.0.0** | **OS/2 3.0.0** | verified chain | `q35` + swtpm | aggregate M20 checks |
+| v2.6.1 *(mark; SQ_VERSION still 2.3.0)* | OS/2 loader stand-in | UEFI SB + TPM | `q35` + swtpm | `x86_64-sb-os2` |
+| v2.9.0 *(planned)* | OS/2 2.9.x | UEFI SB + TPM rehearsal | `q35` + swtpm | `x86_64-m3-rehearsal` |
+| **v3.0.0** *(planned)* | **OS/2 3.0.0** | verified chain (legacy BIOS / CSM / UEFI) | `q35` + swtpm | aggregate M20 checks |
 
 Soft does not own rows; it may **index** them.
 
@@ -430,7 +434,7 @@ Soft does not own rows; it may **index** them.
 
 | Actor | Now | Next |
 |-------|-----|------|
-| **`-2eaf` (BIOS)** | **M1–M7**, **M3**, **M9**, **M15**, **M16** on `main` — **do not redo**; **M8** skipped; **M10** blocked | **M14** banner prep / **M17+** |
+| **`-2eaf` (BIOS)** | **M1–M7**, **M3**, **M9**, **M15**, **M16**, **M17** on `main` — **do not redo**; **M8** skipped; **M10** blocked | **M14** banner prep / **M18+** |
 | **Owner** | **M0** `v2.2.0` published | Later M13/M14/M20; desk M11/M12 when hardware is free |
 | **`-b55f`** | **Not on BIOS** — OS/2 2.9 only | Ignore this file for OS claims; see OS/2 `TO_3.0.0.md` |
 | **Soft** | PATH index only | Do not move BIOS marks into Soft |

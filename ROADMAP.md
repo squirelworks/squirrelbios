@@ -49,8 +49,9 @@ suite-wide continuation plan is `docs/CONTINUANCE.md` in squirrelsoft.
   event-log hand-off (SQTL / M5), os-boot sync (M6 / pinned
   Squirrel-OS/2 `v2.3.0`), docs_lint harden (M7), Setup UI polish (M3),
   VisionFive 2 / HiFive desk notes (M9), Secure Boot everyday path
-  (M15 / `x86_64-sb-os2*`), and measured-boot polish
-  (M16 / `x86_64-tpm-polish`) are on `main`. Optional **M8** CI shard is
+  (M15 / `x86_64-sb-os2*`), measured-boot polish
+  (M16 / `x86_64-tpm-polish`), and suite matrix hardening (M17 /
+  `compat-matrix`) are on `main`. Optional **M8** CI shard is
   skipped while `make test` wall-clock stays ~4–5 minutes. **M14**
   Phase G product banner (`2.6.0`) stays open for owner prep/tag.
 
@@ -500,6 +501,15 @@ Setup UI shell land here as sizeable steps. Fine-grained marks to product
   Smoke: `x86_64-tpm-polish` (+ extended `x86_64-tpm-log-handoff`).
   Notes in `release-notes/tpm-polish.md`. Epic #82. `TO_3.0.0.md` M16 /
   ladder **2.7.0**. `SQ_VERSION` stays **2.3.0** (M14 `2.6.0` banner
+  still open for owner).
+- [x] **Suite matrix hardening (M17 / `compat-matrix`)** (lane
+  `-2eaf`): canonical BIOS ↔ OS/2 matrix
+  (`release-notes/compat-matrix.md`); host smoke refuses missing
+  columns / boot-path class, published BIOS tags without notes, pin
+  mismatch on the `os-boot-sync` row, and `v2.2.0+` notes without
+  Compatibility. Smoke: `compat-matrix`. Notes in
+  `release-notes/compat-matrix.md`. Epic #82. `TO_3.0.0.md` M17 /
+  ladder **2.8.0**. `SQ_VERSION` stays **2.3.0** (M14 `2.6.0` banner
   still open for owner).
 
 ### Squirrel-OS/2 hand-off on every platform
