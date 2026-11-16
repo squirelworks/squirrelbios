@@ -1250,6 +1250,17 @@ The first event is Spec ID Event03. No TPM → no SQTL table and
 invent the OS regress name here). Smoke: `x86_64-tpm-log-handoff`.
 Notes: `release-notes/measured-handoff.md`, `release-notes/v2.3.0.md`.
 
+### Secure Boot everyday path (Phase G M15)
+
+With Secure Boot on (fw_cfg `opt/org.squirrelworks/db` holding the
+project test X.509 ESL) and a TPM 2.0 on TIS, a **project-signed**
+Squirrel-OS/2 loader stand-in starts and the TPM still extends; an
+**unsigned** image is refused with `EFI_SECURITY_VIOLATION` and never
+prints the loader banner. Everyday disk path: the same signed image as
+`\EFI\BOOT\BOOTX64.EFI` on a GPT ESP. Smoke: `x86_64-sb-os2`,
+`x86_64-sb-os2-esp`, `x86_64-sb-os2-unsigned` (needs swtpm). Notes:
+`release-notes/sb-everyday.md`.
+
 ## POWER (QEMU powernv9 / powernv10)
 
 Roadmap E1, `PLATFORM=ppc64le-powernv`; details in

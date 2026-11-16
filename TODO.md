@@ -548,6 +548,15 @@ stub, a 1 MB flash image for `qemu-system-x86_64 -bios`. One PR each.
   skipped (wall-clock fine). **M10** AIA MSI remains blocked on
   QEMU ≥ 9.1.
 
+- [x] `x86_64-sb-os2` — Phase G M15 Secure Boot everyday path (lane
+  `-2eaf`): project-signed Squirrel-OS/2 loader stand-in under QEMU
+  with SB on + TPM; unsigned refused; tcglog replay stays green.
+  Smoke: `x86_64-sb-os2`, `x86_64-sb-os2-esp`,
+  `x86_64-sb-os2-unsigned`. Notes: `release-notes/sb-everyday.md`.
+  Depends on: `c4-secure-boot`, `c5-tpm`. Epic #82.
+  `TO_3.0.0.md` M15 / ladder **2.6.1**. `SQ_VERSION` stays **2.3.0**
+  (M14 `2.6.0` banner still open for owner prep/tag).
+
 ## 14. Phase H — ISM avionics bring-up / BIT / integrity (#195)
 
 One checkbox is one PR from `main`. Interface:

@@ -1952,6 +1952,33 @@ else
     echo "SKIP  x86_64-tpm-log-handoff (no swtpm)"
 fi
 
+# Phase G M15: Secure Boot everyday path for a Squirrel-OS/2 loader
+# stand-in. With SB on (project test db) and a TPM, only the signed
+# loader starts; unsigned is refused; PCR extends / tcglog stay green.
+SB_OS2_APP="APP os2-loader cap=ok log=ok extend=ok pcr8=ok|efi: image returned 0x0"
+if command -v swtpm >/dev/null 2>&1 && command -v swtpm_setup >/dev/null 2>&1; then
+    start_swtpm sha256
+    run x86_64-sb-os2 "secure: Secure Boot on (fixed keys)|secure: image verified: signed by db entry 1 (X.509)|tpm: TPM 2.0 at 0xfed40000 (TIS, 1014:0001), PCR banks SHA-256|$SB_OS2_APP|TPMPCR" \
+        "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd $TPM_DEV \
+        -fw_cfg $SB_DB,file=$SB/sb-db-x509.esl \
+        -fw_cfg $X64_BOOT,file=$SB/sb-os2-signed.efi
+    replay x86_64-sb-os2 $TEST_DIR/sb/sb-os2-signed.efi
+    start_swtpm sha256
+    run x86_64-sb-os2-esp "fs: FAT32 on partition|efi: booting \\EFI\\BOOT\\BOOTX64.EFI|secure: image verified: signed by db entry 1 (X.509)|tpm: TPM 2.0 at|APP os2-loader cap=ok log=ok extend=ok pcr8=ok|efi: BOOTX64.EFI returned 0x0|TPMPCR|!=bad" \
+        "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd $TPM_DEV \
+        -fw_cfg $SB_DB,file=$SB/sb-db-x509.esl \
+        -drive if=none,id=esp,format=raw,file=$TEST_DIR/x86_64-sb-os2-esp.img,snapshot=on \
+        -device virtio-blk-pci,drive=esp,disable-legacy=off,disable-modern=on
+    replay x86_64-sb-os2-esp $TEST_DIR/sb/sb-os2-signed.efi
+    start_swtpm sha256
+    run x86_64-sb-os2-unsigned "secure: image refused: not signed, and its SHA-256 is not in db|tpm: TPM 2.0 at|efi: LoadImage failed: 0x800000000000001a, halting|!APP os2-loader" \
+        "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd $TPM_DEV \
+        -fw_cfg $SB_DB,file=$SB/sb-db-x509.esl \
+        -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-sb-os2.efi
+else
+    echo "SKIP  x86_64-sb-os2, x86_64-sb-os2-esp, x86_64-sb-os2-unsigned (no swtpm)"
+fi
+
 # x86-64 firmware: SMM and EINJ (F2). On q35 the top 1 MB of RAM below
 # 4 GB is TSEG, every CPU's SMBASE is moved into it, and an SMI from port
 # 0xB2 serves EINJ: x86_64-einj runs the EINJ actions as an OS would, on

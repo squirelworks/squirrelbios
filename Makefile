@@ -125,6 +125,8 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/x86_64-mp.efi \
              $(TEST_DIR)/x86_64-acpi.efi \
              $(TEST_DIR)/sb/sb-signed.efi $(TEST_DIR)/x86_64-sb-esp.img \
+             $(TEST_DIR)/x86_64-sb-os2.efi $(TEST_DIR)/sb/sb-os2-signed.efi \
+             $(TEST_DIR)/x86_64-sb-os2-esp.img \
              $(TEST_DIR)/x86_64-numa.efi $(TEST_DIR)/x86_64-numa-dist.bin \
              $(TEST_DIR)/x86_64-tpm.efi \
              $(TEST_DIR)/x86_64-tpm-log-handoff.efi \
@@ -481,6 +483,14 @@ $(TEST_DIR)/sb/sb-signed.efi: tests/mksigned.py $(TEST_DIR)/x86_64-app.efi | $(T
 	python3 tests/mksigned.py $(TEST_DIR)/x86_64-app.efi $(TEST_DIR)/sb
 $(TEST_DIR)/x86_64-sb-esp.img: tests/mkesp.py $(TEST_DIR)/sb/sb-signed.efi | $(TEST_DIR)
 	python3 tests/mkesp.py $(TEST_DIR)/sb/sb-signed.efi $@
+# Phase G M15: Squirrel-OS/2 loader stand-in (signed for everyday SB + TPM)
+$(TEST_DIR)/x86_64-sb-os2.efi: tests/x86_64-sb-os2.asm tests/x86_64-pe.inc | $(TEST_DIR)
+	$(NASM) -f bin -i tests/ $< -o $@
+$(TEST_DIR)/sb/sb-os2-signed.efi: tests/mksigned.py $(TEST_DIR)/x86_64-sb-os2.efi | $(TEST_DIR)
+	mkdir -p $(TEST_DIR)/sb
+	python3 tests/mksigned.py --sign $(TEST_DIR)/x86_64-sb-os2.efi $@
+$(TEST_DIR)/x86_64-sb-os2-esp.img: tests/mkesp.py $(TEST_DIR)/sb/sb-os2-signed.efi | $(TEST_DIR)
+	python3 tests/mkesp.py $(TEST_DIR)/sb/sb-os2-signed.efi $@
 
 # aarch64-uefi: the stand-in EFI application in C (tests/efi-app.c),
 # linked at 256 MB + 4 KB and wrapped as PE32+ by tests/mkpe.py; it
