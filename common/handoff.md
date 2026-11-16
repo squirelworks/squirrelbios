@@ -750,10 +750,12 @@ them back, and prints `write=ok`.
 A Squirrel-OS/2 hard-disk image is not part of `make test`. The
 supported partner is pinned in `tests/os-boot.pin` (currently
 Squirrel-OS/2 **`v2.3.0`**, tip
-`59069e31989828ec5f6973a44f73b31ec04bb035`); `make test` only runs the
-host pin check `os-boot-sync`. Build `os.img` in that repo, download
-the pinned release (`tests/os-boot.sh --fetch`), or pass a path, and
-run `tests/os-boot.sh path/to/os.img` (or `make os-boot`). A SHA-256
+`59069e31989828ec5f6973a44f73b31ec04bb035`); `make test` runs the host
+pin check `os-boot-sync` and the suite matrix honesty check
+`compat-matrix` (`release-notes/compat-matrix.md`, Phase G M17). Build
+`os.img` in that repo, download the pinned release
+(`tests/os-boot.sh --fetch`), or pass a path, and run
+`tests/os-boot.sh path/to/os.img` (or `make os-boot`). A SHA-256
 mismatch names the expected OS/2 tag in the failure text
 (`OS_SKIP_PIN=1` for a local tip build). It passes when the VGA text
 buffer shows the `Squirrel-OS/2` banner and a line that is the `>`

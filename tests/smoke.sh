@@ -2109,6 +2109,10 @@ fi
 # tag (tests/os-boot.pin). Host-only; no image in the tree, no network.
 host_check os-boot-sync tests/os-boot.sh --check-pin
 
+# Phase G M17: suite compatibility matrix (BIOS ↔ OS/2 tags) stays honest
+# against release notes + the os-boot pin. Host-only; no network.
+host_check compat-matrix tests/compat_matrix_selftest.sh
+
 # E3 stretch ports: LoongArch64 on QEMU virt and MIPS on QEMU Malta. Each
 # reaches its prompt and hands off to a test kernel: by autoboot, through
 # the prompt (help, info, an unknown command, backspace, boot), and with

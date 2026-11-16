@@ -567,6 +567,18 @@ stub, a 1 MB flash image for `qemu-system-x86_64 -bios`. One PR each.
   Epic #82. `TO_3.0.0.md` M16 / ladder **2.7.0**. `SQ_VERSION` stays
   **2.3.0** (M14 `2.6.0` banner still open for owner prep/tag).
 
+- [x] `compat-matrix` — Phase G M17 suite matrix hardening (lane
+  `-2eaf`): canonical BIOS ↔ OS/2 table in
+  `release-notes/compat-matrix.md` (BIOS tag, OS/2 tag, path, QEMU
+  machine, check). Host smoke `compat-matrix`
+  (`tests/compat_matrix_selftest.sh` /
+  `tools/compat_matrix_lint.py`) checks published BIOS notes, the
+  pinned OS/2 `os-boot-sync` row, and Compatibility sections on
+  `v2.2.0+` release notes. Notes: `release-notes/compat-matrix.md`.
+  Depends on: M6. Epic #82. `TO_3.0.0.md` M17 / ladder **2.8.0**.
+  `SQ_VERSION` stays **2.3.0** (M14 `2.6.0` banner still open for
+  owner prep/tag).
+
 ## 14. Phase H — ISM avionics bring-up / BIT / integrity (#195)
 
 One checkbox is one PR from `main`. Interface:
