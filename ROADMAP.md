@@ -476,7 +476,7 @@ ISM `fighter-jet/interfaces/firmware-bringup.yaml` BIT line. Gap analysis:
   (MCU-sized contract in `common/handoff.md`). Smoke: `avionics-handoff`.
 - [x] **H4** First target: Eric’s ISM RC flight controller
   (`boards/ism-rc-fc/`). Smoke: `avionics-rc-fc`.
-- [ ] **H5** Porting guide for new avionics boards
+- [x] **H5** Porting guide for new avionics boards
   (`boards/ism-avionics/PORTING.md`).
 
 ## Out of scope

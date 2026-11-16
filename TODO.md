@@ -536,7 +536,7 @@ ISM `fighter-jet/interfaces/firmware-bringup.yaml`. Gap list:
   table wired into the BIT framework; smoke case `avionics-rc-fc`.
   Depends on: avionics-handoff.
 
-- [ ] `avionics-porting` — Porting guide for new avionics boards.
+- [x] `avionics-porting` — Porting guide for new avionics boards.
   Acceptance: `boards/ism-avionics/PORTING.md` covers board-id, probes,
   BIT line, integrity, RTOS hand-off, and test hooks. Depends on:
   avionics-rc-fc.
