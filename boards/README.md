@@ -19,7 +19,7 @@ the link address for those images.
 | [`hifive-unmatched/`](hifive-unmatched/README.md) | SiFive HiFive Unmatched (FU740) | `riscv64-uefi` `CONFIG=hifive-unmatched` |
 | [`ga-g41m-es2l/`](ga-g41m-es2l/README.md) | Gigabyte GA-G41M-ES2L (Intel G41 + ICH7) | `x86_64-uefi` `CONFIG=coreboot` (LBIO tables; [FLASHING.md](ga-g41m-es2l/FLASHING.md)) |
 | [`ism-avionics/`](ism-avionics/GAP.md) | ISM fighter-jet bay I/O / FCC (bring-up / BIT / integrity) | Portable BIT + MCU hand-off (#195); not a QEMU PC/UEFI image yet |
-| `ism-rc-fc/` *(planned, #195 H4)* | Eric’s ISM RC flight controller (first trial) | Same framework; board card after BIT/integrity/hand-off |
+| [`ism-rc-fc/`](ism-rc-fc/README.md) | Eric’s ISM RC flight controller (first trial) | `common/bit/` BIT + integrity + hand-off; smoke `avionics-rc-fc` |
 
 Each note says how the board boots, what of ours could run where, and
 the gaps in our code, file by file. Addresses are the ones the boards'

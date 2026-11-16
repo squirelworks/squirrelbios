@@ -531,7 +531,7 @@ ISM `fighter-jet/interfaces/firmware-bringup.yaml`. Gap list:
   integrity status, no post-jump BIOS services); smoke case
   `avionics-handoff`. Depends on: avionics-integrity.
 
-- [ ] `avionics-rc-fc` — First target: Eric’s ISM RC flight controller.
+- [x] `avionics-rc-fc` — First target: Eric’s ISM RC flight controller.
   Acceptance: `boards/ism-rc-fc/` board card with board-id and probe
   table wired into the BIT framework; smoke case `avionics-rc-fc`.
   Depends on: avionics-handoff.

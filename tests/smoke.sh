@@ -1316,6 +1316,7 @@ host_check() {
 host_check avionics-bit "$TEST_DIR/avionics-bit"
 host_check avionics-integrity "$TEST_DIR/avionics-integrity"
 host_check avionics-handoff "$TEST_DIR/avionics-handoff"
+host_check avionics-rc-fc "$TEST_DIR/avionics-rc-fc"
 
 # x86-64 firmware: machine checks left in the banks survive a reset and
 # become BERT records on the next boot (F2). Once the app has seen an

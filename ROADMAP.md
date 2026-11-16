@@ -474,7 +474,7 @@ ISM `fighter-jet/interfaces/firmware-bringup.yaml` BIT line. Gap analysis:
   `avionics-integrity`.
 - [x] **H3** Clean hand-off interface to an RTOS / application image
   (MCU-sized contract in `common/handoff.md`). Smoke: `avionics-handoff`.
-- [ ] **H4** First target: Eric’s ISM RC flight controller
+- [x] **H4** First target: Eric’s ISM RC flight controller
   (`boards/ism-rc-fc/`). Smoke: `avionics-rc-fc`.
 - [ ] **H5** Porting guide for new avionics boards
   (`boards/ism-avionics/PORTING.md`).
