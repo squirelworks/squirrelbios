@@ -42,13 +42,15 @@ suite-wide continuation plan is `docs/CONTINUANCE.md` in squirrelsoft.
   F2 SMM + EINJ + CXL, all of Phase E, Raspberry Pi bring-up on QEMU `raspi3b` /
   `raspi4b`, Phase G Setup UI + host fuzz + **UpdateCapsule + ESRT** (#189).
   F1-scale (1024 CPUs / two ECAM segments, host-side `tests/acpicheck.py`) is in #169.
-- **Open:** C5 real-board flash, D2 desk Raspberry Pi 4/5, RISC-V AIA MSI mode.
-  F4-scale is optional `make f4-scale` (not in CI). Signed capsule apply,
-  flash rewrite via NV identity (M2), project-key / ESRT path (M4),
-  measured TPM event-log hand-off (SQTL / M5), os-boot sync (M6 /
-  pinned Squirrel-OS/2 `v2.3.0`), docs_lint harden (M7), and Setup UI
-  polish (M3) are on `main`. Optional **M8** CI shard is skipped while
-  `make test` wall-clock stays ~4–5 minutes.
+- **Open:** C5 real-board flash, D2 desk Raspberry Pi 4/5, RISC-V AIA MSI
+  mode (**M10**, blocked on CI QEMU 8.2). F4-scale is optional
+  `make f4-scale` (not in CI). Signed capsule apply, flash rewrite via
+  NV identity (M2), project-key / ESRT path (M4), measured TPM
+  event-log hand-off (SQTL / M5), os-boot sync (M6 / pinned
+  Squirrel-OS/2 `v2.3.0`), docs_lint harden (M7), Setup UI polish (M3),
+  and VisionFive 2 / HiFive desk notes (M9) are on `main`. Optional
+  **M8** CI shard is skipped while `make test` wall-clock stays
+  ~4–5 minutes.
 
 ## Where things were (2026-11-13)
 
@@ -303,6 +305,12 @@ boxes in [TODO.md](TODO.md).
   - [ ] A Pi 4 on the desk boots the firmware from SD *(Squirrel, post-merge)*
 - [x] **D3** RISC-V `virt`: UEFI-class interface while keeping the SBI;
   `DBCN`, SSE; boards (VisionFive 2, HiFive) under `boards/`.
+  - [x] `board-vf2-hifive-notes` (M9): desk procedures
+    `boards/visionfive2/DESK.md`, `boards/hifive-unmatched/DESK.md`
+    beside `CONFIG=visionfive2` / `CONFIG=hifive-unmatched`; CI keeps
+    `riscv64-visionfive2-build` and
+    `riscv64-hifive-unmatched-{build,sifive-u}`; desk flash
+    `needs: squirrel`
 - [x] **D4** Shared drivers across architectures (NVMe, xHCI, virtio, FAT,
   PE/ELF loaders) from the same sources. Test: each QEMU target boots
   Squirrel-OS/2 (once its port exists) and Linux to a shell.
@@ -470,6 +478,13 @@ Setup UI shell land here as sizeable steps. Fine-grained marks to product
   demo seed. Smoke: `x86_64-setupui-polish` (+ updated setupui*). Notes
   in `release-notes/setup-ui-polish.md`. Epic #82. `TO_3.0.0.md` M3.
   Optional **M8** `ci-shard-smoke` skipped (wall-clock already fine).
+- [x] **VisionFive 2 / HiFive desk notes (M9 / `board-vf2-hifive-notes`)**
+  (lane `-2eaf`): desk boot procedures beside existing CONFIG builds;
+  no new QEMU machine; `SQ_VERSION` stays **2.3.0** (ladder **2.3.2**).
+  Smoke: existing `riscv64-visionfive2-build`,
+  `riscv64-hifive-unmatched-build`, `riscv64-hifive-unmatched-sifive-u`.
+  Notes in `release-notes/board-vf2-hifive-notes.md`. Epic #82.
+  `TO_3.0.0.md` M9. **M10** AIA MSI remains blocked on CI QEMU 8.2.
 
 ### Squirrel-OS/2 hand-off on every platform
 

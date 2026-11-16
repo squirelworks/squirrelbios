@@ -38,14 +38,17 @@ Used here, in `ROADMAP.md` and on the issues (as labels).
   capsule flash rewrite via NV identity (M2), project-key / ESRT
   fwupd-shaped path (M4), measured TPM event-log hand-off
   (M5 / SQTL), os-boot sync (M6 — pinned OS/2 **`v2.3.0`**),
-  docs_lint harden (M7), and Setup UI polish (M3 — Main Menu label +
-  empty BootOrder honesty). Licence GPL-3.0. Notes:
-  `release-notes/v2.2.0.md`, `release-notes/v2.3.0.md`,
-  `release-notes/os-boot-sync.md`, `release-notes/docs-lint-harden.md`,
-  `release-notes/setup-ui-polish.md`.
-  Next agent cut: optional **M8** CI shard is **skipped** while
-  `make test` stays ~4–5 min wall-clock; then M9+ per
-  `release-notes/TO_3.0.0.md`.
+docs_lint harden (M7), Setup UI polish (M3 — Main Menu label +
+  empty BootOrder honesty), and VisionFive 2 / HiFive desk notes (M9).
+  Licence GPL-3.0. Notes: `release-notes/v2.2.0.md`,
+  `release-notes/v2.3.0.md`, `release-notes/os-boot-sync.md`,
+  `release-notes/docs-lint-harden.md`,
+  `release-notes/setup-ui-polish.md`,
+  `release-notes/board-vf2-hifive-notes.md`.
+  Optional **M8** CI shard is **skipped** while `make test` stays
+  ~4–5 min wall-clock. **M10** AIA MSI stays **blocked** on CI QEMU
+  8.2. Next coding: **M14** / **M15** (desk M11–M12 remain
+  `needs: squirrel`).
 - **Test gate:** `make test` (docs honesty via `make docs-lint` /
   `tools/docs_lint.py` + host `docs-lint-harden`, then ~350 cases in
   `tests/smoke.sh`, plus
@@ -109,35 +112,54 @@ Full mark list (versions, acceptance, issue titles):
    https://github.com/squirelworks/squirrelbios/releases/tag/v2.2.0
    (`0051c40`; six images + `SHA256SUMS.txt` + full notes). Always fill
    via `Actions → Draft release` before Publish — never stub-publish.
-2. **Phase G product remainder** (`-2eaf`, **M1–M7** + **M3**): ~~**M1**
-   signed capsule~~ (#193) → ~~**M2** flash rewrite / NV identity~~ →
-   ~~**M4** project-key / ESRT~~ → ~~**M5** measured TPM event-log
-   hand-off~~ → ~~**M6** os-boot sync~~ (OS/2 **`v2.3.0`**) →
-   ~~**M7** docs_lint harden~~ → ~~**M3** Setup UI polish~~; **M8**
-   CI shard skipped while wall-clock is fine.
+2. **Phase G product remainder** (`-2eaf`, **M1–M7** + **M3** + **M9**):
+   ~~**M1** signed capsule~~ (#193) → ~~**M2** flash rewrite / NV
+   identity~~ → ~~**M4** project-key / ESRT~~ → ~~**M5** measured TPM
+   event-log hand-off~~ → ~~**M6** os-boot sync~~ (OS/2 **`v2.3.0`**) →
+   ~~**M7** docs_lint harden~~ → ~~**M3** Setup UI polish~~ →
+   ~~**M9** VF2 / HiFive desk notes~~; **M8** CI shard **skipped**
+   while wall-clock is fine.
 3. **D2-rpi4** board flash *(Squirrel, **M11**)*: the QEMU `raspi4b` case
    is done; try the SD layout in `boards/rpi4/README.md` on a desk Pi 4.
 4. **C5-board** desk flash *(Squirrel, **M12**)*: docs and
    `CONFIG=coreboot` are done; flash a real GA-G41M-ES2L per
    `boards/ga-g41m-es2l/FLASHING.md`.
 5. **RISC-V AIA MSI** (**M10**) when a newer QEMU (≥ 9.1) is available in
-   CI — blocked on 8.2 today.
+   CI — **blocked** on 8.2 today (do not force).
 6. Already on `main` (do not re-cut for these alone): G1–G3 host fuzz,
    Setup UI, UpdateCapsule + ESRT, signed apply / PersistAcrossReset,
-   measured hand-off
+   measured hand-off, board desk notes
    (`make fuzz-fat`, `make fuzz-pe`, `make fuzz-authenticode`,
    `make fuzz-net`, `make fuzz-usb`, `make fuzz-fdt`,
-   `x86_64-setupui`, `x86_64-setupui-f2`, `x86_64-setupui-polish`,
+`x86_64-setupui`, `x86_64-setupui-f2`, `x86_64-setupui-polish`,
    `x86_64-setupui-bootorder`, `x86_64-setupui-secboot`,
    `x86_64-setupui-datetime`, `x86_64-capsule`, `x86_64-capsule-signed`,
    `x86_64-capsule-fwcfg`, `x86_64-capsule-flash-1`,
    `x86_64-capsule-flash-2`, `x86_64-capsule-key`,
-   `x86_64-tpm-log-handoff`, `os-boot-sync`, `docs-lint-harden`).
-7. Climb **M9–M20** in `TO_3.0.0.md` toward product **v3.0.0**
+   `x86_64-tpm-log-handoff`, `os-boot-sync`, `docs-lint-harden`,
+   `riscv64-visionfive2-build`, `riscv64-hifive-unmatched-build`,
+   `riscv64-hifive-unmatched-sifive-u`).
+7. Climb **M14–M20** in `TO_3.0.0.md` toward product **v3.0.0**
    (CONTINUANCE M3 companion — **not** a Phase E redo). **M8** only if
-   CI wall-clock stops being acceptable.
+   CI wall-clock stops being acceptable. **M10** blocked on QEMU ≥ 9.1.
+   Skip #195 unless asked.
 
 ## Task cards
+
+### G-board-vf2-hifive-notes — VisionFive 2 / HiFive desk notes (M9)  `status: done`
+- **Done (lane `-2eaf`):** desk boot procedures
+  `boards/visionfive2/DESK.md` and `boards/hifive-unmatched/DESK.md`
+  beside existing `CONFIG=visionfive2` / `CONFIG=hifive-unmatched`.
+  Vendor SPL keeps DDR training; our image replaces OpenSBI only.
+  Notes: `release-notes/board-vf2-hifive-notes.md`. Epic #82.
+  `TO_3.0.0.md` M9 / ladder **2.3.2**. `SQ_VERSION` stays **2.3.0**.
+- **Check:** existing `riscv64-visionfive2-build`,
+  `riscv64-hifive-unmatched-build`, `riscv64-hifive-unmatched-sifive-u`
+  in `make test` (no new QEMU machine).
+- **Desk:** real-board flash observations stay `needs: squirrel`
+  (append dated notes to each `DESK.md` when run).
+- **Next (Phase G):** ~~M3~~ landed; **M8** skipped; **M10** blocked on
+  QEMU ≥ 9.1; then **M14** / **M15**. Do not take #195 unless asked.
 
 ### G-setup-ui-polish — Setup UI string / notebook polish (M3)  `status: done`
 - **Done (lane `-2eaf`):** root Setup panel titled **Main Menu** (serial
@@ -149,8 +171,8 @@ Full mark list (versions, acceptance, issue titles):
 - **Check:** `x86_64-setupui`, `x86_64-setupui-f2`,
   `x86_64-setupui-polish` (F2 empty BootOrder), and updated
   `x86_64-setupui-bootorder` in `make test`.
-- **Next (Phase G):** ~~M7~~ landed; **M8** CI shard skipped for
-  wall-clock (~4–5 min); then M9+.
+- **Next (Phase G):** ~~M7~~ / ~~M9~~ landed; **M8** CI shard skipped
+  for wall-clock (~4–5 min); **M10** blocked; then M14+.
 
 ### G-docs-lint-harden — docs_lint allowlist / honesty (M7)  `status: done`
 - **Done (lane `-2eaf`):** `tools/docs_lint.py` refuses unused allowlist
@@ -162,8 +184,8 @@ Full mark list (versions, acceptance, issue titles):
   `2.3.25`. `SQ_VERSION` stays **2.3.0**.
 - **Check:** `docs-lint-harden` in `make test` (host; also covered by
   `make docs-lint` on the real tree).
-- **Next (Phase G):** ~~M3~~ landed; **M8** CI shard skipped for
-  wall-clock; then M9+.
+- **Next (Phase G):** ~~M3~~ / ~~M9~~ landed; **M8** skipped; **M10**
+  blocked; then M14+.
 
 ### G-os-boot-sync — os-boot.sh keep-in-step (M6)  `status: done`
 - **Done (lane `-2eaf`):** `tests/os-boot.pin` pins Squirrel-OS/2
@@ -175,8 +197,8 @@ Full mark list (versions, acceptance, issue titles):
   `TO_3.0.0.md` M6 / `2.3.1`. `SQ_VERSION` stays **2.3.0**.
 - **Check:** `os-boot-sync` in `make test` (host; no network). Optional
   full boot: `make os-boot` / `tests/os-boot.sh --fetch`.
-- **Next (Phase G):** ~~M3~~ / ~~M7~~ landed; **M8** skipped for
-  wall-clock; then M9+.
+- **Next (Phase G):** ~~M3~~ / ~~M7~~ / ~~M9~~ landed; **M8** skipped;
+  **M10** blocked; then M14+.
 
 ### G-measured-handoff — TPM event-log hand-off to OS (M5)  `status: done`
 - **Done (lane `-2eaf`):** SQTL configuration table
@@ -188,8 +210,8 @@ Full mark list (versions, acceptance, issue titles):
 - **Check:** `x86_64-tpm-log-handoff` in `make test` (needs swtpm).
 - **OS follow-up:** Squirrel-OS/2 boot-security page / regress name —
   coordinate with the OS/2 lane; do not invent alone.
-- **Next (Phase G):** ~~M3~~ / ~~M4~~ / ~~M6~~ / ~~M7~~ landed; **M8**
-  skipped for wall-clock; then M9+.
+- **Next (Phase G):** ~~M3~~ / ~~M4~~ / ~~M6~~ / ~~M7~~ / ~~M9~~ landed;
+  **M8** skipped; **M10** blocked; then M14+.
 
 ### G-capsule-flash — flash rewrite via NV identity (M2)  `status: done`
 - **Done (lane `-2eaf`):** verified SQCP apply updates ESRT `FwVersion`
@@ -200,8 +222,8 @@ Full mark list (versions, acceptance, issue titles):
   `release-notes/capsule-flash-rewrite.md`. Epic #82. `TO_3.0.0.md` M2.
 - **Check:** `x86_64-capsule-flash-1`, `x86_64-capsule-flash-2` in
   `make test`.
-- **Next (Phase G):** ~~M3~~ / ~~M4~~ / ~~M5~~ / ~~M6~~ / ~~M7~~ landed;
-  **M8** skipped for wall-clock; then M9+.
+- **Next (Phase G):** ~~M3~~ / ~~M4~~ / ~~M5~~ / ~~M6~~ / ~~M7~~ / ~~M9~~
+  landed; **M8** skipped; **M10** blocked; then M14+.
 
 ### G-capsule-project-key — project-key signing + ESRT fwupd-shaped path (M4)  `status: done`
 - **Done (lane `-2eaf`):** dedicated capsule project test key
@@ -212,8 +234,8 @@ Full mark list (versions, acceptance, issue titles):
   `release-notes/capsule-project-key.md`. Epic #82. `TO_3.0.0.md` M4.
 - **Check:** `x86_64-capsule-key`, `x86_64-capsule-key-esrt`,
   `capsule-project-key-host` in `make test`.
-- **Next (Phase G):** ~~M2~~ / ~~M3~~ / ~~M5~~ / ~~M6~~ / ~~M7~~ landed;
-  **M8** skipped for wall-clock; then M9+.
+- **Next (Phase G):** ~~M2~~ / ~~M3~~ / ~~M5~~ / ~~M6~~ / ~~M7~~ / ~~M9~~
+  landed; **M8** skipped; **M10** blocked; then M14+.
 
 ### G-capsule-signed — signed capsule apply / PersistAcrossReset staging  `status: done`
 - **Done (lane `-2eaf`):** SQCP signed system-firmware capsules
@@ -232,8 +254,9 @@ Full mark list (versions, acceptance, issue titles):
 - **Check:** `x86_64-capsule-signed`, `x86_64-capsule-fwcfg` in
   `make test` (plus existing `x86_64-capsule`).
 - **Next (Phase G):** ~~flash rewrite~~ / ~~project-key~~ /
-  ~~measured hand-off~~ / ~~os-boot sync~~ / ~~docs_lint~~ /
-  ~~Setup polish~~ landed; **M8** skipped for wall-clock; then M9+.
+~~measured hand-off~~ / ~~os-boot sync~~ / ~~docs_lint~~ /
+  ~~Setup polish~~ / ~~M9 desk notes~~ landed; **M8** skipped;
+  **M10** blocked; then M14+.
 
 ### G-capsule-esrt — UpdateCapsule + ESRT  `status: done`
 - **Done (lane `-2eaf`):** UEFI-class capsule plumbing in
@@ -284,9 +307,9 @@ Full mark list (versions, acceptance, issue titles):
   `x86_64-setupui-secboot` (Secure Boot clear + TPM clear, no TPM),
   and `x86_64-setupui-datetime` (RTC edit + NVRAM clear) in
   `make test`.
-- **Next (Phase G):** ~~M3~~ in `G-setup-ui-polish`; fuzz nightly
-  already scheduled (`fuzz-nightly.yml`); capsule/ESRT is in
-  `G-capsule-esrt`.
+- **Next (Phase G):** ~~M3~~ / ~~M9~~ landed; fuzz nightly already
+  scheduled (`fuzz-nightly.yml`); capsule/ESRT is in `G-capsule-esrt`;
+  **M10** blocked; then M14+.
 
 ### G1-fuzz-fat — host FAT fuzz / corpus smoke  `status: done`
 - **Done:** host-buildable harness for `common/efi/fat.c` under
@@ -421,16 +444,11 @@ Full mark list (versions, acceptance, issue titles):
 
 ### Secondary track and small follow-ups  `cursor-codex`
 - `riscv-sparse-harts` only if a board with gapped hart IDs is targeted (Speculative in TODO.md).
-- VisionFive 2: `CONFIG=visionfive2` (`configs/riscv64-uefi/visionfive2.cfg`)
-  with UART0 / `CONFIG_FW_BASE=0x40000000` from `boards/visionfive2`;
-  `make test` build-checks the link address (no QEMU JH7110 machine —
-  boot smoke optional / desk-only). HiFive Unmatched:
-  `CONFIG=hifive-unmatched` (`configs/riscv64-uefi/hifive-unmatched.cfg`)
-  with UART0 at `0x10010000` / `CONFIG_UART_KIND=1` (`sifive,uart0`
-  putc/getc) / `CONFIG_FW_BASE=0x80000000` from `boards/hifive-unmatched`;
-  `make test` build-checks the link address and boots the image on QEMU
-  `sifive_u` for the SBI banner + `dt: UART at …` (no Unmatched machine;
-  full UEFI / board smoke still optional).
+- VisionFive 2 / HiFive Unmatched (**M9 done**): CONFIG builds and CI
+  checks as before; desk procedures in `boards/visionfive2/DESK.md` and
+  `boards/hifive-unmatched/DESK.md`. Desk flash still `needs: squirrel`.
+- **M10** AIA MSI: still blocked on CI QEMU 8.2 — see
+  `RISCV-AIA-MSI` card above.
 - Squirrel-OS/2 boots on every UEFI target once the OS has a port; today
   `os-boot.sh` checks x86. **M6 done:** pin is OS/2 **`v2.3.0`** in
   `tests/os-boot.pin` / `os-boot-sync`; bump the pin when a newer

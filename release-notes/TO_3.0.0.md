@@ -125,9 +125,12 @@ Notes refresh **#190** is on `main`. Soft PATH’s fold-into-2.2.0 advice is sat
    https://github.com/squirelworks/squirrelbios/releases/tag/v2.2.0
 2. **`-2eaf`:** **M1** signed capsule landed as #193 on `main`; **M2**
    flash rewrite, **M4** project-key / ESRT, **M5** measured hand-off,
-   **M6** os-boot sync, **M7** docs_lint harden, and **M3** Setup UI
-   polish landed. Optional **M8** CI shard is **skipped** while
-   `make test` wall-clock stays ~4–5 minutes; next coding is **M9+**.
+**M6** os-boot sync, **M7** docs_lint harden, **M3** Setup UI
+   polish, and **M9** VisionFive2 / HiFive desk notes landed. Optional
+   **M8** CI shard is **skipped** while `make test` wall-clock stays
+   ~4–5 minutes. **M10** AIA MSI stays blocked on CI QEMU 8.2. Next
+   coding is **M14** / **M15** (not desk M11–M12; those are
+   `needs: squirrel`).
 3. Soft PATH stays index-only; do not move this ladder into Soft.
 
 ---
@@ -243,19 +246,20 @@ Lanes: **only `-2eaf`** for code. Owner marks wait on `needs: squirrel`.
 | **Acceptance** | `.github/workflows/make-test.yml` green; no case silently dropped; document how to run one shard locally |
 | **Lane** | `-2eaf` |
 | **Skip if** | wall-clock is already acceptable — do not shard for fashion |
-| **Status** | **Skipped** after M3 — `make-test` on `main` completes in ~4–5 minutes; revisit only if the suite grows enough that the gate hurts |
+| **Status** | **Skipped** after M3/M9 — `make-test` on `main` completes in ~4–5 minutes; revisit only if the suite grows enough that the gate hurts |
 
-### M9 — `2.4.0` VisionFive2 / HiFive desk notes (optional)  ·  `-2eaf`  ·  depends: M0
+### M9 — `2.3.2` VisionFive2 / HiFive desk notes (optional)  ·  **done**  ·  `-2eaf`  ·  depends: M0
 
 | Field | Value |
 |-------|-------|
-| **Bump** | Jump to **`2.4.0`** only if bundling board-doc completeness; else ship as `2.3.2` `+0.0.1` |
+| **Bump** | Ladder **`2.3.2`** (docs completeness; not a jump to `2.4.0`); `SQ_VERSION` stays **2.3.0** |
 | **Box** | `board-vf2-hifive-notes` |
 | **Issue to file** | *(draft)* `VisionFive2 / HiFive: desk boot notes beside existing CONFIG=` |
 | **Suggested check** | keep existing build-check / `sifive_u` smoke; desk results are post-merge notes |
-| **Design note** | update `boards/visionfive2/`, `boards/hifive-unmatched/` |
+| **Design note** | `boards/visionfive2/DESK.md`, `boards/hifive-unmatched/DESK.md`, `release-notes/board-vf2-hifive-notes.md` |
 | **Acceptance** | CONFIG already on `main`; this mark is **docs + optional desk**; no QEMU JH7110 machine required |
 | **Lane** | `-2eaf` for docs; desk flash observations may be `needs: squirrel` |
+| **Status** | **Done** — desk procedures landed; CI keeps `riscv64-visionfive2-build` + HiFive build/`sifive_u`; desk flash still `needs: squirrel` |
 
 ### M10 — `2.4.1` RISCV-AIA-MSI  ·  `-2eaf`  ·  **blocked today** on QEMU
 
@@ -269,6 +273,7 @@ Lanes: **only `-2eaf`** for code. Owner marks wait on `needs: squirrel`.
 | **Acceptance** | Program `smsiaddrcfg`/`smsiaddrcfgh`; APLIC-direct remains green; MSI mode reaches a shell on CI’s QEMU when unblocked |
 | **Blocked** | QEMU 8.2 MSI storms — **do not force** on old CI images; bump the workflow package when ready |
 | **Lane** | `-2eaf` |
+| **Status** | **Blocked** on CI QEMU 8.2 (this environment reports 8.2.2); skip until ≥ 9.1 is the CI package |
 
 ### M11 — `2.4.2` Pi 4 desk flash  ·  **needs: squirrel**  ·  depends: QEMU `rpi4-uefi-sd` (done)
 
@@ -422,8 +427,8 @@ Soft does not own rows; it may **index** them.
 
 | Actor | Now | Next |
 |-------|-----|------|
-| **`-2eaf` (BIOS)** | **M1–M7**, **M3** on `main` — **do not redo** | **M8** only if wall-clock hurts → climb **M9+** |
-| **Owner** | Publish nothing until #190 lands (preferred) | **M0** tag `v2.2.0` from tip; later M13/M14/M20; desk M11/M12 when hardware is free |
+| **`-2eaf` (BIOS)** | **M1–M7**, **M3**, **M9** on `main` — **do not redo**; **M8** skipped; **M10** blocked | **M14** / **M15** |
+| **Owner** | **M0** `v2.2.0` published | Later M13/M14/M20; desk M11/M12 when hardware is free |
 | **`-b55f`** | **Not on BIOS** — OS/2 2.9 only | Ignore this file for OS claims; see OS/2 `TO_3.0.0.md` |
 | **Soft** | PATH index only | Do not move BIOS marks into Soft |
 

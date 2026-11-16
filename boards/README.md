@@ -9,14 +9,17 @@ has `CONFIG=coreboot` for the x86_64 UEFI core as a coreboot payload
 (`x86_64-coreboot` in `make test`); desk flashing is still
 `needs: squirrel`. VisionFive 2 has `CONFIG=visionfive2` and HiFive
 Unmatched has `CONFIG=hifive-unmatched` (UART and memory from each board
-tree); upstream QEMU has neither machine, so `make test` only checks
-the link address for those images.
+tree); upstream QEMU has neither machine, so `make test` build-checks
+the VisionFive 2 link address and boots the HiFive image on `sifive_u`
+for the SBI banner + UART probe. Desk procedures (vendor SPL keeps DDR
+training; our image replaces OpenSBI only) live in each board’s
+`DESK.md` (Phase G M9); desk flash observations stay `needs: squirrel`.
 
 | Directory | Board | Firmware it would build on |
 |---|---|---|
 | [`rpi4/`](rpi4/README.md) | Raspberry Pi 4 (BCM2711), notes on Pi 5 (BCM2712) | `aarch64-uefi` (`arm/uefi`, `common/efi`) |
-| [`visionfive2/`](visionfive2/README.md) | StarFive VisionFive 2 (JH7110) | `riscv64-uefi` `CONFIG=visionfive2` |
-| [`hifive-unmatched/`](hifive-unmatched/README.md) | SiFive HiFive Unmatched (FU740) | `riscv64-uefi` `CONFIG=hifive-unmatched` |
+| [`visionfive2/`](visionfive2/README.md) | StarFive VisionFive 2 (JH7110); [DESK.md](visionfive2/DESK.md) | `riscv64-uefi` `CONFIG=visionfive2` |
+| [`hifive-unmatched/`](hifive-unmatched/README.md) | SiFive HiFive Unmatched (FU740); [DESK.md](hifive-unmatched/DESK.md) | `riscv64-uefi` `CONFIG=hifive-unmatched` |
 | [`ga-g41m-es2l/`](ga-g41m-es2l/README.md) | Gigabyte GA-G41M-ES2L (Intel G41 + ICH7) | `x86_64-uefi` `CONFIG=coreboot` (LBIO tables; [FLASHING.md](ga-g41m-es2l/FLASHING.md)) |
 | [`ism-avionics/`](ism-avionics/GAP.md) | ISM fighter-jet bay I/O / FCC (bring-up / BIT / integrity) | Portable BIT + MCU hand-off (#195); not a QEMU PC/UEFI image yet |
 | [`ism-rc-fc/`](ism-rc-fc/README.md) | Eric’s ISM RC flight controller (first trial) | `common/bit/` BIT + integrity + hand-off; smoke `avionics-rc-fc` |
