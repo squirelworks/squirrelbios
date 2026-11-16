@@ -21,5 +21,6 @@ claims that redefine product **v3.0.0** as Phase E.
   refuses unused allowlist entries.
 - **Version:** ladder mark **2.3.25**; `SQ_VERSION` stays **2.3.0** (no
   firmware behaviour change).
-- **Next:** optional M3 Setup polish; then **M8** CI shard (`2.3.50`)
-  if wall-clock needs it. (M6 os-boot sync is on `main`.)
+- **Next:** ~~M3~~ Setup polish landed; **M8** CI shard (`2.3.50`)
+  skipped while wall-clock is fine; then M9+. (M6 os-boot sync is on
+  `main`.)
