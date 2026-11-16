@@ -493,6 +493,14 @@ stub, a 1 MB flash image for `qemu-system-x86_64 -bios`. One PR each.
   Sarah #193 follow-ups: `release-notes/capsule-signed-followup.md`.
   Depends on: `x86_64-capsule`. Epic #82.
 
+- [x] `x86_64-capsule-flash` — Phase G M2 capsule flash rewrite via NV
+  identity (lane `-2eaf`): verified apply sets ESRT `FwVersion` and
+  persists `SqFwFlashId` in the variable store (QEMU pflash unit 1;
+  unit 0 stays read-only — not real SPI). Two-boot smoke
+  `x86_64-capsule-flash-1` / `-2`. Notes:
+  `release-notes/capsule-flash-rewrite.md`. Depends on:
+  `x86_64-capsule-signed`. Epic #82. `TO_3.0.0.md` M2.
+
 ## 14. Phase H — ISM avionics bring-up / BIT / integrity (#195)
 
 One checkbox is one PR from `main`. Interface:
@@ -506,9 +514,9 @@ ISM `fighter-jet/interfaces/firmware-bringup.yaml`. Gap list:
   Phase H and this section exist. No firmware behaviour change.
   Tracker #195.
 
-- [ ] `avionics-bit` — Portable BIT/POST framework whose result record
+- [x] `avionics-bit` — Portable BIT/POST framework whose result record
   matches ISM `bit_line_fields`. Acceptance: host-buildable code under
-  `common/bit/` (or equivalent) formats a BIT line with board, ver,
+  `common/bit/` formats a BIT line with board, ver,
   rail28/rail5/rail3v3, imu, radio, uplink, brownout, safe, act and
   inc vectors; smoke case `avionics-bit` checks the field set.
   Depends on: `avionics-gap`.
@@ -516,22 +524,22 @@ ISM `fighter-jet/interfaces/firmware-bringup.yaml`. Gap list:
 - [ ] `avionics-integrity` — Boot-integrity check and safe-state on
   failure. Acceptance: a bad image hash/signature engages safe-state
   and does not jump; a good image may proceed to hand-off; smoke case
-  `avionics-integrity`. Depends on: `avionics-bit`.
+  `avionics-integrity`. Depends on: avionics-bit (done).
 
 - [ ] `avionics-handoff` — Clean RTOS/app hand-off interface. Acceptance:
   MCU hand-off contract in `common/handoff.md` (entry, BIT pointer,
   integrity status, no post-jump BIOS services); smoke case
-  `avionics-handoff`. Depends on: `avionics-integrity`.
+  `avionics-handoff`. Depends on: avionics-integrity.
 
 - [ ] `avionics-rc-fc` — First target: Eric’s ISM RC flight controller.
   Acceptance: `boards/ism-rc-fc/` board card with board-id and probe
   table wired into the BIT framework; smoke case `avionics-rc-fc`.
-  Depends on: `avionics-handoff`.
+  Depends on: avionics-handoff.
 
 - [ ] `avionics-porting` — Porting guide for new avionics boards.
   Acceptance: `boards/ism-avionics/PORTING.md` covers board-id, probes,
   BIT line, integrity, RTOS hand-off, and test hooks. Depends on:
-  `avionics-rc-fc`.
+  avionics-rc-fc.
 
 ## Secondary track
 

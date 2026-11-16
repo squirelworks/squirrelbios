@@ -466,7 +466,7 @@ ISM `fighter-jet/interfaces/firmware-bringup.yaml` BIT line. Gap analysis:
 - [x] **H0** Gap list: what avionics boards need from BIOS (MCU class,
   board-id, rails, IMU/radio probes, safe-state, RTOS hand-off). Doc:
   `boards/ism-avionics/GAP.md`. Tracker #195.
-- [ ] **H1** Portable BIT/POST framework with a machine-readable result
+- [x] **H1** Portable BIT/POST framework with a machine-readable result
   record matching ISM `bit_line_fields` (board, ver, rails, imu, radio,
   uplink, brownout, safe, act/inc vectors). Smoke: `avionics-bit`.
 - [ ] **H2** Boot-integrity check (image hash/signature) and safe-state on
