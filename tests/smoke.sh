@@ -1299,6 +1299,22 @@ tables_check() {
 tables_check x86_64-tables-1024cpu 1024cpu
 tables_check x86_64-tables-2seg 2seg
 
+# Phase H (#195): portable BIT line vs ISM firmware-bringup.yaml fields.
+host_check() {
+    name=$1
+    shift
+    log=$TEST_DIR/$name.log
+    if "$@" >"$log" 2>&1; then
+        echo "PASS  $name"
+        pass=$((pass + 1))
+    else
+        echo "FAIL  $name"
+        fail=$((fail + 1))
+        cat "$log"
+    fi
+}
+host_check avionics-bit "$TEST_DIR/avionics-bit"
+
 # x86-64 firmware: machine checks left in the banks survive a reset and
 # become BERT records on the next boot (F2). Once the app has seen an
 # empty BERT, the monitor injects a corrected error on CPU 1 and a fatal

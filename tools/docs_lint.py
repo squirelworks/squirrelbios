@@ -20,9 +20,9 @@ Wrapped checkbox bodies (indented continuation lines) are joined so a
 Test:/smoke reference on the next line still counts.
 
 Harness inventory is built from tests/smoke.sh (run / KBD_NAME / VBE_NAME /
-tables_check / PASS lines), tests/* helpers, and Makefile phony test
-targets. Historical mismatches that cannot be fixed cheaply go in
-tools/docs_lint_allowlist.txt.
+tables_check / host_check / PASS lines), tests/* helpers, and Makefile
+phony test targets. Historical mismatches that cannot be fixed cheaply go
+in tools/docs_lint_allowlist.txt.
 
 Cheap and deterministic: no QEMU, no network.
 """
@@ -81,6 +81,9 @@ NAME_ASSIGN_RE = re.compile(
 TABLES_CHECK_RE = re.compile(
     r"^\s*tables_check\s+([A-Za-z0-9][\w.-]*)", re.MULTILINE
 )
+HOST_CHECK_RE = re.compile(
+    r"^\s*host_check\s+([A-Za-z0-9][\w.-]*)", re.MULTILINE
+)
 PASS_LIT_RE = re.compile(r'echo\s+"PASS\s+([^"$]+)"')
 MAKE_TARGET_RE = re.compile(r"^([A-Za-z_][\w-]*)\s*:[^=]", re.MULTILINE)
 
@@ -137,6 +140,8 @@ def collect_smoke_cases(smoke_sh: Path) -> set[str]:
     for m in NAME_ASSIGN_RE.finditer(text):
         names.add(m.group(1))
     for m in TABLES_CHECK_RE.finditer(text):
+        names.add(m.group(1))
+    for m in HOST_CHECK_RE.finditer(text):
         names.add(m.group(1))
     for m in PASS_LIT_RE.finditer(text):
         # "PASS  name" or "PASS  name (detail)" — take the first token.

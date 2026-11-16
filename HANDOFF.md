@@ -311,13 +311,13 @@ Full mark list (versions, acceptance, issue titles):
   ISM fighter-jet bay I/O and FCC boards, and Eric’s ISM RC flight
   controller. Laws stay on a separate RTOS. Contract:
   ISM `firmware-bringup.yaml` BIT line.
-- **Done (this card’s first PR):** gap list
+- **Done:** gap list
   [`boards/ism-avionics/GAP.md`](boards/ism-avionics/GAP.md); ROADMAP
-  Phase H; TODO §14. Checkbox `avionics-gap` / H0.
-- **Open (one PR each):** `avionics-bit`, `avionics-integrity`,
-  `avionics-handoff`, `avionics-rc-fc`, `avionics-porting` (see TODO.md).
-- **Check (gap PR):** docs honesty lint green; no new smoke case; gap
-  doc present.
+  Phase H; TODO §14 (avionics-gap / H0). Portable BIT record
+  `common/bit/` + smoke avionics-bit (avionics-bit / H1).
+- **Open (one PR each):** avionics-integrity, avionics-handoff,
+  avionics-rc-fc, avionics-porting (see TODO.md).
+- **Check:** smoke case `avionics-bit` (host); docs-lint green.
 - **Related:** squirrel-os2 #225 (ground/lab); ISM #84 bay firmware.
 
 ### Secondary track and small follow-ups  `cursor-codex`
