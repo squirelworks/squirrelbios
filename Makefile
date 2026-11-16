@@ -134,6 +134,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/sb/capsule-good.cap \
              $(TEST_DIR)/x86_64-tables \
              $(TEST_DIR)/avionics-bit \
+             $(TEST_DIR)/avionics-integrity \
              $(TEST_DIR)/x86_64-bigload.img \
              $(TEST_DIR)/x86_64-handoff.efi \
              $(TEST_DIR)/arm-efi-app.efi $(TEST_DIR)/arm-efi-app-exit.efi \
@@ -436,6 +437,11 @@ $(TEST_DIR)/x86_64-tables: tests/x86_64-tables.c x86_64/acpi/topo_impl.inc | $(T
 # Phase H (#195): host BIT/POST record matching ISM firmware-bringup.yaml.
 $(TEST_DIR)/avionics-bit: tests/avionics-bit.c common/bit/sq_bit.c common/bit/sq_bit.h | $(TEST_DIR)
 	$(CC) -std=c11 -O2 -Wall -Wextra -Werror -o $@ tests/avionics-bit.c common/bit/sq_bit.c
+
+$(TEST_DIR)/avionics-integrity: tests/avionics-integrity.c common/bit/sq_bit.c common/bit/sq_integrity.c common/bit/sq_bit.h common/bit/sq_integrity.h | $(TEST_DIR)
+	$(CC) -std=c11 -O2 -Wall -Wextra -Werror -o $@ tests/avionics-integrity.c common/bit/sq_bit.c common/bit/sq_integrity.c
+
+
 # Non-volatile variables in a flash store (pflash unit 1)
 $(TEST_DIR)/x86_64-nv.efi: tests/x86_64-nv.asm tests/x86_64-pe.inc | $(TEST_DIR)
 	$(NASM) -f bin -i tests/ $< -o $@
