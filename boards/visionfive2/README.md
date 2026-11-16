@@ -94,7 +94,8 @@ boot it under QEMU.
 **QEMU smoke is optional.** Upstream QEMU (through 9.x at least) has no
 JH7110 / VisionFive 2 machine, so there is no `make test` boot case.
 Desk bring-up with the vendor SPL loading this image where OpenSBI goes
-is post-merge / `needs: squirrel`, never a merge blocker.
+is post-merge / `needs: squirrel`, never a merge blocker. Procedure:
+[`DESK.md`](DESK.md) (Phase G M9 / `board-vf2-hifive-notes`).
 
 ## Next milestone
 

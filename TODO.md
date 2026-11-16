@@ -537,6 +537,17 @@ stub, a 1 MB flash image for `qemu-system-x86_64 -bios`. One PR each.
   `release-notes/docs-lint-harden.md`. Epic #82.
   `TO_3.0.0.md` M7 / `2.3.25`.
 
+- [x] `board-vf2-hifive-notes` — Phase G M9 VisionFive 2 / HiFive desk
+  boot notes (lane `-2eaf`): `boards/visionfive2/DESK.md` and
+  `boards/hifive-unmatched/DESK.md` beside existing
+  `CONFIG=visionfive2` / `CONFIG=hifive-unmatched`. Keeps
+  `riscv64-visionfive2-build`, `riscv64-hifive-unmatched-build`,
+  `riscv64-hifive-unmatched-sifive-u`. Desk flash stays
+  `needs: squirrel`. Notes: `release-notes/board-vf2-hifive-notes.md`.
+  Epic #82. `TO_3.0.0.md` M9 / `2.3.2`. Optional **M8** CI shard
+  skipped (wall-clock fine). **M10** AIA MSI remains blocked on
+  QEMU ≥ 9.1.
+
 ## 14. Phase H — ISM avionics bring-up / BIT / integrity (#195)
 
 One checkbox is one PR from `main`. Interface:

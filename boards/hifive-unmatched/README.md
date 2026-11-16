@@ -54,6 +54,8 @@ Unmatched machine. QEMU's `sifive_u` models an FU540 (the predecessor:
 same UART kind, same CLINT, hart 0 = E51 monitor core without S-mode),
 so the putc path is exercised there; entering the UEFI core in S-mode on
 hart 0 and board reset/power-off stay desk-only / never a merge blocker.
+Desk procedure: [`DESK.md`](DESK.md) (Phase G M9 /
+`board-vf2-hifive-notes`).
 
 ```sh
 qemu-system-riscv64 -M sifive_u -smp 5 -m 2G -nographic \
