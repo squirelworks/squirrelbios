@@ -15,11 +15,10 @@ Field names match
 | `tests/avionics-bit.c` | Host stand-in; smoke case `avionics-bit` |
 
 Safe-state (neutral actuators, reject cmds) engages when brownout is
-active, uplink is lost, or `integrity_ok` is clear. Boot-image hash /
-signature checking lands in the integrity follow-up (`avionics-integrity`).
+active, uplink is lost, or `integrity_ok` is clear.
 
 | `sq_integrity.h` / `.c` | FNV-1a image hash; safe-state + no hand-off on mismatch |
 | `sq_handoff.h` / `.c` | `SQHO` hand-off block for an RTOS/app entry |
 
 Host smokes: `avionics-bit`, `avionics-integrity`, `avionics-handoff`,
-`avionics-rc-fc`.
+`avionics-rc-fc`, `avionics-bay-io`.

@@ -1324,6 +1324,7 @@ host_check avionics-bit "$TEST_DIR/avionics-bit"
 host_check avionics-integrity "$TEST_DIR/avionics-integrity"
 host_check avionics-handoff "$TEST_DIR/avionics-handoff"
 host_check avionics-rc-fc "$TEST_DIR/avionics-rc-fc"
+host_check avionics-bay-io "$TEST_DIR/avionics-bay-io"
 
 # Phase G M7: docs_lint honesty strengthen (negative + positive fixtures).
 host_check docs-lint-harden tests/docs_lint_selftest.sh

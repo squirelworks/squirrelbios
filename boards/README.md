@@ -23,6 +23,7 @@ training; our image replaces OpenSBI only) live in each board’s
 | [`ga-g41m-es2l/`](ga-g41m-es2l/README.md) | Gigabyte GA-G41M-ES2L (Intel G41 + ICH7) | `x86_64-uefi` `CONFIG=coreboot` (LBIO tables; [FLASHING.md](ga-g41m-es2l/FLASHING.md)) |
 | [`ism-avionics/`](ism-avionics/GAP.md) | ISM fighter-jet bay I/O / FCC (bring-up / BIT / integrity) | Portable BIT + MCU hand-off (#195); not a QEMU PC/UEFI image yet |
 | [`ism-rc-fc/`](ism-rc-fc/README.md) | Eric’s ISM RC flight controller (first trial) | `common/bit/` BIT + integrity + hand-off; smoke `avionics-rc-fc` |
+| [`ism-fj-bay-io/`](ism-fj-bay-io/README.md) | ISM fighter-jet bay I/O concentrator | `ISM-FJ-BAY-IO` BIT + integrity + hand-off; smoke `avionics-bay-io` |
 
 Each note says how the board boots, what of ours could run where, and
 the gaps in our code, file by file. Addresses are the ones the boards'
