@@ -10,7 +10,7 @@ SquirrelBIOS today is **PC / UEFI-class firmware for QEMU and a few desk
 boards**. ISM wants it reused as the **early bring-up, built-in test
 (BIT/POST), and boot-integrity layer** on avionics MCUs, then a clean
 hand-off to a **separate small RTOS** that owns flight-control laws.
-This file lists what those boards need that we do not yet provide.
+This file lists what those boards need and what has landed under #195.
 
 ## Target boards (what they need)
 
@@ -41,13 +41,15 @@ stdio substitutes the bus until ISM-Bus-A lands):
 | `inc_vector` | Inceptor stubs (stick pitch/roll, throttle, pedal) |
 
 Safe-state triggers in the yaml: `brownout`, `uplink_loss` → neutral all
-actuator cmds; further cmds rejected while safe. BIT topic alias:
+actuator cmds; further cmds rejected while safe. (Yaml also lists
+`watchdog_reset` / `inceptor_loss`; those are not yet in
+`sq_bit_probes_t` — see open follow-ons.) BIT topic alias:
 `bay_io.bit` @ ~10 Hz on ISM-Bus-A.
 
 Reference line shape (ISM host stub today):
 
 ```text
-BIT board=ISM-FJ-BAY-IO ver=0.1.0 rail28=1 rail5=1 rail3v3=1 imu=1 radio=1 uplink=1 brownout=0 safe=0 act=0.00,0.00,0.00,0.00 inc=0.00,0.00,0.00,0.00
+BIT board=ISM-FJ-BAY-IO ver=0.2.0 rail28=1 rail5=1 rail3v3=1 imu=1 radio=1 uplink=1 brownout=0 safe=0 act=0.00,0.00,0.00,0.00 inc=0.00,0.00,0.00,0.00
 ```
 
 ## What SquirrelBIOS already has (reuse)
@@ -61,57 +63,55 @@ BIT board=ISM-FJ-BAY-IO ver=0.1.0 rail28=1 rail5=1 rail3v3=1 imu=1 radio=1 uplin
 | TPM measured boot (UEFI) | `x86_64` TPM | Overkill for first MCU trial; optional later |
 | POST-shaped x86 init | `x86/core/`, drivers | PC-only; not portable to RP2040/STM32 |
 | Real-board research tree | `boards/` | Pattern for `boards/ism-*` notes |
+| Portable BIT / integrity / SQHO | `common/bit/` | Host-tested MCU bring-up path (#195 H1–H3) |
 
 ## Gaps (ordered for #195)
 
-### 1. Portable BIT/POST framework + result record — **missing**
+### 1. Portable BIT/POST framework + result record — **landed (H1)**
 
-- No shared, architecture-neutral BIT state or formatter whose fields
-  match `bit_line_fields` above.
-- No board-id / version table driven by a board config.
-- No probe hooks for rails, IMU, radio, uplink, brownout (today’s POST
-  is PC/UEFI device enumeration).
-- No host-buildable stand-in that proves the record without QEMU MCU
-  models (ISM already uses a host `make test` for bay firmware).
+- `common/bit/sq_bit.*` formats the ISM field set; smoke `avionics-bit`.
 
-### 2. Boot-integrity check + safe-state on failure — **missing**
+### 2. Boot-integrity check + safe-state on failure — **landed (H2)**
 
-- UEFI Secure Boot verifies PE images; there is no MCU-sized “hash or
-  signature of the RTOS/app image, then refuse hand-off” path.
-- On verify failure we halt; we do not enter an avionics **safe-state**
-  (neutral actuators / reject cmds) as in `firmware-bringup.yaml`
-  `safe_state`.
-- No recorded integrity result in the BIT line.
+- `sq_integrity_*` FNV-1a check; fail → safe + no hand-off; smoke
+  `avionics-integrity`.
 
-### 3. Clean RTOS / application hand-off — **partial**
+### 3. Clean RTOS / application hand-off — **landed (H3)**
 
-- PC/UEFI/SBI hand-offs are documented and tested; there is no small
-  **MCU hand-off block**: entry PC, stack, BIT record pointer, board-id,
-  integrity status, “BIOS done / no further services” rule for an RTOS
-  that is not Linux/OS/2.
-- Laws must not live in BIOS; the contract must say what registers /
-  memory the RTOS may assume.
+- `sq_handoff_t` (`SQHO`) + MCU section in `common/handoff.md`; smoke
+  `avionics-handoff`.
 
-### 4. First target: Eric’s ISM RC flight controller — **missing**
+### 4. First target: Eric’s ISM RC flight controller — **landed (H4)**
 
-- No `boards/` note, board-id, probe table, or build config for the RC
-  controller.
-- MCU class and pin map are not pinned in this repo yet (Eric’s lane;
-  ISM publishes geometry/CG targets only). Gap closure needs a board
-  card that lists assumed MCU class, UART for BIT, rail/IMU/radio
-  probes, and a host stand-in until hardware arrives.
+- `boards/ism-rc-fc/`; smoke `avionics-rc-fc`.
 
-### 5. Porting guide for new avionics boards — **missing**
+### 5. Porting guide for new avionics boards — **landed (H5)**
 
-- `boards/README.md` covers Pi / VisionFive / HiFive / GA-G41M only.
-- Need a how-to: add board-id, fill probe table, wire BIT line, hook
-  integrity, hand off to RTOS, add `make test` / host check.
+- `boards/ism-avionics/PORTING.md`.
 
-### 6. MCU platform build (follow-on, not a #195 checkbox by itself)
+### 6. Second target: bay I/O concentrator — **landed (H6)**
 
-- No `PLATFORM=` for Cortex-M / RP2040. First PRs should land **portable
+- `boards/ism-fj-bay-io/` board card (`ISM-FJ-BAY-IO`); smoke
+  `avionics-bay-io` (rails, uplink loss → safe → recovery, integrity
+  hand-off).
+
+### 7. MCU platform build (follow-on, not a #195 checkbox by itself)
+
+- No `PLATFORM=` for Cortex-M / RP2040. First PRs landed **portable
   C + host tests + board docs**; a QEMU/`pico` image is a later step
-  once the RC board card pins the MCU.
+  once the RC/bay board cards pin flash layout.
+
+### 8. FCC lane board cards (open)
+
+- No `boards/ism-fj-fcc-*` cards yet. Same BIT + integrity + hand-off
+  contract; laws stay on the RTOS. Host-testable when a board id and
+  probe table are pinned.
+
+### 9. Extra ISM safe-state triggers (open, host-testable)
+
+- Yaml lists `watchdog_reset` and `inceptor_loss` in addition to
+  brownout / uplink loss. `sq_bit_probes_t` does not yet carry those
+  flags; adding them is a later BIT-field slice with smoke coverage.
 
 ## Non-goals (keep out of BIOS)
 
@@ -123,14 +123,18 @@ BIT board=ISM-FJ-BAY-IO ver=0.1.0 rail28=1 rail5=1 rail3v3=1 imu=1 radio=1 uplin
 
 ## Proposed landings (one PR each, matching #195)
 
-1. **This gap list** (`boards/ism-avionics/GAP.md` + ROADMAP/TODO/HANDOFF).
-2. **`common/bit/`** portable BIT state + formatter + host unit test
-   matching `bit_line_fields`.
-3. **Integrity + safe-state** APIs and host tests (fail → safe + no jump).
-4. **RTOS hand-off header / contract** in `common/handoff.md` (MCU
-   section) + stand-in.
-5. **`boards/ism-rc-fc/`** first target card + board-id wiring.
-6. **Porting guide** `boards/ism-avionics/PORTING.md`.
+1. ~~**This gap list**~~ (`boards/ism-avionics/GAP.md` + ROADMAP/TODO/HANDOFF) — H0.
+2. ~~**`common/bit/`** portable BIT state + formatter + host unit test~~ — H1.
+3. ~~**Integrity + safe-state** APIs and host tests~~ — H2.
+4. ~~**RTOS hand-off header / contract**~~ — H3.
+5. ~~**`boards/ism-rc-fc/`** first target card~~ — H4.
+6. ~~**Porting guide** `boards/ism-avionics/PORTING.md`~~ — H5.
+7. ~~**`boards/ism-fj-bay-io/`** bay I/O second target~~ — H6.
+8. **FCC lane board card(s)** when ids/probes are pinned (host smoke).
+9. **Extra safe-state probe flags** (watchdog / inceptor_loss) if ISM
+   keeps them in the BIT contract.
+10. **MCU `PLATFORM=`** when silicon / flash layout is pinned (desk /
+    QEMU later; not a merge blocker alone).
 
 ## References
 

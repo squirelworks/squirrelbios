@@ -86,8 +86,10 @@ Guarantees:
    on MCU targets.
 3. Flight-control laws are not in the BIOS image; they live in the RTOS.
 
-See `boards/ism-avionics/GAP.md`, `boards/ism-avionics/PORTING.md`, and `common/bit/`. Smoke: `avionics-bit`, `avionics-integrity`, `avionics-handoff`,
-`avionics-rc-fc`.
+See `boards/ism-avionics/GAP.md`, `boards/ism-avionics/PORTING.md`,
+`boards/ism-fj-bay-io/README.md`, and `common/bit/`. Smoke:
+`avionics-bit`, `avionics-integrity`, `avionics-handoff`,
+`avionics-rc-fc`, `avionics-bay-io`.
 
 ### Network boot
 

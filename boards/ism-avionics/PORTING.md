@@ -2,6 +2,7 @@
 
 Tracker: [#195](https://github.com/squirelworks/squirrelbios/issues/195) H5.  
 Read first: [`GAP.md`](GAP.md), [`../ism-rc-fc/README.md`](../ism-rc-fc/README.md),
+[`../ism-fj-bay-io/README.md`](../ism-fj-bay-io/README.md),
 `common/bit/README.md`.
 
 ## Steps

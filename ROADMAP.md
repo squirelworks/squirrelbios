@@ -569,6 +569,9 @@ ISM `fighter-jet/interfaces/firmware-bringup.yaml` BIT line. Gap analysis:
   (`boards/ism-rc-fc/`). Smoke: `avionics-rc-fc`.
 - [x] **H5** Porting guide for new avionics boards
   (`boards/ism-avionics/PORTING.md`).
+- [x] **H6** Second target: ISM fighter-jet bay I/O concentrator
+  (`boards/ism-fj-bay-io/`, board id `ISM-FJ-BAY-IO`). Smoke:
+  `avionics-bay-io`.
 
 ## Out of scope
 

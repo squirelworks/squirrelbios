@@ -628,6 +628,12 @@ ISM `fighter-jet/interfaces/firmware-bringup.yaml`. Gap list:
   BIT line, integrity, RTOS hand-off, and test hooks. Depends on:
   avionics-rc-fc.
 
+- [x] `avionics-bay-io` — Second target: ISM fighter-jet bay I/O
+  concentrator. Acceptance: `boards/ism-fj-bay-io/` board card with
+  board-id `ISM-FJ-BAY-IO`, aircraft rail/probe table, and host smoke
+  that exercises uplink loss → safe → recovery plus integrity hand-off;
+  smoke case `avionics-bay-io`. Depends on: avionics-porting.
+
 ## Secondary track
 
 Open a PR for one of these when it helps; they are not the laundry list
