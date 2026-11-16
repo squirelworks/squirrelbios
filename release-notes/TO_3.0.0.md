@@ -147,16 +147,16 @@ Lanes: **only `-2eaf`** for code. Owner marks wait on `needs: squirrel`.
 | **Depends** | #189 on `main`; prefer after M0 so the published 2.2.0 story stays stable |
 | **Lane** | `-2eaf` |
 
-### M2 — `2.2.25` capsule flash rewrite (QEMU/pflash)  ·  `-2eaf`  ·  depends: M1
+### M2 — `2.2.25` capsule flash rewrite (QEMU/pflash)  ·  **done**  ·  depends: M1
 
 | Field | Value |
 |-------|-------|
-| **Bump** | `+0.0.25` |
+| **Bump** | `+0.0.25` (landed; patch tag optional) |
 | **Box** | `G-capsule-flash` |
-| **Issue to file** | *(draft)* `G-capsule-flash: rewrite firmware image under QEMU pflash after signed apply` |
-| **Suggested check** | `x86_64-capsule-flash` (name TBD in PR; must prove a second boot sees new `FwVersion` / image identity) |
+| **PR** | *(this PR)* `cursor/capsule-flash-rewrite-ebbc` |
+| **Suggested check** | `x86_64-capsule-flash-1`, `x86_64-capsule-flash-2` |
 | **Design note** | `release-notes/capsule-flash-rewrite.md` |
-| **Acceptance** | As far as QEMU allows: PersistAcrossReset + pflash rewrite or documented fw_cfg stand-in with a clear “not real SPI” caveat; never commit firmware images; epic #82 |
+| **Acceptance** | Verified apply updates ESRT `FwVersion` and persists `SqFwFlashId` in the variable store (pflash unit 1); unit 0 stays read-only with an explicit “NV stand-in, not real SPI” line on the next boot; never commit firmware images; epic #82 |
 | **Lane** | `-2eaf` |
 
 ### M3 — `2.2.2` Setup UI polish slice (optional)  ·  `-2eaf`  ·  depends: M0

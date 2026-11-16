@@ -43,8 +43,9 @@ suite-wide continuation plan is `docs/CONTINUANCE.md` in squirrelsoft.
   `raspi4b`, Phase G Setup UI + host fuzz + **UpdateCapsule + ESRT** (#189).
   F1-scale (1024 CPUs / two ECAM segments, host-side `tests/acpicheck.py`) is in #169.
 - **Open:** C5 real-board flash, D2 desk Raspberry Pi 4/5, RISC-V AIA MSI mode.
-  F4-scale is optional `make f4-scale` (not in CI). Signed capsule apply /
-  flash rewrite remain Phase G follow-ups after the tag.
+  F4-scale is optional `make f4-scale` (not in CI). Signed capsule apply
+  and flash rewrite via NV identity are on `main`; project-key / measured
+  hand-off remain Phase G follow-ups.
 
 ## Where things were (2026-11-13)
 
@@ -427,8 +428,13 @@ Setup UI shell land here as sizeable steps. Fine-grained marks to product
   `x86_64-capsule-signed`, `x86_64-capsule-fwcfg`. Notes in
   `release-notes/capsule-signed-apply.md`. Sarah #193 follow-ups
   (multi-PERSIST refuse, NV size cap, SGL-only refuse, refused-staged
-  log): `release-notes/capsule-signed-followup.md`. Epic #82. Flash
-  image rewrite remains a follow-up.
+  log): `release-notes/capsule-signed-followup.md`. Epic #82.
+- [x] **Capsule flash rewrite / NV identity (M2)** (lane `-2eaf`):
+  verified apply updates ESRT `FwVersion` and persists `SqFwFlashId`
+  in the variable store (QEMU pflash unit 1 stand-in; firmware unit 0
+  stays read-only — not real SPI). Smoke: `x86_64-capsule-flash-1`,
+  `x86_64-capsule-flash-2`. Notes in
+  `release-notes/capsule-flash-rewrite.md`. Epic #82.
 
 ### Squirrel-OS/2 hand-off on every platform
 

@@ -9,9 +9,11 @@
  * No EDK2, OVMF or other firmware sources. Header-only capsules update
  * ESRT LastAttempt*. Signed SQCP capsules (body + WIN_CERTIFICATE_UEFI_GUID
  * PKCS#7 detached) are verified via arch_capsule_verify, then applied
- * (LastAttempt* + serial note) or staged for PersistAcrossReset into an
- * NV variable. QEMU smoke does not rewrite the flash image; that remains
- * a follow-up. Failures: message and, for init/staging resource errors,
+ * (LastAttempt* + ESRT FwVersion + NV flash-identity stand-in) or staged
+ * for PersistAcrossReset into an NV variable. QEMU does not rewrite the
+ * SPI/firmware pflash image (unit 0 stays read-only in smoke); identity
+ * persists in the variable store (unit 1) with an explicit "not real SPI"
+ * caveat. Failures: message and, for init/staging resource errors,
  * boot halted. */
 #include "efi.h"
 
@@ -21,6 +23,14 @@
 #define CAPSULE_SGL_MAX_BLOCKS  64
 #define CAPSULE_FWCFG           "opt/org.squirrelworks/capsule"
 #define CAPSULE_STAGE_ATTR      0x7u   /* NV | BS | RT */
+#define SQ_FLASH_ID_MAGIC       0x4C465153u /* 'SQFL' little-endian */
+
+typedef struct {
+    u32 Magic;
+    u32 Version;
+    u32 BodySize;
+    u32 Flags;          /* bit 0: NV stand-in (not real SPI) */
+} SQUIRREL_FW_FLASH_ID;
 
 static const EFI_GUID esrt_guid = EFI_SYSTEM_RESOURCE_TABLE_GUID;
 static const EFI_GUID sysfw_guid = SQUIRREL_SYSTEM_FIRMWARE_GUID;
@@ -29,6 +39,7 @@ static const EFI_GUID global_guid = EFI_GLOBAL_VARIABLE_GUID;
 static EFI_SYSTEM_RESOURCE_TABLE *esrt;
 static u32 fw_version_enc;
 static CHAR16 stage_name[] = u"SqCapsuleStaging";
+static CHAR16 flash_id_name[] = u"SqFwFlashId";
 
 static int guid_same(const EFI_GUID *a, const EFI_GUID *b)
 { return !memcmp(a, b, sizeof *a); }
@@ -104,12 +115,70 @@ static u32 sqcp_version(const EFI_CAPSULE_HEADER *h)
     return sq->TargetVersion;
 }
 
+static u32 sqcp_body_size(const EFI_CAPSULE_HEADER *h)
+{
+    const SQUIRREL_FW_CAPSULE_HDR *sq =
+        (const SQUIRREL_FW_CAPSULE_HDR *)((const u8 *)h + sizeof(EFI_CAPSULE_HEADER));
+    return sq->BodySize;
+}
+
+static void esrt_set_fw_version(u32 version)
+{
+    fw_version_enc = version;
+    if (!esrt || !esrt->FwResourceCount) return;
+    esrt->Entries[0].FwVersion = version;
+    if (esrt->Entries[0].LowestSupportedFwVersion > version)
+        esrt->Entries[0].LowestSupportedFwVersion = version;
+}
+
+/* Persist applied firmware identity in the variable store (QEMU pflash
+ * unit 1 when present). This is not a rewrite of firmware SPI/pflash
+ * unit 0 — smoke keeps that drive read-only. */
+static int persist_flash_identity(const EFI_CAPSULE_HEADER *h)
+{
+    typedef EFI_STATUS (EFIAPI *set_fn)(CHAR16 *, EFI_GUID *, u32, UINTN, void *);
+    set_fn set = (set_fn)efi_st->runtime_services->set_variable;
+    if (!set) return 0;
+    SQUIRREL_FW_FLASH_ID id;
+    memset(&id, 0, sizeof id);
+    id.Magic = SQ_FLASH_ID_MAGIC;
+    id.Version = sqcp_version(h);
+    id.BodySize = sqcp_body_size(h);
+    id.Flags = 1u; /* NV stand-in */
+    EFI_STATUS s = set(flash_id_name, (EFI_GUID *)&sysfw_guid, CAPSULE_STAGE_ATTR,
+                       sizeof id, &id);
+    return s == EFI_SUCCESS;
+}
+
+static void load_flash_identity(void)
+{
+    typedef EFI_STATUS (EFIAPI *get_fn)(CHAR16 *, EFI_GUID *, u32 *, UINTN *, void *);
+    get_fn get = (get_fn)efi_st->runtime_services->get_variable;
+    if (!get) return;
+    SQUIRREL_FW_FLASH_ID id;
+    UINTN size = sizeof id;
+    u32 attr = 0;
+    if (get(flash_id_name, (EFI_GUID *)&sysfw_guid, &attr, &size, &id) != EFI_SUCCESS)
+        return;
+    if (size != sizeof id || id.Magic != SQ_FLASH_ID_MAGIC)
+        return;
+    esrt_set_fw_version(id.Version);
+    printf("capsule: flash identity version=0x%08x (NV stand-in, not real SPI)\n",
+           id.Version);
+}
+
 static void apply_verified(const EFI_CAPSULE_HEADER *h)
 {
     u32 ver = sqcp_version(h);
+    int persisted = persist_flash_identity(h);
+    esrt_set_fw_version(ver);
     esrt_note_attempt(ver, LAST_ATTEMPT_STATUS_SUCCESS);
-    if (!efi_boot_services_exited())
-        printf("capsule: apply ok version=0x%08x (no flash rewrite)\n", ver);
+    if (!efi_boot_services_exited()) {
+        if (persisted)
+            printf("capsule: apply ok version=0x%08x (flash rewrite via NV)\n", ver);
+        else
+            printf("capsule: apply ok version=0x%08x (FwVersion only; no NV store)\n", ver);
+    }
 }
 
 static u32 stage_max_bytes(void)
@@ -420,6 +489,7 @@ void efi_capsule_init(void)
         halt();
     }
     publish_os_indications();
+    load_flash_identity();
     printf("capsule: ESRT at %p, 1 resource (system firmware 0x%08x)\n",
            esrt, fw_version_enc);
     arch_capsule_trust_init();

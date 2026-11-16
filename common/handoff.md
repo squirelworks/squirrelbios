@@ -1205,15 +1205,19 @@ The UEFI-class build keeps serving after the OS calls
   `LastAttempt*`. Persist-across-reset needs a scatter-gather list;
   `CAPSULE_FLAGS_INITIATE_RESET` warm-resets.
 - Signed SQCP capsules verify against fw_cfg
-  `opt/org.squirrelworks/capsule-db`. Apply updates `LastAttempt*`
-  without flash rewrite; PersistAcrossReset stages `SqCapsuleStaging`;
-  fw_cfg `opt/org.squirrelworks/capsule` applies pending at init.
+  `opt/org.squirrelworks/capsule-db`. Apply updates `LastAttempt*` and
+  ESRT `FwVersion`, and persists `SqFwFlashId` in the variable store
+  (QEMU pflash unit 1 stand-in — not a rewrite of firmware SPI/unit 0);
+  PersistAcrossReset stages `SqCapsuleStaging`; fw_cfg
+  `opt/org.squirrelworks/capsule` applies pending at init.
 - `OsIndicationsSupported` advertises file-capsule delivery.
 
 Details: [x86_64/README.md](../x86_64/README.md),
 `release-notes/capsule-esrt.md`,
-`release-notes/capsule-signed-apply.md`. Smoke: `x86_64-capsule`,
-`x86_64-capsule-signed`, `x86_64-capsule-fwcfg`.
+`release-notes/capsule-signed-apply.md`,
+`release-notes/capsule-flash-rewrite.md`. Smoke: `x86_64-capsule`,
+`x86_64-capsule-signed`, `x86_64-capsule-fwcfg`,
+`x86_64-capsule-flash-1`, `x86_64-capsule-flash-2`.
 
 ## POWER (QEMU powernv9 / powernv10)
 
