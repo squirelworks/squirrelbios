@@ -10,7 +10,7 @@ class tooling expects under QEMU:
   * FwClass == SquirrelBIOS system-firmware GUID
   * CapsuleFlags includes PERSIST_ACROSS_RESET (0x00010000)
   * after UpdateCapsule, LastAttemptStatus SUCCESS and FwVersion matches
-    the project capsule target (0x00020300)
+    the project capsule target (0x00020400)
 
 Usage:
   python3 tools/esrt_standin.py path/to/x86_64-capsule-key.log
@@ -25,7 +25,7 @@ import sys
 
 SYSFW = "a7c4e9f2-3b1d-4e8a-9c55-12846f91de30"
 PERSIST = 0x00010000
-TARGET = 0x00020300
+TARGET = 0x00020400
 
 LIST_RE = re.compile(
     r"APP esrt-list count=(\d+) version=(\d+) max=(\d+)"
@@ -41,13 +41,13 @@ SUMMARY_RE = re.compile(
 )
 
 SAMPLE = """\
-capsule: ESRT at 0x0, 1 resource (system firmware 0x00020200)
+capsule: ESRT at 0x0, 1 resource (system firmware 0x00020300)
 capsule: trust ESL 100 bytes (1 key(s))
 APP esrt-list count=1 version=1 max=1
-APP esrt-entry0 class=a7c4e9f2-3b1d-4e8a-9c55-12846f91de30 type=1 fw=0x00020200 lowest=0x00020200 flags=0x00010000 last_ver=0x00000000 last_status=0
-capsule: apply ok version=0x00020300 (no flash rewrite)
+APP esrt-entry0 class=a7c4e9f2-3b1d-4e8a-9c55-12846f91de30 type=1 fw=0x00020300 lowest=0x00020300 flags=0x00010000 last_ver=0x00000000 last_status=0
+capsule: apply ok version=0x00020400 (flash rewrite via NV)
 APP esrt-list count=1 version=1 max=1
-APP esrt-entry0 class=a7c4e9f2-3b1d-4e8a-9c55-12846f91de30 type=1 fw=0x00020300 lowest=0x00020200 flags=0x00010000 last_ver=0x00020300 last_status=0
+APP esrt-entry0 class=a7c4e9f2-3b1d-4e8a-9c55-12846f91de30 type=1 fw=0x00020400 lowest=0x00020300 flags=0x00010000 last_ver=0x00020400 last_status=0
 APP capsule-key list=ok update=ok esrt=ok
 """
 

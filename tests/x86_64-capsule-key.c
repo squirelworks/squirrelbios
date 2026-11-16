@@ -160,7 +160,7 @@ static void dump_esrt(esrt_table *esrt)
 #define SYSFW_D1 0xa7c4e9f2u
 #define SYSFW_D2 0x3b1d
 #define SYSFW_D3 0x4e8a
-#define TARGET_VER 0x00020300u
+#define TARGET_VER 0x00020400u
 #define PERSIST_FLAG 0x00010000u
 
 EFIAPI status efi_main(handle image, system_table *st)

@@ -34,14 +34,14 @@ Used here, in `ROADMAP.md` and on the issues (as labels).
 - **`main` after v2.2.0:** D4 shared drivers, network/HTTP boot, NVRAM +
   authenticated variables, TPM, SMM/EINJ, IPMI, all of Phase E, Raspberry Pi
   on QEMU, F1–F4 as tested, Phase G Setup UI + host fuzz + UpdateCapsule/ESRT
-  (#189), signed capsule apply (#193) + Sarah follow-ups (#194), and
-  capsule flash rewrite via NV identity (M2) and project-key / ESRT
-  fwupd-shaped path (M4). Licence GPL-3.0. Notes:
-  `release-notes/v2.2.0.md`. Next agent cut: optional M3 Setup polish
-  or **M5** measured hand-off per
-  `release-notes/TO_3.0.0.md`.
+  (#189), signed capsule apply (#193) + Sarah follow-ups (#194),
+  capsule flash rewrite via NV identity (M2), project-key / ESRT
+  fwupd-shaped path (M4), and measured TPM event-log hand-off
+  (M5 / SQTL). Licence GPL-3.0. Notes: `release-notes/v2.2.0.md`,
+  `release-notes/v2.3.0.md`. Next agent cut: optional M3 Setup polish
+  or **M6** os-boot sync per `release-notes/TO_3.0.0.md`.
 - **Test gate:** `make test` (docs honesty via `make docs-lint` /
-  `tools/docs_lint.py`, then ~346 cases in `tests/smoke.sh`, plus
+  `tools/docs_lint.py`, then ~347 cases in `tests/smoke.sh`, plus
   `rpi4-uefi-sd` when QEMU has `raspi4b`), run by
   `.github/workflows/make-test.yml` on every PR. Optional, not in the
   required gate: `make linux-x86`, `make linux-uefi`, `make linux-shell`,
@@ -104,8 +104,8 @@ Full mark list (versions, acceptance, issue titles):
    via `Actions → Draft release` before Publish — never stub-publish.
 2. **Phase G product remainder** (`-2eaf`, **M1–M5**): ~~**M1** signed
    capsule~~ (#193) → ~~**M2** flash rewrite / NV identity~~ →
-   ~~**M4** project-key / ESRT~~; optional Setup polish (M3); measured
-   TPM event-log hand-off to OS/2 (M5).
+   ~~**M4** project-key / ESRT~~ → ~~**M5** measured TPM event-log
+   hand-off~~; optional Setup polish (M3); next **M6** os-boot sync.
 3. **D2-rpi4** board flash *(Squirrel, **M11**)*: the QEMU `raspi4b` case
    is done; try the SD layout in `boards/rpi4/README.md` on a desk Pi 4.
 4. **C5-board** desk flash *(Squirrel, **M12**)*: docs and
@@ -114,18 +114,32 @@ Full mark list (versions, acceptance, issue titles):
 5. **RISC-V AIA MSI** (**M10**) when a newer QEMU (≥ 9.1) is available in
    CI — blocked on 8.2 today.
 6. Already on `main` (do not re-cut for these alone): G1–G3 host fuzz,
-   Setup UI, UpdateCapsule + ESRT, signed apply / PersistAcrossReset
+   Setup UI, UpdateCapsule + ESRT, signed apply / PersistAcrossReset,
+   measured hand-off
    (`make fuzz-fat`, `make fuzz-pe`, `make fuzz-authenticode`,
    `make fuzz-net`, `make fuzz-usb`, `make fuzz-fdt`,
    `x86_64-setupui`, `x86_64-setupui-f2`, `x86_64-setupui-bootorder`,
    `x86_64-setupui-secboot`, `x86_64-setupui-datetime`,
    `x86_64-capsule`, `x86_64-capsule-signed`, `x86_64-capsule-fwcfg`,
    `x86_64-capsule-flash-1`, `x86_64-capsule-flash-2`,
-   `x86_64-capsule-key`).
+   `x86_64-capsule-key`, `x86_64-tpm-log-handoff`).
 7. Climb **M3–M20** in `TO_3.0.0.md` toward product **v3.0.0**
    (CONTINUANCE M3 companion — **not** a Phase E redo).
 
 ## Task cards
+
+### G-measured-handoff — TPM event-log hand-off to OS (M5)  `status: done`
+- **Done (lane `-2eaf`):** SQTL configuration table
+  (`SQUIRREL_TPM_LOG_HANDOFF_GUID`, magic `'SQTL'`) publishes the TCG2
+  event-log physical address / size / last event; agrees with ACPI
+  TPM2 and GetEventLog; usable after ExitBootServices. `SQ_VERSION`
+  **2.3.0**. Notes: `release-notes/measured-handoff.md`,
+  `release-notes/v2.3.0.md`. Epic #82. `TO_3.0.0.md` M5.
+- **Check:** `x86_64-tpm-log-handoff` in `make test` (needs swtpm).
+- **OS follow-up:** Squirrel-OS/2 boot-security page / regress name —
+  coordinate with the OS/2 lane; do not invent alone.
+- **Next (Phase G):** ~~M4~~ landed in `G-capsule-project-key`; optional
+  M3 Setup polish; M6 os-boot sync.
 
 ### G-capsule-flash — flash rewrite via NV identity (M2)  `status: done`
 - **Done (lane `-2eaf`):** verified SQCP apply updates ESRT `FwVersion`
@@ -136,8 +150,9 @@ Full mark list (versions, acceptance, issue titles):
   `release-notes/capsule-flash-rewrite.md`. Epic #82. `TO_3.0.0.md` M2.
 - **Check:** `x86_64-capsule-flash-1`, `x86_64-capsule-flash-2` in
   `make test`.
-- **Next (Phase G):** ~~M4~~ landed in `G-capsule-project-key`; optional
-  M3 Setup polish; M5 measured hand-off.
+- **Next (Phase G):** ~~M4~~ landed in `G-capsule-project-key`;
+  ~~M5 measured hand-off~~ landed in `G-measured-handoff`; optional
+  M3 Setup polish; M6 os-boot sync.
 
 ### G-capsule-project-key — project-key signing + ESRT fwupd-shaped path (M4)  `status: done`
 - **Done (lane `-2eaf`):** dedicated capsule project test key
@@ -148,8 +163,9 @@ Full mark list (versions, acceptance, issue titles):
   `release-notes/capsule-project-key.md`. Epic #82. `TO_3.0.0.md` M4.
 - **Check:** `x86_64-capsule-key`, `x86_64-capsule-key-esrt`,
   `capsule-project-key-host` in `make test`.
-- **Next (Phase G):** ~~M2~~ landed in `G-capsule-flash`; optional M3
-  Setup polish; M5 measured hand-off.
+- **Next (Phase G):** ~~M2~~ landed in `G-capsule-flash`;
+  ~~M5 measured hand-off~~ landed in `G-measured-handoff`; optional
+  M3 Setup polish; M6 os-boot sync.
 
 ### G-capsule-signed — signed capsule apply / PersistAcrossReset staging  `status: done`
 - **Done (lane `-2eaf`):** SQCP signed system-firmware capsules
@@ -168,8 +184,9 @@ Full mark list (versions, acceptance, issue titles):
 - **Check:** `x86_64-capsule-signed`, `x86_64-capsule-fwcfg` in
   `make test` (plus existing `x86_64-capsule`).
 - **Next (Phase G):** ~~flash rewrite~~ landed in `G-capsule-flash`;
-  ~~project-key~~ landed in `G-capsule-project-key`; optional Setup
-  polish; measured hand-off (M5).
+  ~~project-key~~ landed in `G-capsule-project-key`;
+  ~~measured hand-off~~ landed in `G-measured-handoff`; optional Setup
+  polish; M6 os-boot sync.
 
 ### G-capsule-esrt — UpdateCapsule + ESRT  `status: done`
 - **Done (lane `-2eaf`):** UEFI-class capsule plumbing in

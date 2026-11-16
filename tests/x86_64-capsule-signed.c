@@ -61,7 +61,7 @@ static void copy_cap(u8 *dst, const u8 *src, u32 n) { for (u32 i = 0; i < n; i++
 #define SYSFW_D1 0xa7c4e9f2u
 #define SYSFW_D2 0x3b1d
 #define SYSFW_D3 0x4e8a
-#define TARGET_VER 0x00020300u
+#define TARGET_VER 0x00020400u
 #define AUTH_ERROR 5u
 #define EFI_SECURITY_VIOLATION 0x800000000000001aULL
 #define EFI_BUFFER_TOO_SMALL   0x8000000000000005ULL

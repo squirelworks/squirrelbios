@@ -7,8 +7,8 @@
  * UpdateCapsule.
  *
  * Reports on COM1:
- *   APP capsule-flash apply=ok fw=0x00020300   (boot 1)
- *   APP capsule-flash kept=ok fw=0x00020300    (boot 2)
+ *   APP capsule-flash apply=ok fw=0x00020400   (boot 1)
+ *   APP capsule-flash kept=ok fw=0x00020400    (boot 2)
  */
 #include "capsule_good_blob.h"
 
@@ -86,7 +86,7 @@ static void copy_cap(u8 *dst, const u8 *src, u32 n)
 #define ESRT_D1 0xb122a263u
 #define ESRT_D2 0x3661
 #define ESRT_D3 0x4f68
-#define TARGET_VER 0x00020300u
+#define TARGET_VER 0x00020400u
 
 EFIAPI status efi_main(handle image, system_table *st)
 {

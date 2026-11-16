@@ -43,9 +43,10 @@ suite-wide continuation plan is `docs/CONTINUANCE.md` in squirrelsoft.
   `raspi4b`, Phase G Setup UI + host fuzz + **UpdateCapsule + ESRT** (#189).
   F1-scale (1024 CPUs / two ECAM segments, host-side `tests/acpicheck.py`) is in #169.
 - **Open:** C5 real-board flash, D2 desk Raspberry Pi 4/5, RISC-V AIA MSI mode.
-  F4-scale is optional `make f4-scale` (not in CI). Signed capsule apply
-  and flash rewrite via NV identity (M2) and project-key / ESRT path
-  (M4) are on `main`; measured hand-off remains a Phase G follow-up.
+  F4-scale is optional `make f4-scale` (not in CI). Signed capsule apply,
+  flash rewrite via NV identity (M2), project-key / ESRT path (M4), and
+  measured TPM event-log hand-off (SQTL / M5) are on `main`; optional
+  Setup polish (M3) and M6 os-boot sync remain Phase G follow-ups.
 
 ## Where things were (2026-11-13)
 
@@ -442,6 +443,12 @@ Setup UI shell land here as sizeable steps. Fine-grained marks to product
   Smoke: `x86_64-capsule-key`, `x86_64-capsule-key-esrt`,
   `capsule-project-key-host`. Notes in
   `release-notes/capsule-project-key.md`. Epic #82.
+- [x] **Measured TPM event-log hand-off (M5 / `G-measured-handoff`)**
+  (lane `-2eaf`): SQTL configuration table names the TCG2 event log
+  (same buffer as ACPI TPM2 + GetEventLog); usable after
+  ExitBootServices. Smoke: `x86_64-tpm-log-handoff`. Notes in
+  `release-notes/measured-handoff.md`, `release-notes/v2.3.0.md`.
+  OS/2 consumer later. Epic #82. `TO_3.0.0.md` M5 / `2.3.0`.
 
 ### Squirrel-OS/2 hand-off on every platform
 

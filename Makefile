@@ -126,6 +126,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/sb/sb-signed.efi $(TEST_DIR)/x86_64-sb-esp.img \
              $(TEST_DIR)/x86_64-numa.efi $(TEST_DIR)/x86_64-numa-dist.bin \
              $(TEST_DIR)/x86_64-tpm.efi \
+             $(TEST_DIR)/x86_64-tpm-log-handoff.efi \
              $(TEST_DIR)/x86_64-einj.efi \
              $(TEST_DIR)/x86_64-cxl.efi \
              $(TEST_DIR)/x86_64-smmlock.efi \
@@ -571,6 +572,10 @@ $(TEST_DIR)/x86_64-bigload.img: tests/mkesp.py $(TEST_DIR)/x86_64-bigload.efi | 
 	python3 tests/mkesp.py $(TEST_DIR)/x86_64-bigload.efi $@
 # The PIC, local APIC, 8042 and VGA state an OS gets
 $(TEST_DIR)/x86_64-handoff.efi: tests/x86_64-handoff.c tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)
+	$(CC64) $(X64_APP_CFLAGS) $< -o $(@:.efi=.elf)
+	python3 tests/mkpe.py x86_64 $(@:.efi=.elf) $@
+# Measured hand-off: SQTL configuration table + ACPI TPM2 + GetEventLog (M5)
+$(TEST_DIR)/x86_64-tpm-log-handoff.efi: tests/x86_64-tpm-log-handoff.c tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)
 	$(CC64) $(X64_APP_CFLAGS) $< -o $(@:.efi=.elf)
 	python3 tests/mkpe.py x86_64 $(@:.efi=.elf) $@
 $(TEST_DIR)/arm-fat.img: tests/mkesp.py $(TEST_DIR)/arm-efi-fat.efi | $(TEST_DIR)

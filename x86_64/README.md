@@ -264,11 +264,14 @@ GetCapability, GetEventLog (the TCG2 format only), HashLogExtendEvent
 changing the banks is unsupported. Events after GetEventLog also go in
 the final events table. The log (64 KB, ACPI NVS) is in the TPM2 table
 (revision 4, start method 6), and the DSDT has an `MSFT0101` device for
-the OS's TIS driver. The CRB interface is not supported. `tests/
-tcglog.py` replays a log against PCRs 0-7; `LINUX_TPM=1 make
+the OS's TIS driver. Phase G M5 also installs the Squirrel `SQTL`
+configuration table (`SQUIRREL_TPM_LOG_HANDOFF_GUID`) so Squirrel-OS/2
+can find the same log after ExitBootServices without parsing ACPI first;
+smoke `x86_64-tpm-log-handoff`. The CRB interface is not supported.
+`tests/tcglog.py` replays a log against PCRs 0-7; `LINUX_TPM=1 make
 linux-uefi` checks that Linux finds the TPM and that its
 binary_bios_measurements replay. With no TPM the firmware says
-`tpm: none` and installs no protocol.
+`tpm: none` and installs no protocol or SQTL table.
 
 ```
 mkdir -p tpm && swtpm_setup --tpm2 --tpmstate tpm --pcr-banks sha256

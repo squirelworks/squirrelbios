@@ -509,6 +509,13 @@ stub, a 1 MB flash image for `qemu-system-x86_64 -bios`. One PR each.
   `release-notes/capsule-project-key.md`. Depends on:
   `x86_64-capsule-signed`. Epic #82. `TO_3.0.0.md` M4 (`2.2.50`).
 
+- [x] `x86_64-tpm-log-handoff` — Phase G M5 measured TPM event-log
+  hand-off / `G-measured-handoff` (lane `-2eaf`): SQTL configuration
+  table (`SQUIRREL_TPM_LOG_HANDOFF`) agrees with ACPI TPM2 log area and
+  GetEventLog; Spec ID Event03; usable after ExitBootServices. Notes:
+  `release-notes/measured-handoff.md`, `release-notes/v2.3.0.md`.
+  Depends on: `c5-tpm`. Epic #82. `TO_3.0.0.md` M5 / `2.3.0`.
+
 ## 14. Phase H — ISM avionics bring-up / BIT / integrity (#195)
 
 One checkbox is one PR from `main`. Interface:

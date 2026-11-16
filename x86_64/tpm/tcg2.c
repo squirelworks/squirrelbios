@@ -13,7 +13,8 @@
  * into PCR 4 (its Authenticode hash), and ExitBootServices into PCR 5.
  * Each extend covers every active bank this firmware can hash (SHA-1,
  * SHA-256, SHA-384, SHA-512) and is logged in the TCG2 (crypto-agile)
- * format; the TPM2 table and GetEventLog give the OS that log. */
+ * format; the TPM2 table, GetEventLog and the Squirrel SQTL
+ * configuration table give the OS that log. */
 #include "tpm.h"
 #include "secure.h"
 #include "acpi.h"
@@ -69,6 +70,26 @@ static int log_truncated, log_given;
 static u8 *final_table;
 static u32 final_used;
 static int ready;
+static SQUIRREL_TPM_LOG_HANDOFF *sqtl;
+static const EFI_GUID sqtl_guid = SQUIRREL_TPM_LOG_HANDOFF_GUID;
+
+static void sqtl_refresh(void)
+{
+    if (!sqtl)
+        return;
+    sqtl->Magic = SQUIRREL_TPM_LOG_MAGIC;
+    sqtl->Version = SQUIRREL_TPM_LOG_VERSION;
+    sqtl->Format = SQUIRREL_TPM_LOG_FORMAT_TCG2;
+    sqtl->Flags = SQUIRREL_TPM_LOG_F_PRESENT;
+    if (log_truncated)
+        sqtl->Flags |= SQUIRREL_TPM_LOG_F_TRUNCATED;
+    sqtl->LogBase = (u64)(uptr)log_base;
+    sqtl->LogSize = LOG_SIZE;
+    sqtl->LogLast = (u64)(uptr)log_last;
+    sqtl->FinalEvents = (u64)(uptr)final_table;
+    sqtl->FinalEventsSize = FINAL_SIZE;
+    sqtl->Reserved = 0;
+}
 
 static void put16be(u8 *p, u16 v) { p[0] = (u8)(v >> 8); p[1] = (u8)v; }
 static void put32be(u8 *p, u32 v) { put16be(p, (u16)(v >> 16)); put16be(p + 2, (u16)v); }
@@ -271,6 +292,7 @@ static void log_event(u32 pcr, u32 type, u8 d[NBANKS][64], const void *ev, u32 l
     u32 size = event2(NULL, pcr, type, d, ev, len);
     if (log_truncated || (u64)(log_end - log_next) < size) {
         log_truncated = 1;
+        sqtl_refresh();
         return;
     }
     event2(log_next, pcr, type, d, ev, len);
@@ -285,6 +307,7 @@ static void log_event(u32 pcr, u32 type, u8 d[NBANKS][64], const void *ev, u32 l
         memcpy(&n, final_table + 8, 8);
         put64(final_table + 8, n + 1);
     }
+    sqtl_refresh();
 }
 
 /* The first entry: a TCG_PCClientPCREvent (SHA-1 format) of type
@@ -491,6 +514,7 @@ static EFI_STATUS EFIAPI get_event_log(void *this, u32 format, u64 *where, u64 *
     *last = (u64)(uptr)log_last;
     *truncated = (BOOLEAN)log_truncated;
     log_given = 1;
+    sqtl_refresh();
     return EFI_SUCCESS;
 }
 
@@ -614,6 +638,19 @@ void tpm_init(void)
     present = 1;
     log_header();
 
+    /* SQTL: OS/2-facing hand-off of the same log the TPM2 table names */
+    {
+        EFI_PHYSICAL_ADDRESS hb = 0xFFFFFFFF;
+        if (efi_allocate_pages(AllocateMaxAddress, EfiRuntimeServicesData, 1, &hb)) {
+            printf("tpm: no memory for the SQTL hand-off\n");
+            present = 0;
+            return;
+        }
+        sqtl = (SQUIRREL_TPM_LOG_HANDOFF *)(uptr)hb;
+        memset(sqtl, 0, 4096);
+        sqtl_refresh();
+    }
+
     printf("tpm: TPM 2.0 at 0x%x (TIS, %04x:%04x), PCR banks", TPM_TIS_BASE, id & 0xFFFF, id >> 16);
     for (int b = 0; b < NBANKS; b++)
         if (active & 1u << b)
@@ -625,8 +662,11 @@ void tpm_init(void)
     EFI_EVENT ev;
     if (efi_install_protocol_interface(&h, (EFI_GUID *)&tcg2_guid, 0, &tcg2) ||
         efi_install_configuration_table((EFI_GUID *)&final_guid, final_table) ||
+        efi_install_configuration_table((EFI_GUID *)&sqtl_guid, sqtl) ||
         efi_create_event(EVT_SIGNAL_EXIT_BOOT_SERVICES, TPL_CALLBACK, on_exit_boot_services, NULL, &ev))
         printf("tpm: EFI_TCG2_PROTOCOL not installed\n");
+    else
+        printf("tpm: SQTL event-log hand-off at %p\n", sqtl);
 }
 
 /* TPM2 (revision 4): a client platform, the FIFO interface (start
