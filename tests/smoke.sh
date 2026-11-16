@@ -1318,6 +1318,9 @@ host_check avionics-integrity "$TEST_DIR/avionics-integrity"
 host_check avionics-handoff "$TEST_DIR/avionics-handoff"
 host_check avionics-rc-fc "$TEST_DIR/avionics-rc-fc"
 
+# Phase G M7: docs_lint honesty strengthen (negative + positive fixtures).
+host_check docs-lint-harden tests/docs_lint_selftest.sh
+
 # x86-64 firmware: machine checks left in the banks survive a reset and
 # become BERT records on the next boot (F2). Once the app has seen an
 # empty BERT, the monitor injects a corrected error on CPU 1 and a fatal

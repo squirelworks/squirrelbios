@@ -1044,8 +1044,11 @@ stretch: | $(TEST_DIR)
 	else echo "stretch: no $(MIPS)as, MIPS not built"; rm -f $(MIPS_BIN); fi
 .PHONY: loongarch mips stretch
 
-# CONTINUANCE §3c: checked ROADMAP/TODO/HANDOFF boxes that name a smoke
-# case or make-test gate must find it in tests/smoke.sh / the Makefile.
+# CONTINUANCE §3c / Phase G M7: checked ROADMAP/TODO/HANDOFF boxes that
+# name a smoke case or make-test gate must find it in tests/smoke.sh /
+# the Makefile; unused allowlist entries fail; live SQ_VERSION and the
+# Phase E historical-vs-product banner are checked. Negative fixtures:
+# tests/docs_lint_selftest.sh (host smoke docs-lint-harden).
 docs-lint:
 	python3 tools/docs_lint.py
 

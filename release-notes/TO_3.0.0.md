@@ -125,8 +125,8 @@ Notes refresh **#190** is on `main`. Soft PATH’s fold-into-2.2.0 advice is sat
    https://github.com/squirelworks/squirrelbios/releases/tag/v2.2.0
 2. **`-2eaf`:** **M1** signed capsule landed as #193 on `main`; **M2**
    flash rewrite, **M4** project-key / ESRT, **M5** measured hand-off,
-   and **M6** os-boot sync landed. Next coding is optional M3 Setup
-   polish or **M7** docs_lint harden.
+   **M6** os-boot sync, and **M7** docs_lint harden landed. Next coding
+   is optional M3 Setup polish or **M8** CI shard.
 3. Soft PATH stays index-only; do not move this ladder into Soft.
 
 ---
@@ -220,13 +220,14 @@ Lanes: **only `-2eaf`** for code. Owner marks wait on `needs: squirrel`.
 
 | Field | Value |
 |-------|-------|
-| **Bump** | `+0.0.25` |
+| **Bump** | `+0.0.25` (ladder mark; `SQ_VERSION` stays **2.3.0**) |
 | **Box** | `docs-lint-harden` |
 | **Issue to file** | *(draft)* `docs_lint: tighten allowlist; refuse stale Phase G / version claims` |
-| **Suggested check** | `make docs-lint` (already in `make test`); add a negative fixture if useful |
+| **Suggested check** | `make docs-lint`; host smoke `docs-lint-harden` (`--self-test` negative fixture) |
 | **Design note** | `release-notes/docs-lint-harden.md` |
 | **Acceptance** | Allowlist shrinks or gains audited entries; ROADMAP Phase E banner note (historical vs product 3.0.0) stays consistent with this file |
 | **Lane** | `-2eaf` |
+| **Status** | **Done** — unused allowlist fails; live `SQ_VERSION` + Phase E banner checks; `docs-lint-harden` host smoke |
 
 ### M8 — `2.3.50` shard `make test` CI (optional)  ·  `-2eaf`  ·  depends: M7 recommended
 
@@ -418,7 +419,7 @@ Soft does not own rows; it may **index** them.
 
 | Actor | Now | Next |
 |-------|-----|------|
-| **`-2eaf` (BIOS)** | **M1–M2**, **M4–M6** on `main` — **do not redo** | Optional **M3** Setup polish → climb **M7+** |
+| **`-2eaf` (BIOS)** | **M1–M2**, **M4–M7** on `main` — **do not redo** | Optional **M3** Setup polish → climb **M8+** |
 | **Owner** | Publish nothing until #190 lands (preferred) | **M0** tag `v2.2.0` from tip; later M13/M14/M20; desk M11/M12 when hardware is free |
 | **`-b55f`** | **Not on BIOS** — OS/2 2.9 only | Ignore this file for OS claims; see OS/2 `TO_3.0.0.md` |
 | **Soft** | PATH index only | Do not move BIOS marks into Soft |
@@ -454,7 +455,7 @@ Titles only; file under `squirelworks/squirrelbios` and link epic #82:
 4. `Capsule signing with project key; ESRT fwupd-shaped path under QEMU` (`-2eaf`)
 5. `Measured hand-off: pass TPM event log to Squirrel-OS/2` (`-2eaf`)
 6. ~~`tests/os-boot.sh: track squirrel-os2 release tags`~~ (`-2eaf`, **done** — M6 / `os-boot-sync`)
-7. `docs_lint: tighten allowlist; refuse stale version claims` (`-2eaf`)
+7. ~~`docs_lint: tighten allowlist; refuse stale version claims`~~ (`-2eaf`, **done** — M7 / `docs-lint-harden`)
 8. `CI: shard tests/smoke.sh without weakening the required gate` (`-2eaf`, optional)
 9. `RISC-V AIA MSI: smsiaddrcfg on QEMU ≥ 9.1` (`-2eaf`, blocked)
 10. `D2: desk Raspberry Pi 4 SD boot` (`needs: squirrel`)

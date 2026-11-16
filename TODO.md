@@ -523,6 +523,15 @@ stub, a 1 MB flash image for `qemu-system-x86_64 -bios`. One PR each.
   `os-boot-sync` (`--check-pin`). Notes: `release-notes/os-boot-sync.md`.
   Depends on: M0. Epic #82. `TO_3.0.0.md` M6 / `2.3.1`.
 
+- [x] `docs-lint-harden` — Phase G M7 docs_lint allowlist / honesty
+  strengthen (lane `-2eaf`): unused allowlist entries fail; live
+  `SQ_VERSION` claims must match `common/efi/include/sq.h`; ROADMAP
+  Phase E keeps the historical-vs-product **v3.0.0** banner note.
+  Host smoke `docs-lint-harden` (`tests/docs_lint_selftest.sh` /
+  `docs_lint.py --self-test`). Notes:
+  `release-notes/docs-lint-harden.md`. Epic #82.
+  `TO_3.0.0.md` M7 / `2.3.25`.
+
 ## 14. Phase H — ISM avionics bring-up / BIT / integrity (#195)
 
 One checkbox is one PR from `main`. Interface:
