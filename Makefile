@@ -132,6 +132,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/x86_64-ipmi.efi \
              $(TEST_DIR)/x86_64-capsule.efi $(TEST_DIR)/x86_64-capsule-signed.efi \
              $(TEST_DIR)/x86_64-capsule-flash.efi \
+             $(TEST_DIR)/x86_64-capsule-key.efi \
              $(TEST_DIR)/sb/capsule-good.cap \
              $(TEST_DIR)/x86_64-tables \
              $(TEST_DIR)/avionics-bit \
