@@ -454,6 +454,31 @@ The older polish items stay valid and fold into Phase D when it starts:
 - [x] AArch64: firmware PSCI/GIC only if QEMU's built-ins are disabled for a
   test; otherwise leave them.
 
+### Phase H — ISM avionics bring-up / BIT / boot integrity (#195)
+
+Reuse SquirrelBIOS as the early bring-up, built-in test, and boot-integrity
+layer for International Squirrel Machines avionics boards (fighter-jet bay
+I/O concentrator and FCC LRUs) and Eric’s ISM RC flight controller. Flight
+laws stay on a separate small RTOS; BIOS hands off to it. Contract:
+ISM `fighter-jet/interfaces/firmware-bringup.yaml` BIT line. Gap analysis:
+[`boards/ism-avionics/GAP.md`](boards/ism-avionics/GAP.md).
+
+- [x] **H0** Gap list: what avionics boards need from BIOS (MCU class,
+  board-id, rails, IMU/radio probes, safe-state, RTOS hand-off). Doc:
+  `boards/ism-avionics/GAP.md`. Tracker #195.
+- [ ] **H1** Portable BIT/POST framework with a machine-readable result
+  record matching ISM `bit_line_fields` (board, ver, rails, imu, radio,
+  uplink, brownout, safe, act/inc vectors). Smoke: `avionics-bit`.
+- [ ] **H2** Boot-integrity check (image hash/signature) and safe-state on
+  failure (neutral outputs; no jump to a bad image). Smoke:
+  `avionics-integrity`.
+- [ ] **H3** Clean hand-off interface to an RTOS / application image
+  (MCU-sized contract in `common/handoff.md`). Smoke: `avionics-handoff`.
+- [ ] **H4** First target: Eric’s ISM RC flight controller
+  (`boards/ism-rc-fc/`). Smoke: `avionics-rc-fc`.
+- [ ] **H5** Porting guide for new avionics boards
+  (`boards/ism-avionics/PORTING.md`).
+
 ## Out of scope
 
 - Vendoring SeaBIOS, EDK2, OpenSBI, U-Boot, coreboot, OpenBIOS, or

@@ -493,6 +493,46 @@ stub, a 1 MB flash image for `qemu-system-x86_64 -bios`. One PR each.
   Sarah #193 follow-ups: `release-notes/capsule-signed-followup.md`.
   Depends on: `x86_64-capsule`. Epic #82.
 
+## 14. Phase H — ISM avionics bring-up / BIT / integrity (#195)
+
+One checkbox is one PR from `main`. Interface:
+ISM `fighter-jet/interfaces/firmware-bringup.yaml`. Gap list:
+[`boards/ism-avionics/GAP.md`](boards/ism-avionics/GAP.md).
+
+- [x] `avionics-gap` — Gap list for ISM bay I/O / FCC / RC flight
+  controller needs (MCU class, board-id, rails, IMU/radio probes,
+  safe-state, RTOS hand-off). Acceptance: `boards/ism-avionics/GAP.md`
+  cites the ISM BIT fields and lists ordered landings H1–H5; ROADMAP
+  Phase H and this section exist. No firmware behaviour change.
+  Tracker #195.
+
+- [ ] `avionics-bit` — Portable BIT/POST framework whose result record
+  matches ISM `bit_line_fields`. Acceptance: host-buildable code under
+  `common/bit/` (or equivalent) formats a BIT line with board, ver,
+  rail28/rail5/rail3v3, imu, radio, uplink, brownout, safe, act and
+  inc vectors; smoke case `avionics-bit` checks the field set.
+  Depends on: `avionics-gap`.
+
+- [ ] `avionics-integrity` — Boot-integrity check and safe-state on
+  failure. Acceptance: a bad image hash/signature engages safe-state
+  and does not jump; a good image may proceed to hand-off; smoke case
+  `avionics-integrity`. Depends on: `avionics-bit`.
+
+- [ ] `avionics-handoff` — Clean RTOS/app hand-off interface. Acceptance:
+  MCU hand-off contract in `common/handoff.md` (entry, BIT pointer,
+  integrity status, no post-jump BIOS services); smoke case
+  `avionics-handoff`. Depends on: `avionics-integrity`.
+
+- [ ] `avionics-rc-fc` — First target: Eric’s ISM RC flight controller.
+  Acceptance: `boards/ism-rc-fc/` board card with board-id and probe
+  table wired into the BIT framework; smoke case `avionics-rc-fc`.
+  Depends on: `avionics-handoff`.
+
+- [ ] `avionics-porting` — Porting guide for new avionics boards.
+  Acceptance: `boards/ism-avionics/PORTING.md` covers board-id, probes,
+  BIT line, integrity, RTOS hand-off, and test hooks. Depends on:
+  `avionics-rc-fc`.
+
 ## Secondary track
 
 Open a PR for one of these when it helps; they are not the laundry list

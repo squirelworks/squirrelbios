@@ -306,6 +306,20 @@ Full mark list (versions, acceptance, issue titles):
   x2APIC). Not in `make test` / CI. `NETSIM_IDLE` keeps the server up
   while the large node brings up its APs.
 
+### H-avionics — ISM bring-up / BIT / boot integrity (#195)  `cursor-codex`
+- **Goal:** Reuse SquirrelBIOS as bring-up / BIT / boot-integrity for
+  ISM fighter-jet bay I/O and FCC boards, and Eric’s ISM RC flight
+  controller. Laws stay on a separate RTOS. Contract:
+  ISM `firmware-bringup.yaml` BIT line.
+- **Done (this card’s first PR):** gap list
+  [`boards/ism-avionics/GAP.md`](boards/ism-avionics/GAP.md); ROADMAP
+  Phase H; TODO §14. Checkbox `avionics-gap` / H0.
+- **Open (one PR each):** `avionics-bit`, `avionics-integrity`,
+  `avionics-handoff`, `avionics-rc-fc`, `avionics-porting` (see TODO.md).
+- **Check (gap PR):** docs honesty lint green; no new smoke case; gap
+  doc present.
+- **Related:** squirrel-os2 #225 (ground/lab); ISM #84 bay firmware.
+
 ### Secondary track and small follow-ups  `cursor-codex`
 - `riscv-sparse-harts` only if a board with gapped hart IDs is targeted (Speculative in TODO.md).
 - VisionFive 2: `CONFIG=visionfive2` (`configs/riscv64-uefi/visionfive2.cfg`)
