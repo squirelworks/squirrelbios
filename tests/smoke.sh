@@ -1940,16 +1940,24 @@ fi
 run x86_64-tpm-none "tpm: none|APP tpm =bad|!TPM 2.0" \
     "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-tpm.efi
 
-# Phase G M5: measured event-log hand-off (SQTL config table + ACPI TPM2
-# log area + GetEventLog agree; usable after ExitBootServices).
+# Phase G M5 + M16: measured event-log hand-off (SQTL config table + ACPI
+# TPM2 log area + GetEventLog agree; usable after ExitBootServices) and
+# measured-boot polish (ActiveBanks + TCG2 parse + PCR policy v1).
+TPM_LOG_APP="APP tpm-log cfg=ok acpi=ok log=ok tcg2=ok banks=ok parse=ok policy=ok"
 if command -v swtpm >/dev/null 2>&1 && command -v swtpm_setup >/dev/null 2>&1; then
     start_swtpm sha256
-    run x86_64-tpm-log-handoff "tpm: SQTL event-log hand-off at|APP tpm-log cfg=ok acpi=ok log=ok tcg2=ok|efi: ExitBootServices|APP tpm-log ebs=ok|@exit=1|!=bad" \
+    run x86_64-tpm-log-handoff "tpm: SQTL event-log hand-off at|tpm: measured-boot policy v1|$TPM_LOG_APP|efi: ExitBootServices|APP tpm-log ebs=ok|@exit=1|!=bad" \
+        "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd $TPM_DEV \
+        -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
+        -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-tpm-log-handoff.efi
+    start_swtpm sha256
+    # Regex for the policy line: parentheses confuse unquoted IFS-split wants.
+    run x86_64-tpm-polish "~tpm: measured-boot policy v1 \\(TCG2 log \\+ ActiveBanks=0x[0-9a-f]+\\)|$TPM_LOG_APP|efi: ExitBootServices|APP tpm-log ebs=ok|@exit=1|!=bad" \
         "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd $TPM_DEV \
         -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
         -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-tpm-log-handoff.efi
 else
-    echo "SKIP  x86_64-tpm-log-handoff (no swtpm)"
+    echo "SKIP  x86_64-tpm-log-handoff, x86_64-tpm-polish (no swtpm)"
 fi
 
 # Phase G M15: Secure Boot everyday path for a Squirrel-OS/2 loader

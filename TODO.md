@@ -557,6 +557,16 @@ stub, a 1 MB flash image for `qemu-system-x86_64 -bios`. One PR each.
   `TO_3.0.0.md` M15 / ladder **2.6.1**. `SQ_VERSION` stays **2.3.0**
   (M14 `2.6.0` banner still open for owner prep/tag).
 
+- [x] `x86_64-tpm-polish` — Phase G M16 measured boot polish /
+  `G-tpm-polish` (lane `-2eaf`): SQTL `ActiveBanks`
+  (`EFI_TCG2_BOOT_HASH_ALG_*`); PCR policy v1 + TCG2 field layout
+  documented in `common/handoff.md` for OS Control Panel (public TCG
+  parse, no firmware-private event headers). Extends
+  `x86_64-tpm-log-handoff` (`banks=ok parse=ok policy=ok`). Notes:
+  `release-notes/tpm-polish.md`. Depends on: `x86_64-tpm-log-handoff`.
+  Epic #82. `TO_3.0.0.md` M16 / ladder **2.7.0**. `SQ_VERSION` stays
+  **2.3.0** (M14 `2.6.0` banner still open for owner prep/tag).
+
 ## 14. Phase H — ISM avionics bring-up / BIT / integrity (#195)
 
 One checkbox is one PR from `main`. Interface:

@@ -599,9 +599,12 @@ typedef struct {
 #define SQUIRREL_SYSTEM_FIRMWARE_GUID \
     { 0xa7c4e9f2, 0x3b1d, 0x4e8a, { 0x9c, 0x55, 0x12, 0x84, 0x6f, 0x91, 0xde, 0x30 } }
 
-/* Measured boot event-log hand-off for Squirrel-OS/2 (Phase G M5).
+/* Measured boot event-log hand-off for Squirrel-OS/2 (Phase G M5 + M16).
  * Configuration table: physical addresses of the TCG2 crypto-agile log
- * and the EFI_TCG2_FINAL_EVENTS_TABLE. Survives ExitBootServices. */
+ * and the EFI_TCG2_FINAL_EVENTS_TABLE. Survives ExitBootServices.
+ * Layout is frozen for OS Control Panel: document offsets in
+ * common/handoff.md; the event log itself is public TCG2 (no private
+ * event encodings). ActiveBanks is the EFI_TCG2_BOOT_HASH_ALG_* bitmap. */
 #define SQUIRREL_TPM_LOG_HANDOFF_GUID \
     { 0xb3e91a47, 0x6c2f, 0x4d01, { 0x8a, 0x71, 0x55, 0x90, 0x2c, 0xde, 0x41, 0xf8 } }
 #define SQUIRREL_TPM_LOG_MAGIC          0x4C545153u /* 'SQTL' little-endian */
@@ -609,6 +612,7 @@ typedef struct {
 #define SQUIRREL_TPM_LOG_FORMAT_TCG2    2u          /* EFI_TCG2_EVENT_LOG_FORMAT_TCG_2 */
 #define SQUIRREL_TPM_LOG_F_PRESENT      0x00000001u
 #define SQUIRREL_TPM_LOG_F_TRUNCATED    0x00000002u
+#define SQUIRREL_TPM_POLICY_VERSION     1u          /* PCR map in common/handoff.md */
 typedef struct {
     u32 Magic;
     u32 Version;
@@ -619,7 +623,7 @@ typedef struct {
     u64 LogLast;            /* physical address of the last event */
     u64 FinalEvents;        /* EFI_TCG2_FINAL_EVENTS_TABLE, or 0 */
     u32 FinalEventsSize;    /* capacity of that table */
-    u32 Reserved;
+    u32 ActiveBanks;        /* EFI_TCG2_BOOT_HASH_ALG_* bitmap (was Reserved) */
 } SQUIRREL_TPM_LOG_HANDOFF;
 
 /* Signed system-firmware capsule body (after EFI_CAPSULE_HEADER). Original

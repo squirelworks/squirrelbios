@@ -21,7 +21,6 @@ QEMU machine.
 - **M10:** RISCV-AIA-MSI still **blocked** on QEMU ≥ 9.1 in CI (8.2 MSI
   storms). Do not force on this image.
 - **M3:** Setup UI polish is on `main` (#207); this mark does not redo it.
-- **Next:** M11 / M12 desk flashes stay `needs: squirrel`. ~~**M15**~~
-  Secure Boot everyday path landed; next agent coding is **M14** Phase G
-  product banner (prep) or **M16** — not #195, not M10 until CI QEMU
-  moves.
+- **Next:** M11 / M12 desk flashes stay `needs: squirrel`. ~~**M15**~~ /
+  ~~**M16**~~ landed; next agent coding is **M14** Phase G product
+  banner (prep) or **M17** — not #195, not M10 until CI QEMU moves.

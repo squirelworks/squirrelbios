@@ -27,7 +27,7 @@ with Secure Boot on and a TPM, and refuses an unsigned image.
   `x86_64-setupui-secboot` / `x86_64-sbe-*`); real OS/2 PE from a
   release tag (M18 rehearsal); M16 PCR-policy polish.
 - **Next:** **M14** Phase G product banner (prep / owner tag) when
-  ready; then **M16** measured-boot polish. ~~**M9**~~ VisionFive2 /
+  ready; ~~**M16**~~ measured-boot polish landed; then **M17**. ~~**M9**~~ VisionFive2 /
   HiFive desk notes are on `main`; **M10** stays blocked on QEMU ≥ 9.1;
   desk **M11–M12** stay `needs: squirrel`. Skip #195 unless asked.
 
