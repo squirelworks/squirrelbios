@@ -124,8 +124,9 @@ Notes refresh **#190** is on `main`. Soft PATH’s fold-into-2.2.0 advice is sat
 1. **Owner:** **Published** `v2.2.0` —
    https://github.com/squirelworks/squirrelbios/releases/tag/v2.2.0
 2. **`-2eaf`:** **M1** signed capsule landed as #193 on `main`; **M2**
-   flash rewrite and **M4** project-key / ESRT landed. Next coding is
-   optional M3 Setup polish or **M5** measured hand-off.
+   flash rewrite, **M4** project-key / ESRT, and **M5** measured
+   hand-off landed. Next coding is optional M3 Setup polish or
+   **M6** os-boot sync.
 3. Soft PATH stays index-only; do not move this ladder into Soft.
 
 ---
@@ -184,7 +185,7 @@ Lanes: **only `-2eaf`** for code. Owner marks wait on `needs: squirrel`.
 | **Acceptance** | Public test key + signing recipe in-tree; ESRT fields populated so a host-side stand-in can list/update; QEMU-only; epic #82 |
 | **Lane** | `-2eaf` |
 
-### M5 — `2.3.0` measured hand-off spine (TPM event log → OS)  ·  `-2eaf`  ·  depends: M0; coordinates with OS/2 later
+### M5 — `2.3.0` measured hand-off spine (TPM event log → OS)  ·  `-2eaf`  ·  depends: M0; coordinates with OS/2 later  ·  **done**
 
 | Field | Value |
 |-------|-------|
@@ -196,6 +197,7 @@ Lanes: **only `-2eaf`** for code. Owner marks wait on `needs: squirrel`.
 | **Acceptance** | With `swtpm`, firmware exposes the TCG2 event log to the OS stand-in; OS/2 consumption may lag — BIOS mark closes when the **firmware contract** is tested; note the OS follow-up in HANDOFF |
 | **Release note** | Full `v2.3.0.md` + compatibility matrix row vs OS/2 tags |
 | **Lane** | `-2eaf` (BIOS); OS page is OS/2 lane when ready |
+| **Status** | **Done** — SQTL config table + `x86_64-tpm-log-handoff`; owner publishes `v2.3.0` when ready |
 
 ### M6 — `2.3.1` os-boot.sh keep-in-step  ·  `-2eaf`  ·  depends: M0; track OS/2 releases
 
@@ -414,7 +416,7 @@ Soft does not own rows; it may **index** them.
 
 | Actor | Now | Next |
 |-------|-----|------|
-| **`-2eaf` (BIOS)** | [#190](https://github.com/squirelworks/squirrelbios/pull/190) notes refresh; signed-capsule worker may be in flight — **finish or rebase, do not redo** | After M0: **M1** signed apply → **M2** flash rewrite → **M5** measured hand-off |
+| **`-2eaf` (BIOS)** | **M1–M2**, **M4**, **M5** on `main` / in flight — **finish or rebase, do not redo** | Optional **M3** Setup polish → **M6** os-boot sync → climb M7+ |
 | **Owner** | Publish nothing until #190 lands (preferred) | **M0** tag `v2.2.0` from tip; later M13/M14/M20; desk M11/M12 when hardware is free |
 | **`-b55f`** | **Not on BIOS** — OS/2 2.9 only | Ignore this file for OS claims; see OS/2 `TO_3.0.0.md` |
 | **Soft** | PATH index only | Do not move BIOS marks into Soft |

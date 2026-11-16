@@ -1930,6 +1930,18 @@ fi
 run x86_64-tpm-none "tpm: none|APP tpm =bad|!TPM 2.0" \
     "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-tpm.efi
 
+# Phase G M5: measured event-log hand-off (SQTL config table + ACPI TPM2
+# log area + GetEventLog agree; usable after ExitBootServices).
+if command -v swtpm >/dev/null 2>&1 && command -v swtpm_setup >/dev/null 2>&1; then
+    start_swtpm sha256
+    run x86_64-tpm-log-handoff "tpm: SQTL event-log hand-off at|APP tpm-log cfg=ok acpi=ok log=ok tcg2=ok|efi: ExitBootServices|APP tpm-log ebs=ok|@exit=1|!=bad" \
+        "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd $TPM_DEV \
+        -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
+        -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-tpm-log-handoff.efi
+else
+    echo "SKIP  x86_64-tpm-log-handoff (no swtpm)"
+fi
+
 # x86-64 firmware: SMM and EINJ (F2). On q35 the top 1 MB of RAM below
 # 4 GB is TSEG, every CPU's SMBASE is moved into it, and an SMI from port
 # 0xB2 serves EINJ: x86_64-einj runs the EINJ actions as an OS would, on

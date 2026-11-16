@@ -1226,6 +1226,24 @@ Details: [x86_64/README.md](../x86_64/README.md),
 `x86_64-capsule-flash-1`, `x86_64-capsule-flash-2`,
 `x86_64-capsule-key`.
 
+### Measured TPM event-log hand-off (Phase G M5)
+
+With a TPM 2.0 on TIS, the firmware measures into PCRs and keeps one
+TCG2 (crypto-agile) event log in ACPI NVS. Squirrel-OS/2 (and stand-ins)
+find that log after `ExitBootServices` without inventing a private
+parser path:
+
+| Path | What to read |
+|------|----------------|
+| **SQTL configuration table** | GUID `SQUIRREL_TPM_LOG_HANDOFF_GUID`; structure magic `'SQTL'` (`SQUIRREL_TPM_LOG_HANDOFF`): `LogBase`, `LogSize`, `LogLast`, format `2` (TCG2), flags PRESENT / TRUNCATED, plus the final-events table |
+| **ACPI TPM2 table** | Log Area Minimum Length / Start Address (same buffer as SQTL) |
+| **`EFI_TCG2_PROTOCOL.GetEventLog`** | Boot-services only; returns the same base / last event; events after the first GetEventLog also go to the final-events table |
+
+The first event is Spec ID Event03. No TPM → no SQTL table and
+`tpm: none`. OS Control Panel consumption is an OS/2 follow-up (do not
+invent the OS regress name here). Smoke: `x86_64-tpm-log-handoff`.
+Notes: `release-notes/measured-handoff.md`, `release-notes/v2.3.0.md`.
+
 ## POWER (QEMU powernv9 / powernv10)
 
 Roadmap E1, `PLATFORM=ppc64le-powernv`; details in
