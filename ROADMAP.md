@@ -46,8 +46,9 @@ suite-wide continuation plan is `docs/CONTINUANCE.md` in squirrelsoft.
   F4-scale is optional `make f4-scale` (not in CI). Signed capsule apply,
   flash rewrite via NV identity (M2), project-key / ESRT path (M4),
   measured TPM event-log hand-off (SQTL / M5), os-boot sync (M6 /
-  pinned Squirrel-OS/2 `v2.3.0`), and docs_lint harden (M7) are on
-  `main`; optional Setup polish (M3) remains a Phase G follow-up.
+  pinned Squirrel-OS/2 `v2.3.0`), docs_lint harden (M7), and Setup UI
+  polish (M3) are on `main`. Optional **M8** CI shard is skipped while
+  `make test` wall-clock stays ~4–5 minutes.
 
 ## Where things were (2026-11-13)
 
@@ -407,14 +408,17 @@ Setup UI shell land here as sizeable steps. Fine-grained marks to product
   TPM clear confirmation skips with no TPM (command stub when
   present). Date and time views/edits CMOS RTC (12/24h Status B);
   NVRAM reset confirms and clears user NV vars including BootOrder /
-  Boot#### (not Secure Boot PK/KEK/db/dbx). Smoke:
-  `x86_64-setupui`, `x86_64-setupui-f2`, `x86_64-setupui-bootorder`,
-  `x86_64-setupui-secboot`, `x86_64-setupui-datetime`. Notes in
+  Boot#### (not Secure Boot PK/KEK/db/dbx). Root panel is Main Menu
+  (M3); F2 empty BootOrder is honest. Smoke: `x86_64-setupui`,
+  `x86_64-setupui-f2`, `x86_64-setupui-polish`,
+  `x86_64-setupui-bootorder`, `x86_64-setupui-secboot`,
+  `x86_64-setupui-datetime`. Notes in
   `release-notes/setup-ui-gop.md`, `release-notes/setup-ui-f2.md`,
   `release-notes/setup-ui-bootorder.md`,
   `release-notes/setup-ui-secboot.md`,
   `release-notes/setup-ui-datetime-nvram.md`,
-  `release-notes/setup-ui-datetime-followup.md`.
+  `release-notes/setup-ui-datetime-followup.md`,
+  `release-notes/setup-ui-polish.md`.
 - [x] **G3 (rest)** DHCP/TFTP/HTTP, USB descriptors, FDT host corpus
   smokes and scheduled nightly libFuzzer budget (`fuzz-nightly.yml`).
 - [x] **UpdateCapsule + ESRT** Shared `common/efi/capsule.c` (lane
@@ -461,6 +465,11 @@ Setup UI shell land here as sizeable steps. Fine-grained marks to product
   consistent with `release-notes/TO_3.0.0.md`. Host smoke
   `docs-lint-harden`. Notes in `release-notes/docs-lint-harden.md`.
   Epic #82. `TO_3.0.0.md` M7 / `2.3.25`.
+- [x] **Setup UI polish (M3 / `G-setup-ui-polish`)** (lane `-2eaf`):
+  root panel titled Main Menu; F2 empty BootOrder names the fw_cfg-only
+  demo seed. Smoke: `x86_64-setupui-polish` (+ updated setupui*). Notes
+  in `release-notes/setup-ui-polish.md`. Epic #82. `TO_3.0.0.md` M3.
+  Optional **M8** `ci-shard-smoke` skipped (wall-clock already fine).
 
 ### Squirrel-OS/2 hand-off on every platform
 

@@ -142,12 +142,15 @@ CMOS RTC (`GetTime` / `SetTime` via `arch_rtc_set_civil`, 12/24h Status
 B); NVRAM reset confirms and clears non-volatile user variables
 (BootOrder / Boot#### / dbt/dbr/MOK-style), leaving Secure Boot
 PK/KEK/db/dbx alone - demos including a long name are fw_cfg-gated),
-Esc continues boot.
+Esc continues boot. The root panel is titled **Main Menu** (Boot
+Manager is one notebook). Without the setupui fw_cfg gate, an empty
+BootOrder prints `BootOrder empty (demo seed is fw_cfg-only)`.
 Menu strings use ASCII `-` (the 8×16 font and serial path are not
 UTF-8). Variable services are installed before the UI so BootOrder
 edits hit the NVRAM-backed store. Smoke: `x86_64-setupui`,
-`x86_64-setupui-f2`, `x86_64-setupui-bootorder`,
-`x86_64-setupui-secboot`, `x86_64-setupui-datetime`.
+`x86_64-setupui-f2`, `x86_64-setupui-polish`,
+`x86_64-setupui-bootorder`, `x86_64-setupui-secboot`,
+`x86_64-setupui-datetime`.
 
 Capsules / ESRT (Phase G): after the variable store is installed the
 firmware publishes the EFI System Resource Table (one system-firmware

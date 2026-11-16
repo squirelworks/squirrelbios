@@ -24,6 +24,6 @@ page later on the OS lane).
 - **OS follow-up:** Squirrel-OS/2 Control Panel “boot security” consumer
   and OS regress name are **not** invented here — coordinate with the
   OS/2 lane when ready (`TO_3.0.0.md` compatibility matrix).
-- **Next:** optional Setup polish (M3); M8 CI shard after M7; M16
+- **Next:** ~~M3~~ / ~~M7~~ landed; **M8** skipped for wall-clock; M16
   measured-boot polish later. (M4 project-key, M6 os-boot sync, and
   M7 docs_lint harden are on `main`.)

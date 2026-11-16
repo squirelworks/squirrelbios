@@ -178,6 +178,7 @@ boots each firmware under QEMU with a small stand-in OS image from
 | `x86_64-gop` | An EFI app sets GOP mode 800×600×32, Blt-fills a rectangle, GetTime and Set/GetVariable, then ExitBootServices and ResetSystem (shutdown via isa-debug-exit, QEMU status 1) |
 | `x86_64-setupui` | Phase G Setup UI: with `opt/org.squirrelworks/setupui` the firmware opens a Warp-look boot menu on serial+GOP; Down/Up/Enter select Continue boot |
 | `x86_64-setupui-f2` | Same menu via F2 on ConIn (serial `ESC O Q`) without the setupui fw_cfg; fw_cfg path still works |
+| `x86_64-setupui-polish` | M3: F2 path opens Boot Manager with empty BootOrder (honest empty message; no demo seed); root panel is Main Menu |
 | `x86_64-setupui-bootorder` | Setup UI Boot Manager: seeds demo Boot####/BootOrder, Left reorders, Enter SetVariables BootOrder (read-back) |
 | `x86_64-setupui-secboot` | Setup UI Secure Boot keys (seed/view/clear) + TPM clear confirmation (skipped with no TPM) |
 | `x86_64-capsule` | Phase G UpdateCapsule + ESRT: ESRT configuration table, QueryCapsuleCapabilities, UpdateCapsule updates LastAttempt*, OsIndicationsSupported file-capsule bit |

@@ -118,6 +118,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/x86_64-esp.img $(TEST_DIR)/x86_64-gop.efi \
              $(TEST_DIR)/x86_64-setupui.keys \
              $(TEST_DIR)/x86_64-setupui-f2.keys \
+             $(TEST_DIR)/x86_64-setupui-polish.keys \
              $(TEST_DIR)/x86_64-setupui-bootorder.keys \
              $(TEST_DIR)/x86_64-setupui-secboot.keys \
              $(TEST_DIR)/x86_64-setupui-datetime.keys \
@@ -415,6 +416,9 @@ $(TEST_DIR)/x86_64-setupui.keys: | $(TEST_DIR)
 # Setup UI F2 hotkey (no fw_cfg): ESC O Q = F2, then same navigation
 $(TEST_DIR)/x86_64-setupui-f2.keys: | $(TEST_DIR)
 	printf '\033OQ\033[B\033[A\r' > $@
+# Setup UI polish (M3): F2, Down→Boot Manager, Enter (empty, no seed), Up, Enter Continue
+$(TEST_DIR)/x86_64-setupui-polish.keys: | $(TEST_DIR)
+	printf '\033OQ\033[B\r\033[A\r' > $@
 # Setup UI BootOrder: Down→Boot Manager, Enter, Down, Left (swap), Enter save, Up, Enter Continue
 $(TEST_DIR)/x86_64-setupui-bootorder.keys: | $(TEST_DIR)
 	printf '\033[B\r\033[B\033[D\r\033[A\r' > $@
