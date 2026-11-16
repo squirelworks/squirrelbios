@@ -33,6 +33,8 @@ void sq_bit_init(sq_bit_state_t *s, const char *board_id, const char *version)
 	s->probes.radio_ok = 1;
 	s->probes.uplink_ok = 1;
 	s->probes.brownout = 0;
+	s->probes.watchdog_reset = 0;
+	s->probes.inceptor_loss = 0;
 	for (i = 0; i < SQ_BIT_ACT_COUNT; i++)
 		s->act_centi[i] = 0;
 	for (i = 0; i < SQ_BIT_INC_COUNT; i++)
@@ -49,6 +51,7 @@ void sq_bit_apply_safe(sq_bit_state_t *s)
 	if (!s)
 		return;
 	need_safe = s->probes.brownout || !s->probes.uplink_ok ||
+		    s->probes.watchdog_reset || s->probes.inceptor_loss ||
 		    !s->integrity_ok;
 	if (need_safe) {
 		s->safe_state = 1;
@@ -223,6 +226,18 @@ int sq_bit_format_line(const sq_bit_state_t *s, char *buf, int buflen)
 	if (pos < 0)
 		return 0;
 	pos = append_int(buf, buflen, pos, s->probes.brownout ? 1 : 0);
+	if (pos < 0)
+		return 0;
+	pos = append_str(buf, buflen, pos, " watchdog=");
+	if (pos < 0)
+		return 0;
+	pos = append_int(buf, buflen, pos, s->probes.watchdog_reset ? 1 : 0);
+	if (pos < 0)
+		return 0;
+	pos = append_str(buf, buflen, pos, " incloss=");
+	if (pos < 0)
+		return 0;
+	pos = append_int(buf, buflen, pos, s->probes.inceptor_loss ? 1 : 0);
 	if (pos < 0)
 		return 0;
 	pos = append_str(buf, buflen, pos, " safe=");

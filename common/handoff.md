@@ -81,7 +81,8 @@ checks the RTOS/app image (`sq_integrity_check`), and fills an
 Guarantees:
 
 1. No jump if integrity failed or safe-state is set (brownout, uplink
-   loss, or integrity). Actuators are neutralled first.
+   loss, watchdog_reset, inceptor_loss, or integrity). Actuators are
+   neutralled first.
 2. Nothing in BIOS runs after the jump. No UEFI, no SBI, no INT services
    on MCU targets.
 3. Flight-control laws are not in the BIOS image; they live in the RTOS.

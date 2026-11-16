@@ -11,7 +11,7 @@ int main(void)
 	sq_bit_state_t st;
 	sq_handoff_t ho;
 	sq_image_view_t img;
-	char line[256];
+	char line[288];
 	unsigned char app[] = { 0x52, 0x43, 0x46, 0x43, 0x01 }; /* "RCFC" */
 	unsigned long long expect;
 	int ok = 1;

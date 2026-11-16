@@ -17,6 +17,9 @@ typedef struct sq_bit_probes {
 	int radio_ok;
 	int uplink_ok;
 	int brownout; /* 1 = brownout active */
+	/* ISM firmware-bringup.yaml safe_state.triggers extras (#195 H7). */
+	int watchdog_reset; /* 1 = watchdog timeout / post-reset hold */
+	int inceptor_loss;  /* 1 = inceptor validity lost */
 } sq_bit_probes_t;
 
 typedef struct sq_bit_state {
@@ -33,8 +36,8 @@ typedef struct sq_bit_state {
 
 void sq_bit_init(sq_bit_state_t *s, const char *board_id, const char *version);
 
-/* Recompute safe_state from brownout, uplink loss, or integrity failure.
- * When entering safe, zeroes act_centi. */
+/* Recompute safe_state from brownout, uplink loss, watchdog_reset,
+ * inceptor_loss, or integrity failure. When entering safe, zeroes act_centi. */
 void sq_bit_apply_safe(sq_bit_state_t *s);
 
 /* Set one actuator channel in [-1.0, 1.0] via hundredths. Returns 0 if
