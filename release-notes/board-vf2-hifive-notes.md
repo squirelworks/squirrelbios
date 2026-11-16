@@ -22,5 +22,6 @@ QEMU machine.
   storms). Do not force on this image.
 - **M3:** Setup UI polish is on `main` (#207); this mark does not redo it.
 - **Next:** M11 / M12 desk flashes stay `needs: squirrel`. ~~**M15**~~ /
-  ~~**M16**~~ landed; next agent coding is **M14** Phase G product
-  banner (prep) or **M17** — not #195, not M10 until CI QEMU moves.
+  ~~**M16**~~ / ~~**M17**~~ / ~~**M18**~~ landed; next agent coding is
+  **M14** Phase G product banner (prep) or **M19** — not #195, not M10
+  until CI QEMU moves.

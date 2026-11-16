@@ -18,10 +18,10 @@ CSM / UEFI), QEMU machine, and the check / script that proves the row.
 - **Version:** M14 product banner (`2.6.0`) is still open for owner
   prep/tag; this mark keeps `SQ_VERSION` at **2.3.0** (do not jump to
   2.8.0 without the earlier banner cuts). Ladder mark **2.8.0** only.
-- **Not in this mark:** cutting a `v2.8.0` GitHub release; M18
-  rehearsal; Soft PATH index edits.
-- **Next:** **M14** banner when owner is ready; then **M18** rehearsal
-  (~~**M15**~~ / ~~**M16**~~ on `main`). **M8** skipped; **M10**
+- **Not in this mark:** cutting a `v2.8.0` GitHub release; Soft PATH
+  index edits.
+- **Next:** **M14** banner when owner is ready; ~~**M15**~~ /
+  ~~**M16**~~ / ~~**M18**~~ on `main`. **M8** skipped; **M10**
   blocked. Skip #195 unless asked.
 
 Epic #82. `TO_3.0.0.md` M17.

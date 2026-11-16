@@ -1987,6 +1987,20 @@ else
     echo "SKIP  x86_64-sb-os2, x86_64-sb-os2-esp, x86_64-sb-os2-unsigned (no swtpm)"
 fi
 
+# Phase G M18: pre-3.0 verified-chain rehearsal — one QEMU recipe with
+# SB on + signed stand-in + TPM measure + SQTL hand-off + M16 policy v1.
+M3_APP="APP m3-rehearsal cfg=ok acpi=ok log=ok tcg2=ok extend=ok|efi: ExitBootServices|APP m3-rehearsal ebs=ok"
+if command -v swtpm >/dev/null 2>&1 && command -v swtpm_setup >/dev/null 2>&1; then
+    start_swtpm sha256
+    run x86_64-m3-rehearsal "secure: Secure Boot on (fixed keys)|secure: image verified: signed by db entry 1 (X.509)|tpm: TPM 2.0 at 0xfed40000 (TIS, 1014:0001), PCR banks SHA-256|tpm: SQTL event-log hand-off at|tpm: measured-boot policy v1|$M3_APP|@exit=1|!=bad" \
+        "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd $TPM_DEV \
+        -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
+        -fw_cfg $SB_DB,file=$SB/sb-db-x509.esl \
+        -fw_cfg $X64_BOOT,file=$SB/m3-rehearsal-signed.efi
+else
+    echo "SKIP  x86_64-m3-rehearsal (no swtpm)"
+fi
+
 # x86-64 firmware: SMM and EINJ (F2). On q35 the top 1 MB of RAM below
 # 4 GB is TSEG, every CPU's SMBASE is moved into it, and an SMI from port
 # 0xB2 serves EINJ: x86_64-einj runs the EINJ actions as an OS would, on

@@ -1303,6 +1303,18 @@ prints the loader banner. Everyday disk path: the same signed image as
 `x86_64-sb-os2-esp`, `x86_64-sb-os2-unsigned` (needs swtpm). Notes:
 `release-notes/sb-everyday.md`.
 
+### Pre-3.0 verified-chain rehearsal (Phase G M18)
+
+One aggregate QEMU recipe (`q35` + swtpm + project db ESL) boots a
+**project-signed** stand-in that confirms SQTL (including M16
+`ActiveBanks`) / ACPI TPM2 / GetEventLog agree, extends PCR 8, and
+re-checks the log after ExitBootServices. Firmware serial shows Secure
+Boot verify, TPM present, SQTL hand-off, and measured-boot policy v1;
+the stand-in prints `APP m3-rehearsal cfg=ok acpi=ok log=ok tcg2=ok
+extend=ok` then `APP m3-rehearsal ebs=ok`. Smoke: `x86_64-m3-rehearsal`
+(needs swtpm). Notes: `release-notes/m3-rehearsal.md` (honest gaps:
+real OS/2 2.9 PE, capsule-in-recipe).
+
 ## POWER (QEMU powernv9 / powernv10)
 
 Roadmap E1, `PLATFORM=ppc64le-powernv`; details in

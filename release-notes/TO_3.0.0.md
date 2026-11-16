@@ -127,11 +127,12 @@ Notes refresh **#190** is on `main`. Soft PATH’s fold-into-2.2.0 advice is sat
    flash rewrite, **M4** project-key / ESRT, **M5** measured hand-off,
    **M6** os-boot sync, **M7** docs_lint harden, **M3** Setup UI
    polish, **M9** VisionFive2 / HiFive desk notes, **M15** Secure
-   Boot everyday path, **M16** measured-boot polish, and **M17** suite
-   matrix hardening landed. Optional **M8** CI shard is **skipped**
-   while `make test` wall-clock stays ~4–5 minutes. **M10** AIA MSI
-   stays blocked on CI QEMU 8.2. Next coding is **M14** (banner prep)
-   / **M18+** (not desk M11–M12; those are `needs: squirrel`).
+   Boot everyday path, **M16** measured-boot polish, **M17** suite
+   matrix hardening, and **M18** verified-chain rehearsal landed.
+   Optional **M8** CI shard is **skipped** while `make test` wall-clock
+   stays ~4–5 minutes. **M10** AIA MSI stays blocked on CI QEMU 8.2.
+   Next coding is **M14** (banner prep) / **M19+** (not desk M11–M12;
+   those are `needs: squirrel`).
 3. Soft PATH stays index-only; do not move this ladder into Soft.
 
 ---
@@ -358,17 +359,18 @@ Lanes: **only `-2eaf`** for code. Owner marks wait on `needs: squirrel`.
 | **Lane** | `-2eaf` |
 | **Status** | **Done** — canonical matrix + host honesty check vs pin and published notes |
 
-### M18 — `2.9.0` pre-3.0 verified-chain rehearsal  ·  `-2eaf`  ·  depends: M15 + M16; OS/2 2.9+ when available
+### M18 — `2.9.0` pre-3.0 verified-chain rehearsal  ·  **done**  ·  `-2eaf`  ·  depends: M15 + M16; OS/2 2.9+ when available
 
 | Field | Value |
 |-------|-------|
-| **Bump** | Jump to **`2.9.0`** (deliberate parallel numbering with OS/2 2.9 bridge — **companion rehearsal**, not Phase E) |
+| **Bump** | Ladder **`2.9.0`**; `SQ_VERSION` stays **2.3.0** until M14 cuts `2.6.0` |
 | **Box** | `G-m3-rehearsal` |
 | **Issue to file** | *(draft)* `M3 rehearsal: SB on + TPM log + signed OS loader under QEMU` |
 | **Suggested check** | `x86_64-m3-rehearsal` (aggregate smoke) |
 | **Design note** | `release-notes/m3-rehearsal.md` |
 | **Acceptance** | One QEMU recipe boots a signed OS/2 (or stand-in) with SB+TPM; serial shows measure + hand-off lines; gaps listed honestly |
 | **Lane** | `-2eaf` |
+| **Status** | **Done** — signed stand-in under SB+TPM with SQTL hand-off + policy v1 + extend; real OS/2 2.9 PE / capsule-in-recipe listed as honest gaps |
 
 ### M19 — `2.9.1` … `2.9.25` buffer marks  ·  `-2eaf`  ·  as needed
 
@@ -434,7 +436,7 @@ Soft does not own rows; it may **index** them.
 
 | Actor | Now | Next |
 |-------|-----|------|
-| **`-2eaf` (BIOS)** | **M1–M7**, **M3**, **M9**, **M15**, **M16**, **M17** on `main` — **do not redo**; **M8** skipped; **M10** blocked | **M14** banner prep / **M18+** |
+| **`-2eaf` (BIOS)** | **M1–M7**, **M3**, **M9**, **M15**, **M16**, **M17**, **M18** on `main` — **do not redo**; **M8** skipped; **M10** blocked | **M14** banner prep / **M19+** |
 | **Owner** | **M0** `v2.2.0` published | Later M13/M14/M20; desk M11/M12 when hardware is free |
 | **`-b55f`** | **Not on BIOS** — OS/2 2.9 only | Ignore this file for OS claims; see OS/2 `TO_3.0.0.md` |
 | **Soft** | PATH index only | Do not move BIOS marks into Soft |
