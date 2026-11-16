@@ -1065,20 +1065,27 @@ run x86_64-gop "gop: 800x600x32 at|APP gop mode=ok fb=ok blt=ok time=ok var=ok|e
 # x86-64 firmware Setup UI (Phase G): with
 # opt/org.squirrelworks/setupui the boot menu opens on serial and GOP.
 # Keys: Down, Up, Enter — move onto Boot Manager then back to Continue.
+# M3 polish: root panel is "Main Menu" (Boot Manager is one notebook).
 SERIAL_IN=$TEST_DIR/x86_64-setupui.keys
-run x86_64-setupui "gop: 800x600x32 at|setup: UI open (serial+GOP)|setup: SquirrelBIOS Setup|setup: --- Boot Manager ---|setup: > Continue boot|setup: > Boot Manager|setup: selected Continue boot|setup: UI closed|fw: nothing to boot (no opt/org.squirrelworks/boot.efi), trying the CSM" \
+run x86_64-setupui "gop: 800x600x32 at|setup: UI open (serial+GOP)|setup: SquirrelBIOS Setup|setup: --- Main Menu ---|setup: > Continue boot|setup: > Boot Manager|setup: selected Continue boot|setup: UI closed|fw: nothing to boot (no opt/org.squirrelworks/boot.efi), trying the CSM|!--- Boot Manager ---" \
     "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd \
     -fw_cfg name=opt/org.squirrelworks/setupui,string=1
 SERIAL_IN=
 # Same menu via F2 on ConIn (ESC O Q) without the fw_cfg gate.
 SERIAL_IN=$TEST_DIR/x86_64-setupui-f2.keys
-run x86_64-setupui-f2 "gop: 800x600x32 at|setup: press F2 for Setup UI|setup: F2 - opening Setup UI|setup: UI open (serial+GOP)|setup: SquirrelBIOS Setup|setup: --- Boot Manager ---|setup: > Continue boot|setup: > Boot Manager|setup: selected Continue boot|setup: UI closed|fw: nothing to boot (no opt/org.squirrelworks/boot.efi), trying the CSM|!opt/org.squirrelworks/setupui" \
+run x86_64-setupui-f2 "gop: 800x600x32 at|setup: press F2 for Setup UI|setup: F2 - opening Setup UI|setup: UI open (serial+GOP)|setup: SquirrelBIOS Setup|setup: --- Main Menu ---|setup: > Continue boot|setup: > Boot Manager|setup: selected Continue boot|setup: UI closed|fw: nothing to boot (no opt/org.squirrelworks/boot.efi), trying the CSM|!opt/org.squirrelworks/setupui|!--- Boot Manager ---" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd
+SERIAL_IN=
+# M3 polish: F2 (no fw_cfg) opens Boot Manager with empty BootOrder —
+# honest empty message, no demo seed.
+SERIAL_IN=$TEST_DIR/x86_64-setupui-polish.keys
+run x86_64-setupui-polish "gop: 800x600x32 at|setup: press F2 for Setup UI|setup: F2 - opening Setup UI|setup: --- Main Menu ---|setup: selected Boot Manager|setup: BootOrder empty (demo seed is fw_cfg-only)|setup: selected Continue boot|setup: UI closed|!BootOrder unavailable|!seeded Boot0001|!opt/org.squirrelworks/setupui" \
     "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd
 SERIAL_IN=
 # Boot Manager: seed Boot#### + BootOrder, reorder with Left, SetVariable,
 # read back. Keys: Down, Enter, Down, Left, Enter (save), Up, Enter.
 SERIAL_IN=$TEST_DIR/x86_64-setupui-bootorder.keys
-run x86_64-setupui-bootorder "gop: 800x600x32 at|setup: UI open (serial+GOP)|setup: selected Boot Manager|setup: seeded Boot0001/0002/0003 and BootOrder|setup: BootOrder was 0001,0002,0003|setup: --- Boot Order ---|setup: > Boot0001 Disk|setup: > Boot0002 Network|setup: BootOrder moved|setup: BootOrder edit 0002,0001,0003|setup: BootOrder now 0002,0001,0003|setup: BootOrder saved|setup: selected Continue boot|setup: UI closed" \
+run x86_64-setupui-bootorder "gop: 800x600x32 at|setup: UI open (serial+GOP)|setup: --- Main Menu ---|setup: selected Boot Manager|setup: seeded Boot0001/0002/0003 and BootOrder|setup: BootOrder was 0001,0002,0003|setup: --- Boot Order ---|setup: > Boot0001 Disk|setup: > Boot0002 Network|setup: BootOrder moved|setup: BootOrder edit 0002,0001,0003|setup: BootOrder now 0002,0001,0003|setup: BootOrder saved|setup: selected Continue boot|setup: UI closed" \
     "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd \
     -fw_cfg name=opt/org.squirrelworks/setupui,string=1
 SERIAL_IN=

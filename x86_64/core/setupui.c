@@ -378,7 +378,8 @@ static void move_boot_entry(int delta)
 static void serial_main_menu(void)
 {
     printf("setup: SquirrelBIOS Setup\n");
-    printf("setup: --- Boot Manager ---\n");
+    /* Root panel is the main menu; "Boot Manager" is one notebook item. */
+    printf("setup: --- Main Menu ---\n");
     for (int i = 0; i < NITEMS; i++) {
         printf("setup: %c %s\n", i == selected ? '>' : ' ', items[i].label);
     }
@@ -436,7 +437,7 @@ static const char *boot_label_at(int i) { return boot_label[i]; }
 
 static void draw_main_menu(void)
 {
-    draw_panel_list("Boot Manager", "Up/Down  Enter  Esc=continue",
+    draw_panel_list("Main Menu", "Up/Down  Enter  Esc=continue",
                     NITEMS, selected, main_label_at);
 }
 
@@ -1408,7 +1409,8 @@ static void boot_manager_run(void)
 {
     printf("setup: selected Boot Manager\n");
     if (!load_boot_order()) {
-        printf("setup: BootOrder unavailable\n");
+        /* Empty order and no fw_cfg demo seed (F2 / real hardware). */
+        printf("setup: BootOrder empty (demo seed is fw_cfg-only)\n");
         return;
     }
     serial_boot_menu();

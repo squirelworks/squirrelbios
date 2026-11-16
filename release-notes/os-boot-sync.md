@@ -20,5 +20,6 @@ documented Squirrel-OS/2 release so BIOS ↔ OS compatibility stays auditable.
 - **Not in this mark:** bumping `SQ_VERSION` (stays **2.3.0** until a
   cut that asks for it); OS `uefi-squirrelbios` regress ownership stays
   on the OS/2 lane.
-- **Next:** optional M3 Setup polish; M8 CI shard after M7; later M17
-  suite matrix hardening once more OS/2 tags land.
+- **Next:** ~~M3~~ / ~~M7~~ landed; **M8** CI shard skipped while
+  wall-clock is fine; later M17 suite matrix hardening once more
+  OS/2 tags land.

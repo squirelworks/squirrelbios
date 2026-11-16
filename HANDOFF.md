@@ -37,14 +37,17 @@ Used here, in `ROADMAP.md` and on the issues (as labels).
   (#189), signed capsule apply (#193) + Sarah follow-ups (#194),
   capsule flash rewrite via NV identity (M2), project-key / ESRT
   fwupd-shaped path (M4), measured TPM event-log hand-off
-  (M5 / SQTL), os-boot sync (M6 — pinned OS/2 **`v2.3.0`**), and
-  docs_lint harden (M7). Licence GPL-3.0. Notes:
+  (M5 / SQTL), os-boot sync (M6 — pinned OS/2 **`v2.3.0`**),
+  docs_lint harden (M7), and Setup UI polish (M3 — Main Menu label +
+  empty BootOrder honesty). Licence GPL-3.0. Notes:
   `release-notes/v2.2.0.md`, `release-notes/v2.3.0.md`,
-  `release-notes/os-boot-sync.md`, `release-notes/docs-lint-harden.md`.
-  Next agent cut: optional M3 Setup polish or **M8** CI shard
-  per `release-notes/TO_3.0.0.md`.
+  `release-notes/os-boot-sync.md`, `release-notes/docs-lint-harden.md`,
+  `release-notes/setup-ui-polish.md`.
+  Next agent cut: optional **M8** CI shard is **skipped** while
+  `make test` stays ~4–5 min wall-clock; then M9+ per
+  `release-notes/TO_3.0.0.md`.
 - **Test gate:** `make test` (docs honesty via `make docs-lint` /
-  `tools/docs_lint.py` + host `docs-lint-harden`, then ~349 cases in
+  `tools/docs_lint.py` + host `docs-lint-harden`, then ~350 cases in
   `tests/smoke.sh`, plus
   `rpi4-uefi-sd` when QEMU has `raspi4b`), run by
   `.github/workflows/make-test.yml` on every PR. Optional, not in the
@@ -106,12 +109,12 @@ Full mark list (versions, acceptance, issue titles):
    https://github.com/squirelworks/squirrelbios/releases/tag/v2.2.0
    (`0051c40`; six images + `SHA256SUMS.txt` + full notes). Always fill
    via `Actions → Draft release` before Publish — never stub-publish.
-2. **Phase G product remainder** (`-2eaf`, **M1–M7**): ~~**M1** signed
-   capsule~~ (#193) → ~~**M2** flash rewrite / NV identity~~ →
+2. **Phase G product remainder** (`-2eaf`, **M1–M7** + **M3**): ~~**M1**
+   signed capsule~~ (#193) → ~~**M2** flash rewrite / NV identity~~ →
    ~~**M4** project-key / ESRT~~ → ~~**M5** measured TPM event-log
    hand-off~~ → ~~**M6** os-boot sync~~ (OS/2 **`v2.3.0`**) →
-   ~~**M7** docs_lint harden~~; optional Setup polish (M3); next
-   **M8** CI shard.
+   ~~**M7** docs_lint harden~~ → ~~**M3** Setup UI polish~~; **M8**
+   CI shard skipped while wall-clock is fine.
 3. **D2-rpi4** board flash *(Squirrel, **M11**)*: the QEMU `raspi4b` case
    is done; try the SD layout in `boards/rpi4/README.md` on a desk Pi 4.
 4. **C5-board** desk flash *(Squirrel, **M12**)*: docs and
@@ -124,16 +127,30 @@ Full mark list (versions, acceptance, issue titles):
    measured hand-off
    (`make fuzz-fat`, `make fuzz-pe`, `make fuzz-authenticode`,
    `make fuzz-net`, `make fuzz-usb`, `make fuzz-fdt`,
-   `x86_64-setupui`, `x86_64-setupui-f2`, `x86_64-setupui-bootorder`,
-   `x86_64-setupui-secboot`, `x86_64-setupui-datetime`,
-   `x86_64-capsule`, `x86_64-capsule-signed`, `x86_64-capsule-fwcfg`,
-   `x86_64-capsule-flash-1`, `x86_64-capsule-flash-2`,
-   `x86_64-capsule-key`, `x86_64-tpm-log-handoff`, `os-boot-sync`,
-   `docs-lint-harden`).
-7. Climb **M3 / M8–M20** in `TO_3.0.0.md` toward product **v3.0.0**
-   (CONTINUANCE M3 companion — **not** a Phase E redo).
+   `x86_64-setupui`, `x86_64-setupui-f2`, `x86_64-setupui-polish`,
+   `x86_64-setupui-bootorder`, `x86_64-setupui-secboot`,
+   `x86_64-setupui-datetime`, `x86_64-capsule`, `x86_64-capsule-signed`,
+   `x86_64-capsule-fwcfg`, `x86_64-capsule-flash-1`,
+   `x86_64-capsule-flash-2`, `x86_64-capsule-key`,
+   `x86_64-tpm-log-handoff`, `os-boot-sync`, `docs-lint-harden`).
+7. Climb **M9–M20** in `TO_3.0.0.md` toward product **v3.0.0**
+   (CONTINUANCE M3 companion — **not** a Phase E redo). **M8** only if
+   CI wall-clock stops being acceptable.
 
 ## Task cards
+
+### G-setup-ui-polish — Setup UI string / notebook polish (M3)  `status: done`
+- **Done (lane `-2eaf`):** root Setup panel titled **Main Menu** (serial
+  + GOP) so it no longer collides with the Boot Manager notebook item;
+  F2 / no-fw_cfg empty BootOrder prints
+  `BootOrder empty (demo seed is fw_cfg-only)`. Notes:
+  `release-notes/setup-ui-polish.md`. Epic #82. `TO_3.0.0.md` M3.
+  `SQ_VERSION` stays **2.3.0**.
+- **Check:** `x86_64-setupui`, `x86_64-setupui-f2`,
+  `x86_64-setupui-polish` (F2 empty BootOrder), and updated
+  `x86_64-setupui-bootorder` in `make test`.
+- **Next (Phase G):** ~~M7~~ landed; **M8** CI shard skipped for
+  wall-clock (~4–5 min); then M9+.
 
 ### G-docs-lint-harden — docs_lint allowlist / honesty (M7)  `status: done`
 - **Done (lane `-2eaf`):** `tools/docs_lint.py` refuses unused allowlist
@@ -145,8 +162,8 @@ Full mark list (versions, acceptance, issue titles):
   `2.3.25`. `SQ_VERSION` stays **2.3.0**.
 - **Check:** `docs-lint-harden` in `make test` (host; also covered by
   `make docs-lint` on the real tree).
-- **Next (Phase G):** optional M3 Setup polish; **M8** CI shard when
-  wall-clock needs it.
+- **Next (Phase G):** ~~M3~~ landed; **M8** CI shard skipped for
+  wall-clock; then M9+.
 
 ### G-os-boot-sync — os-boot.sh keep-in-step (M6)  `status: done`
 - **Done (lane `-2eaf`):** `tests/os-boot.pin` pins Squirrel-OS/2
@@ -158,8 +175,8 @@ Full mark list (versions, acceptance, issue titles):
   `TO_3.0.0.md` M6 / `2.3.1`. `SQ_VERSION` stays **2.3.0**.
 - **Check:** `os-boot-sync` in `make test` (host; no network). Optional
   full boot: `make os-boot` / `tests/os-boot.sh --fetch`.
-- **Next (Phase G):** ~~M7~~ landed; optional M3 Setup polish; **M8**
-  CI shard.
+- **Next (Phase G):** ~~M3~~ / ~~M7~~ landed; **M8** skipped for
+  wall-clock; then M9+.
 
 ### G-measured-handoff — TPM event-log hand-off to OS (M5)  `status: done`
 - **Done (lane `-2eaf`):** SQTL configuration table
@@ -171,8 +188,8 @@ Full mark list (versions, acceptance, issue titles):
 - **Check:** `x86_64-tpm-log-handoff` in `make test` (needs swtpm).
 - **OS follow-up:** Squirrel-OS/2 boot-security page / regress name —
   coordinate with the OS/2 lane; do not invent alone.
-- **Next (Phase G):** ~~M4~~ / ~~M6~~ / ~~M7~~ landed; optional M3 Setup
-  polish; M8 CI shard.
+- **Next (Phase G):** ~~M3~~ / ~~M4~~ / ~~M6~~ / ~~M7~~ landed; **M8**
+  skipped for wall-clock; then M9+.
 
 ### G-capsule-flash — flash rewrite via NV identity (M2)  `status: done`
 - **Done (lane `-2eaf`):** verified SQCP apply updates ESRT `FwVersion`
@@ -183,8 +200,8 @@ Full mark list (versions, acceptance, issue titles):
   `release-notes/capsule-flash-rewrite.md`. Epic #82. `TO_3.0.0.md` M2.
 - **Check:** `x86_64-capsule-flash-1`, `x86_64-capsule-flash-2` in
   `make test`.
-- **Next (Phase G):** ~~M4~~ / ~~M5~~ / ~~M6~~ / ~~M7~~ landed; optional
-  M3 Setup polish; M8 CI shard.
+- **Next (Phase G):** ~~M3~~ / ~~M4~~ / ~~M5~~ / ~~M6~~ / ~~M7~~ landed;
+  **M8** skipped for wall-clock; then M9+.
 
 ### G-capsule-project-key — project-key signing + ESRT fwupd-shaped path (M4)  `status: done`
 - **Done (lane `-2eaf`):** dedicated capsule project test key
@@ -195,8 +212,8 @@ Full mark list (versions, acceptance, issue titles):
   `release-notes/capsule-project-key.md`. Epic #82. `TO_3.0.0.md` M4.
 - **Check:** `x86_64-capsule-key`, `x86_64-capsule-key-esrt`,
   `capsule-project-key-host` in `make test`.
-- **Next (Phase G):** ~~M2~~ / ~~M5~~ / ~~M6~~ / ~~M7~~ landed; optional
-  M3 Setup polish; M8 CI shard.
+- **Next (Phase G):** ~~M2~~ / ~~M3~~ / ~~M5~~ / ~~M6~~ / ~~M7~~ landed;
+  **M8** skipped for wall-clock; then M9+.
 
 ### G-capsule-signed — signed capsule apply / PersistAcrossReset staging  `status: done`
 - **Done (lane `-2eaf`):** SQCP signed system-firmware capsules
@@ -215,8 +232,8 @@ Full mark list (versions, acceptance, issue titles):
 - **Check:** `x86_64-capsule-signed`, `x86_64-capsule-fwcfg` in
   `make test` (plus existing `x86_64-capsule`).
 - **Next (Phase G):** ~~flash rewrite~~ / ~~project-key~~ /
-  ~~measured hand-off~~ / ~~os-boot sync~~ / ~~M7 docs_lint harden~~
-  landed; optional Setup polish; M8 CI shard.
+  ~~measured hand-off~~ / ~~os-boot sync~~ / ~~docs_lint~~ /
+  ~~Setup polish~~ landed; **M8** skipped for wall-clock; then M9+.
 
 ### G-capsule-esrt — UpdateCapsule + ESRT  `status: done`
 - **Done (lane `-2eaf`):** UEFI-class capsule plumbing in
@@ -252,20 +269,23 @@ Full mark list (versions, acceptance, issue titles):
   Status B); NVRAM reset confirms and clears user NV vars (BootOrder /
   Boot#### / dbt/dbr/MOK-style; fw_cfg-gated demos including a long
   name; leaves Secure Boot PK/KEK/db/dbx; enum grows past 31-char
-  names). Menu/printf strings use ASCII `-`. Notes:
+  names). Root panel is **Main Menu** (M3); empty BootOrder on F2 is
+  honest. Menu/printf strings use ASCII `-`. Notes:
   `release-notes/setup-ui-gop.md`, `release-notes/setup-ui-f2.md`,
   `release-notes/setup-ui-bootorder.md`,
   `release-notes/setup-ui-secboot.md`,
   `release-notes/setup-ui-datetime-nvram.md`,
   `release-notes/setup-ui-datetime-followup.md`,
-  `release-notes/setup-ui-followups.md`, `x86_64/README.md`.
+  `release-notes/setup-ui-followups.md`,
+  `release-notes/setup-ui-polish.md`, `x86_64/README.md`.
 - **Check:** `x86_64-setupui` (fw_cfg), `x86_64-setupui-f2` (F2, no
-  fw_cfg), `x86_64-setupui-bootorder` (reorder + save),
+  fw_cfg), `x86_64-setupui-polish` (F2 empty BootOrder),
+  `x86_64-setupui-bootorder` (reorder + save),
   `x86_64-setupui-secboot` (Secure Boot clear + TPM clear, no TPM),
   and `x86_64-setupui-datetime` (RTC edit + NVRAM clear) in
   `make test`.
-- **Next (Phase G):** optional Setup polish; fuzz nightly already
-  scheduled (`fuzz-nightly.yml`); capsule/ESRT is in
+- **Next (Phase G):** ~~M3~~ in `G-setup-ui-polish`; fuzz nightly
+  already scheduled (`fuzz-nightly.yml`); capsule/ESRT is in
   `G-capsule-esrt`.
 
 ### G1-fuzz-fat — host FAT fuzz / corpus smoke  `status: done`

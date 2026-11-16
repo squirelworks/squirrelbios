@@ -125,8 +125,9 @@ Notes refresh **#190** is on `main`. Soft PATH’s fold-into-2.2.0 advice is sat
    https://github.com/squirelworks/squirrelbios/releases/tag/v2.2.0
 2. **`-2eaf`:** **M1** signed capsule landed as #193 on `main`; **M2**
    flash rewrite, **M4** project-key / ESRT, **M5** measured hand-off,
-   **M6** os-boot sync, and **M7** docs_lint harden landed. Next coding
-   is optional M3 Setup polish or **M8** CI shard.
+   **M6** os-boot sync, **M7** docs_lint harden, and **M3** Setup UI
+   polish landed. Optional **M8** CI shard is **skipped** while
+   `make test` wall-clock stays ~4–5 minutes; next coding is **M9+**.
 3. Soft PATH stays index-only; do not move this ladder into Soft.
 
 ---
@@ -161,17 +162,18 @@ Lanes: **only `-2eaf`** for code. Owner marks wait on `needs: squirrel`.
 | **Acceptance** | Verified apply updates ESRT `FwVersion` and persists `SqFwFlashId` in the variable store (pflash unit 1); unit 0 stays read-only with an explicit “NV stand-in, not real SPI” line on the next boot; never commit firmware images; epic #82 |
 | **Lane** | `-2eaf` |
 
-### M3 — `2.2.2` Setup UI polish slice (optional)  ·  `-2eaf`  ·  depends: M0
+### M3 — `2.2.2` Setup UI polish slice (optional)  ·  **done**  ·  `-2eaf`  ·  depends: M0
 
 | Field | Value |
 |-------|-------|
-| **Bump** | `+0.0.1` (calendar order vs M1 if both land; do not renumber history) |
+| **Bump** | Historical ladder `2.2.2`; landed after M5/M6 — `SQ_VERSION` stays **2.3.0** (do not renumber history) |
 | **Box** | `G-setup-ui-polish` |
 | **Issue to file** | *(draft)* `Setup UI polish: remaining notebook / string / ConIn edge cases` |
 | **Suggested check** | extend `x86_64-setupui*` or add `x86_64-setupui-polish` |
-| **Design note** | `release-notes/setup-ui-polish.md` (or fold into `setup-ui-followups.md`) |
+| **Design note** | `release-notes/setup-ui-polish.md` |
 | **Acceptance** | Only if a concrete gap remains after `setup-ui-followups.md`; **skip** if nothing actionable — do not invent chrome |
 | **Lane** | `-2eaf` |
+| **Status** | **Done** — Main Menu root label; F2 empty BootOrder honesty; smoke `x86_64-setupui-polish` |
 
 ### M4 — `2.2.50` project-key capsule signing + ESRT fwupd-shaped path  ·  **done**  ·  depends: M1 (M2 preferred)
 
@@ -229,7 +231,7 @@ Lanes: **only `-2eaf`** for code. Owner marks wait on `needs: squirrel`.
 | **Lane** | `-2eaf` |
 | **Status** | **Done** — unused allowlist fails; live `SQ_VERSION` + Phase E banner checks; `docs-lint-harden` host smoke |
 
-### M8 — `2.3.50` shard `make test` CI (optional)  ·  `-2eaf`  ·  depends: M7 recommended
+### M8 — `2.3.50` shard `make test` CI (optional)  ·  **skipped (wall-clock)**  ·  `-2eaf`  ·  depends: M7 recommended
 
 | Field | Value |
 |-------|-------|
@@ -241,6 +243,7 @@ Lanes: **only `-2eaf`** for code. Owner marks wait on `needs: squirrel`.
 | **Acceptance** | `.github/workflows/make-test.yml` green; no case silently dropped; document how to run one shard locally |
 | **Lane** | `-2eaf` |
 | **Skip if** | wall-clock is already acceptable — do not shard for fashion |
+| **Status** | **Skipped** after M3 — `make-test` on `main` completes in ~4–5 minutes; revisit only if the suite grows enough that the gate hurts |
 
 ### M9 — `2.4.0` VisionFive2 / HiFive desk notes (optional)  ·  `-2eaf`  ·  depends: M0
 
@@ -419,7 +422,7 @@ Soft does not own rows; it may **index** them.
 
 | Actor | Now | Next |
 |-------|-----|------|
-| **`-2eaf` (BIOS)** | **M1–M2**, **M4–M7** on `main` — **do not redo** | Optional **M3** Setup polish → climb **M8+** |
+| **`-2eaf` (BIOS)** | **M1–M7**, **M3** on `main` — **do not redo** | **M8** only if wall-clock hurts → climb **M9+** |
 | **Owner** | Publish nothing until #190 lands (preferred) | **M0** tag `v2.2.0` from tip; later M13/M14/M20; desk M11/M12 when hardware is free |
 | **`-b55f`** | **Not on BIOS** — OS/2 2.9 only | Ignore this file for OS claims; see OS/2 `TO_3.0.0.md` |
 | **Soft** | PATH index only | Do not move BIOS marks into Soft |
