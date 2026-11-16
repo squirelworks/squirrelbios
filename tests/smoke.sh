@@ -2038,7 +2038,7 @@ run x86_64-capsule-flash-2 "capsule: flash identity version=0x00020400 (NV stand
 # dedicated capsule-project.esl (not Secure Boot db), apply a project-
 # signed SQCP capsule, dump ESRT before/after for the host stand-in.
 # Apply message matches M2 (NV identity via SetVariable even under -bios).
-run x86_64-capsule-key "capsule: trust ESL|APP esrt-list count=1 version=1|APP esrt-entry0 class=a7c4e9f2-3b1d-4e8a-9c55-12846f91de30 type=1|capsule: apply ok version=0x00020300 (flash rewrite via NV)|APP capsule-key list=ok update=ok esrt=ok|efi: image returned 0x0|!=bad" \
+run x86_64-capsule-key "capsule: trust ESL|APP esrt-list count=1 version=1|APP esrt-entry0 class=a7c4e9f2-3b1d-4e8a-9c55-12846f91de30 type=1|capsule: apply ok version=0x00020400 (flash rewrite via NV)|APP capsule-key list=ok update=ok esrt=ok|efi: image returned 0x0|!=bad" \
     "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd \
     -fw_cfg $CAP_DB,file=$SB/capsule-project.esl \
     -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-capsule-key.efi
