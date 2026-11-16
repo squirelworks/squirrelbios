@@ -50,9 +50,10 @@ suite-wide continuation plan is `docs/CONTINUANCE.md` in squirrelsoft.
   Squirrel-OS/2 `v2.3.0`), docs_lint harden (M7), Setup UI polish (M3),
   VisionFive 2 / HiFive desk notes (M9), Secure Boot everyday path
   (M15 / `x86_64-sb-os2*`), measured-boot polish
-  (M16 / `x86_64-tpm-polish`), and suite matrix hardening (M17 /
-  `compat-matrix`) are on `main`. Optional **M8** CI shard is
-  skipped while `make test` wall-clock stays ~4–5 minutes. **M14**
+  (M16 / `x86_64-tpm-polish`), suite matrix hardening (M17 /
+  `compat-matrix`), and pre-3.0 verified-chain rehearsal
+  (M18 / `x86_64-m3-rehearsal`) are on `main`. Optional **M8** CI shard
+  is skipped while `make test` wall-clock stays ~4–5 minutes. **M14**
   Phase G product banner (`2.6.0`) stays open for owner prep/tag.
 
 ## Where things were (2026-11-13)
@@ -510,6 +511,14 @@ Setup UI shell land here as sizeable steps. Fine-grained marks to product
   Compatibility. Smoke: `compat-matrix`. Notes in
   `release-notes/compat-matrix.md`. Epic #82. `TO_3.0.0.md` M17 /
   ladder **2.8.0**. `SQ_VERSION` stays **2.3.0** (M14 `2.6.0` banner
+  still open for owner).
+- [x] **Pre-3.0 verified-chain rehearsal (M18 / `G-m3-rehearsal`)**
+  (lane `-2eaf`): aggregate `q35` + swtpm + SB db recipe boots a
+  project-signed stand-in; serial shows SB verify, TPM, SQTL hand-off,
+  measured-boot policy v1, and `APP m3-rehearsal … ebs=ok`. Honest gaps
+  for real OS/2 2.9 PE / capsule-in-recipe. Smoke: `x86_64-m3-rehearsal`.
+  Notes in `release-notes/m3-rehearsal.md`. Epic #82. `TO_3.0.0.md` M18 /
+  ladder **2.9.0**. `SQ_VERSION` stays **2.3.0** (M14 `2.6.0` banner
   still open for owner).
 
 ### Squirrel-OS/2 hand-off on every platform

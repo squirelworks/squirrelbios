@@ -579,6 +579,15 @@ stub, a 1 MB flash image for `qemu-system-x86_64 -bios`. One PR each.
   `SQ_VERSION` stays **2.3.0** (M14 `2.6.0` banner still open for
   owner prep/tag).
 
+- [x] `x86_64-m3-rehearsal` — Phase G M18 pre-3.0 verified-chain
+  rehearsal (lane `-2eaf`): one QEMU recipe with SB on + project-signed
+  stand-in + TPM + SQTL hand-off + M16 policy v1; serial shows measure
+  and hand-off lines; honest gaps (real OS/2 2.9 PE / capsule-in-recipe)
+  in `release-notes/m3-rehearsal.md`. Smoke: `x86_64-m3-rehearsal`.
+  Depends on: M15 + M16. Epic #82. `TO_3.0.0.md` M18 / ladder
+  **2.9.0**. `SQ_VERSION` stays **2.3.0** (M14 `2.6.0` banner still
+  open for owner prep/tag).
+
 ## 14. Phase H — ISM avionics bring-up / BIT / integrity (#195)
 
 One checkbox is one PR from `main`. Interface:

@@ -25,11 +25,12 @@ with Secure Boot on and a TPM, and refuses an unsigned image.
   2.6.1 without the 2.6.0 banner cut).
 - **Not in this mark:** Setup UI enroll notebooks (already covered by
   `x86_64-setupui-secboot` / `x86_64-sbe-*`); real OS/2 PE from a
-  release tag (M18 rehearsal); M16 PCR-policy polish.
-- **Next:** **M14** Phase G product banner (prep / owner tag) when
-  ready; ~~**M16**~~ measured-boot polish landed; ~~**M17**~~ suite
-  matrix landed. ~~**M9**~~ VisionFive2 / HiFive desk notes are on
-  `main`; **M10** stays blocked on QEMU ≥ 9.1; desk **M11–M12** stay
+  release tag (M18 rehearsal uses a stand-in); M16 PCR-policy polish
+  (separate mark — now landed).
+- **Next:** ~~**M16**~~ / ~~**M17**~~ / ~~**M18**~~ landed; **M14**
+  Phase G product banner (prep / owner tag) when ready.
+  ~~**M9**~~ VisionFive2 / HiFive desk notes are on `main`; **M10**
+  stays blocked on QEMU ≥ 9.1; desk **M11–M12** stay
   `needs: squirrel`. Skip #195 unless asked.
 
 Epic #82. `TO_3.0.0.md` M15.

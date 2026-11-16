@@ -185,6 +185,7 @@ boots each firmware under QEMU with a small stand-in OS image from
 | `x86_64-sb-os2-esp` | Same signed loader as `\EFI\BOOT\BOOTX64.EFI` on a GPT ESP |
 | `x86_64-sb-os2-unsigned` | Unsigned OS/2 loader stand-in refused under SB (TPM present) |
 | `compat-matrix` | Phase G M17: host check that the BIOS ↔ OS/2 suite matrix stays honest (`release-notes/compat-matrix.md`) |
+| `x86_64-m3-rehearsal` | Phase G M18: SB + TPM + SQTL hand-off + policy v1 aggregate (signed stand-in) |
 | `x86_64-capsule` | Phase G UpdateCapsule + ESRT: ESRT configuration table, QueryCapsuleCapabilities, UpdateCapsule updates LastAttempt*, OsIndicationsSupported file-capsule bit |
 | `x86_64-capsule-signed` | Phase G signed SQCP apply + PersistAcrossReset staging |
 | `x86_64-capsule-fwcfg` | Phase G fw_cfg pending capsule apply at init |

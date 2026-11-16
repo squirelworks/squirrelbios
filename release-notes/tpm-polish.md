@@ -23,8 +23,8 @@ Control Panel can parse the log without firmware-private headers.
   cuts the `2.6.0` product banner (same deferral as M15).
 - **OS follow-up:** Control Panel “boot security” still belongs to the
   OS/2 lane — this mark only freezes the firmware contract.
-- **Next:** **M14** banner when owner is ready; then **M18** rehearsal.
-  ~~**M15**~~ SB everyday and ~~**M17**~~ suite matrix are on `main`.
-  **M8** skipped; **M10** blocked. Do not take #195 unless asked.
+- **Next:** ~~**M17**~~ / ~~**M18**~~ landed; **M14** banner when
+  owner is ready. ~~**M15**~~ SB everyday is on `main`. **M8**
+  skipped; **M10** blocked. Do not take #195 unless asked.
 
 Epic #82. `TO_3.0.0.md` M16.

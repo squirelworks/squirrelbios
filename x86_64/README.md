@@ -240,6 +240,13 @@ green; the unsigned image is refused. Smoke: `x86_64-sb-os2`,
 `x86_64-sb-os2-esp`, `x86_64-sb-os2-unsigned`. Notes:
 `release-notes/sb-everyday.md`.
 
+Pre-3.0 verified-chain rehearsal (Phase G M18): the same fixed db +
+TPM machine boots a project-signed `tests/x86_64-m3-rehearsal.c`
+stand-in that confirms SQTL / ActiveBanks / ACPI TPM2 / GetEventLog,
+extends PCR 8, and re-checks the log after ExitBootServices; firmware
+also prints measured-boot policy v1. Smoke: `x86_64-m3-rehearsal`.
+Notes: `release-notes/m3-rehearsal.md`.
+
 Enrolled keys (C5): without a fixed db, `PK`, `KEK`, `db` and `dbx` are
 variables (kept in the flash store when there is one) that change only
 through time-based authenticated writes: attributes NV, BS, RT and

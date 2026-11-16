@@ -127,6 +127,8 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/sb/sb-signed.efi $(TEST_DIR)/x86_64-sb-esp.img \
              $(TEST_DIR)/x86_64-sb-os2.efi $(TEST_DIR)/sb/sb-os2-signed.efi \
              $(TEST_DIR)/x86_64-sb-os2-esp.img \
+             $(TEST_DIR)/x86_64-m3-rehearsal.efi \
+             $(TEST_DIR)/sb/m3-rehearsal-signed.efi \
              $(TEST_DIR)/x86_64-numa.efi $(TEST_DIR)/x86_64-numa-dist.bin \
              $(TEST_DIR)/x86_64-tpm.efi \
              $(TEST_DIR)/x86_64-tpm-log-handoff.efi \
@@ -592,6 +594,13 @@ $(TEST_DIR)/x86_64-handoff.efi: tests/x86_64-handoff.c tests/efi-app.ld tests/mk
 $(TEST_DIR)/x86_64-tpm-log-handoff.efi: tests/x86_64-tpm-log-handoff.c tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)
 	$(CC64) $(X64_APP_CFLAGS) $< -o $(@:.efi=.elf)
 	python3 tests/mkpe.py x86_64 $(@:.efi=.elf) $@
+# Phase G M18: verified-chain rehearsal (SB + SQTL hand-off + measure)
+$(TEST_DIR)/x86_64-m3-rehearsal.efi: tests/x86_64-m3-rehearsal.c tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)
+	$(CC64) $(X64_APP_CFLAGS) $< -o $(@:.efi=.elf)
+	python3 tests/mkpe.py x86_64 $(@:.efi=.elf) $@
+$(TEST_DIR)/sb/m3-rehearsal-signed.efi: tests/mksigned.py $(TEST_DIR)/x86_64-m3-rehearsal.efi | $(TEST_DIR)
+	mkdir -p $(TEST_DIR)/sb
+	python3 tests/mksigned.py --sign $(TEST_DIR)/x86_64-m3-rehearsal.efi $@
 $(TEST_DIR)/arm-fat.img: tests/mkesp.py $(TEST_DIR)/arm-efi-fat.efi | $(TEST_DIR)
 	python3 tests/mkesp.py $(TEST_DIR)/arm-efi-fat.efi $@ BOOTAA64.EFI
 $(TEST_DIR)/riscv-fat.img: tests/mkesp.py $(TEST_DIR)/riscv-efi-fat.efi | $(TEST_DIR)
