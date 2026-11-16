@@ -88,7 +88,7 @@ static void sqtl_refresh(void)
     sqtl->LogLast = (u64)(uptr)log_last;
     sqtl->FinalEvents = (u64)(uptr)final_table;
     sqtl->FinalEventsSize = FINAL_SIZE;
-    sqtl->Reserved = 0;
+    sqtl->ActiveBanks = tpm_active;     /* EFI_TCG2_BOOT_HASH_ALG_* */
 }
 
 static void put16be(u8 *p, u16 v) { p[0] = (u8)(v >> 8); p[1] = (u8)v; }
@@ -665,8 +665,11 @@ void tpm_init(void)
         efi_install_configuration_table((EFI_GUID *)&sqtl_guid, sqtl) ||
         efi_create_event(EVT_SIGNAL_EXIT_BOOT_SERVICES, TPL_CALLBACK, on_exit_boot_services, NULL, &ev))
         printf("tpm: EFI_TCG2_PROTOCOL not installed\n");
-    else
+    else {
         printf("tpm: SQTL event-log hand-off at %p\n", sqtl);
+        printf("tpm: measured-boot policy v%u (TCG2 log + ActiveBanks=0x%x)\n",
+               SQUIRREL_TPM_POLICY_VERSION, tpm_active);
+    }
 }
 
 /* TPM2 (revision 4): a client platform, the FIFO interface (start

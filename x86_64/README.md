@@ -278,7 +278,9 @@ the final events table. The log (64 KB, ACPI NVS) is in the TPM2 table
 the OS's TIS driver. Phase G M5 also installs the Squirrel `SQTL`
 configuration table (`SQUIRREL_TPM_LOG_HANDOFF_GUID`) so Squirrel-OS/2
 can find the same log after ExitBootServices without parsing ACPI first;
-smoke `x86_64-tpm-log-handoff`. The CRB interface is not supported.
+M16 fills SQTL `ActiveBanks` and documents PCR policy v1 + TCG2 field
+layout in `common/handoff.md` (smoke `x86_64-tpm-log-handoff`,
+`x86_64-tpm-polish`). The CRB interface is not supported.
 `tests/tcglog.py` replays a log against PCRs 0-7; `LINUX_TPM=1 make
 linux-uefi` checks that Linux finds the TPM and that its
 binary_bios_measurements replay. With no TPM the firmware says

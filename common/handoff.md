@@ -1232,23 +1232,63 @@ Details: [x86_64/README.md](../x86_64/README.md),
 `x86_64-capsule-flash-1`, `x86_64-capsule-flash-2`,
 `x86_64-capsule-key`.
 
-### Measured TPM event-log hand-off (Phase G M5)
+### Measured TPM event-log hand-off (Phase G M5) + polish (M16)
 
 With a TPM 2.0 on TIS, the firmware measures into PCRs and keeps one
 TCG2 (crypto-agile) event log in ACPI NVS. Squirrel-OS/2 (and stand-ins)
 find that log after `ExitBootServices` without inventing a private
-parser path:
+parser path. **M16** freezes the field layout and PCR policy so the OS
+Control Panel can parse with public TCG formats only (no firmware
+private event encodings).
 
 | Path | What to read |
 |------|----------------|
-| **SQTL configuration table** | GUID `SQUIRREL_TPM_LOG_HANDOFF_GUID`; structure magic `'SQTL'` (`SQUIRREL_TPM_LOG_HANDOFF`): `LogBase`, `LogSize`, `LogLast`, format `2` (TCG2), flags PRESENT / TRUNCATED, plus the final-events table |
+| **SQTL configuration table** | GUID `SQUIRREL_TPM_LOG_HANDOFF_GUID`; structure magic `'SQTL'` (`SQUIRREL_TPM_LOG_HANDOFF` Version **1**): `LogBase`, `LogSize`, `LogLast`, format `2` (TCG2), flags PRESENT / TRUNCATED, final-events table, **`ActiveBanks`** (`EFI_TCG2_BOOT_HASH_ALG_*` bitmap; offset of the former `Reserved` field) |
 | **ACPI TPM2 table** | Log Area Minimum Length / Start Address (same buffer as SQTL) |
 | **`EFI_TCG2_PROTOCOL.GetEventLog`** | Boot-services only; returns the same base / last event; events after the first GetEventLog also go to the final-events table |
 
+#### SQTL field offsets (little-endian, frozen)
+
+| Offset | Size | Field |
+|--------|------|-------|
+| 0 | 4 | `Magic` `'SQTL'` (`0x4C545153`) |
+| 4 | 4 | `Version` = 1 |
+| 8 | 4 | `Format` = 2 (TCG2) |
+| 12 | 4 | `Flags` (bit0 PRESENT, bit1 TRUNCATED) |
+| 16 | 8 | `LogBase` |
+| 24 | 8 | `LogSize` |
+| 32 | 8 | `LogLast` |
+| 40 | 8 | `FinalEvents` |
+| 48 | 4 | `FinalEventsSize` |
+| 52 | 4 | `ActiveBanks` |
+
+#### TCG2 log fields the OS parses (public)
+
+1. **Spec ID Event03** (first entry, `TCG_PCClientPCREvent` SHA-1 header):
+   `EventType` = `EV_NO_ACTION` (3); event data starts with
+   `"Spec ID Event03\0"`; then platform class, spec version, `UINTN` size,
+   algorithm id/size pairs.
+2. **Each later `TCG_PCR_EVENT2`:** `PCRIndex` (u32), `EventType` (u32),
+   digest count + per-alg digests (sizes from Spec ID), `EventSize` (u32),
+   `Event` bytes. Digest algorithm ids: SHA-1 `0x0004`, SHA-256 `0x000B`,
+   SHA-384 `0x000C`, SHA-512 `0x000D`.
+
+#### PCR policy v1 (`SQUIRREL_TPM_POLICY_VERSION` = 1)
+
+| PCR | Events (in order) |
+|-----|-------------------|
+| 0 | `EV_S_CRTM_VERSION`, `EV_EFI_PLATFORM_FIRMWARE_BLOB`, then `EV_SEPARATOR` |
+| 7 | five `EV_EFI_VARIABLE_DRIVER_CONFIG` (SecureBoot, PK, KEK, db, dbx), then `EV_SEPARATOR` |
+| 4 | `EV_EFI_ACTION` (“Calling EFI Application from Boot Option”), `EV_SEPARATOR`, then each `EV_EFI_BOOT_SERVICES_APPLICATION` (Authenticode digest) |
+| 5 | `EV_SEPARATOR`, then `EV_EFI_ACTION` (“Exit Boot Services Invocation”) after EBS |
+| 1, 2, 3, 6 | `EV_SEPARATOR` only at ready-to-boot |
+
+Serial: `tpm: measured-boot policy v1 (TCG2 log + ActiveBanks=…)`.
 The first event is Spec ID Event03. No TPM → no SQTL table and
 `tpm: none`. OS Control Panel consumption is an OS/2 follow-up (do not
-invent the OS regress name here). Smoke: `x86_64-tpm-log-handoff`.
-Notes: `release-notes/measured-handoff.md`, `release-notes/v2.3.0.md`.
+invent the OS regress name here). Smoke: `x86_64-tpm-log-handoff`,
+`x86_64-tpm-polish`. Notes: `release-notes/measured-handoff.md`,
+`release-notes/tpm-polish.md`, `release-notes/v2.3.0.md`.
 
 ### Secure Boot everyday path (Phase G M15)
 

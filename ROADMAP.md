@@ -48,8 +48,9 @@ suite-wide continuation plan is `docs/CONTINUANCE.md` in squirrelsoft.
   NV identity (M2), project-key / ESRT path (M4), measured TPM
   event-log hand-off (SQTL / M5), os-boot sync (M6 / pinned
   Squirrel-OS/2 `v2.3.0`), docs_lint harden (M7), Setup UI polish (M3),
-  VisionFive 2 / HiFive desk notes (M9), and Secure Boot everyday path
-  (M15 / `x86_64-sb-os2*`) are on `main`. Optional **M8** CI shard is
+  VisionFive 2 / HiFive desk notes (M9), Secure Boot everyday path
+  (M15 / `x86_64-sb-os2*`), and measured-boot polish
+  (M16 / `x86_64-tpm-polish`) are on `main`. Optional **M8** CI shard is
   skipped while `make test` wall-clock stays ~4–5 minutes. **M14**
   Phase G product banner (`2.6.0`) stays open for owner prep/tag.
 
@@ -492,6 +493,13 @@ Setup UI shell land here as sizeable steps. Fine-grained marks to product
   `x86_64-sb-os2-esp`, `x86_64-sb-os2-unsigned`. Notes in
   `release-notes/sb-everyday.md`. Epic #82. `TO_3.0.0.md` M15 /
   ladder **2.6.1**. `SQ_VERSION` stays **2.3.0** (M14 `2.6.0` banner
+  still open for owner).
+- [x] **Measured boot polish (M16 / `G-tpm-polish`)** (lane `-2eaf`):
+  SQTL `ActiveBanks`, documented PCR policy v1 + TCG2 field layout in
+  `common/handoff.md` (OS parses without firmware-private headers).
+  Smoke: `x86_64-tpm-polish` (+ extended `x86_64-tpm-log-handoff`).
+  Notes in `release-notes/tpm-polish.md`. Epic #82. `TO_3.0.0.md` M16 /
+  ladder **2.7.0**. `SQ_VERSION` stays **2.3.0** (M14 `2.6.0` banner
   still open for owner).
 
 ### Squirrel-OS/2 hand-off on every platform
