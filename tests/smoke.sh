@@ -1014,11 +1014,11 @@ run riscv-no-kernel "boot: no kernel image|boot halted" \
 # -m 4G; i440fx works the same). Then the EFI system table, the UEFI
 # memory map with the firmware's own areas carved out, and the memory
 # services checked through the boot services table
-run x86_64-uefi "SquirrelBIOS 2.2.0 (x86_64-uefi)|~^cpu: .*, long mode, [0-9]+-bit physical addresses|fw: running at 0x0000000000200000-|mem: 0000000000000000-0000000007ffffff usable|mem: 128 MB usable (from fw_cfg)|~^efi: system table at 0x[0-9a-f]{16}, UEFI 2.70, boot services at|efi: 0000000000000000-0000000000006fff BS data|efi: 00000000000a0000-00000000000fffff reserved|efi: 0000000000200000-|~^efi: [0-9]+ descriptors of 48 bytes|efi: memory services ok|fw: nothing to boot (no opt/org.squirrelworks/boot.efi), trying the CSM" \
+run x86_64-uefi "SquirrelBIOS 2.3.0 (x86_64-uefi)|~^cpu: .*, long mode, [0-9]+-bit physical addresses|fw: running at 0x0000000000200000-|mem: 0000000000000000-0000000007ffffff usable|mem: 128 MB usable (from fw_cfg)|~^efi: system table at 0x[0-9a-f]{16}, UEFI 2.70, boot services at|efi: 0000000000000000-0000000000006fff BS data|efi: 00000000000a0000-00000000000fffff reserved|efi: 0000000000200000-|~^efi: [0-9]+ descriptors of 48 bytes|efi: memory services ok|fw: nothing to boot (no opt/org.squirrelworks/boot.efi), trying the CSM" \
     "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd
 run x86_64-uefi-4g "mem: 0000000000000000-000000007fffffff usable|mem: 0000000100000000-000000017fffffff usable|mem: 4096 MB usable (from fw_cfg)|efi: 0000000100000000-000000017fffffff free|efi: memory services ok|fw: nothing to boot (no opt/org.squirrelworks/boot.efi), trying the CSM" \
     "$QEMU_X86_64" -M q35 -m 4G -bios x86_64/squirrel-bios.fd
-run x86_64-uefi-pc "SquirrelBIOS 2.2.0 (x86_64-uefi)|mem: 128 MB usable (from fw_cfg)|efi: memory services ok|fw: nothing to boot (no opt/org.squirrelworks/boot.efi), trying the CSM" \
+run x86_64-uefi-pc "SquirrelBIOS 2.3.0 (x86_64-uefi)|mem: 128 MB usable (from fw_cfg)|efi: memory services ok|fw: nothing to boot (no opt/org.squirrelworks/boot.efi), trying the CSM" \
     "$QEMU_X86_64" -M pc -bios x86_64/squirrel-bios.fd
 
 # x86-64 firmware: a PE32+ EFI application handed over through fw_cfg is
@@ -1347,7 +1347,7 @@ run x86_64-rt-split "efi: 0000000000200000-|~^efi: 0000000000[0-9a-f]{6}-0000000
 # the GIC in the device tree, builds the UEFI memory map from /memory,
 # and halts with nothing to boot.
 ARM_FD=arm/uefi/squirrel-bios.fd
-run aarch64-uefi "SquirrelBIOS 2.2.0 (aarch64-uefi)|fdt: device tree at 0x0000000040000000|~^cpu: Arm part d07 .*, EL1, 44-bit physical addresses|mmu: identity map, caches on|psci: v1.1 via hvc|rtc: PL031 at 0x0000000009010000|gic: v2, distributor at 0x0000000008000000|fw: running at 0x0000000040100000-|mem: 0000000040000000-0000000047ffffff usable|mem: 128 MB usable (from the device tree)|fw_cfg: present|~^efi: system table at 0x[0-9a-f]{16}, UEFI 2.70|efi: 0000000040000000-00000000400fffff BS data|~^efi: 0000000040100000-[0-9a-f]{16} RT code|~^efi: 0000000009010000-0000000009010fff MMIO|efi: memory services ok|efi: device tree installed as a configuration table|fw: nothing to boot (no -kernel, no opt/org.squirrelworks/boot.efi, no boot disk), halting" \
+run aarch64-uefi "SquirrelBIOS 2.3.0 (aarch64-uefi)|fdt: device tree at 0x0000000040000000|~^cpu: Arm part d07 .*, EL1, 44-bit physical addresses|mmu: identity map, caches on|psci: v1.1 via hvc|rtc: PL031 at 0x0000000009010000|gic: v2, distributor at 0x0000000008000000|fw: running at 0x0000000040100000-|mem: 0000000040000000-0000000047ffffff usable|mem: 128 MB usable (from the device tree)|fw_cfg: present|~^efi: system table at 0x[0-9a-f]{16}, UEFI 2.70|efi: 0000000040000000-00000000400fffff BS data|~^efi: 0000000040100000-[0-9a-f]{16} RT code|~^efi: 0000000009010000-0000000009010fff MMIO|efi: memory services ok|efi: device tree installed as a configuration table|fw: nothing to boot (no -kernel, no opt/org.squirrelworks/boot.efi, no boot disk), halting" \
     "$QEMU_ARM" -M virt -cpu cortex-a57 -bios $ARM_FD
 # The C stand-in app (tests/efi-app.c) through fw_cfg: relocated from 256
 # MB, it checks the tables, its loaded image, the relocation, pool and
@@ -1405,7 +1405,7 @@ run aarch64-uefi-disk "~^disk: virtio-blk at 0x[0-9a-f]{16} \(virtio-mmio v1\), 
 # talks to the SBI (spec 2.0), keeps the SBI's region reserved, installs
 # RISCV_EFI_BOOT_PROTOCOL, and halts with nothing to boot.
 RV_UEFI=riscv/uefi/squirrel-bios.bin
-run riscv64-uefi "SquirrelBIOS RISC-V|entering the UEFI core at 0x0000000080200000, next_mode=1|dt: firmware region 0x80000000-0x801fffff reserved (no-map)|SquirrelBIOS 2.2.0 (riscv64-uefi)|cpu: hart 0, S-mode, SBI 2.0 implementation 0x5351|uart: NS16550A at 0x0000000010000000|timer: time CSR at 10000000 Hz|rtc: goldfish at 0x0000000000101000|fw: running at 0x0000000080200000-|mem: 128 MB usable (from the device tree)|efi: 0000000080000000-00000000801fffff reserved|~^efi: 0000000080200000-[0-9a-f]{16} RT code|efi: memory services ok|efi: device tree installed as a configuration table|efi: RISCV_EFI_BOOT_PROTOCOL installed (boot hart 0)|fw: nothing to boot (no -kernel, no opt/org.squirrelworks/boot.efi, no boot disk), halting" \
+run riscv64-uefi "SquirrelBIOS RISC-V|entering the UEFI core at 0x0000000080200000, next_mode=1|dt: firmware region 0x80000000-0x801fffff reserved (no-map)|SquirrelBIOS 2.3.0 (riscv64-uefi)|cpu: hart 0, S-mode, SBI 2.0 implementation 0x5351|uart: NS16550A at 0x0000000010000000|timer: time CSR at 10000000 Hz|rtc: goldfish at 0x0000000000101000|fw: running at 0x0000000080200000-|mem: 128 MB usable (from the device tree)|efi: 0000000080000000-00000000801fffff reserved|~^efi: 0000000080200000-[0-9a-f]{16} RT code|efi: memory services ok|efi: device tree installed as a configuration table|efi: RISCV_EFI_BOOT_PROTOCOL installed (boot hart 0)|fw: nothing to boot (no -kernel, no opt/org.squirrelworks/boot.efi, no boot disk), halting" \
     "$QEMU_RISCV" -M virt -bios $RV_UEFI
 # The C stand-in app through fw_cfg, returning and calling Exit
 run riscv64-uefi-app "efi: image of 28672 bytes loaded at|APP riscv64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|APP con=ok timer=ok time=ok var=ok dtb=ok acpi=none|efi: image returned 0x1234|efi: image unloaded, its memory given back|fw: halting|!=bad|!APP opts" \
@@ -1817,7 +1817,7 @@ run aarch64-uefi-sd-empty "disk: SD host at PCI 00:02.0: no card|disk: no disks"
 # PSCI powers off through the PM watchdog (reset status partition 63), so
 # QEMU exits 0. No RTC: time=bad.
 RPI_FD=build/aarch64-uefi/rpi3/squirrel-bios.fd
-run rpi3-uefi-sd "SquirrelBIOS 2.2.0 (aarch64-uefi)|~^cpu: Arm part d03 .*, EL2, |uart: PL011 at 0x000000003f201000|psci: none; reset and power-off through the watchdog at 0x000000003f100000|gic: none in the device tree|fw: running at 0x0000000000080000-|mem: 0000000000000000-000000003bffffff usable|efi: 0000000000000000-0000000000000fff reserved|efi: memory services ok|disk: SD card at MMIO 0x003f300000 (SDSC v2, RCA 4567), 131072 sectors|APP aarch64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|APP con=ok timer=ok time=bad var=ok dtb=ok acpi=none|efi: ExitBootServices|@exit=0" \
+run rpi3-uefi-sd "SquirrelBIOS 2.3.0 (aarch64-uefi)|~^cpu: Arm part d03 .*, EL2, |uart: PL011 at 0x000000003f201000|psci: none; reset and power-off through the watchdog at 0x000000003f100000|gic: none in the device tree|fw: running at 0x0000000000080000-|mem: 0000000000000000-000000003bffffff usable|efi: 0000000000000000-0000000000000fff reserved|efi: memory services ok|disk: SD card at MMIO 0x003f300000 (SDSC v2, RCA 4567), 131072 sectors|APP aarch64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|APP con=ok timer=ok time=bad var=ok dtb=ok acpi=none|efi: ExitBootServices|@exit=0" \
     "$QEMU_ARM" -M raspi3b -kernel $RPI_FD -dtb $TEST_DIR/rpi3b.dtb \
     -drive if=sd,format=raw,file=$TEST_DIR/arm-esp-ebs.img,snapshot=on
 
@@ -1827,7 +1827,7 @@ run rpi3-uefi-sd "SquirrelBIOS 2.2.0 (aarch64-uefi)|~^cpu: Arm part d03 .*, EL2,
 # still probed (no card). Skipped cleanly when this QEMU has no raspi4b.
 RPI4_FD=build/aarch64-uefi/rpi4/squirrel-bios.fd
 if "$QEMU_ARM" -M help 2>/dev/null | grep -q '^raspi4b '; then
-    run rpi4-uefi-sd "SquirrelBIOS 2.2.0 (aarch64-uefi)|~^cpu: Arm part d08 .*, EL2, |uart: PL011 at 0x00000000fe201000|psci: none; reset and power-off through the watchdog at 0x00000000fe100000|~^gic: v2, distributor at 0x00000000ff841000, CPU interface at 0x00000000ff842000, |fw: running at 0x0000000000080000-|mem: 0000000000000000-000000003bffffff usable|efi: 0000000000000000-0000000000000fff reserved|efi: memory services ok|disk: SD host at MMIO 0x00fe340000: no card|disk: SD card at MMIO 0x00fe300000 (SDSC v2, RCA 4567), 131072 sectors|APP aarch64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|APP con=ok timer=ok time=bad var=ok dtb=ok acpi=none|efi: ExitBootServices|@exit=0" \
+    run rpi4-uefi-sd "SquirrelBIOS 2.3.0 (aarch64-uefi)|~^cpu: Arm part d08 .*, EL2, |uart: PL011 at 0x00000000fe201000|psci: none; reset and power-off through the watchdog at 0x00000000fe100000|~^gic: v2, distributor at 0x00000000ff841000, CPU interface at 0x00000000ff842000, |fw: running at 0x0000000000080000-|mem: 0000000000000000-000000003bffffff usable|efi: 0000000000000000-0000000000000fff reserved|efi: memory services ok|disk: SD host at MMIO 0x00fe340000: no card|disk: SD card at MMIO 0x00fe300000 (SDSC v2, RCA 4567), 131072 sectors|APP aarch64 st=ok bs=ok li=ok base=ok reloc=ok pool=ok map=ok|APP con=ok timer=ok time=bad var=ok dtb=ok acpi=none|efi: ExitBootServices|@exit=0" \
         "$QEMU_ARM" -M raspi4b -kernel $RPI4_FD -dtb $TEST_DIR/rpi4b.dtb \
         -drive if=sd,format=raw,file=$TEST_DIR/arm-esp-ebs.img,snapshot=on
 else
@@ -2007,11 +2007,11 @@ run x86_64-capsule "capsule: ESRT at|capsule: UpdateCapsule n=1 persist=0 popula
 
 CAP_DB=name=opt/org.squirrelworks/capsule-db
 CAP_FILE=name=opt/org.squirrelworks/capsule
-run x86_64-capsule-signed "capsule: trust ESL|capsule: apply ok version=0x00020300 (flash rewrite via NV)|capsule: apply refused (auth)|capsule: UpdateCapsule SGL-only unsupported|capsule: UpdateCapsule persist supports one capsule only|capsule: staged version=0x00020300|APP capsule-signed good=ok bad=ok stage=ok sgl=ok multi=ok attempt=ok|efi: image returned 0x0|!=bad" \
+run x86_64-capsule-signed "capsule: trust ESL|capsule: apply ok version=0x00020400 (flash rewrite via NV)|capsule: apply refused (auth)|capsule: UpdateCapsule SGL-only unsupported|capsule: UpdateCapsule persist supports one capsule only|capsule: staged version=0x00020400|APP capsule-signed good=ok bad=ok stage=ok sgl=ok multi=ok attempt=ok|efi: image returned 0x0|!=bad" \
     "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd \
     -fw_cfg $CAP_DB,file=$SB/sb-db-x509.esl \
     -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-capsule-signed.efi
-run x86_64-capsule-fwcfg "capsule: trust ESL|capsule: applying fw_cfg capsule|capsule: apply ok version=0x00020300 (flash rewrite via NV)|APP capsule esrt=ok query=ok update=ok attempt=ok osind=ok|efi: image returned 0x0|!=bad" \
+run x86_64-capsule-fwcfg "capsule: trust ESL|capsule: applying fw_cfg capsule|capsule: apply ok version=0x00020400 (flash rewrite via NV)|APP capsule esrt=ok query=ok update=ok attempt=ok osind=ok|efi: image returned 0x0|!=bad" \
     "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd \
     -fw_cfg $CAP_DB,file=$SB/sb-db-x509.esl \
     -fw_cfg $CAP_FILE,file=$SB/capsule-good.cap \
@@ -2025,11 +2025,11 @@ CAP_FLASH_STORE=$TEST_DIR/x86_64-capsule-flash-vars.fd
 CAP_FLASH="-drive if=pflash,format=raw,unit=0,readonly=on,file=x86_64/squirrel-bios.fd -drive if=pflash,format=raw,unit=1,file=$CAP_FLASH_STORE"
 rm -f "$CAP_FLASH_STORE"
 truncate -s 256K "$CAP_FLASH_STORE"
-run x86_64-capsule-flash-1 "capsule: trust ESL|capsule: apply ok version=0x00020300 (flash rewrite via NV)|APP capsule-flash apply=ok fw=0x00020300|efi: image returned 0x0|!=bad" \
+run x86_64-capsule-flash-1 "capsule: trust ESL|capsule: apply ok version=0x00020400 (flash rewrite via NV)|APP capsule-flash apply=ok fw=0x00020400|efi: image returned 0x0|!=bad" \
     "$QEMU_X86_64" -M q35 $CAP_FLASH \
     -fw_cfg $CAP_DB,file=$SB/sb-db-x509.esl \
     -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-capsule-flash.efi
-run x86_64-capsule-flash-2 "capsule: flash identity version=0x00020300 (NV stand-in, not real SPI)|APP capsule-flash kept=ok fw=0x00020300|efi: image returned 0x0|!flash rewrite via NV|!=bad" \
+run x86_64-capsule-flash-2 "capsule: flash identity version=0x00020400 (NV stand-in, not real SPI)|APP capsule-flash kept=ok fw=0x00020400|efi: image returned 0x0|!flash rewrite via NV|!=bad" \
     "$QEMU_X86_64" -M q35 $CAP_FLASH \
     -fw_cfg $CAP_DB,file=$SB/sb-db-x509.esl \
     -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-capsule-flash.efi
