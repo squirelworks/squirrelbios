@@ -136,6 +136,7 @@ TEST_BINS := $(TEST_DIR)/x86-boot.bin $(TEST_DIR)/x86-one-sector.bin $(TEST_DIR)
              $(TEST_DIR)/avionics-bit \
              $(TEST_DIR)/avionics-integrity \
              $(TEST_DIR)/avionics-handoff \
+             $(TEST_DIR)/avionics-rc-fc \
              $(TEST_DIR)/x86_64-bigload.img \
              $(TEST_DIR)/x86_64-handoff.efi \
              $(TEST_DIR)/arm-efi-app.efi $(TEST_DIR)/arm-efi-app-exit.efi \
@@ -444,6 +445,9 @@ $(TEST_DIR)/avionics-integrity: tests/avionics-integrity.c common/bit/sq_bit.c c
 
 $(TEST_DIR)/avionics-handoff: tests/avionics-handoff.c common/bit/sq_bit.c common/bit/sq_integrity.c common/bit/sq_handoff.c common/bit/sq_bit.h common/bit/sq_integrity.h common/bit/sq_handoff.h | $(TEST_DIR)
 	$(CC) -std=c11 -O2 -Wall -Wextra -Werror -o $@ tests/avionics-handoff.c common/bit/sq_bit.c common/bit/sq_integrity.c common/bit/sq_handoff.c
+
+$(TEST_DIR)/avionics-rc-fc: tests/avionics-rc-fc.c common/bit/sq_bit.c common/bit/sq_integrity.c common/bit/sq_handoff.c common/bit/sq_bit.h common/bit/sq_integrity.h common/bit/sq_handoff.h | $(TEST_DIR)
+	$(CC) -std=c11 -O2 -Wall -Wextra -Werror -o $@ tests/avionics-rc-fc.c common/bit/sq_bit.c common/bit/sq_integrity.c common/bit/sq_handoff.c
 
 
 # Non-volatile variables in a flash store (pflash unit 1)
