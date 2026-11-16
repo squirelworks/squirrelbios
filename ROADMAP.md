@@ -44,8 +44,8 @@ suite-wide continuation plan is `docs/CONTINUANCE.md` in squirrelsoft.
   F1-scale (1024 CPUs / two ECAM segments, host-side `tests/acpicheck.py`) is in #169.
 - **Open:** C5 real-board flash, D2 desk Raspberry Pi 4/5, RISC-V AIA MSI mode.
   F4-scale is optional `make f4-scale` (not in CI). Signed capsule apply
-  and flash rewrite via NV identity are on `main`; project-key / measured
-  hand-off remain Phase G follow-ups.
+  and flash rewrite via NV identity (M2) and project-key / ESRT path
+  (M4) are on `main`; measured hand-off remains a Phase G follow-up.
 
 ## Where things were (2026-11-13)
 
@@ -435,6 +435,13 @@ Setup UI shell land here as sizeable steps. Fine-grained marks to product
   stays read-only — not real SPI). Smoke: `x86_64-capsule-flash-1`,
   `x86_64-capsule-flash-2`. Notes in
   `release-notes/capsule-flash-rewrite.md`. Epic #82.
+- [x] **Project-key capsule signing + ESRT fwupd-shaped path** (lane
+  `-2eaf`, M4 / `2.2.50`): dedicated test project key
+  (`0x5153_C001`), mkcapsule `--sign-project` / `--print-recipe`,
+  trust capsule-project.esl, guest ESRT dump + host esrt_standin.
+  Smoke: `x86_64-capsule-key`, `x86_64-capsule-key-esrt`,
+  `capsule-project-key-host`. Notes in
+  `release-notes/capsule-project-key.md`. Epic #82.
 
 ### Squirrel-OS/2 hand-off on every platform
 

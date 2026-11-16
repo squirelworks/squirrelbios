@@ -35,9 +35,10 @@ Used here, in `ROADMAP.md` and on the issues (as labels).
   authenticated variables, TPM, SMM/EINJ, IPMI, all of Phase E, Raspberry Pi
   on QEMU, F1–F4 as tested, Phase G Setup UI + host fuzz + UpdateCapsule/ESRT
   (#189), signed capsule apply (#193) + Sarah follow-ups (#194), and
-  capsule flash rewrite via NV identity (M2). Licence GPL-3.0. Notes:
-  `release-notes/v2.2.0.md`. Next agent cut: **M4** project-key /
-  ESRT path (or optional M3 Setup polish) per
+  capsule flash rewrite via NV identity (M2) and project-key / ESRT
+  fwupd-shaped path (M4). Licence GPL-3.0. Notes:
+  `release-notes/v2.2.0.md`. Next agent cut: optional M3 Setup polish
+  or **M5** measured hand-off per
   `release-notes/TO_3.0.0.md`.
 - **Test gate:** `make test` (docs honesty via `make docs-lint` /
   `tools/docs_lint.py`, then ~346 cases in `tests/smoke.sh`, plus
@@ -103,7 +104,7 @@ Full mark list (versions, acceptance, issue titles):
    via `Actions → Draft release` before Publish — never stub-publish.
 2. **Phase G product remainder** (`-2eaf`, **M1–M5**): ~~**M1** signed
    capsule~~ (#193) → ~~**M2** flash rewrite / NV identity~~ →
-   project-key / ESRT path (M4); optional Setup polish (M3); measured
+   ~~**M4** project-key / ESRT~~; optional Setup polish (M3); measured
    TPM event-log hand-off to OS/2 (M5).
 3. **D2-rpi4** board flash *(Squirrel, **M11**)*: the QEMU `raspi4b` case
    is done; try the SD layout in `boards/rpi4/README.md` on a desk Pi 4.
@@ -119,7 +120,8 @@ Full mark list (versions, acceptance, issue titles):
    `x86_64-setupui`, `x86_64-setupui-f2`, `x86_64-setupui-bootorder`,
    `x86_64-setupui-secboot`, `x86_64-setupui-datetime`,
    `x86_64-capsule`, `x86_64-capsule-signed`, `x86_64-capsule-fwcfg`,
-   `x86_64-capsule-flash-1`, `x86_64-capsule-flash-2`).
+   `x86_64-capsule-flash-1`, `x86_64-capsule-flash-2`,
+   `x86_64-capsule-key`).
 7. Climb **M3–M20** in `TO_3.0.0.md` toward product **v3.0.0**
    (CONTINUANCE M3 companion — **not** a Phase E redo).
 
@@ -134,8 +136,20 @@ Full mark list (versions, acceptance, issue titles):
   `release-notes/capsule-flash-rewrite.md`. Epic #82. `TO_3.0.0.md` M2.
 - **Check:** `x86_64-capsule-flash-1`, `x86_64-capsule-flash-2` in
   `make test`.
-- **Next (Phase G):** M4 project-key / ESRT fwupd-shaped path; optional
+- **Next (Phase G):** ~~M4~~ landed in `G-capsule-project-key`; optional
   M3 Setup polish; M5 measured hand-off.
+
+### G-capsule-project-key — project-key signing + ESRT fwupd-shaped path (M4)  `status: done`
+- **Done (lane `-2eaf`):** dedicated capsule project test key
+  (seed `0x5153_C001`), `tests/mkcapsule.py --sign-project` /
+  `--print-recipe`, trust ESL `capsule-project.esl`, guest ESRT dump
+  (`APP esrt-list` / `APP esrt-entry0`) and host
+  `tools/esrt_standin.py`. Notes:
+  `release-notes/capsule-project-key.md`. Epic #82. `TO_3.0.0.md` M4.
+- **Check:** `x86_64-capsule-key`, `x86_64-capsule-key-esrt`,
+  `capsule-project-key-host` in `make test`.
+- **Next (Phase G):** ~~M2~~ landed in `G-capsule-flash`; optional M3
+  Setup polish; M5 measured hand-off.
 
 ### G-capsule-signed — signed capsule apply / PersistAcrossReset staging  `status: done`
 - **Done (lane `-2eaf`):** SQCP signed system-firmware capsules
@@ -154,7 +168,8 @@ Full mark list (versions, acceptance, issue titles):
 - **Check:** `x86_64-capsule-signed`, `x86_64-capsule-fwcfg` in
   `make test` (plus existing `x86_64-capsule`).
 - **Next (Phase G):** ~~flash rewrite~~ landed in `G-capsule-flash`;
-  optional Setup polish; project-key / measured hand-off.
+  ~~project-key~~ landed in `G-capsule-project-key`; optional Setup
+  polish; measured hand-off (M5).
 
 ### G-capsule-esrt — UpdateCapsule + ESRT  `status: done`
 - **Done (lane `-2eaf`):** UEFI-class capsule plumbing in

@@ -1210,14 +1210,21 @@ The UEFI-class build keeps serving after the OS calls
   (QEMU pflash unit 1 stand-in — not a rewrite of firmware SPI/unit 0);
   PersistAcrossReset stages `SqCapsuleStaging`; fw_cfg
   `opt/org.squirrelworks/capsule` applies pending at init.
+- Project-key path (Phase G M4): dedicated test key / ESL
+  (`capsule-project.esl`, seed `0x5153_C001`); guest dumps ESRT in a
+  fwupd-shaped form; host `tools/esrt_standin.py` lists/updates from
+  the serial log. Signing recipe:
+  `python3 tests/mkcapsule.py --print-recipe`.
 - `OsIndicationsSupported` advertises file-capsule delivery.
 
 Details: [x86_64/README.md](../x86_64/README.md),
 `release-notes/capsule-esrt.md`,
 `release-notes/capsule-signed-apply.md`,
-`release-notes/capsule-flash-rewrite.md`. Smoke: `x86_64-capsule`,
+`release-notes/capsule-flash-rewrite.md`,
+`release-notes/capsule-project-key.md`. Smoke: `x86_64-capsule`,
 `x86_64-capsule-signed`, `x86_64-capsule-fwcfg`,
-`x86_64-capsule-flash-1`, `x86_64-capsule-flash-2`.
+`x86_64-capsule-flash-1`, `x86_64-capsule-flash-2`,
+`x86_64-capsule-key`.
 
 ## POWER (QEMU powernv9 / powernv10)
 

@@ -159,11 +159,15 @@ GUID, update ESRT `LastAttempt*`, and may warm-reset when
 against fw_cfg `opt/org.squirrelworks/capsule-db`; apply updates ESRT
 `FwVersion` and persists `SqFwFlashId` in the variable store (NV
 stand-in — firmware pflash unit 0 stays read-only); PersistAcrossReset
-stages `SqCapsuleStaging`. Smoke: `x86_64-capsule`,
+stages `SqCapsuleStaging`. Project-key path (M4): `capsule-project.esl`
++ `tests/mkcapsule.py --sign-project`; guest ESRT dump +
+`tools/esrt_standin.py`. Smoke: `x86_64-capsule`,
 `x86_64-capsule-signed`, `x86_64-capsule-fwcfg`,
-`x86_64-capsule-flash-1`, `x86_64-capsule-flash-2`. Notes:
-`release-notes/capsule-esrt.md`, `release-notes/capsule-signed-apply.md`,
-`release-notes/capsule-flash-rewrite.md`.
+`x86_64-capsule-flash-1`, `x86_64-capsule-flash-2`,
+`x86_64-capsule-key`. Notes: `release-notes/capsule-esrt.md`,
+`release-notes/capsule-signed-apply.md`,
+`release-notes/capsule-flash-rewrite.md`,
+`release-notes/capsule-project-key.md`.
 
 Runtime: `GetTime` / `SetTime` from the CMOS RTC,
 the variable services (below), `ResetSystem` (ACPI
