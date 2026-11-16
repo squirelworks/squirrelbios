@@ -521,7 +521,7 @@ ISM `fighter-jet/interfaces/firmware-bringup.yaml`. Gap list:
   inc vectors; smoke case `avionics-bit` checks the field set.
   Depends on: `avionics-gap`.
 
-- [ ] `avionics-integrity` — Boot-integrity check and safe-state on
+- [x] `avionics-integrity` — Boot-integrity check and safe-state on
   failure. Acceptance: a bad image hash/signature engages safe-state
   and does not jump; a good image may proceed to hand-off; smoke case
   `avionics-integrity`. Depends on: avionics-bit (done).

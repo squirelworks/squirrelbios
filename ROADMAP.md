@@ -469,7 +469,7 @@ ISM `fighter-jet/interfaces/firmware-bringup.yaml` BIT line. Gap analysis:
 - [x] **H1** Portable BIT/POST framework with a machine-readable result
   record matching ISM `bit_line_fields` (board, ver, rails, imu, radio,
   uplink, brownout, safe, act/inc vectors). Smoke: `avionics-bit`.
-- [ ] **H2** Boot-integrity check (image hash/signature) and safe-state on
+- [x] **H2** Boot-integrity check (image hash/signature) and safe-state on
   failure (neutral outputs; no jump to a bad image). Smoke:
   `avionics-integrity`.
 - [ ] **H3** Clean hand-off interface to an RTOS / application image
