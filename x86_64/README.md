@@ -232,6 +232,14 @@ that is given but does not parse refuses every image (fail closed).
 These fixed keys cannot be changed (`EFI_WRITE_PROTECTED`), and the
 CSM stays off.
 
+Everyday OS/2 loader path (Phase G M15): with that fixed db and a TPM,
+`tests/x86_64-sb-os2.asm` (signed by `tests/mksigned.py --sign`) is the
+stand-in for a Squirrel-OS/2 UEFI loader — fw_cfg boot and ESP
+`BOOTX64.EFI` both verify, measure into PCR 4, and keep TCG2 extends
+green; the unsigned image is refused. Smoke: `x86_64-sb-os2`,
+`x86_64-sb-os2-esp`, `x86_64-sb-os2-unsigned`. Notes:
+`release-notes/sb-everyday.md`.
+
 Enrolled keys (C5): without a fixed db, `PK`, `KEK`, `db` and `dbx` are
 variables (kept in the flash store when there is one) that change only
 through time-based authenticated writes: attributes NV, BS, RT and

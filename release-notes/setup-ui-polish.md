@@ -19,8 +19,8 @@ empty-order honesty that remained after the earlier notebooks landed.
   minutes, so optional **M8** `ci-shard-smoke` is **skipped** (do not
   shard for fashion). Revisit only if the suite grows enough that the
   gate hurts.
-- **Next:** ~~M9~~ VisionFive 2 / HiFive desk notes; **M10** blocked on
-  QEMU 8.2; then **M14** / **M15**.
+- **Next:** ~~M9~~ / ~~M15~~ landed; **M14** Phase G product banner
+  still open for owner; **M10** blocked on QEMU 8.2; then **M16**.
 
 Smoke: extended `x86_64-setupui` / `x86_64-setupui-f2` /
 `x86_64-setupui-bootorder` expect `Main Menu`; new

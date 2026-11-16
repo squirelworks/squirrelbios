@@ -125,12 +125,12 @@ Notes refresh **#190** is on `main`. Soft PATH’s fold-into-2.2.0 advice is sat
    https://github.com/squirelworks/squirrelbios/releases/tag/v2.2.0
 2. **`-2eaf`:** **M1** signed capsule landed as #193 on `main`; **M2**
    flash rewrite, **M4** project-key / ESRT, **M5** measured hand-off,
-**M6** os-boot sync, **M7** docs_lint harden, **M3** Setup UI
-   polish, and **M9** VisionFive2 / HiFive desk notes landed. Optional
-   **M8** CI shard is **skipped** while `make test` wall-clock stays
-   ~4–5 minutes. **M10** AIA MSI stays blocked on CI QEMU 8.2. Next
-   coding is **M14** / **M15** (not desk M11–M12; those are
-   `needs: squirrel`).
+   **M6** os-boot sync, **M7** docs_lint harden, **M3** Setup UI
+   polish, **M9** VisionFive2 / HiFive desk notes, and **M15** Secure
+   Boot everyday path landed. Optional **M8** CI shard is **skipped**
+   while `make test` wall-clock stays ~4–5 minutes. **M10** AIA MSI
+   stays blocked on CI QEMU 8.2. Next coding is **M14** (banner prep) /
+   **M16+** (not desk M11–M12; those are `needs: squirrel`).
 3. Soft PATH stays index-only; do not move this ladder into Soft.
 
 ---
@@ -318,17 +318,18 @@ Lanes: **only `-2eaf`** for code. Owner marks wait on `needs: squirrel`.
 | **Release note** | `v2.6.0.md` + compatibility matrix |
 | **Lane** | `-2eaf` prep; owner tag |
 
-### M15 — `2.6.1` Secure Boot everyday path polish  ·  `-2eaf`  ·  depends: M14 recommended
+### M15 — `2.6.1` Secure Boot everyday path polish  ·  **done**  ·  `-2eaf`  ·  depends: M14 recommended
 
 | Field | Value |
 |-------|-------|
-| **Bump** | `+0.0.1` |
+| **Bump** | Ladder **`2.6.1`**; `SQ_VERSION` stays **2.3.0** until M14 cuts `2.6.0` |
 | **Box** | `G-sb-everyday` |
 | **Issue to file** | *(draft)* `Secure Boot: everyday enroll/boot path for Squirrel-OS/2 loader under QEMU` |
-| **Suggested check** | `x86_64-sb-os2` (name TBD; signed loader stand-in) |
+| **Suggested check** | `x86_64-sb-os2`, `x86_64-sb-os2-esp`, `x86_64-sb-os2-unsigned` |
 | **Design note** | `release-notes/sb-everyday.md` |
 | **Acceptance** | With SB on, only project-signed loader starts; unsigned refused; TPM extends still green |
 | **Lane** | `-2eaf` |
+| **Status** | **Done** — signed OS/2 loader stand-in + ESP path + unsigned refuse; tcglog replay green |
 
 ### M16 — `2.7.0` measured boot polish (PCR policy / log format)  ·  `-2eaf`  ·  depends: M5
 
@@ -427,7 +428,7 @@ Soft does not own rows; it may **index** them.
 
 | Actor | Now | Next |
 |-------|-----|------|
-| **`-2eaf` (BIOS)** | **M1–M7**, **M3**, **M9** on `main` — **do not redo**; **M8** skipped; **M10** blocked | **M14** / **M15** |
+| **`-2eaf` (BIOS)** | **M1–M7**, **M3**, **M9**, **M15** on `main` — **do not redo**; **M8** skipped; **M10** blocked | **M14** banner prep / **M16+** |
 | **Owner** | **M0** `v2.2.0` published | Later M13/M14/M20; desk M11/M12 when hardware is free |
 | **`-b55f`** | **Not on BIOS** — OS/2 2.9 only | Ignore this file for OS claims; see OS/2 `TO_3.0.0.md` |
 | **Soft** | PATH index only | Do not move BIOS marks into Soft |

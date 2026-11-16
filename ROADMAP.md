@@ -48,9 +48,10 @@ suite-wide continuation plan is `docs/CONTINUANCE.md` in squirrelsoft.
   NV identity (M2), project-key / ESRT path (M4), measured TPM
   event-log hand-off (SQTL / M5), os-boot sync (M6 / pinned
   Squirrel-OS/2 `v2.3.0`), docs_lint harden (M7), Setup UI polish (M3),
-  and VisionFive 2 / HiFive desk notes (M9) are on `main`. Optional
-  **M8** CI shard is skipped while `make test` wall-clock stays
-  ~4–5 minutes.
+  VisionFive 2 / HiFive desk notes (M9), and Secure Boot everyday path
+  (M15 / `x86_64-sb-os2*`) are on `main`. Optional **M8** CI shard is
+  skipped while `make test` wall-clock stays ~4–5 minutes. **M14**
+  Phase G product banner (`2.6.0`) stays open for owner prep/tag.
 
 ## Where things were (2026-11-13)
 
@@ -485,6 +486,13 @@ Setup UI shell land here as sizeable steps. Fine-grained marks to product
   `riscv64-hifive-unmatched-build`, `riscv64-hifive-unmatched-sifive-u`.
   Notes in `release-notes/board-vf2-hifive-notes.md`. Epic #82.
   `TO_3.0.0.md` M9. **M10** AIA MSI remains blocked on CI QEMU 8.2.
+- [x] **Secure Boot everyday path (M15 / `G-sb-everyday`)** (lane
+  `-2eaf`): project-signed OS/2 loader stand-in with SB on + TPM;
+  unsigned refused; tcglog replay green. Smoke: `x86_64-sb-os2`,
+  `x86_64-sb-os2-esp`, `x86_64-sb-os2-unsigned`. Notes in
+  `release-notes/sb-everyday.md`. Epic #82. `TO_3.0.0.md` M15 /
+  ladder **2.6.1**. `SQ_VERSION` stays **2.3.0** (M14 `2.6.0` banner
+  still open for owner).
 
 ### Squirrel-OS/2 hand-off on every platform
 

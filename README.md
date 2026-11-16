@@ -181,6 +181,9 @@ boots each firmware under QEMU with a small stand-in OS image from
 | `x86_64-setupui-polish` | M3: F2 path opens Boot Manager with empty BootOrder (honest empty message; no demo seed); root panel is Main Menu |
 | `x86_64-setupui-bootorder` | Setup UI Boot Manager: seeds demo Boot####/BootOrder, Left reorders, Enter SetVariables BootOrder (read-back) |
 | `x86_64-setupui-secboot` | Setup UI Secure Boot keys (seed/view/clear) + TPM clear confirmation (skipped with no TPM) |
+| `x86_64-sb-os2` | Phase G M15: signed OS/2 loader stand-in with SB on + TPM; tcglog replay |
+| `x86_64-sb-os2-esp` | Same signed loader as `\EFI\BOOT\BOOTX64.EFI` on a GPT ESP |
+| `x86_64-sb-os2-unsigned` | Unsigned OS/2 loader stand-in refused under SB (TPM present) |
 | `x86_64-capsule` | Phase G UpdateCapsule + ESRT: ESRT configuration table, QueryCapsuleCapabilities, UpdateCapsule updates LastAttempt*, OsIndicationsSupported file-capsule bit |
 | `x86_64-capsule-signed` | Phase G signed SQCP apply + PersistAcrossReset staging |
 | `x86_64-capsule-fwcfg` | Phase G fw_cfg pending capsule apply at init |
