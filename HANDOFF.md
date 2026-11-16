@@ -266,7 +266,8 @@ Full mark list (versions, acceptance, issue titles):
 - **OS follow-up:** Squirrel-OS/2 boot-security page / regress name —
   coordinate with the OS/2 lane; do not invent alone.
 - **Next (Phase G):** ~~M3~~ / ~~M4~~ / ~~M6~~ / ~~M7~~ / ~~M9~~ /
-  ~~M15~~ / ~~M16~~ landed; **M8** skipped; **M10** blocked; then M14+.
+  ~~M15~~ / ~~M16~~ / ~~M17~~ landed; **M8** skipped; **M10** blocked;
+  then M14+.
 
 ### G-capsule-flash — flash rewrite via NV identity (M2)  `status: done`
 - **Done (lane `-2eaf`):** verified SQCP apply updates ESRT `FwVersion`
