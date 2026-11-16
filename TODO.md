@@ -526,7 +526,7 @@ ISM `fighter-jet/interfaces/firmware-bringup.yaml`. Gap list:
   and does not jump; a good image may proceed to hand-off; smoke case
   `avionics-integrity`. Depends on: avionics-bit (done).
 
-- [ ] `avionics-handoff` — Clean RTOS/app hand-off interface. Acceptance:
+- [x] `avionics-handoff` — Clean RTOS/app hand-off interface. Acceptance:
   MCU hand-off contract in `common/handoff.md` (entry, BIT pointer,
   integrity status, no post-jump BIOS services); smoke case
   `avionics-handoff`. Depends on: avionics-integrity.

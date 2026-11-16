@@ -62,6 +62,33 @@ The OS must not assume:
    not started (AArch64) or are parked until the OS starts them with
    `sbi_hart_start` (RISC-V).
 
+### MCU / avionics RTOS (ISM)
+
+For ISM avionics boards and Eric’s RC flight controller (#195), the
+portable bring-up path is not a QEMU PC/UEFI image. Host-tested code in
+`common/bit/` builds a BIT line (ISM `firmware-bringup.yaml` fields),
+checks the RTOS/app image (`sq_integrity_check`), and fills an
+`sq_handoff_t` (`SQHO`) before the jump:
+
+| Field | Meaning |
+|-------|---------|
+| `magic` / `version` | `'SQHO'` / `1` |
+| `entry` / `stack` | RTOS entry and optional initial SP (`0` = RTOS sets its own) |
+| `bit_addr` | Optional pointer to a BIT state the RTOS may copy |
+| `flags` bit0 | Integrity OK at hand-off |
+| `board_id` | NUL-terminated board id (e.g. `ISM-RC-FC`, `ISM-FJ-BAY-IO`) |
+
+Guarantees:
+
+1. No jump if integrity failed or safe-state is set (brownout, uplink
+   loss, or integrity). Actuators are neutralled first.
+2. Nothing in BIOS runs after the jump. No UEFI, no SBI, no INT services
+   on MCU targets.
+3. Flight-control laws are not in the BIOS image; they live in the RTOS.
+
+See `boards/ism-avionics/GAP.md` and `common/bit/`. Smoke: `avionics-bit`,
+`avionics-integrity`, `avionics-handoff`.
+
 ### Network boot
 
 The firmware does not boot over the network, on any architecture, and

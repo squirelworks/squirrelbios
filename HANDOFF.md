@@ -311,10 +311,11 @@ Full mark list (versions, acceptance, issue titles):
   ISM fighter-jet bay I/O and FCC boards, and Eric’s ISM RC flight
   controller. Laws stay on a separate RTOS. Contract:
   ISM `firmware-bringup.yaml` BIT line.
-- **Done:** gap list; portable BIT (`common/bit/`); integrity
-  (`sq_integrity_*`). ROADMAP H0–H2.
-- **Open:** avionics-handoff, avionics-rc-fc, avionics-porting.
-- **Check:** `avionics-bit`, `avionics-integrity` (host); docs-lint green.
+- **Done:** gap list; BIT; integrity; RTOS hand-off (`sq_handoff_*` +
+  MCU section in `common/handoff.md`). ROADMAP H0–H3.
+- **Open:** avionics-rc-fc, avionics-porting.
+- **Check:** `avionics-bit`, `avionics-integrity`, `avionics-handoff`
+  (host); docs-lint green.
 - **Related:** squirrel-os2 #225 (ground/lab); ISM #84 bay firmware.
 
 ### Secondary track and small follow-ups  `cursor-codex`
