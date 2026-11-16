@@ -1951,7 +1951,8 @@ if command -v swtpm >/dev/null 2>&1 && command -v swtpm_setup >/dev/null 2>&1; t
         -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
         -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-tpm-log-handoff.efi
     start_swtpm sha256
-    run x86_64-tpm-polish "tpm: measured-boot policy v1 (TCG2 log + ActiveBanks=)|$TPM_LOG_APP|efi: ExitBootServices|APP tpm-log ebs=ok|@exit=1|!=bad" \
+    # Regex for the policy line: parentheses confuse unquoted IFS-split wants.
+    run x86_64-tpm-polish "~tpm: measured-boot policy v1 \\(TCG2 log \\+ ActiveBanks=0x[0-9a-f]+\\)|$TPM_LOG_APP|efi: ExitBootServices|APP tpm-log ebs=ok|@exit=1|!=bad" \
         "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd $TPM_DEV \
         -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
         -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-tpm-log-handoff.efi
