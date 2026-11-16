@@ -190,6 +190,127 @@ Full mark list (versions, acceptance, issue titles):
   `G-capsule-esrt`.
 
 ### G1-fuzz-fat — host FAT fuzz / corpus smoke  `status: done`
+- **Done:** host-buildable harness for `common/efi/fat.c` under
+  `fuzz/` (`LLVMFuzzerTestOneInput`, host EFI stubs, seed corpus).
+  `make fuzz-fat` runs a short corpus smoke without QEMU; optional
+  `make fuzz-fat-libfuzzer` and `.github/workflows/fuzz-fat.yml`
+  (path-filtered / `workflow_dispatch`, not the required gate).
+  Notes: `fuzz/README.md`, `release-notes/host-fuzz-fat.md`.
+- **Check:** `make fuzz-fat` prints `PASS  fuzz-fat (…)`.
+
+### G2-fuzz-pe — host PE/COFF fuzz / corpus smoke  `status: done`
+- **Done:** host-buildable harness for `common/efi/image.c` under
+  `fuzz/` (`pe_harness.c`, extended host stubs with pages + protocol
+  DB). `make fuzz-pe` runs a short corpus smoke without QEMU; LoadImage
+  / UnloadImage only (never StartImage). Optional
+  `make fuzz-pe-libfuzzer` and `.github/workflows/fuzz-pe.yml`.
+  Notes: `fuzz/README.md`, `release-notes/host-fuzz-pe.md`.
+- **Check:** `make fuzz-pe` prints `PASS  fuzz-pe (…)`.
+
+### G3-fuzz-authenticode — host Authenticode/PKCS#7 fuzz / corpus smoke  `status: done`
+- **Done (lane `-2eaf`):** host-buildable harness for
+  `x86_64/secure/der.c` (PKCS#7 Authenticode + detached, X.509),
+  `pe_authenticode_hash` / PE certificate-table walk, and `sb_db_walk`
+  under `fuzz/` (`authenticode_harness.c`, `secure_host_stubs.c`,
+  synthetic corpus). `make fuzz-authenticode` runs a short corpus
+  smoke without QEMU. Optional `make fuzz-authenticode-libfuzzer` and
+  `.github/workflows/fuzz-authenticode.yml`. Notes: `fuzz/README.md`,
+  `release-notes/host-fuzz-authenticode.md`. Epic #82.
+- **Check:** `make fuzz-authenticode` prints
+  `PASS  fuzz-authenticode (…)`.
+
+### G3-fuzz-net-usb-fdt — host DHCP/TFTP/HTTP, USB, FDT fuzz  `status: done`
+- **Done (lane `-2eaf`):** host-buildable harnesses for
+  `common/efi/net_parse.c` (DHCP/TFTP/HTTP), `common/efi/usb_desc.c`
+  (device + BBB config descriptors), and `common/fw/fdt.c` /
+  `common/efi/fdt.c`. Synthetic corpora under `fuzz/corpus-net/`,
+  `corpus-usb/`, `corpus-fdt/`. `make fuzz-net` / `fuzz-usb` /
+  `fuzz-fdt` run short corpus smokes without QEMU. Optional
+  `make fuzz-*-libfuzzer`, path-filtered workflows, and scheduled
+  `.github/workflows/fuzz-nightly.yml` (60 s budget). Notes:
+  `fuzz/README.md`, `release-notes/host-fuzz-net-usb-fdt.md`. Epic #82.
+- **Check:** `make fuzz-net`, `make fuzz-usb`, `make fuzz-fdt` each
+  print `PASS  fuzz-… (…)`.
+
+### REL-2.2.0 — release notes for what `main` has since v2.1.1  `status: done` (published v2.2.0)
+- **Done (notes + assets):** `release-notes/v2.2.0.md` (style of
+  `v2.1.0.md`; Known gaps refreshed; UEFI banner `SQ_VERSION` `2.2.0`).
+  Refreshed after #189 so UpdateCapsule + ESRT / `x86_64-capsule` (and
+  Phase G Setup UI + host fuzz) are listed as **in the v2.2.0 tag**, not
+  a follow-up cut. `make test` count: **346** on the #189 tip. Release
+  holds the six images + `SHA256SUMS.txt` + the full notes body (same
+  set `.github/workflows/release-draft.yml` attaches).
+- **Done (Squirrel):** published
+  https://github.com/squirelworks/squirrelbios/releases/tag/v2.2.0
+  (2026-11-15, `0051c40`). Signed apply landed as **M1** / #193 on
+  `main` (not a v2.2.1 re-cut of #189 alone). Always run
+  `Actions → Draft release` before Publish — never stub-publish empty.
+- **Check:** `make test` green on the tagged commit; every image boots its
+  `make test` cases; `SHA256SUMS.txt` covers every attached image.
+
+### F2-CXL — CXL memory enumeration  `status: done`
+- **Done:** on `x86_64-uefi` with `-M q35,cxl=on` and a `pxb-cxl` host
+  bridge + `cxl-rp` + `cxl-type3` device, the firmware finds the CXL host
+  bridge (PCI `1b36:000b`), publishes a CEDT (CHBS + CFMWS from QEMU's
+  `etc/acpi/tables`) and `ACPI0016`/`ACPI0017` in the DSDT.
+  `x86_64-cxl` / `x86_64-cxl-none` in `tests/smoke.sh`.
+
+### F3-DNS — names in HTTP boot  `status: done`
+- **Done:** DNS A-record client in the UEFI network stack (`common/efi/net_dns.c`);
+  DHCP option 6 supplies the resolver. HTTP boot accepts `http://name/...`
+  URLs. `tests/netsim.py` / `tests/httpd.py` answer DNS for the smoke net.
+  Cases: `x86_64`/`aarch64`/`riscv64`-uefi-httpboot-dns and
+  `x86_64-uefi-httpboot-dns-miss` (`net: cannot resolve …`, fall through).
+
+### D2-rpi4 — Raspberry Pi 4 build on QEMU and on the board  *(QEMU done; board check `needs: squirrel`)*
+- **Done:** `configs/aarch64-uefi/rpi3.cfg` and `rpi4.cfg`, SDHCI driver,
+  EL3 + PSCI, `rpi3-uefi-sd` on QEMU `raspi3b` (#157); `rpi4-uefi-sd` on
+  QEMU `raspi4b` (QEMU ≥ 9.0; skipped cleanly on older QEMU) with BCM2711
+  EMMC2 + GIC-400 from `tests/mkrpidtb.py --rpi4`; SD layout / `config.txt`
+  / `kernel=` notes in `boards/rpi4/README.md`. Pi 5 stays research.
+- **Open (Squirrel):** flash a real Pi 4 with that SD layout and confirm
+  the serial log reaches `disk: SD card` and `efi: ExitBootServices`.
+- **Acceptance (QEMU):** under `raspi4b` the firmware reaches the EFI
+  stand-in with `disk: SD card` (Arasan host at `0xfe300000`; EMMC2 is
+  probed and empty under QEMU) and `ExitBootServices`, like
+  `rpi3-uefi-sd`. GIC-400 at `0xff841000` is taken from the tree.
+
+### F1-scale — more than 1000 CPUs and several ECAM segments  `status: done`
+- **Done:** topology-driven MADT/SRAT/MCFG builders in `x86_64/acpi/topo.c`
+  (`topo_impl.inc`); host tool `tests/x86_64-tables` feeds synthetic
+  topologies; `tests/acpicheck.py` checks checksums, 1024 distinct x2APIC
+  IDs with SRAT affinity per node (`x86_64-tables-1024cpu`), and two MCFG
+  allocations (`x86_64-tables-2seg`). Optional KVM run on a big host stays
+  a post-merge note.
+
+### C5-board — real x86 hardware  *(docs + CONFIG done; board flash `needs: squirrel`)*
+- **Done (docs/CONFIG):** `boards/ga-g41m-es2l/FLASHING.md` (external SPI
+  programmer, vendor backup/restore, DualBIOS and clip recovery);
+  `CONFIG=coreboot` (`configs/x86_64-uefi/coreboot.cfg`) reads the memory
+  map and ACPI RSDP from coreboot LBIO tables (`x86_64/platform/coreboot.c`);
+  `x86_64-coreboot` in `tests/smoke.sh` with synthetic tables from
+  `tests/mkcbtables.py`. Research note: `boards/ga-g41m-es2l/README.md`.
+- **Open (Squirrel):** flash a real GA-G41M-ES2L per the guide with
+  coreboot + this payload; confirm serial shows
+  `mem: … (from coreboot tables)`. DDR training stays research.
+
+### RISCV-AIA-MSI — Linux on `virt,aia=aplic-imsic`  `cursor-codex` (blocked on QEMU)
+- **Background:** TODO.md `riscv-aia`: APLIC direct mode works; MSI mode storms on QEMU 8.2.
+- **Open:** program `smsiaddrcfg`/`smsiaddrcfgh` in the M-level APLIC, retest with
+  QEMU ≥ 9.1 and a 6.14+ kernel; `LINUX_AIA=imsic make linux-big` reaches the shell.
+
+### F4-scale — more diskless nodes and a large NUMA node  `status: done`
+- **Done:** optional `make f4-scale` (`tests/f4-scale.sh`): eight x86_64
+  UEFI nodes netboot the same image from one netsim server; node 0 is
+  `-smp 256` with four NUMA nodes (falls back to 255 under TCG without
+  x2APIC). Not in `make test` / CI. `NETSIM_IDLE` keeps the server up
+  while the large node brings up its APs.
+
+### H-avionics — ISM bring-up / BIT / boot integrity (#195)  `cursor-codex`
+- **Goal:** Reuse SquirrelBIOS as bring-up / BIT / boot-integrity for
+  ISM fighter-jet bay I/O and FCC boards, and Eric’s ISM RC flight
+  controller. Laws stay on a separate RTOS. Contract:
+  ISM `firmware-bringup.yaml` BIT line.
 - **Done:** gap list; portable BIT (`common/bit/`); integrity
   (`sq_integrity_*`). ROADMAP H0–H2.
 - **Open:** avionics-handoff, avionics-rc-fc, avionics-porting.
