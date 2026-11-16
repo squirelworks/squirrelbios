@@ -33,16 +33,18 @@ share one board id.
 | `radio` | Radio / link probe | Fail → radio=0 |
 | `uplink` | Valid uplink / host cmds recently | Loss → safe-state |
 | `brownout` | BOD / 28 V under-voltage | Active → safe-state |
+| `watchdog` | MCU WDT timeout / post-reset hold | Active → safe-state |
+| `incloss` | Inceptor validity lost | Active → safe-state |
 
 Actuator vector: J1–J4 (trunks A1–A4), hundredths in `[-1.0, 1.0]`.  
 Inceptor stubs: stick pitch/roll, throttle, pedal yaw as `inc`.
 
 ## Safe-state
 
-On brownout, uplink loss, or integrity failure: neutral all actuator
-cmds, reject new cmds, **do not jump** to the bay app/RTOS. Matches ISM
-`firmware-bringup.yaml` `safe_state` (further triggers such as
-watchdog / inceptor_loss stay ISM-side until a later BIT field slice).
+On brownout, uplink loss, watchdog reset, inceptor loss, or integrity
+failure: neutral all actuator cmds, reject new cmds, **do not jump** to
+the bay app/RTOS. Matches ISM `firmware-bringup.yaml` `safe_state`
+triggers (`brownout`, `uplink_loss`, `watchdog_reset`, `inceptor_loss`).
 
 ## Host check
 

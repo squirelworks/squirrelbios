@@ -11,7 +11,7 @@ int main(void)
 	sq_bit_state_t st;
 	sq_handoff_t ho;
 	sq_image_view_t img;
-	char line[256];
+	char line[288];
 	/* Synthetic bay app image tag "BAYI" + rev. */
 	unsigned char app[] = { 0x42, 0x41, 0x59, 0x49, 0x02 };
 	unsigned long long expect;

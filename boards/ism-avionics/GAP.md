@@ -36,20 +36,21 @@ stdio substitutes the bus until ISM-Bus-A lands):
 | `rail28` / `rail5` / `rail3v3` | Power-rail OK flags |
 | `imu` / `radio` / `uplink` | Probe OK flags |
 | `brownout` | Brownout active |
+| `watchdog` / `incloss` | Watchdog reset hold / inceptor loss (H7) |
 | `safe` | Safe-state engaged |
 | `act_vector` | Actuator cmds (−1…+1), J1–J4 / trunks A1–A4 |
 | `inc_vector` | Inceptor stubs (stick pitch/roll, throttle, pedal) |
 
-Safe-state triggers in the yaml: `brownout`, `uplink_loss` → neutral all
-actuator cmds; further cmds rejected while safe. (Yaml also lists
-`watchdog_reset` / `inceptor_loss`; those are not yet in
-`sq_bit_probes_t` — see open follow-ons.) BIT topic alias:
-`bay_io.bit` @ ~10 Hz on ISM-Bus-A.
+Safe-state triggers in the yaml: `brownout`, `uplink_loss`,
+`watchdog_reset`, `inceptor_loss` → neutral all actuator cmds; further
+cmds rejected while safe. Portable probes carry all four; UART keys
+`watchdog=` / `incloss=` expose the extras on the host BIT line (H7).
+BIT topic alias: `bay_io.bit` @ ~10 Hz on ISM-Bus-A.
 
-Reference line shape (ISM host stub today):
+Reference line shape (SquirrelBIOS host formatter):
 
 ```text
-BIT board=ISM-FJ-BAY-IO ver=0.2.0 rail28=1 rail5=1 rail3v3=1 imu=1 radio=1 uplink=1 brownout=0 safe=0 act=0.00,0.00,0.00,0.00 inc=0.00,0.00,0.00,0.00
+BIT board=ISM-FJ-BAY-IO ver=0.2.0 rail28=1 rail5=1 rail3v3=1 imu=1 radio=1 uplink=1 brownout=0 watchdog=0 incloss=0 safe=0 act=0.00,0.00,0.00,0.00 inc=0.00,0.00,0.00,0.00
 ```
 
 ## What SquirrelBIOS already has (reuse)
@@ -101,17 +102,17 @@ BIT board=ISM-FJ-BAY-IO ver=0.2.0 rail28=1 rail5=1 rail3v3=1 imu=1 radio=1 uplin
   C + host tests + board docs**; a QEMU/`pico` image is a later step
   once the RC/bay board cards pin flash layout.
 
-### 8. FCC lane board cards (open)
+### 8. Extra ISM safe-state triggers — **landed (H7)**
+
+- `sq_bit_probes_t.watchdog_reset` / `inceptor_loss` force safe-state;
+  BIT line emits `watchdog=` / `incloss=`; smoke `avionics-bit` covers
+  engage + recovery for each.
+
+### 9. FCC lane board cards (open)
 
 - No `boards/ism-fj-fcc-*` cards yet. Same BIT + integrity + hand-off
   contract; laws stay on the RTOS. Host-testable when a board id and
   probe table are pinned.
-
-### 9. Extra ISM safe-state triggers (open, host-testable)
-
-- Yaml lists `watchdog_reset` and `inceptor_loss` in addition to
-  brownout / uplink loss. `sq_bit_probes_t` does not yet carry those
-  flags; adding them is a later BIT-field slice with smoke coverage.
 
 ## Non-goals (keep out of BIOS)
 
@@ -130,9 +131,8 @@ BIT board=ISM-FJ-BAY-IO ver=0.2.0 rail28=1 rail5=1 rail3v3=1 imu=1 radio=1 uplin
 5. ~~**`boards/ism-rc-fc/`** first target card~~ — H4.
 6. ~~**Porting guide** `boards/ism-avionics/PORTING.md`~~ — H5.
 7. ~~**`boards/ism-fj-bay-io/`** bay I/O second target~~ — H6.
-8. **FCC lane board card(s)** when ids/probes are pinned (host smoke).
-9. **Extra safe-state probe flags** (watchdog / inceptor_loss) if ISM
-   keeps them in the BIT contract.
+8. ~~**Extra safe-state probe flags** (watchdog / inceptor_loss)~~ — H7.
+9. **FCC lane board card(s)** when ids/probes are pinned (host smoke).
 10. **MCU `PLATFORM=`** when silicon / flash layout is pinned (desk /
     QEMU later; not a merge blocker alone).
 

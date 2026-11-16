@@ -13,7 +13,7 @@ static int expect_has(const char *line, const char *needle)
 int main(void)
 {
 	sq_bit_state_t st;
-	char line[256];
+	char line[288];
 	int n;
 	int ok = 1;
 
@@ -36,7 +36,8 @@ int main(void)
 	if (!expect_has(line, "imu=1") || !expect_has(line, "radio=1") ||
 	    !expect_has(line, "uplink=1"))
 		ok = 0;
-	if (!expect_has(line, "brownout=0") || !expect_has(line, "safe=0"))
+	if (!expect_has(line, "brownout=0") || !expect_has(line, "watchdog=0") ||
+	    !expect_has(line, "incloss=0") || !expect_has(line, "safe=0"))
 		ok = 0;
 	if (!expect_has(line, "act=0.50,0.00,0.00,0.00"))
 		ok = 0;
@@ -62,10 +63,48 @@ int main(void)
 	if (!st.safe_state || st.act_centi[2] != 0)
 		ok = 0;
 
+	/* Watchdog reset alone → safe; clears when released. */
+	sq_bit_init(&st, "ISM-FJ-BAY-IO", "0.1.0");
+	sq_bit_set_act_centi(&st, 1, 40);
+	st.probes.watchdog_reset = 1;
+	sq_bit_apply_safe(&st);
+	if (!st.safe_state || st.act_centi[1] != 0)
+		ok = 0;
+	if (sq_bit_set_act_centi(&st, 1, 55))
+		ok = 0;
+	n = sq_bit_format_line(&st, line, (int)sizeof(line));
+	if (n <= 0 || !expect_has(line, "watchdog=1") || !expect_has(line, "safe=1"))
+		ok = 0;
+	st.probes.watchdog_reset = 0;
+	sq_bit_apply_safe(&st);
+	if (st.safe_state)
+		ok = 0;
+	if (!sq_bit_set_act_centi(&st, 1, 55) || st.act_centi[1] != 55)
+		ok = 0;
+
+	/* Inceptor loss alone → safe; clears when restored. */
+	sq_bit_init(&st, "ISM-FJ-BAY-IO", "0.1.0");
+	sq_bit_set_act_centi(&st, 3, -30);
+	st.probes.inceptor_loss = 1;
+	sq_bit_apply_safe(&st);
+	if (!st.safe_state || st.act_centi[3] != 0)
+		ok = 0;
+	if (sq_bit_set_act_centi(&st, 3, 20))
+		ok = 0;
+	n = sq_bit_format_line(&st, line, (int)sizeof(line));
+	if (n <= 0 || !expect_has(line, "incloss=1") || !expect_has(line, "safe=1"))
+		ok = 0;
+	st.probes.inceptor_loss = 0;
+	sq_bit_apply_safe(&st);
+	if (st.safe_state)
+		ok = 0;
+	if (!sq_bit_set_act_centi(&st, 3, 20) || st.act_centi[3] != 20)
+		ok = 0;
+
 	if (!ok) {
 		fputs("avionics-bit: FAIL\n", stderr);
 		return 1;
 	}
-	fputs("avionics-bit fields=ok safe=ok\n", stdout);
+	fputs("avionics-bit fields=ok safe=ok wdog=ok incloss=ok\n", stdout);
 	return 0;
 }

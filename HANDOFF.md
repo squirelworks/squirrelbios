@@ -510,11 +510,11 @@ Full mark list (versions, acceptance, issue titles):
   ISM `firmware-bringup.yaml` BIT line.
 - **Done:** gap list; BIT; integrity; hand-off; RC first target;
   porting guide `boards/ism-avionics/PORTING.md`; bay I/O second
-  target `boards/ism-fj-bay-io/` (H6). ROADMAP H0–H6 / TODO §14
-  portable layer + bay card.
+  target `boards/ism-fj-bay-io/` (H6); extra safe-state probes
+  `watchdog_reset` / `inceptor_loss` in `sq_bit_probes_t` (H7).
+  ROADMAP H0–H7 / TODO §14 portable layer + bay card + BIT triggers.
 - **Open:** MCU `PLATFORM=` when RC/bay silicon is pinned; FCC lane
-  board cards; optional BIT triggers (watchdog / inceptor_loss) from
-  the ISM yaml that are not yet in `sq_bit_probes_t`.
+  board cards when ids/probes are pinned (host smoke).
 - **Check:** `avionics-bit`, `avionics-integrity`, `avionics-handoff`,
   `avionics-rc-fc`, `avionics-bay-io` (host); docs-lint green.
 - **Related:** squirrel-os2 #225 (ground/lab); ISM #84 bay firmware.

@@ -31,15 +31,17 @@ Pin maps and exact part numbers are Eric’s lane; this card only pins the
 | `radio` | RC link / ELRS / CRSF probe | Fail → radio=0 |
 | `uplink` | Valid RC frames recently | Loss → safe-state |
 | `brownout` | BOD / pack under-voltage | Active → safe-state |
+| `watchdog` | MCU WDT timeout / post-reset hold | Active → safe-state |
+| `incloss` | Stick / RC inceptor validity lost | Active → safe-state |
 
 Actuator vector: four channels (e.g. throttle / roll / pitch / yaw) as
 `act` hundredths. Inceptors optional on RC (may mirror sticks as `inc`).
 
 ## Safe-state
 
-On brownout, uplink loss, or integrity failure: neutral actuators, reject
-new cmds, **do not jump** to the RTOS. Matches ISM
-`firmware-bringup.yaml` `safe_state` intent.
+On brownout, uplink loss, watchdog reset, inceptor loss, or integrity
+failure: neutral actuators, reject new cmds, **do not jump** to the
+RTOS. Matches ISM `firmware-bringup.yaml` `safe_state` intent.
 
 ## Host check
 

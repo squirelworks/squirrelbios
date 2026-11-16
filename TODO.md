@@ -634,6 +634,13 @@ ISM `fighter-jet/interfaces/firmware-bringup.yaml`. Gap list:
   that exercises uplink loss → safe → recovery plus integrity hand-off;
   smoke case `avionics-bay-io`. Depends on: avionics-porting.
 
+- [x] `avionics-bit-triggers` — Extra ISM safe-state probes from
+  `firmware-bringup.yaml`: `watchdog_reset` and `inceptor_loss` in
+  `sq_bit_probes_t`, forcing safe-state (neutral acts, reject cmds) and
+  appearing on the BIT line as `watchdog=` / `incloss=`. Acceptance:
+  smoke `avionics-bit` covers engage + recovery for each flag; GAP /
+  ROADMAP H7 / HANDOFF updated. Depends on: avionics-bay-io.
+
 ## Secondary track
 
 Open a PR for one of these when it helps; they are not the laundry list

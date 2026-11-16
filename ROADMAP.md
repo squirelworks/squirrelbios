@@ -572,6 +572,9 @@ ISM `fighter-jet/interfaces/firmware-bringup.yaml` BIT line. Gap analysis:
 - [x] **H6** Second target: ISM fighter-jet bay I/O concentrator
   (`boards/ism-fj-bay-io/`, board id `ISM-FJ-BAY-IO`). Smoke:
   `avionics-bay-io`.
+- [x] **H7** Extra ISM safe-state triggers on the portable BIT record
+  (`watchdog_reset` / `inceptor_loss` in `sq_bit_probes_t`; UART
+  `watchdog=` / `incloss=`). Smoke: `avionics-bit` (extended).
 
 ## Out of scope
 
