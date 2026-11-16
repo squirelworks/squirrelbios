@@ -1995,15 +1995,32 @@ run x86_64-capsule "capsule: ESRT at|capsule: UpdateCapsule n=1 persist=0 popula
 
 CAP_DB=name=opt/org.squirrelworks/capsule-db
 CAP_FILE=name=opt/org.squirrelworks/capsule
-run x86_64-capsule-signed "capsule: trust ESL|capsule: apply ok version=0x00020300 (no flash rewrite)|capsule: apply refused (auth)|capsule: UpdateCapsule SGL-only unsupported|capsule: UpdateCapsule persist supports one capsule only|capsule: staged version=0x00020300|APP capsule-signed good=ok bad=ok stage=ok sgl=ok multi=ok attempt=ok|efi: image returned 0x0|!=bad" \
+run x86_64-capsule-signed "capsule: trust ESL|capsule: apply ok version=0x00020300 (flash rewrite via NV)|capsule: apply refused (auth)|capsule: UpdateCapsule SGL-only unsupported|capsule: UpdateCapsule persist supports one capsule only|capsule: staged version=0x00020300|APP capsule-signed good=ok bad=ok stage=ok sgl=ok multi=ok attempt=ok|efi: image returned 0x0|!=bad" \
     "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd \
     -fw_cfg $CAP_DB,file=$SB/sb-db-x509.esl \
     -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-capsule-signed.efi
-run x86_64-capsule-fwcfg "capsule: trust ESL|capsule: applying fw_cfg capsule|capsule: apply ok version=0x00020300 (no flash rewrite)|APP capsule esrt=ok query=ok update=ok attempt=ok osind=ok|efi: image returned 0x0|!=bad" \
+run x86_64-capsule-fwcfg "capsule: trust ESL|capsule: applying fw_cfg capsule|capsule: apply ok version=0x00020300 (flash rewrite via NV)|APP capsule esrt=ok query=ok update=ok attempt=ok osind=ok|efi: image returned 0x0|!=bad" \
     "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd \
     -fw_cfg $CAP_DB,file=$SB/sb-db-x509.esl \
     -fw_cfg $CAP_FILE,file=$SB/capsule-good.cap \
     -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-capsule.efi
+
+# Capsule flash rewrite (Phase G M2): PersistAcrossReset-class identity in
+# the variable pflash (unit 1). Firmware SPI (unit 0) stays read-only —
+# SqFwFlashId is an NV stand-in, not real SPI. Boot 1 applies; boot 2
+# sees ESRT FwVersion from the store without UpdateCapsule.
+CAP_FLASH_STORE=$TEST_DIR/x86_64-capsule-flash-vars.fd
+CAP_FLASH="-drive if=pflash,format=raw,unit=0,readonly=on,file=x86_64/squirrel-bios.fd -drive if=pflash,format=raw,unit=1,file=$CAP_FLASH_STORE"
+rm -f "$CAP_FLASH_STORE"
+truncate -s 256K "$CAP_FLASH_STORE"
+run x86_64-capsule-flash-1 "capsule: trust ESL|capsule: apply ok version=0x00020300 (flash rewrite via NV)|APP capsule-flash apply=ok fw=0x00020300|efi: image returned 0x0|!=bad" \
+    "$QEMU_X86_64" -M q35 $CAP_FLASH \
+    -fw_cfg $CAP_DB,file=$SB/sb-db-x509.esl \
+    -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-capsule-flash.efi
+run x86_64-capsule-flash-2 "capsule: flash identity version=0x00020300 (NV stand-in, not real SPI)|APP capsule-flash kept=ok fw=0x00020300|efi: image returned 0x0|!flash rewrite via NV|!=bad" \
+    "$QEMU_X86_64" -M q35 $CAP_FLASH \
+    -fw_cfg $CAP_DB,file=$SB/sb-db-x509.esl \
+    -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-capsule-flash.efi
 
 # E3 stretch ports: LoongArch64 on QEMU virt and MIPS on QEMU Malta. Each
 # reaches its prompt and hands off to a test kernel: by autoboot, through

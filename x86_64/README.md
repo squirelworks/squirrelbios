@@ -157,10 +157,13 @@ resource; `FwVersion` from `SQ_VERSION`) and
 GUID, update ESRT `LastAttempt*`, and may warm-reset when
 `CAPSULE_FLAGS_INITIATE_RESET` is set. Signed SQCP capsules verify
 against fw_cfg `opt/org.squirrelworks/capsule-db`; apply updates ESRT
-without flash rewrite; PersistAcrossReset stages `SqCapsuleStaging`.
-Smoke: `x86_64-capsule`, `x86_64-capsule-signed`,
-`x86_64-capsule-fwcfg`. Notes: `release-notes/capsule-esrt.md`,
-`release-notes/capsule-signed-apply.md`.
+`FwVersion` and persists `SqFwFlashId` in the variable store (NV
+stand-in — firmware pflash unit 0 stays read-only); PersistAcrossReset
+stages `SqCapsuleStaging`. Smoke: `x86_64-capsule`,
+`x86_64-capsule-signed`, `x86_64-capsule-fwcfg`,
+`x86_64-capsule-flash-1`, `x86_64-capsule-flash-2`. Notes:
+`release-notes/capsule-esrt.md`, `release-notes/capsule-signed-apply.md`,
+`release-notes/capsule-flash-rewrite.md`.
 
 Runtime: `GetTime` / `SetTime` from the CMOS RTC,
 the variable services (below), `ResetSystem` (ACPI

@@ -12,11 +12,13 @@ QEMU without rewriting the flash image.
   bytes before the certificate. Header-only capsules remain unsigned.
 - **Trust:** fw_cfg `opt/org.squirrelworks/capsule-db` ESL
   (`x86_64/secure/capsule_auth.c`).
-- **Apply:** ESRT `LastAttempt*` + `capsule: apply ok … (no flash
-  rewrite)`. Auth failure: `AUTH_ERROR` / `EFI_SECURITY_VIOLATION`.
+- **Apply:** ESRT `LastAttempt*` + `FwVersion` + NV `SqFwFlashId`
+  (`capsule: apply ok … (flash rewrite via NV)`). Auth failure:
+  `AUTH_ERROR` / `EFI_SECURITY_VIOLATION`. See
+  `capsule-flash-rewrite.md` for the QEMU “not real SPI” caveat.
 - **PersistAcrossReset:** stages NV `SqCapsuleStaging`; fw_cfg
   `opt/org.squirrelworks/capsule` applies pending at init.
-- **Deferred:** flash image rewrite; SGL-only multi-block gather (SGL-only
-  UpdateCapsule is refused until then — see
-  `capsule-signed-followup.md`).
-- **Smoke:** `x86_64-capsule-signed`, `x86_64-capsule-fwcfg`.
+- **Deferred:** SGL-only multi-block gather (SGL-only UpdateCapsule is
+  refused — see `capsule-signed-followup.md`); real SPI rewrite.
+- **Smoke:** `x86_64-capsule-signed`, `x86_64-capsule-fwcfg`,
+  `x86_64-capsule-flash-1`, `x86_64-capsule-flash-2`.

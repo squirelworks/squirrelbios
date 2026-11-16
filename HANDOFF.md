@@ -34,8 +34,11 @@ Used here, in `ROADMAP.md` and on the issues (as labels).
 - **`main` after v2.2.0:** D4 shared drivers, network/HTTP boot, NVRAM +
   authenticated variables, TPM, SMM/EINJ, IPMI, all of Phase E, Raspberry Pi
   on QEMU, F1–F4 as tested, Phase G Setup UI + host fuzz + UpdateCapsule/ESRT
-  (#189). Licence GPL-3.0. Notes: `release-notes/v2.2.0.md`. Next agent cut:
-  **M1** signed capsule (`2.2.1`) per `release-notes/TO_3.0.0.md`.
+  (#189), signed capsule apply (#193) + Sarah follow-ups (#194), and
+  capsule flash rewrite via NV identity (M2). Licence GPL-3.0. Notes:
+  `release-notes/v2.2.0.md`. Next agent cut: **M4** project-key /
+  ESRT path (or optional M3 Setup polish) per
+  `release-notes/TO_3.0.0.md`.
 - **Test gate:** `make test` (docs honesty via `make docs-lint` /
   `tools/docs_lint.py`, then ~346 cases in `tests/smoke.sh`, plus
   `rpi4-uefi-sd` when QEMU has `raspi4b`), run by
@@ -99,8 +102,9 @@ Full mark list (versions, acceptance, issue titles):
    (`0051c40`; six images + `SHA256SUMS.txt` + full notes). Always fill
    via `Actions → Draft release` before Publish — never stub-publish.
 2. **Phase G product remainder** (`-2eaf`, **M1–M5**): ~~**M1** signed
-   capsule~~ (#193 on `main`) → **flash rewrite** → project-key / ESRT
-   path; optional Setup polish; measured TPM event-log hand-off to OS/2.
+   capsule~~ (#193) → ~~**M2** flash rewrite / NV identity~~ →
+   project-key / ESRT path (M4); optional Setup polish (M3); measured
+   TPM event-log hand-off to OS/2 (M5).
 3. **D2-rpi4** board flash *(Squirrel, **M11**)*: the QEMU `raspi4b` case
    is done; try the SD layout in `boards/rpi4/README.md` on a desk Pi 4.
 4. **C5-board** desk flash *(Squirrel, **M12**)*: docs and
@@ -114,11 +118,24 @@ Full mark list (versions, acceptance, issue titles):
    `make fuzz-net`, `make fuzz-usb`, `make fuzz-fdt`,
    `x86_64-setupui`, `x86_64-setupui-f2`, `x86_64-setupui-bootorder`,
    `x86_64-setupui-secboot`, `x86_64-setupui-datetime`,
-   `x86_64-capsule`, `x86_64-capsule-signed`, `x86_64-capsule-fwcfg`).
-7. Climb **M2–M20** in `TO_3.0.0.md` toward product **v3.0.0**
+   `x86_64-capsule`, `x86_64-capsule-signed`, `x86_64-capsule-fwcfg`,
+   `x86_64-capsule-flash-1`, `x86_64-capsule-flash-2`).
+7. Climb **M3–M20** in `TO_3.0.0.md` toward product **v3.0.0**
    (CONTINUANCE M3 companion — **not** a Phase E redo).
 
 ## Task cards
+
+### G-capsule-flash — flash rewrite via NV identity (M2)  `status: done`
+- **Done (lane `-2eaf`):** verified SQCP apply updates ESRT `FwVersion`
+  and persists `SqFwFlashId` (`SQFL`) through the variable store.
+  QEMU firmware pflash unit 0 stays read-only; unit 1 holds the
+  identity (explicit “NV stand-in, not real SPI”). Second boot loads
+  the identity before publishing ESRT. Notes:
+  `release-notes/capsule-flash-rewrite.md`. Epic #82. `TO_3.0.0.md` M2.
+- **Check:** `x86_64-capsule-flash-1`, `x86_64-capsule-flash-2` in
+  `make test`.
+- **Next (Phase G):** M4 project-key / ESRT fwupd-shaped path; optional
+  M3 Setup polish; M5 measured hand-off.
 
 ### G-capsule-signed — signed capsule apply / PersistAcrossReset staging  `status: done`
 - **Done (lane `-2eaf`):** SQCP signed system-firmware capsules
@@ -136,8 +153,8 @@ Full mark list (versions, acceptance, issue titles):
   `release-notes/capsule-signed-followup.md`.
 - **Check:** `x86_64-capsule-signed`, `x86_64-capsule-fwcfg` in
   `make test` (plus existing `x86_64-capsule`).
-- **Next (Phase G):** flash image rewrite under QEMU/pflash; optional
-  Setup polish; further CONTINUANCE product work.
+- **Next (Phase G):** ~~flash rewrite~~ landed in `G-capsule-flash`;
+  optional Setup polish; project-key / measured hand-off.
 
 ### G-capsule-esrt — UpdateCapsule + ESRT  `status: done`
 - **Done (lane `-2eaf`):** UEFI-class capsule plumbing in
@@ -149,8 +166,8 @@ Full mark list (versions, acceptance, issue titles):
   not rewrite flash. Notes: `release-notes/capsule-esrt.md`; also folded
   into `release-notes/v2.2.0.md` for the tag. Epic #82.
 - **Check:** `x86_64-capsule` in `make test`.
-- **Next:** signed apply landed in `G-capsule-signed`; flash rewrite
-  remains open.
+- **Next:** signed apply in `G-capsule-signed`; flash rewrite in
+  `G-capsule-flash`.
 
 ### G-setup-ui — Setup UI / boot menu on GOP + F2 + BootOrder + Secure Boot / TPM + date-time / NVRAM  `status: done`
 - **Done (lane `-2eaf`):** navigable Warp-look boot menu shell on
