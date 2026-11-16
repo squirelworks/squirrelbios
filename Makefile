@@ -1097,12 +1097,17 @@ linux-uefi: x86_64
 	tests/linux-uefi.sh
 
 # Optional, not part of make test. OS_IMG is a Squirrel-OS/2 hard-disk
-# image (that repo's build/os.img). The OS banner is on the VGA, so the
-# script reads the text buffer; serial carries the firmware line.
+# image (that repo's build/os.img, or the pinned release in
+# tests/os-boot.pin). The OS banner is on the VGA, so the script reads
+# the text buffer; serial carries the firmware line. Without OS_IMG,
+# `tests/os-boot.sh --fetch` downloads the pinned tag. Pin honesty is
+# in make test as `os-boot-sync` (`--check-pin`).
 os-boot: x86
-	tests/os-boot.sh $(OS_IMG)
+	@if [ -n "$(OS_IMG)" ]; then tests/os-boot.sh $(OS_IMG); \
+	 else tests/os-boot.sh --fetch; fi
 # The same image through the x86_64-uefi firmware's CSM
 os-boot-csm: x86_64
+	@if [ -z "$(OS_IMG)" ]; then echo "os-boot-csm: set OS_IMG=" >&2; exit 2; fi
 	OS_BIOS=$(CURDIR)/$(X64_FD) QEMU_X86=$${QEMU_X86_64:-qemu-system-x86_64} tests/os-boot.sh $(OS_IMG)
 
 # Optional, not part of make test: the first step of the large-node

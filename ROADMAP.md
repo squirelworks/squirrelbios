@@ -44,9 +44,10 @@ suite-wide continuation plan is `docs/CONTINUANCE.md` in squirrelsoft.
   F1-scale (1024 CPUs / two ECAM segments, host-side `tests/acpicheck.py`) is in #169.
 - **Open:** C5 real-board flash, D2 desk Raspberry Pi 4/5, RISC-V AIA MSI mode.
   F4-scale is optional `make f4-scale` (not in CI). Signed capsule apply,
-  flash rewrite via NV identity (M2), project-key / ESRT path (M4), and
-  measured TPM event-log hand-off (SQTL / M5) are on `main`; optional
-  Setup polish (M3) and M6 os-boot sync remain Phase G follow-ups.
+  flash rewrite via NV identity (M2), project-key / ESRT path (M4),
+  measured TPM event-log hand-off (SQTL / M5), and os-boot sync (M6 /
+  pinned Squirrel-OS/2 `v2.3.0`) are on `main`; optional Setup polish
+  (M3) remains a Phase G follow-up.
 
 ## Where things were (2026-11-13)
 
@@ -449,6 +450,11 @@ Setup UI shell land here as sizeable steps. Fine-grained marks to product
   ExitBootServices. Smoke: `x86_64-tpm-log-handoff`. Notes in
   `release-notes/measured-handoff.md`, `release-notes/v2.3.0.md`.
   OS/2 consumer later. Epic #82. `TO_3.0.0.md` M5 / `2.3.0`.
+- [x] **os-boot.sh keep-in-step (M6 / `os-boot-sync`)** (lane `-2eaf`):
+  `tests/os-boot.pin` pins Squirrel-OS/2 **`v2.3.0`**; `tests/os-boot.sh`
+  checks SHA-256 and names mismatches; host smoke `os-boot-sync`.
+  Notes in `release-notes/os-boot-sync.md`. Epic #82.
+  `TO_3.0.0.md` M6 / `2.3.1`.
 
 ### Squirrel-OS/2 hand-off on every platform
 
