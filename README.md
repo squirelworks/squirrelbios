@@ -373,9 +373,10 @@ or the kernel logs a failed SBI call, an oops or an RCU stall. Needs
 qemu-system-i386 -bios x86/squirrel-bios.rom -drive format=raw,file=boot.bin,if=ide -serial stdio
 
 # Squirrel-OS/2 hard disk. The shell banner and "> " prompt are on the VGA.
-# tests/os-boot.sh checks them; it is not part of make test.
+# tests/os-boot.sh checks them (pinned tag in tests/os-boot.pin); full boot
+# is not part of make test (host pin check os-boot-sync is).
 qemu-system-i386 -bios x86/squirrel-bios.rom -drive format=raw,file=os.img,if=ide -serial stdio
-tests/os-boot.sh path/to/os.img
+tests/os-boot.sh path/to/os.img   # or: tests/os-boot.sh --fetch
 
 # x86-64 UEFI-class firmware (in progress): runs an EFI application given through fw_cfg
 qemu-system-x86_64 -M q35 -bios x86_64/squirrel-bios.fd -serial stdio \

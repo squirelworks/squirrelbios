@@ -124,9 +124,9 @@ Notes refresh **#190** is on `main`. Soft PATH’s fold-into-2.2.0 advice is sat
 1. **Owner:** **Published** `v2.2.0` —
    https://github.com/squirelworks/squirrelbios/releases/tag/v2.2.0
 2. **`-2eaf`:** **M1** signed capsule landed as #193 on `main`; **M2**
-   flash rewrite, **M4** project-key / ESRT, and **M5** measured
-   hand-off landed. Next coding is optional M3 Setup polish or
-   **M6** os-boot sync.
+   flash rewrite, **M4** project-key / ESRT, **M5** measured hand-off,
+   and **M6** os-boot sync landed. Next coding is optional M3 Setup
+   polish or **M7** docs_lint harden.
 3. Soft PATH stays index-only; do not move this ladder into Soft.
 
 ---
@@ -199,7 +199,7 @@ Lanes: **only `-2eaf`** for code. Owner marks wait on `needs: squirrel`.
 | **Lane** | `-2eaf` (BIOS); OS page is OS/2 lane when ready |
 | **Status** | **Done** — SQTL config table + `x86_64-tpm-log-handoff`; owner publishes `v2.3.0` when ready |
 
-### M6 — `2.3.1` os-boot.sh keep-in-step  ·  `-2eaf`  ·  depends: M0; track OS/2 releases
+### M6 — `2.3.1` os-boot.sh keep-in-step  ·  `-2eaf`  ·  depends: M0; track OS/2 releases  ·  **done**
 
 | Field | Value |
 |-------|-------|
@@ -210,6 +210,7 @@ Lanes: **only `-2eaf`** for code. Owner marks wait on `needs: squirrel`.
 | **Design note** | `release-notes/os-boot-sync.md` (short) |
 | **Acceptance** | Script and HANDOFF cite the OS/2 tag used; failure message names the mismatch |
 | **Lane** | `-2eaf` |
+| **Status** | **Done** — pin `tests/os-boot.pin` → OS/2 **`v2.3.0`**; host smoke `os-boot-sync`; `SQ_VERSION` stays 2.3.0 |
 
 ---
 
@@ -403,6 +404,7 @@ Fill real SHAs/tags at publish time:
 | v2.1.1 | v2.1.x / tip | legacy BIOS, CSM, UEFI | `pc` / `q35` | `tests/os-boot.sh`, OS `uefi-squirrelbios` |
 | v2.2.0 | OS/2 tip at cut | same + capsule/ESRT present | `q35` + swtpm for TPM cases | `x86_64-capsule`, Setup UI cases |
 | v2.3.0 | OS/2 with event-log consumer *(when ready)* | UEFI + TPM | `q35` + swtpm | `x86_64-tpm-log-handoff` + OS name TBD |
+| v2.3.1 *(mark; SQ_VERSION still 2.3.0)* | **OS/2 `v2.3.0`** (pinned) | legacy BIOS / CSM `os-boot` | `pc` / `q35` | `os-boot-sync`, `tests/os-boot.sh` |
 | v2.9.0 | OS/2 2.9.x | UEFI SB + TPM rehearsal | `q35` + swtpm | `x86_64-m3-rehearsal` |
 | **v3.0.0** | **OS/2 3.0.0** | verified chain | `q35` + swtpm | aggregate M20 checks |
 
@@ -416,7 +418,7 @@ Soft does not own rows; it may **index** them.
 
 | Actor | Now | Next |
 |-------|-----|------|
-| **`-2eaf` (BIOS)** | **M1–M2**, **M4**, **M5** on `main` / in flight — **finish or rebase, do not redo** | Optional **M3** Setup polish → **M6** os-boot sync → climb M7+ |
+| **`-2eaf` (BIOS)** | **M1–M2**, **M4–M6** on `main` — **do not redo** | Optional **M3** Setup polish → climb **M7+** |
 | **Owner** | Publish nothing until #190 lands (preferred) | **M0** tag `v2.2.0` from tip; later M13/M14/M20; desk M11/M12 when hardware is free |
 | **`-b55f`** | **Not on BIOS** — OS/2 2.9 only | Ignore this file for OS claims; see OS/2 `TO_3.0.0.md` |
 | **Soft** | PATH index only | Do not move BIOS marks into Soft |
@@ -451,7 +453,7 @@ Titles only; file under `squirelworks/squirrelbios` and link epic #82:
 3. `Setup UI polish: remaining notebook / string / ConIn edge cases` (`-2eaf`, optional)
 4. `Capsule signing with project key; ESRT fwupd-shaped path under QEMU` (`-2eaf`)
 5. `Measured hand-off: pass TPM event log to Squirrel-OS/2` (`-2eaf`)
-6. `tests/os-boot.sh: track squirrel-os2 release tags` (`-2eaf`)
+6. ~~`tests/os-boot.sh: track squirrel-os2 release tags`~~ (`-2eaf`, **done** — M6 / `os-boot-sync`)
 7. `docs_lint: tighten allowlist; refuse stale version claims` (`-2eaf`)
 8. `CI: shard tests/smoke.sh without weakening the required gate` (`-2eaf`, optional)
 9. `RISC-V AIA MSI: smsiaddrcfg on QEMU ≥ 9.1` (`-2eaf`, blocked)

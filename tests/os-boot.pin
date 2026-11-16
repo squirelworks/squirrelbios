@@ -1,0 +1,13 @@
+# Pinned Squirrel-OS/2 artifact for tests/os-boot.sh (Phase G M6 / 2.3.1).
+# Key=value; lines starting with # are comments. Bump this file when a new
+# OS/2 release is the supported os-boot partner; keep HANDOFF.md in step.
+OS2_REPO=https://github.com/squirelworks/squirrel-os2
+OS2_TAG=v2.3.0
+OS2_TIP=59069e31989828ec5f6973a44f73b31ec04bb035
+OS_IMG_NAME=os.img
+OS_IMG_SHA256=0b2f384b1def110e90dab47e79ed561d880c5767bcde1a1e543fbd25e0616b6b
+OS_IMG_URL=https://github.com/squirelworks/squirrel-os2/releases/download/v2.3.0/os.img
+# Optional UEFI disk image from the same tag (make os-boot-csm / OS path).
+UEFI_IMG_NAME=uefi.img
+UEFI_IMG_SHA256=7e075d3e2307210b14090a4f5f61468ee58e3a9ee4722597dbcf57bc56a92e84
+UEFI_IMG_URL=https://github.com/squirelworks/squirrel-os2/releases/download/v2.3.0/uefi.img

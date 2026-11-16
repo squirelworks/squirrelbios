@@ -516,6 +516,13 @@ stub, a 1 MB flash image for `qemu-system-x86_64 -bios`. One PR each.
   `release-notes/measured-handoff.md`, `release-notes/v2.3.0.md`.
   Depends on: `c5-tpm`. Epic #82. `TO_3.0.0.md` M5 / `2.3.0`.
 
+- [x] `os-boot-sync` — Phase G M6 `tests/os-boot.sh` keep-in-step with
+  Squirrel-OS/2 release tags (lane `-2eaf`): pin file
+  `tests/os-boot.pin` (tag / tip / SHA-256); script refuses a mismatched
+  image with a message that names the expected tag; host smoke
+  `os-boot-sync` (`--check-pin`). Notes: `release-notes/os-boot-sync.md`.
+  Depends on: M0. Epic #82. `TO_3.0.0.md` M6 / `2.3.1`.
+
 ## 14. Phase H — ISM avionics bring-up / BIT / integrity (#195)
 
 One checkbox is one PR from `main`. Interface:
