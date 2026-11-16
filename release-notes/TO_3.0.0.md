@@ -123,8 +123,9 @@ Notes refresh **#190** is on `main`. Soft PATH’s fold-into-2.2.0 advice is sat
 
 1. **Owner:** **Published** `v2.2.0` —
    https://github.com/squirelworks/squirrelbios/releases/tag/v2.2.0
-2. **`-2eaf`:** **M1** signed capsule landed as #193 on `main` — next is
-   **M2** flash rewrite (MERGE-WAIT / freeze may pause coding).
+2. **`-2eaf`:** **M1** signed capsule landed as #193 on `main`; **M2**
+   flash rewrite and **M4** project-key / ESRT landed. Next coding is
+   optional M3 Setup polish or **M5** measured hand-off.
 3. Soft PATH stays index-only; do not move this ladder into Soft.
 
 ---
@@ -171,14 +172,14 @@ Lanes: **only `-2eaf`** for code. Owner marks wait on `needs: squirrel`.
 | **Acceptance** | Only if a concrete gap remains after `setup-ui-followups.md`; **skip** if nothing actionable — do not invent chrome |
 | **Lane** | `-2eaf` |
 
-### M4 — `2.2.50` project-key capsule signing + ESRT fwupd-shaped path  ·  `-2eaf`  ·  depends: M1 (M2 preferred)
+### M4 — `2.2.50` project-key capsule signing + ESRT fwupd-shaped path  ·  **done**  ·  depends: M1 (M2 preferred)
 
 | Field | Value |
 |-------|-------|
-| **Bump** | Mid-minor mark **`2.2.50`** (document in the note as intentional) |
+| **Bump** | Mid-minor mark **`2.2.50`** (intentional; landed without waiting on M2 flash rewrite) |
 | **Box** | `G-capsule-project-key` |
-| **Issue to file** | *(draft)* `Capsule signing with project key; ESRT layout usable by fwupd-shaped tooling under QEMU` |
-| **Suggested check** | `x86_64-capsule-key` / host tool smoke that signs with the **test** project key (never commit private production keys) |
+| **PR** | *(this PR)* `cursor/capsule-project-key-ebbc` |
+| **Suggested check** | `x86_64-capsule-key`, `x86_64-capsule-key-esrt`, `capsule-project-key-host` |
 | **Design note** | `release-notes/capsule-project-key.md` |
 | **Acceptance** | Public test key + signing recipe in-tree; ESRT fields populated so a host-side stand-in can list/update; QEMU-only; epic #82 |
 | **Lane** | `-2eaf` |

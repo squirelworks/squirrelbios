@@ -542,7 +542,10 @@ $(TEST_DIR)/sb/capsule-good.cap: tests/mkcapsule.py tests/mksigned.py | $(TEST_D
 	python3 tests/mkcapsule.py $(TEST_DIR)/sb
 $(TEST_DIR)/sb/capsule-bad.cap $(TEST_DIR)/sb/capsule-persist.cap \
 $(TEST_DIR)/sb/capsule_good_blob.h $(TEST_DIR)/sb/capsule_bad_blob.h \
-$(TEST_DIR)/sb/capsule_persist_blob.h: $(TEST_DIR)/sb/capsule-good.cap
+$(TEST_DIR)/sb/capsule_persist_blob.h \
+$(TEST_DIR)/sb/capsule-project.cap $(TEST_DIR)/sb/capsule-project.esl \
+$(TEST_DIR)/sb/capsule-project-pub.der $(TEST_DIR)/sb/capsule_project_blob.h: \
+		$(TEST_DIR)/sb/capsule-good.cap
 $(TEST_DIR)/x86_64-capsule-signed.efi: tests/x86_64-capsule-signed.c \
 		$(TEST_DIR)/sb/capsule_good_blob.h $(TEST_DIR)/sb/capsule_bad_blob.h \
 		$(TEST_DIR)/sb/capsule_persist_blob.h tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)
@@ -551,6 +554,11 @@ $(TEST_DIR)/x86_64-capsule-signed.efi: tests/x86_64-capsule-signed.c \
 # Capsule flash rewrite via NV identity (Phase G M2); two-boot smoke
 $(TEST_DIR)/x86_64-capsule-flash.efi: tests/x86_64-capsule-flash.c \
 		$(TEST_DIR)/sb/capsule_good_blob.h tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)
+	$(CC64) $(X64_APP_CFLAGS) -I$(TEST_DIR)/sb $< -o $(@:.efi=.elf)
+	python3 tests/mkpe.py x86_64 $(@:.efi=.elf) $@
+# Project-key capsule + ESRT fwupd-shaped dump (Phase G M4)
+$(TEST_DIR)/x86_64-capsule-key.efi: tests/x86_64-capsule-key.c \
+		$(TEST_DIR)/sb/capsule_project_blob.h tests/efi-app.ld tests/mkpe.py | $(TEST_DIR)
 	$(CC64) $(X64_APP_CFLAGS) -I$(TEST_DIR)/sb $< -o $(@:.efi=.elf)
 	python3 tests/mkpe.py x86_64 $(@:.efi=.elf) $@
 # A 3 MB BOOTX64.EFI on an ESP with 512-byte clusters: the disk read path

@@ -2022,6 +2022,32 @@ run x86_64-capsule-flash-2 "capsule: flash identity version=0x00020300 (NV stand
     -fw_cfg $CAP_DB,file=$SB/sb-db-x509.esl \
     -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-capsule-flash.efi
 
+# Project-key capsule + ESRT fwupd-shaped path (Phase G M4): trust the
+# dedicated capsule-project.esl (not Secure Boot db), apply a project-
+# signed SQCP capsule, dump ESRT before/after for the host stand-in.
+# Apply message matches M2 (NV identity via SetVariable even under -bios).
+run x86_64-capsule-key "capsule: trust ESL|APP esrt-list count=1 version=1|APP esrt-entry0 class=a7c4e9f2-3b1d-4e8a-9c55-12846f91de30 type=1|capsule: apply ok version=0x00020300 (flash rewrite via NV)|APP capsule-key list=ok update=ok esrt=ok|efi: image returned 0x0|!=bad" \
+    "$QEMU_X86_64" -M q35 -bios x86_64/squirrel-bios.fd \
+    -fw_cfg $CAP_DB,file=$SB/capsule-project.esl \
+    -fw_cfg $X64_BOOT,file=$TEST_DIR/x86_64-capsule-key.efi
+if python3 tools/esrt_standin.py $TEST_DIR/x86_64-capsule-key.log; then
+    echo "PASS  x86_64-capsule-key-esrt"
+    pass=$((pass + 1))
+else
+    echo "FAIL  x86_64-capsule-key-esrt"
+    fail=$((fail + 1))
+fi
+# Host-only recipe / stand-in self-check (no QEMU): signing recipe prints
+# and the stand-in accepts its fixture sample.
+if python3 tests/mkcapsule.py --print-recipe >/dev/null && \
+   python3 tools/esrt_standin.py --self-test; then
+    echo "PASS  capsule-project-key-host"
+    pass=$((pass + 1))
+else
+    echo "FAIL  capsule-project-key-host"
+    fail=$((fail + 1))
+fi
+
 # E3 stretch ports: LoongArch64 on QEMU virt and MIPS on QEMU Malta. Each
 # reaches its prompt and hands off to a test kernel: by autoboot, through
 # the prompt (help, info, an unknown command, backspace, boot), and with

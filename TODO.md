@@ -501,6 +501,14 @@ stub, a 1 MB flash image for `qemu-system-x86_64 -bios`. One PR each.
   `release-notes/capsule-flash-rewrite.md`. Depends on:
   `x86_64-capsule-signed`. Epic #82. `TO_3.0.0.md` M2.
 
+- [x] `x86_64-capsule-key` — Phase G M4 project-key capsule signing +
+  ESRT fwupd-shaped path (lane `-2eaf`): dedicated test project key
+  (seed `0x5153_C001`), `capsule-project.esl` / `--sign-project`
+  recipe, guest ESRT dump + host `tools/esrt_standin.py`
+  (`x86_64-capsule-key-esrt`, `capsule-project-key-host`). Notes:
+  `release-notes/capsule-project-key.md`. Depends on:
+  `x86_64-capsule-signed`. Epic #82. `TO_3.0.0.md` M4 (`2.2.50`).
+
 ## 14. Phase H — ISM avionics bring-up / BIT / integrity (#195)
 
 One checkbox is one PR from `main`. Interface:
